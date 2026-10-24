@@ -8,9 +8,12 @@ from app import config
 
 if __name__ == "__main__":
     # Als root gestartet (Docker): Datenordner übergeben und Rechte abgeben – der Webserver läuft nie als root
+    os.umask(0o077)  # Audit 2.29: Datenbank, Protokolle und Ordner nie für andere lesbar – auch ohne Start als root
     from app import privileges
     backup_dir = os.environ.get("PK_BACKUP_DIR", "/backup")
     privileges.drop([config.DATA_DIR] + ([backup_dir] if os.path.isdir(backup_dir) else []))
+    if os.environ.get("HOME", "/nonexistent") == "/nonexistent":
+        os.environ["HOME"] = "/tmp"  # ohne Start als root (privileges.drop setzt es sonst)
     config.ensure_dirs()
     if os.path.isdir("/repo"):
         try:

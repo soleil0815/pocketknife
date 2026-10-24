@@ -59,7 +59,7 @@ ENV_SERVICE_USER = _env("PK_SERVICE_USER").strip()
 ENV_SERVICE_PASSWORD = _env("PK_SERVICE_PASSWORD")
 
 # --- WinRM -----------------------------------------------------------------
-WINRM_AUTH = _env("PK_WINRM_AUTH", "ntlm").strip().lower()     # ntlm | negotiate | kerberos | credssp
+WINRM_AUTH = _env("PK_WINRM_AUTH", "ntlm").strip().lower()     # ntlm | negotiate | kerberos (credssp: seit 2.29 nicht mehr)
 WINRM_HTTPS = _bool(_env("PK_WINRM_HTTPS"), False)
 WINRM_PORT = int(_env("PK_WINRM_PORT", "5986" if WINRM_HTTPS else "5985"))
 # Optional bei HTTPS: CA der Domäne (PEM) – dann werden die WinRM-Zertifikate der Clients geprüft

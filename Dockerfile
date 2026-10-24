@@ -58,8 +58,10 @@ RUN set -e; \
     rm -rf /tmp/wheels /tmp/pk
 
 # Temporary files in the data directory (the root file system is read-only in operation, /tmp is small)
+# HOME: für root (Healthcheck, docker exec) ein Ort, an dem niemand etwas ablegen kann – sonst könnte der App-Benutzer
+# über $HOME/.local (usercustomize.py, *.pth) Code als root unterschieben; der Dienst selbst setzt HOME=/tmp
 ENV TMPDIR=/data/tmp \
-    HOME=/tmp
+    HOME=/nonexistent
 
 COPY app ./app
 COPY run.py healthcheck.py VERSION CHANGELOG.md ./
@@ -73,5 +75,5 @@ EXPOSE 8443
 
 # Starts as root only to hand /data over to the user "pocketknife" (UID 10001) once; run.py drops the
 # privileges immediately – the web server and all access run without root (see app/privileges.py).
-HEALTHCHECK --interval=60s --timeout=10s --start-period=30s CMD ["python", "healthcheck.py"]
+HEALTHCHECK --interval=60s --timeout=10s --start-period=30s CMD ["python", "-I", "/opt/pocketknife/healthcheck.py"]
 CMD ["python", "run.py"]

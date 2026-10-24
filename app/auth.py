@@ -3,6 +3,7 @@ import datetime
 import hashlib
 import hmac
 import json
+import re
 import secrets
 import threading
 import time
@@ -58,6 +59,19 @@ def _ok(keys, stamp):
                 lst.remove(stamp)
 
 
+INFRA_FAIL = "Anmeldung gerade nicht möglich – der Verzeichnisdienst ist nicht erreichbar. Bitte später erneut versuchen."
+_INFRA = ("LDAPS-Verbindung", "Verbindung zu", "nicht erreichbar", "Dienstkonto", ":636", ":389", "Timeout", "timed out")
+_NAME_OK = re.compile(r"^[\w.\-@\\ ]{1,64}$")
+
+
+def _log_name(username):
+    """Für das Protokoll: ein versehentlich ins Namensfeld getipptes Kennwort soll dort nicht im Klartext stehen."""
+    u = str(username or "")
+    if _NAME_OK.match(u) and not re.search(r"[^\w.\-@\\ ]", u):
+        return f"'{u}'"
+    return f"(ungültiger Benutzername, {len(u)} Zeichen)"
+
+
 def _eq(a, b):
     """Zeitkonstanter Vergleich – auch für Umlaute (compare_digest auf str erlaubt nur ASCII)."""
     return hmac.compare_digest(str(a or "").encode("utf-8"), str(b or "").encode("utf-8"))
@@ -75,6 +89,8 @@ def login(username, password, ip, kiosk=False):
     if config.BREAKGLASS_USER and _eq(username, config.BREAKGLASS_USER):
         # Eigener Zähler: Fehlversuche anderer Konten hinter derselben Adresse (NAT, Terminalserver) sperren den
         # Notfallzugang nicht aus – und er selbst ist weiter auf 8 Versuche in 15 Minuten begrenzt
+        # Keine Grenze über alle Adressen: sonst könnte jeder den Notfallzugang dauerhaft aussperren – gerade dann, wenn
+        # das AD ausfällt. Stattdessen meldet die Benachrichtigung „Notfallzugang benutzt“ jeden Fehlversuch (Audit 2.29).
         key = [(f"bg|{ip}", 8)]
     else:
         key = [(f"{ip}|{_norm_user(username)}", 8), (f"ip|{ip}", IP_LIMIT)]
@@ -83,7 +99,7 @@ def login(username, password, ip, kiosk=False):
         if (config.BREAKGLASS_USER and config.BREAKGLASS_PASSWORD and
                 _eq(username, config.BREAKGLASS_USER) and _eq(password, config.BREAKGLASS_PASSWORD)):
             info = {"username": config.BREAKGLASS_USER, "display_name": "Notfallzugang", "_breakglass": True}
-            pklog.warn("auth", "Anmeldung über Notfallzugang", user=username)
+            pklog.warn("auth", f"Notfallzugang: Anmeldung von {ip}", user=username)
         else:
             info = ad.authenticate(username, password, allow_kiosk=kiosk)
             info["_domain_login"] = True
@@ -92,9 +108,16 @@ def login(username, password, ip, kiosk=False):
                 raise ad.ADError("Dieses Konto hat denselben Namen wie der Notfallzugang (PK_BREAKGLASS_USER) – bitte dort einen anderen Namen wählen.")
     except ad.ADError as e:
         msg = str(e)
-        pklog.warn("auth", f"Anmeldung fehlgeschlagen für '{username}' von {ip}: {msg}")
-        # Details (Kennwort richtig, aber kein Zugriff / abgelaufen …) nur ins Protokoll – sonst prüfbar, ob ein Kennwort stimmt
-        raise HTTPException(401, GENERIC_FAIL if any(x in msg for x in _PRIVATE) else msg)
+        if config.BREAKGLASS_USER and _eq(username, config.BREAKGLASS_USER):
+            pklog.warn("auth", f"Notfallzugang: Fehlversuch von {ip}")
+        pklog.warn("auth", f"Anmeldung fehlgeschlagen für {_log_name(username)} von {ip}: {msg}")
+        # Details (Kennwort richtig, aber kein Zugriff / abgelaufen …) nur ins Protokoll – sonst prüfbar, ob ein Kennwort stimmt.
+        # Audit 2.29: Verbindungsfehler ebenso allgemein (verrieten sonst Namen/Ports der Domänencontroller)
+        if any(x in msg for x in _PRIVATE):
+            raise HTTPException(401, GENERIC_FAIL)
+        if any(x in msg for x in _INFRA):
+            raise HTTPException(401, INFRA_FAIL)
+        raise HTTPException(401, msg)
     _ok(key, stamp)
     domain_login = info.pop("_domain_login", False)
     token = _new_session(info, ip, breakglass=info.pop("_breakglass", False))
@@ -140,13 +163,15 @@ def login_sso(header, ip):
         except sso.SSOError:
             raise
         except Exception as e:  # z. B. /tmp nicht beschreibbar – nie als 500
-            raise sso.SSOError(f"Windows-Anmeldung nicht möglich: {e}")
+            pklog.warn("auth", f"Windows-Anmeldung am Kiosk von {ip}: {e}")
+            raise sso.SSOError("Windows-Anmeldung gerade nicht möglich – bitte mit Benutzername und Kennwort anmelden.")
         try:
             info = ad.sso_user(user)
         except Exception as e:
             # Ticket war gültig – fehlende Berechtigung oder AD-Störung zählt nicht als Fehlversuch dieser Adresse
             _ok(key, stamp)
-            raise sso.SSOError(str(e))
+            pklog.warn("auth", f"Windows-Anmeldung am Kiosk von {ip}: {e}")
+            raise sso.SSOError(INFRA_FAIL if any(x in str(e) for x in _INFRA) else str(e))
         if _norm_user(info["username"]) == _norm_user(config.BREAKGLASS_USER or "\0"):
             raise sso.SSOError("Dieses Konto hat denselben Namen wie der Notfallzugang – Windows-Anmeldung nicht möglich.")
     except sso.SSOError as e:

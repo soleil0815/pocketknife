@@ -309,6 +309,9 @@ ALERTS = [
     {"key": "guard", "title": "Dienstkonto-Schutz ausgelöst",
      "desc": "Automatische Zugriffe wurden pausiert, weil das Dienstkonto abgelehnt wurde (Sperrgefahr).",
      "params": [], "resolvable": True},
+    {"key": "breakglass", "title": "Notfallzugang benutzt",
+     "desc": "Jede Anmeldung über den Notfallzugang (PK_BREAKGLASS_USER) und gehäufte Fehlversuche dafür.",
+     "params": [], "resolvable": False},
     {"key": "backup_failed", "title": "Sicherung fehlgeschlagen",
      "desc": "Die automatische Sicherung der Datenbank ist fehlgeschlagen.",
      "params": [], "resolvable": False},
@@ -539,6 +542,13 @@ def _check_backup_failed(p, cfg):
     return {ts[:10]: {"time": ts[:16], "error": last.split("FEHLGESCHLAGEN:", 1)[-1].strip()[:300]}}
 
 
+def _check_breakglass(p, cfg):
+    """Audit 2.29: Benutzung und Fehlversuche des Notfallzugangs (aus dem Protokoll)."""
+    rows = db.q("""SELECT id, ts, message FROM logs WHERE category='auth' AND message LIKE 'Notfallzugang:%' AND ts >= ?
+                   ORDER BY id LIMIT 200""", (cfg["since"] or util.now(),))
+    return {str(r["id"]): {"time": (r["ts"] or "")[:16], "event": r["message"][len("Notfallzugang:"):].strip()[:300]} for r in rows}
+
+
 CHECKS = {
     "low_disk": (_check_low_disk, [("computer", "Computer"), ("drive", "Laufwerk"), ("label", "Bezeichnung"),
                                    ("free", "Frei"), ("pct", "Frei %"), ("size", "Größe"), ("scan", "Stand (Scan)")]),
@@ -549,6 +559,7 @@ CHECKS = {
                                              ("computers", "Fehlgeschlagen auf"), ("finished", "Beendet"), ("by", "Gestartet von")]),
     "guard": (_check_guard, [("reason", "Grund"), ("source", "Auslöser"), ("since", "Seit"), ("until", "Pausiert bis")]),
     "backup_failed": (_check_backup_failed, [("time", "Zeit"), ("error", "Fehler")]),
+    "breakglass": (_check_breakglass, [("time", "Zeit"), ("event", "Ereignis")]),
 }
 
 
@@ -751,6 +762,6 @@ def _resolved_label(key, item, st):
 
 def cleanup():
     """Alte Einträge nicht auflösbarer Meldungen (Bereitstellungen, Sicherungen) nach 180 Tagen entfernen."""
-    db.ex("DELETE FROM mail_alert_state WHERE alert IN ('deploy_failed','backup_failed') AND first_seen < ?",
+    db.ex("DELETE FROM mail_alert_state WHERE alert IN ('deploy_failed','backup_failed','breakglass') AND first_seen < ?",
           (util.ago(days=180),))
     db.ex("DELETE FROM mail_alert_state WHERE alert NOT IN (SELECT key FROM mail_alerts WHERE enabled=1)")

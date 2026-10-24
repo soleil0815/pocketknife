@@ -50,6 +50,11 @@ def save(data):
     user = str(data.get("user") or "").strip()
     if len(user) > 200 or any(ch in user for ch in "\r\n"):
         raise ValueError("Ungültiger Benutzername.")
+    old = settings()
+    if url and old["password_set"] and user and not data.get("password") and not data.get("clear_password") and \
+            (url.lower(), user.lower()) != (str(old["url"] or "").lower(), str(old["user"] or "").lower()):
+        # Audit 2.29: gespeichertes Kennwort nie an einen anderen Proxy/Benutzer schicken (wie bei SMTP)
+        raise ValueError("Proxy-Adresse oder Benutzer geändert – bitte das Kennwort erneut eingeben.")
     db.set_setting("proxy_url", url)
     db.set_setting("proxy_user", user)
     db.set_setting("proxy_clients", 1 if (data.get("clients") and url) else 0)
@@ -74,12 +79,26 @@ def _server_proxy():
     return f"{parts.scheme}://{cred}@{parts.netloc}"
 
 
+class SafeRedirect(urllib.request.HTTPRedirectHandler):
+    """Weiterleitung auf einen anderen Rechner: Anmeldedaten (Authorization) nicht mitschicken – urllib täte das
+    (Audit 2.29: ein Token für GitHub ginge sonst an jedes Weiterleitungsziel)."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        new = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if new is not None and (urllib.parse.urlsplit(newurl).hostname or "").lower() != \
+                (urllib.parse.urlsplit(req.full_url).hostname or "").lower():
+            for k in [k for k in new.headers if k.lower() == "authorization"]:
+                new.headers.pop(k, None)
+            new.unredirected_hdrs.pop("Authorization", None)
+        return new
+
+
 def opener():
     """urllib-Opener: über den Proxy, wenn eingetragen – sonst wie bisher (Umgebungsvariablen des Containers)."""
     p = _server_proxy()
     if not p:
-        return urllib.request.build_opener()
-    return urllib.request.build_opener(urllib.request.ProxyHandler({"http": p, "https": p}))
+        return urllib.request.build_opener(SafeRedirect)
+    return urllib.request.build_opener(urllib.request.ProxyHandler({"http": p, "https": p}), SafeRedirect)
 
 
 def urlopen(req, timeout):

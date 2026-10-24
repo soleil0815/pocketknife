@@ -69,9 +69,10 @@ def _check_fingerprint(c):
     fp = hashlib.sha256(der).hexdigest().upper()
     fp = ":".join(fp[i:i + 2] for i in range(0, len(fp), 2))
     known = _fingerprints()
-    old = known.get(host)
-    if old == fp:
+    olds = _fp_list(known.get(host))
+    if fp in olds:
         return
+    old = ", ".join(olds)
     if old and strict:
         db.set_setting("ldap_cert_pending", json.dumps({"host": host, "fingerprint": fp, "old": old, "seen": util.now()}))
         pklog.error("ldap", f"LDAPS-Zertifikat von {host} hat sich geändert – Verbindung abgelehnt (strikte Prüfung). "
@@ -82,9 +83,20 @@ def _check_fingerprint(c):
         pklog.warn("ldap", f"LDAPS-Zertifikat von {host} hat sich geändert. Alt: {old} Neu: {fp}")
     else:
         pklog.info("ldap", f"LDAPS-Zertifikat von {host} automatisch vertraut: {fp}")
-    known[host] = fp
+    # Audit 2.29: je Name mehrere Zertifikate merken – hinter dem Domänennamen antworten oft mehrere DCs mit eigenem
+    # Zertifikat; ersetzen hieße, dass die strikte Prüfung bei jedem Wechsel ablehnt (und Admins sie abschalten)
+    known[host] = (olds + [fp])[-FP_MAX:]
     db.set_setting("ldap_cert_fingerprints", json.dumps(known))
     db.set_setting("ldap_cert_fingerprint", fp)
+
+
+FP_MAX = 16
+
+
+def _fp_list(v):
+    if isinstance(v, list):
+        return [str(x) for x in v if x]
+    return [str(v)] if v else []
 
 
 def trust_pending():
@@ -96,7 +108,7 @@ def trust_pending():
     if not p.get("host"):
         return None
     known = _fingerprints()
-    known[p["host"]] = p["fingerprint"]
+    known[p["host"]] = (_fp_list(known.get(p["host"])) + [p["fingerprint"]])[-FP_MAX:]
     db.set_setting("ldap_cert_fingerprints", json.dumps(known))
     db.set_setting("ldap_cert_fingerprint", p["fingerprint"])
     db.set_setting("ldap_cert_pending", "")

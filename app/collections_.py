@@ -713,8 +713,8 @@ def _tree_refs(node, out):
         if node.get("type") == "group":
             for it in node.get("items") or []:
                 _tree_refs(it, out)
-        elif node.get("column") == "collection" and str(node.get("value") or "").isdigit():
-            out.add(int(node["value"]))
+        elif node.get("column") == "collection" and str(node.get("value") or "").strip().isdigit():
+            out.add(int(str(node["value"]).strip()))
     elif isinstance(node, list):
         for it in node:
             _tree_refs(it, out)
@@ -726,6 +726,24 @@ def _jl(v, default):
         return json.loads(v or "null") or default
     except ValueError:
         return default
+
+
+def _cond_refs(conditions, steps):
+    """Sammlungs-IDs aus Paket- und Schritt-Bedingungen (JSON-Texte oder bereits gelesen)."""
+    refs = set()
+
+    def add(c):
+        for cc in (c or {}).get("collections") or [] if isinstance(c, dict) else []:
+            v = str((cc or {}).get("id") if isinstance(cc, dict) else "").strip()
+            if v.isdigit() and int(v) > 0:
+                refs.add(int(v))
+    add(_jl(conditions, {}) if isinstance(conditions, (str, type(None))) else conditions)
+    st = _jl(steps, {}) if isinstance(steps, (str, type(None))) else steps
+    for ph in (st or {}).values() if isinstance(st, dict) else []:
+        for x in ph or []:
+            if isinstance(x, dict):
+                add(x.get("conditions"))
+    return refs
 
 
 def usages():
@@ -760,6 +778,10 @@ def usages():
                 out.append((int(x), f"Scanprofil „{r['name']}“"))
     for r in db.q("SELECT name, collection_id FROM tenants WHERE collection_id IS NOT NULL"):
         out.append((int(r["collection_id"]), f"Mandant „{r['name']}“"))
+    # Audit 2.29: Bedingungen in Paketen (Paket und einzelne Schritte) – sonst ließe sich eine Ausnahme-Sammlung löschen
+    for r in db.q("SELECT name, conditions, steps FROM packages"):
+        for x in _cond_refs(r["conditions"], r["steps"]):
+            out.append((x, f"Paket „{r['name']}“ (Bedingung)"))
     try:
         for r in db.q("""SELECT p.name, k.collection_id FROM kiosk_items k LEFT JOIN packages p ON p.id = k.package_id
                          WHERE k.collection_id IS NOT NULL"""):

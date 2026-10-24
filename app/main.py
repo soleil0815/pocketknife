@@ -37,6 +37,10 @@ async def lifespan(_app):
     pklog.info("system", f"{config.APP_NAME} {config.VERSION} gestartet.")
     if not config.ldap_configured():
         pklog.warn("system", "LDAP/Dienstkonto nicht vollständig konfiguriert – Anmeldung nur per Notfallzugang möglich.")
+    if config.BREAKGLASS_USER and config.BREAKGLASS_PASSWORD and len(config.BREAKGLASS_PASSWORD) < 16:
+        # Audit 2.29: der Notfallzugang unterliegt keiner AD-Sperre – ein kurzes Kennwort ist leicht zu erraten
+        pklog.warn("system", "Das Kennwort des Notfallzugangs (PK_BREAKGLASS_PASSWORD) ist kürzer als 16 Zeichen – bitte ein "
+                             "langes, zufälliges Kennwort setzen und die Benachrichtigung „Notfallzugang benutzt“ einschalten.")
     tools.init()
     uninstall.init()
     winget.load()
@@ -135,7 +139,8 @@ async def security(request: Request, call_next):
         resp.headers["Content-Security-Policy"] = PREVIEW_CSP
         resp.headers["X-Frame-Options"] = "SAMEORIGIN"
     else:
-        resp.headers["Content-Security-Policy"] = CSP
+        if "content-security-policy" not in resp.headers:  # Audit 2.29: strengere Vorgabe der Route (Symbole) behalten
+            resp.headers["Content-Security-Policy"] = CSP
         resp.headers["X-Frame-Options"] = "DENY"
     resp.headers["X-Content-Type-Options"] = "nosniff"
     resp.headers["Referrer-Policy"] = "no-referrer"
@@ -466,7 +471,7 @@ def api_computer(cid: int, user=U):
         raise HTTPException(404, "Computer nicht gefunden")
     c["extra"] = json.loads(c["extra"]) if c.get("extra") else {}
     c["scanning"] = inventory.is_scanning(cid)
-    c["scan_user"] = config.service_login()
+    c["scan_user"] = config.service_login() if not access.scoped(user) else "Dienstkonto"  # Audit 2.29: Name nur für Hauptadmins
     sub = lambda sql: db.q(sql, (cid,))  # noqa: E731
     c["disks"] = sub("SELECT drive, label, fs, size, free FROM disks WHERE computer_id=? ORDER BY drive")
     c["network"] = sub("SELECT description, mac, ip, gateway, dns, dhcp FROM network WHERE computer_id=?")
@@ -620,6 +625,12 @@ def api_uninstall(data: dict = Body(...), user=U):
             if it.get("remember"):
                 # „Für alle merken“ gilt auf ALLEN Computern – nur Hauptadmins
                 raise HTTPException(403, "Einen Deinstallationsbefehl für alle Computer merken dürfen nur Hauptadmins.")
+            if (it.get("command") or "").strip() and not access.may_build(user):
+                # Audit 2.29: ein GEÄNDERTER Befehl ist eigener Code – wie Pakete nur mit „eigene Pakete erlaubt“;
+                # der erkannte Befehl (vorausgefüllt) bleibt erlaubt
+                sw = db.q1("SELECT * FROM software WHERE id=?", (int(it["software_id"]),)) or {}
+                if it["command"].strip() != (uninstall.command_for(sw).get("command") or "").strip():
+                    raise HTTPException(403, "Eigene Deinstallationsbefehle sind nur erlaubt, wenn für Ihren Mandanten „eigene Pakete“ freigegeben sind.")
             if it.get("run_as") == "deploy" or (it.get("command") and it.get("run_as") not in ("system", "user")):
                 it["run_as"] = "system"  # OU-Admin: Deinstallation nie als Dienstkonto (auch nicht mit UninstallString)
             cid = db.val("SELECT computer_id FROM software WHERE id=?", (int(it["software_id"]),))
@@ -1272,6 +1283,22 @@ def api_collections(user=U):
                 r["count"] = len(set(collections_.member_ids(r["id"])) & mine)
             except Exception:
                 r["count"] = 0
+    if mine is not None:
+        # Audit 2.29: OU-Admins sehen die Sammlungen ANDERER Mandanten (samt Unterordnern) nicht – deren Namen verraten
+        # Kunden. Allgemeine Sammlungen bleiben sichtbar (z. B. für Ausnahmen in Paket-Bedingungen).
+        own = {t.get("collection_id") for t in access.tenants(user)}
+        foreign = {r["collection_id"] for r in db.q("SELECT collection_id FROM tenants WHERE collection_id IS NOT NULL")} - own
+        kids = {}
+        for r in rows:
+            kids.setdefault(r["parent_id"], []).append(r["id"])
+        hide, todo = set(), list(foreign)
+        while todo:
+            x = todo.pop()
+            if x in hide or x in own:
+                continue
+            hide.add(x)
+            todo.extend(kids.get(x, []))
+        rows = [r for r in rows if r["id"] not in hide]
     return rows
 
 
@@ -1399,6 +1426,8 @@ def api_collection_move(cid: int, data: dict = Body(...), user=U):
         sibs.insert(pos, cid)
         for i, sid in enumerate(sibs):
             db.ex("UPDATE collections SET sort=? WHERE id=?", (100 + i, sid))
+    collections_.invalidate()
+    access.flush()  # Audit 2.29: Mandanten-Mitgliedschaft sofort neu
     return {"ok": True}
 
 
@@ -1465,6 +1494,8 @@ def api_collection_members(cid: int, data: dict = Body(...), user=U):
             db.ex("INSERT OR IGNORE INTO collection_members(collection_id, computer_id) VALUES(?,?)", (cid, int(i)))
         for i in data.get("remove") or []:
             db.ex("DELETE FROM collection_members WHERE collection_id=? AND computer_id=?", (cid, int(i)))
+    collections_.invalidate()
+    access.flush()  # Audit 2.29: Mandanten-Mitgliedschaft sofort neu
     return {"ok": True}
 
 
@@ -1772,7 +1803,7 @@ def api_packages_meta(user=U):
     return {"os": steps.OS_KEYS, "arch": steps.ARCH_KEYS, "logon": steps.LOGON, "ps_versions": steps.PS_VERSIONS,
             "file_modes": steps.FILE_MODES, "reg_modes": steps.REG_MODES, "run_as": steps.RUN_AS,
             "step_run_as": steps.STEP_RUN_AS, "step_types": steps.STEP_TYPES, "phases": steps.PHASES,
-            "default_conditions": steps.default_conditions(), "service_login": config.service_login(),
+            "default_conditions": steps.default_conditions(), "service_login": config.service_login() if not access.scoped(user) else "verborgen",
             "tenants": ([{"id": t["id"], "name": t["name"], "repo_folder": t["repo_folder"]} for t in access.build_tenants(user)]
                         if access.scoped(user) else db.q("SELECT id, name, repo_folder FROM tenants ORDER BY name COLLATE NOCASE")),
             "profiles": [{"id": p["id"], "name": p["name"], "is_default": p["is_default"]} for p in profiles.all_profiles()],
@@ -3060,6 +3091,10 @@ def api_settings_save(data: dict = Body(...), user=U):
                 norm = os.path.normpath(pth)
                 if not (norm == "/repo" or norm.startswith("/repo/")):
                     _err("Repository: UNC-Pfad (\\\\server\\freigabe) oder ein Ordner unter /repo (PK_REPO_MOUNT) angeben.")
+        if k == "ldap_cert_strict" and not v and db.setting("ldap_cert_strict"):
+            pklog.warn("system", "Strikte Prüfung des LDAPS-Zertifikats ausgeschaltet – ein geändertes Zertifikat wird dann "
+                                 "ohne Bestätigung übernommen (Kennwörter gingen an jeden, der sich als DC ausgibt). "
+                                 "Empfohlen: PK_LDAP_CA_FILE (CA der Domäne).", user=user["username"])
         if k == "auth_mode":
             v = str(v or "").strip().lower()
             if v and v not in kerberos.MODES:

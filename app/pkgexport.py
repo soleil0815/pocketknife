@@ -36,10 +36,52 @@ def _conds_out(c):
         if cc.get("id") == 0:
             out.append({"all": True, "mode": cc.get("mode", "member")})
         else:
-            name = db.val("SELECT name FROM collections WHERE id=?", (cc.get("id"),))
-            out.append({"name": name, "mode": cc.get("mode", "member")} if name else {"missing_id": cc.get("id"), "mode": cc.get("mode")})
+            row = db.q1("SELECT name, ad_dn FROM collections WHERE id=?", (cc.get("id"),))
+            if row:
+                e = {"name": row["name"], "mode": cc.get("mode", "member"), "path": _coll_path(cc.get("id"))}
+                if row.get("ad_dn"):
+                    e["ad_dn"] = row["ad_dn"]
+                out.append(e)
+            else:
+                out.append({"missing_id": cc.get("id"), "mode": cc.get("mode")})
     c["collections"] = out
     return c
+
+
+def _coll_path(cid):
+    """Namen der übergeordneten Sammlungen (oberste zuerst) – Namen allein sind nicht eindeutig (Audit 2.29)."""
+    names, seen = [], set()
+    p = db.val("SELECT parent_id FROM collections WHERE id=?", (cid,))
+    while p and p not in seen and len(names) < 20:
+        seen.add(p)
+        r = db.q1("SELECT name, parent_id FROM collections WHERE id=?", (p,))
+        if not r:
+            break
+        names.insert(0, r["name"])
+        p = r["parent_id"]
+    return names
+
+
+def _find_collection(cc, label):
+    """Sammlung zu einer importierten Bedingung – nur wenn eindeutig (gleiche Namen gibt es oft: „Server“, „Computers“).
+    Eine falsch zugeordnete „nicht Mitglied von“-Bedingung würde das Paket auf mehr Computern laufen lassen."""
+    name = str(cc.get("name") or "").strip()
+    dn = str(cc.get("ad_dn") or "").strip()
+    if dn:
+        hit = [r["id"] for r in db.q("SELECT id FROM collections WHERE lower(ad_dn)=lower(?)", (dn,))]
+        if len(hit) == 1:
+            return hit[0]
+    cand = [r["id"] for r in db.q("SELECT id FROM collections WHERE name=? COLLATE NOCASE", (name,))] if name else []
+    path = cc.get("path")
+    if len(cand) > 1 and isinstance(path, list):
+        want = [str(x).strip().lower() for x in path]
+        cand = [c for c in cand if [n.strip().lower() for n in _coll_path(c)] == want]
+    if not cand:
+        raise ImportError_(f"{label}: Sammlung „{name or '?'}“ gibt es hier nicht – bitte zuerst anlegen.")
+    if len(cand) > 1:
+        raise ImportError_(f"{label}: Sammlung „{name}“ gibt es hier mehrfach – nicht eindeutig. Bitte eine der Sammlungen "
+                           "umbenennen oder die Bedingung nach dem Import setzen.")
+    return cand[0]
 
 
 def _profile_name(pid):
@@ -135,12 +177,8 @@ def _conds_in(c, label):
         if cc.get("all"):
             out.append({"id": 0, "mode": mode})
             continue
-        name = str(cc.get("name") or "").strip()
-        cid = db.val("SELECT id FROM collections WHERE name=? COLLATE NOCASE", (name,)) if name else None
-        if not cid:
-            # Weglassen würde die Bedingung aufheben (Paket liefe dann auf mehr Computern) – deshalb ablehnen
-            raise ImportError_(f"{label}: Sammlung „{name or '?'}“ gibt es hier nicht – bitte zuerst anlegen.")
-        out.append({"id": cid, "mode": mode})
+        # Weglassen würde die Bedingung aufheben (Paket liefe dann auf mehr Computern) – deshalb ablehnen
+        out.append({"id": _find_collection(cc, label), "mode": mode})
     c["collections"] = out
     return c
 

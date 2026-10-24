@@ -744,6 +744,14 @@ def _():
         kiosk.decide(r2["id"], True, "admin")
         assert len(created) == 2
         must_fail(kiosk.decide, r2["id"], False, "admin", contains="bereits entschieden")
+        # Audit 2.29: kein Neustart, wenn noch andere angemeldet sind, und nie bei Servern
+        db.ex("UPDATE computers SET current_user='FIRMA\\nutzer,FIRMA\\kollege' WHERE id=70")
+        must_fail(kiosk.plan_reboot, u, "?", 70, "1h", contains="andere Benutzer")
+        db.ex("UPDATE computers SET current_user='FIRMA\\nutzer,PC-70\\Administrator' WHERE id=70")
+        must_fail(kiosk.plan_reboot, u, "?", 70, "1h", contains="andere Benutzer")  # auch lokale Konten zählen
+        db.ex("UPDATE computers SET current_user='FIRMA\\nutzer', os_name='Microsoft Windows Server 2022 Standard' WHERE id=70")
+        must_fail(kiosk.plan_reboot, u, "?", 70, "1h", contains="Server")
+        db.ex("UPDATE computers SET os_name='Microsoft Windows 11 Pro' WHERE id=70")
         p = kiosk.plan_reboot(u, "?", 70, "1h")
         assert created[-1][0] == "Neustart (Kiosk)" and created[-1][2], "Neustart nicht geplant"
         must_fail(kiosk.plan_reboot, u, "?", 70, "1h", contains="bereits")
@@ -1963,7 +1971,7 @@ def _():
     if not os.path.exists(f) or not _sh.which("sh") or not _sh.which("sha256sum"):
         return  # im Container liegt update.sh nicht
     src = open(f, encoding="utf-8").read()
-    for need in ('--pull) PULL=1', 'env_set "$INST/.env" PK_IMAGE "$WANT_IMAGE"', 'docker tag "$PREVID" "$PREV_IMAGE"', "sha256sum -c",
+    for need in ('--pull) PULL=1', 'env_set "$INST/.env" PK_IMAGE "$WANT_IMAGE"', 'docker tag "$PREVID" "$BACK_IMAGE"', ".pk-rotiert-gerade", "sha256sum -c",
                  'DEFAULT_IMAGE_REPO="ghcr.io/', "docker login"):
         assert need in src, need
     dc = open(os.path.join(root, "docker-compose.yml"), encoding="utf-8").read()
@@ -2028,7 +2036,8 @@ def _():
     assert rd("VERSION") == "2.27.1" and rd("run.py") == "NEU" and rd(".pk-vorher", "VERSION") == "2.27"
     assert not os.path.exists(os.path.join(st, "built")), "--pull baut nicht"
     tags = open(os.path.join(st, "tags")).read()
-    assert "sha256:old pocketknife:previous" in tags and "pocketknife:local" not in tags, tags
+    assert "sha256:old pocketknife:rollback" in tags and "pocketknife:rollback pocketknife:previous" in tags, tags
+    assert "pocketknife:local" not in tags, tags
     assert "PK_IMAGE=ghcr.io/test/pocketknife:latest" in rd(".env") and "PK_DNS_1=1.2.3.4" in rd(".env"), "Container zeigt die Herkunft (wie andere Container)"
     assert "pull ghcr.io/test/pocketknife:latest" in open(os.path.join(st, "calls")).read()
     assert not [n for n in os.listdir(inst) if n.startswith((".pk-pull.", ".pk-update."))], "keine temporären Ordner übrig"
@@ -2057,8 +2066,14 @@ def _():
         for dp, _dn, fn in os.walk(zd):
             for n in fn:
                 z.write(os.path.join(dp, n), os.path.relpath(os.path.join(dp, n), zd))
+    # Audit 2.29: liegt die Prüfsumme des Releases daneben, muss sie stimmen
+    open(zp + ".sha256", "w").write("0" * 64 + "  pocketknife-2.27.3.zip\n")
+    r = run(zp)
+    assert r.returncode != 0 and "Checksum" in r.stderr and rd("VERSION") == "2.27.1", r.stdout[-500:] + r.stderr[-300:]
+    open(zp + ".sha256", "w").write(_hl.sha256(open(zp, "rb").read()).hexdigest() + "  pocketknife-2.27.3.zip\n")
     r = run(zp)
     assert r.returncode == 0 and os.path.exists(os.path.join(st, "built")), r.stdout[-500:]
+    assert "Checksum OK" in r.stdout
     assert "PK_IMAGE=pocketknife:local" in rd(".env"), ("ZIP-Weg: lokal gebautes Image", rd(".env"))
     os.remove(os.path.join(st, "built"))
     # Neue Version startet nicht → zurück zum vorigen Image unter dem Namen, den die bisherige .env erwartet
@@ -2071,15 +2086,50 @@ def _():
     r = run("--pull")
     assert r.returncode != 0 and "Previous version 2.27.3 is running again" in r.stdout, r.stdout[-800:]
     tags = open(os.path.join(st, "tags")).read()
-    assert "sha256:old pocketknife:previous" in tags and "pocketknife:previous ghcr.io/test/pocketknife:latest" in tags, tags
+    assert "sha256:old pocketknife:rollback" in tags and "pocketknife:rollback ghcr.io/test/pocketknife:latest" in tags, tags
+    assert "pocketknife:previous" not in tags, "ein gescheitertes Update überschreibt das letzte gute Image nicht"
     assert rd("VERSION") == "2.27.3" and "PK_IMAGE=ghcr.io/test/pocketknife:latest" in rd(".env")
     assert not os.path.exists(os.path.join(st, "built")), "Rückweg ohne Bauen"
+    # Audit 2.29: Zurückgehen abgelehnt → beim nächsten Lauf bleiben .pk-vorher/ und das letzte gute Image erhalten
+    open(os.path.join(st, "tags"), "w").close()
+    open(os.path.join(st, "runid"), "w").write("sha256:gut\n")
+    dist("2.27.5", "SCHLECHT")
+    r = _sp.run(["sh", "update.sh", "--pull"], cwd=inst, env=env, input="y\nn\n", capture_output=True, text=True, timeout=120)
+    assert r.returncode != 0 and rd("VERSION") == "2.27.5" and os.path.exists(os.path.join(inst, ".pk-update-unvollstaendig")), r.stdout[-800:]
+    assert rd(".pk-vorher", "VERSION") == "2.27.3" and not os.path.exists(os.path.join(inst, ".pk-rotiert-gerade"))
+    open(os.path.join(st, "runid"), "w").write("sha256:schlecht\n")
+    # noch ein schlechtes Update, diesmal zurück: zurück kommt der laufende (schlechte) Stand MIT seinem Image –
+    # das letzte gute Image („rollback“) und .pk-vorher/ bleiben unangetastet, der Lauf bleibt „unvollständig“
+    dist("2.27.6", "AUCHSCHLECHT")
+    r = run("--pull")
+    assert r.returncode != 0 and rd("VERSION") == "2.27.5" and rd("run.py") == "SCHLECHT", r.stdout[-800:]
+    tags = open(os.path.join(st, "tags")).read()
+    assert "sha256:schlecht pocketknife:rollback-run" in tags and "pocketknife:rollback-run ghcr.io/test/pocketknife:latest" in tags, tags
+    assert "pocketknife:rollback ghcr.io" not in tags and "sha256:schlecht pocketknife:rollback\n" not in tags, tags
+    assert rd(".pk-vorher", "VERSION") == "2.27.3" and os.path.exists(os.path.join(inst, ".pk-update-unvollstaendig"))
     os.remove(os.path.join(st, "unhealthy"))
+    dist("2.27.7", "REPARIERT")
+    r = run("--pull")
+    assert r.returncode == 0 and rd("VERSION") == "2.27.7", r.stdout[-800:] + r.stderr[-500:]
+    assert rd(".pk-vorher", "VERSION") == "2.27.3", "der letzte gute Stand wird nicht durch den gescheiterten ersetzt"
+    tags = open(os.path.join(st, "tags")).read()
+    assert "sha256:gut pocketknife:rollback\n" in tags and "sha256:schlecht pocketknife:rollback\n" not in tags, tags
+    assert "pocketknife:rollback pocketknife:previous" in tags, "letztes gutes Image wird „previous“ (passt zu .pk-vorher/)"
+    assert not os.path.exists(os.path.join(inst, ".pk-rollback-ref"))
+    # Abbruch MITTEN im Umbenennen (Marker gesetzt) → .pk-vorher.alt ist der vollständige Vorgänger und kommt zurück
+    os.rename(os.path.join(inst, ".pk-vorher"), os.path.join(inst, ".pk-vorher.alt"))
+    os.makedirs(os.path.join(inst, ".pk-vorher"))
+    open(os.path.join(inst, ".pk-rotiert-gerade"), "w").close()
+    open(os.path.join(inst, ".pk-update-unvollstaendig"), "w").write("2.27.7\n")
+    dist("2.27.8", "WEITER")
+    r = run("--pull")
+    assert r.returncode == 0 and rd(".pk-vorher", "VERSION") == "2.27.3", r.stdout[-800:]
+    assert not os.path.exists(os.path.join(inst, ".pk-vorher.alt")) and not os.path.exists(os.path.join(inst, ".pk-rotiert-gerade"))
     open(os.path.join(st, "runref"), "w").write("pocketknife:local\n")
     # Anmeldung fehlt → verständlicher Hinweis, nichts geändert
     open(os.path.join(st, "pullfail"), "w").close()
     r = run("--pull")
-    assert r.returncode != 0 and "docker login ghcr.io" in r.stdout and rd("VERSION") == "2.27.3"
+    assert r.returncode != 0 and "docker login ghcr.io" in r.stdout and rd("VERSION") == "2.27.8"
     assert not [n for n in os.listdir(inst) if n.startswith((".pk-pull.", ".pk-update."))]
 
 
@@ -3361,7 +3411,9 @@ def _():
         r = integrity.check_package(a)
         assert r["state"] == "warn" and r["issues"][0]["kind"] == "changed" and not r["issues"][0]["main"], r
         integrity.accept(deploy.row_to_package(db.q1("SELECT * FROM packages WHERE id=?", (a,))), "haupt")
-        assert db.val("SELECT sha256 FROM repo_baseline WHERE path='7zip\\24.08\\setup.ini'") is None, "Fingerabdruck wird neu gerechnet, nie ein alter übernommen"
+        # (der Hintergrund-Worker kann ihn schon neu gerechnet haben – dann aber vom NEUEN Inhalt; nie ein alter)
+        assert db.val("SELECT sha256 FROM repo_baseline WHERE path='7zip\\24.08\\setup.ini'") in (
+            None, __import__("hashlib").sha256(b"[x]\nmehr=1\n").hexdigest()), "Fingerabdruck wird neu gerechnet, nie ein alter übernommen"
         drain()
         assert integrity.check_package(a)["state"] == "ok", "Neuen Stand übernommen"
         # nur angefasst (gleicher Inhalt, neues Datum) → bleibt ok, Stand wird nachgeführt
@@ -3517,8 +3569,17 @@ def _():
             db.ex("DELETE FROM packages WHERE id=?", (pid,))
         db.ex("UPDATE repo_baseline SET confirmed_at='2000-01-01 00:00:00'")
         db.ex("UPDATE repo_baseline_dirs SET confirmed_at='2000-01-01 00:00:00'")
+        # Audit 2.29: Stände, die gespeicherte Bereitstellungen noch brauchen (Erneut verteilen, geplant), bleiben
+        snap = {"name": "Alt", "steps": {"pre": [], "main": [{"type": "install", "id": "s1", "source": "file", "folder": "7zip", "install_file": "7z.msi", "copy_folder": False}], "post": []}}
+        db.ex("INSERT INTO repo_baseline(path, size, mtime, confirmed_at) VALUES('7zip\\7z.msi', 1, 1, '2000-01-01 00:00:00') "
+              "ON CONFLICT(path) DO NOTHING")
+        sd = db.ex("INSERT INTO deployments(name, package_json, status, created_at) VALUES('Alt', ?, 'success', ?)",
+                   (json.dumps(snap), util.now()))
         integrity.check_all(live=True)
-        assert db.val("SELECT COUNT(*) FROM repo_baseline") == 0 and db.val("SELECT COUNT(*) FROM repo_baseline_dirs") == 0
+        assert db.val("SELECT COUNT(*) FROM repo_baseline WHERE path='7zip\\7z.msi'") == 1, "von einer Bereitstellung gebraucht"
+        db.ex("DELETE FROM deployments")
+        integrity.check_all(live=True)
+        assert db.val("SELECT COUNT(*) FROM repo_baseline") == 0 and db.val("SELECT COUNT(*) FROM repo_baseline_dirs") == 0, sd
         # Zugriffsregeln und Einbindung
         assert _m.access.ROUTES[("POST", "/api/packages/{pid}/integrity/accept")] is _m.access._p_pkg_edit
         assert _m.access.ROUTES[("POST", "/api/packages/{pid}/integrity/check")] is _m.access._p_pkg
@@ -4015,6 +4076,283 @@ def _():
             else:
                 db.ex("DELETE FROM settings WHERE key=?", (k,))
         db.ex("DELETE FROM news_seen WHERE username IN ('news-haupt','news-ou')")
+
+
+@test("2.29 Audit Logik: Ausnahme-Sammlung fehlt/kaputt = Paket übersprungen (nie „überall“), Bedingungen schützen vor dem Löschen, unterbrochener Zeitplan verbraucht keine Wiederholungen, hängende „wartend“-Läufe, Mandant beim Start, eindeutige Sammlungen beim Import")
+def _():
+    from app import deploy, pkgexport, schedules, steps as stp, integrity
+    db.ex("INSERT OR IGNORE INTO computers(id, name, online, winrm) VALUES(291, 'PC-291', 1, 1)")
+    ex = db.ex("INSERT INTO collections(name, type, match, filters) VALUES('Ausnahme 2.29', 'static', 'all', '{}')")
+    db.ex("INSERT INTO collection_members(collection_id, computer_id) VALUES(?, 291)", (ex,))
+    collections_.invalidate()
+    run = stp.Runner(1, 1, {"id": 291, "name": "PC-291", "dns_name": ""}, lambda: False, lambda *a: None)
+    cond = {**stp.default_conditions(), "collections": [{"id": ex, "mode": "not_member"}]}
+    assert run.check(cond)[0] is False, "Mitglied der Ausnahme → nicht installieren"
+    p = stp.clean_package({"name": "Audit-Ausnahme", "conditions": cond,
+                           "steps": {"main": [{"type": "command", "command": "cmd /c exit 0"}]}})
+    p["steps"], p["conditions"] = json.dumps(p["steps"]), json.dumps(p["conditions"])
+    pid = db.ex(f"INSERT INTO packages({', '.join(deploy.PKG_FIELDS)}) VALUES({', '.join('?' * len(deploy.PKG_FIELDS))})",
+                tuple(p[k] for k in deploy.PKG_FIELDS))
+    try:
+        assert any("Audit-Ausnahme" in x for x in collections_.used_by([ex])), "Bedingung im Paket zählt als Verwendung"
+        db.ex("DELETE FROM collections WHERE id=?", (ex,))  # z. B. AD-Gruppe umbenannt, alte Sammlung entfernt
+        collections_.invalidate()
+        ok, why = run.check(cond)
+        assert ok is False and "gibt es nicht mehr" in why, (ok, why)
+        real = collections_.member_ids
+        collections_.member_ids = lambda cid, fresh=False: (_ for _ in ()).throw(RuntimeError("database is locked"))
+        try:
+            db.ex("INSERT INTO collections(id, name, type, match, filters) VALUES(?, 'Ausnahme 2.29', 'static', 'all', '{}')", (ex,))
+            ok, why = run.check(cond)
+            assert ok is False and "nicht prüfbar" in why, (ok, why)
+        finally:
+            collections_.member_ids = real
+        # Schritt-Bedingungen zählen ebenfalls
+        assert ex in collections_._cond_refs(None, {"main": [{"type": "command", "conditions": {"collections": [{"id": ex}]}}]})
+    finally:
+        db.ex("DELETE FROM packages WHERE id=?", (pid,))
+        db.ex("DELETE FROM collections WHERE id=?", (ex,))
+        db.ex("DELETE FROM collection_members WHERE collection_id=?", (ex,))
+    # Zeitplan: vom Bruch im Repository unterbrochen → kein „erledigt“
+    real_fire = schedules.fire
+    schedules.fire = lambda s_, cids=None, reason="", **k: {"deployment_id": None, "count": 0, "blocked": "x"}
+    try:
+        assert schedules._fire_safe({"id": 999291, "name": "T"}, [1]) is False
+    finally:
+        schedules.fire = real_fire
+    # „wartend“ angelegt, Start gescheitert → der Takt holt ihn nach
+    did = db.ex("INSERT INTO deployments(name, package_json, status, created_at) VALUES('Hängt', ?, 'queued', ?)",
+                (json.dumps({"name": "Hängt", "steps": {"pre": [], "main": [], "post": []}}), util.ago(minutes=10)))
+    db.ex("INSERT INTO deployment_targets(deployment_id, computer_id, status) VALUES(?, 291, 'queued')", (did,))
+    started = []
+    real_start = deploy.start
+    deploy.start = lambda d, checked=False: started.append(d)
+    try:
+        deploy.restart_stuck()
+        assert did in started, "hängende Bereitstellung wird gestartet"
+    finally:
+        deploy.start = real_start
+    # Mandant beim Start erneut: Computer hat die Mandanten-Sammlung verlassen → ausgelassen
+    real_tf = deploy.tenant_filter
+    deploy.tenant_filter = lambda pkg, ids, strict=False: ([], len(ids))
+    try:
+        deploy._rescope(did)
+    finally:
+        deploy.tenant_filter = real_tf
+    assert db.val("SELECT status FROM deployment_targets WHERE deployment_id=?", (did,)) == "skipped"
+    db.ex("DELETE FROM deployment_targets WHERE deployment_id=?", (did,))
+    db.ex("DELETE FROM deployments WHERE id=?", (did,))
+    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "deploy.py"), encoding="utf-8").read()
+    assert "    _rescope(did)\n" in src.split("def start(")[1].split("def _rescope")[0], "start() wendet den Mandanten an"
+    # Import: gleichnamige Sammlungen → nur eindeutig (über den Pfad), sonst ablehnen
+    f1 = db.ex("INSERT INTO collections(name, type) VALUES('Ordner A 2.29', 'folder')")
+    f2 = db.ex("INSERT INTO collections(name, type) VALUES('Ordner B 2.29', 'folder')")
+    c1 = db.ex("INSERT INTO collections(name, parent_id, type, match, filters) VALUES('Doppelt 2.29', ?, 'static', 'all', '{}')", (f1,))
+    c2 = db.ex("INSERT INTO collections(name, parent_id, type, match, filters) VALUES('Doppelt 2.29', ?, 'static', 'all', '{}')", (f2,))
+    try:
+        assert pkgexport._find_collection({"name": "Doppelt 2.29", "path": ["Ordner B 2.29"]}, "x") == c2
+        must_fail(pkgexport._find_collection, {"name": "Doppelt 2.29"}, "x", contains="mehrfach")
+        out = pkgexport._conds_out({"collections": [{"id": c1, "mode": "not_member"}]})
+        assert out["collections"][0]["path"] == ["Ordner A 2.29"]
+        assert pkgexport._find_collection(out["collections"][0], "x") == c1
+    finally:
+        for x in (c1, c2, f1, f2):
+            db.ex("DELETE FROM collections WHERE id=?", (x,))
+    # Hauptdatei mit anderem Datum, Fingerabdruck nicht fertig → Lauf startet nicht
+    real_ev = integrity.evaluate
+    integrity.evaluate = lambda *a, **k: {"state": "warn", "issues": [{"kind": "pending", "main": True, "level": "warn", "path": "a\\b.msi",
+                                                                    "note": "", "old": {}, "new": {}}], "total": 1}
+    try:
+        ipkg = {"name": "X", "steps": {"pre": [], "main": [{"type": "install", "id": "s1", "source": "file", "folder": "a",
+                                                           "install_file": "b.msi", "copy_folder": True}], "post": []}}
+        must_fail(integrity.guard, ipkg, contains="Unterbrochen")
+        ipkg["steps"]["main"][0]["install_file"] = "setup.exe"  # a\b.msi ist nur eine Datei im kopierten Ordner
+        assert integrity.guard(ipkg)["state"] == "warn", "Ordnerdateien blockieren nicht"
+    finally:
+        integrity.evaluate = real_ev
+    # Mandantenpakete nie als Dienstkonto – auch wenn ein Hauptadmin sie so gespeichert hat
+    assert stp.effective_run_as({"type": "command", "run_as": "inherit"}, {"run_as": "deploy", "tenant_id": 3})[0] == "system"
+    assert stp.effective_run_as({"type": "command", "run_as": "deploy"}, {"run_as": "deploy"})[0] == "deploy"
+
+
+@test("2.29 Audit Clients: Datei-Explorer folgt beim Löschen/Kopieren keinen Verknüpfungen, Arbeitsordner wird nach dem Anlegen geprüft (CLM-tauglich), Merker in HKLM, winget nur signiert, Nachricht/Variablen/Registry sicher, kein CredSSP")
+def _():
+    import subprocess as _sp
+    from app import deploy, kerberos, remote, steps as stp, tools, uninstall
+    sb = os.path.join(TMP, "cf-nofollow")
+    os.makedirs(os.path.join(sb, "alt", "sub"))
+    open(os.path.join(sb, "alt", "sub", "f.txt"), "w").write("x")
+    os.makedirs(os.path.join(sb, "Geheim"))
+    open(os.path.join(sb, "Geheim", "wichtig.txt"), "w").write("x")
+    os.symlink(os.path.join(sb, "Geheim"), os.path.join(sb, "alt", "junction"))
+    loc = lambda u: os.path.join(sb, *u.split("\\")[4:])  # noqa: E731  \\pc\C$\alt → sb/alt
+
+    class _St:
+        def __init__(self, p):
+            self.st_file_attributes = (0x400 if os.path.islink(p) else 0) | (0x10 if os.path.isdir(p) else 0)
+
+    class _E:
+        def __init__(self, n):
+            self.name = n
+
+    class Fake:
+        lstat = staticmethod(lambda u: _St(loc(u)))
+        scandir = staticmethod(lambda u: [_E(n) for n in sorted(os.listdir(loc(u)))])
+        rmdir = staticmethod(lambda u: os.remove(loc(u)) if os.path.islink(loc(u)) else os.rmdir(loc(u)))
+        remove = staticmethod(lambda u: os.remove(loc(u)))
+        mkdir = staticmethod(lambda u: os.mkdir(loc(u)))
+
+    class FakeSh:
+        copyfile = staticmethod(lambda a, b: shutil.copyfile(loc(a), loc(b)))
+    clientfiles.copytree_nofollow(Fake, FakeSh, "\\\\pc\\C$\\alt", "\\\\pc\\C$\\kopie")
+    assert os.path.isfile(os.path.join(sb, "kopie", "sub", "f.txt")) and not os.path.exists(os.path.join(sb, "kopie", "junction")), \
+        "Verknüpfung beim Kopieren ausgelassen"
+    clientfiles.rmtree_nofollow(Fake, "\\\\pc\\C$\\alt")
+    assert not os.path.exists(os.path.join(sb, "alt")) and os.path.isfile(os.path.join(sb, "Geheim", "wichtig.txt")), "Ziel bleibt"
+    csrc = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "clientfiles.py"), encoding="utf-8").read()
+    assert "smbshutil.rmtree" not in csrc and "smbshutil.copytree" not in csrc
+    # Arbeitsordner: nach dem Anlegen Besitzer/Rechte erneut prüfen; nur Cmdlets (CLM)
+    for need in ("PkTrusted", "PK_UNTRUSTED", "/setowner", "Sddl", "Inhalt beim Anlegen"):
+        assert need in remote.SECURE_BASE, need
+    pw = os.environ.get("PK_PWSH")
+    if pw and os.path.exists(pw):
+        def run(exists, sddl, after, kids=0):
+            mocks = ("$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'\n$env:windir = '/w'\n"
+                     f"$global:exists = ${'true' if exists else 'false'}; $global:sddl = '{sddl}'; $global:after = '{after}'; "
+                     f"$global:kids = {kids}; $global:log = @()\n"
+                     "function whoami.exe { '\"firma\\svc\",\"S-1-5-21-1-2-3-1105\"' }\n"
+                     "function Test-Path { param($LiteralPath) $global:exists }\n"
+                     "function Get-Acl { param($LiteralPath) '' | Select-Object @{n='Sddl';e={$global:sddl}} }\n"
+                     "function Rename-Item { param($LiteralPath, $NewName) $global:log += 'rename'; $global:exists = $false }\n"
+                     "function New-Item { param($ItemType, $Path) $global:log += 'new'; $global:exists = $true; $global:sddl = $global:after }\n"
+                     "function icacls.exe { $global:LASTEXITCODE = 0 }\n"
+                     "function Get-ChildItem { param($LiteralPath, [switch]$Force) if ($global:kids -gt 0) { 1..$global:kids } }\n")
+            r = _sp.run([pw, "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "-"],
+                        input=mocks + remote.SECURE_BASE + "\n'LOG:' + ($global:log -join ',')\n",
+                        capture_output=True, text=True, env={**os.environ, "TERM": "dumb"})
+            return r.stdout + r.stderr
+        good = "O:BAG:SYD:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)"
+        o = run(True, good, good)
+        assert "PK_BASE_OK" in o and "rename" not in o, o
+        o = run(True, "O:S-1-5-21-1-2-3-1105G:DUD:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)", good)
+        assert "PK_BASE_OK" in o and "rename" not in o, ("Dienstkonto als Besitzer ist in Ordnung", o)
+        o = run(True, "O:S-1-5-21-9-9-9-500G:DUD:(A;OICI;FA;;;S-1-5-21-9-9-9-500)", good)
+        assert "PK_MOVED:S-1-5-21-9-9-9-500" in o and "PK_BASE_OK" in o, o
+        o = run(True, good[:-1] + ")(A;OICI;FA;;;BU)", good)
+        assert "PK_MOVED:Recht für BU" in o, o
+        o = run(False, "", "O:S-1-5-21-9-9-9-777G:DUD:PAI(A;OICI;FA;;;SY)")
+        assert "PK_UNTRUSTED" in o and "PK_BASE_OK" not in o, ("im selben Moment fremd angelegt", o)
+        o = run(False, "", good, kids=2)
+        assert "PK_UNTRUSTED" in o and "Inhalt beim Anlegen" in o, o
+        assert "Only core types" not in o and "cannot" not in o.lower(), o
+    # winget: Merker in HKLM, PATH-Ersatz nur mit Microsoft-Signatur
+    assert "HKLM:\\SOFTWARE\\PocketKnife" in deploy.WINGET_FIND and "Set-Content -Path $mark" not in deploy.WINGET_FIND
+    assert "Get-AuthenticodeSignature" in deploy.WINGET_FIND and "if ($g) { return $g.Source }" not in deploy.WINGET_FIND
+    # Nachricht: keine " im Argument; Variablen mit „-“ nicht unzitiert in CMD
+    ssrc = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "steps.py"), encoding="utf-8").read()
+    assert ".replace('\"', \"'\")" in ssrc.split('            if t == "message":')[1][:1200], "Nachrichtentext ohne Anführungszeichen"
+    assert "/XJ" in ssrc, "robocopy folgt keinen Verknüpfungen"
+    must_fail(tools.substitute, "x $(User)", {"name": "pc", "current_user": "max -Force"}, "cmd", contains="nicht sicher")
+    assert tools.substitute("x $(User)", {"name": "pc", "current_user": "max -Force"}, "powershell") == "x $($PK_User)"
+    assert "Test-Path $key" not in uninstall.__dict__.get("SCRIPT", "") and "-Path $key" not in open(uninstall.__file__, encoding="utf-8").read()
+    # CredSSP gibt es nicht mehr (Kennwort des Dienstkontos ginge an jeden Client)
+    old = db.setting_raw("auth_mode")
+    try:
+        db.set_setting("auth_mode", "credssp")
+        assert kerberos.mode() == "negotiate"
+    finally:
+        db.set_setting("auth_mode", old or "")
+
+
+@test("2.29 Audit Anmeldung/Daten: allgemeine Fehlermeldungen, Notfallzugang begrenzt und gemeldet, Diagnosepaket maskiert mehr, Proxy-Kennwort nie an neuen Proxy, Token nicht bei Weiterleitung, DNS-Antworten geprüft, mehrere DC-Zertifikate")
+def _():
+    import io as _io
+    import urllib.request as _ur
+    from fastapi import HTTPException as _HE
+    from app import ad, auth, config as _cfg, diagnostics, dnsres, notify, proxy
+    # Verbindungsfehler verraten keine DC-Namen
+    real = ad.authenticate
+    ad.authenticate = lambda u, p, allow_kiosk=False: (_ for _ in ()).throw(ad.ADError("LDAPS-Verbindung zu dc1.firma.local:636 fehlgeschlagen"))
+    try:
+        try:
+            auth.login("max", "x", "10.9.9.1")
+            raise AssertionError("keine Anmeldung")
+        except _HE as e:
+            assert "dc1" not in str(e.detail) and "636" not in str(e.detail) and e.detail == auth.INFRA_FAIL, e.detail
+    finally:
+        ad.authenticate = real
+    assert auth._log_name("Sommer!2024#") == "(ungültiger Benutzername, 12 Zeichen)" and auth._log_name("FIRMA\\max") == "'FIRMA\\max'"
+    assert "breakglass" in notify.CHECKS and notify.alert_def("breakglass")
+    db.ex("INSERT INTO logs(ts, level, category, message) VALUES(?, 'WARN', 'auth', 'Notfallzugang: Anmeldung von 10.1.1.1')", (util.now(),))
+    hits = notify._check_breakglass({}, {"since": util.ago(minutes=1)})
+    assert any("10.1.1.1" in v["event"] for v in hits.values()), hits
+    # Diagnosepaket: mehr Kennwortformen
+    t = diagnostics._mask_secrets('cmdkey /add:x /user:a /pass:Geh31m psexec \\\\pc -u a -p Zq9Xw7 net user bob Zq9Xw8 /add '
+                                  'Authorization: Bearer abcdefghijkl1 ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ012345')
+    for bad in ("Geh31m", "Zq9Xw7", "Zq9Xw8", "abcdefghijkl1", "ghp_ABCDEF"):
+        assert bad not in t, (bad, t)
+    for keep in ("docker run -p 8443:8443 x", "Basic authentication", "Kerberos-Token abgelaufen"):
+        assert diagnostics._mask_secrets(keep) == keep, keep
+    db.ex("INSERT INTO tenants(name, admin_group) VALUES('Kanzlei Schmidt & Partner', 'FIRMA\\GG-Kanzlei-Admins')")
+    try:
+        an = diagnostics.Anonymizer(True)
+        an.learn()
+        txt = an("Anmeldung von 1.2.3.4 (OU-Admin: Kanzlei Schmidt &amp; Partner) – Gruppe GG-Kanzlei-Admins")
+        assert "Kanzlei" not in txt, txt
+        assert ("tenant", "kanzlei schmidt & partner") in an.map
+    finally:
+        db.ex("DELETE FROM tenants WHERE name='Kanzlei Schmidt & Partner'")
+        db.ex("DELETE FROM diag_alias WHERE real IN ('Kanzlei Schmidt & Partner', 'GG-Kanzlei-Admins')")
+    # Proxy: gespeichertes Kennwort nie an einen anderen Proxy
+    try:
+        proxy.save({"url": "http://proxy-a.firma.local:8080", "user": "px", "password": "Pw1", "clients": False})
+        must_fail(proxy.save, {"url": "http://evil.example:8080", "user": "px", "clients": False}, contains="erneut eingeben")
+        proxy.save({"url": "http://proxy-a.firma.local:8080", "user": "px", "clients": True})  # unverändert: ok
+    finally:
+        proxy.save({"url": "", "user": "", "clients": False})
+    # Weiterleitung auf einen anderen Rechner: kein Authorization-Header
+    req = _ur.Request("https://api.github.com/x", headers={"Authorization": "Bearer T"})
+    n = proxy.SafeRedirect().redirect_request(req, _io.BytesIO(), 302, "Found", {}, "https://evil.example/y")
+    assert "Authorization" not in n.headers and not n.get_header("Authorization")
+    n = proxy.SafeRedirect().redirect_request(req, _io.BytesIO(), 302, "Found", {}, "https://api.github.com/z")
+    assert n.get_header("Authorization") == "Bearer T"
+    # DNS: fremde/unpassende Antworten verworfen
+    import struct as _struct
+    qname = b"\x02pc\x05firma\x05local\x00" + _struct.pack(">HH", 1, 1)
+
+    class FakeSock:
+        def __init__(self, *a):
+            self.out = []
+        def settimeout(self, t):
+            pass
+        def connect(self, a):
+            self.peer = a
+        def send(self, q):
+            self.qid = _struct.unpack(">H", q[:2])[0]
+        def recv(self, n):
+            hdr = _struct.pack(">HHHHHH", self.qid, 0x8180, 1, 1, 0, 0)
+            ans = b"\xc0\x0c" + _struct.pack(">HHIH", 1, 1, 60, 4)
+            if not self.out:
+                self.out.append(1)  # erst eine Antwort auf eine ANDERE Frage (gefälscht)
+                return hdr + b"\x04evil\x05firma\x05local\x00" + _struct.pack(">HH", 1, 1) + ans + bytes([6, 6, 6, 6])
+            return hdr + qname + ans + bytes([10, 1, 2, 3])
+        def close(self):
+            pass
+    real_sock = dnsres.socket.socket
+    dnsres.socket.socket = FakeSock
+    try:
+        assert dnsres._query("pc.firma.local", "10.0.0.1") == "10.1.2.3"
+    finally:
+        dnsres.socket.socket = real_sock
+    # LDAPS: mehrere Zertifikate je Name (mehrere DCs hinter dem Domänennamen)
+    assert ad._fp_list("AA") == ["AA"] and ad._fp_list(["AA", "BB"]) == ["AA", "BB"] and ad._fp_list(None) == []
+    # Oberfläche: CSV-Schutz mit Leerzeichen davor, nur http(s)/mailto als Link, strengere CSP einer Route bleibt
+    js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
+    assert "/^[\\s]*[=+\\-@]|^[\\t\\r]/" in js and "(https?:|mailto:)" in js
+    msrc = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "main.py"), encoding="utf-8").read()
+    assert 'if "content-security-policy" not in resp.headers' in msrc
+    assert diagnostics._csv([{"a": "=HYPERLINK(1)"}], ["a"]).splitlines()[1].startswith("'="), "Diagnose-CSV entschärft"
+    assert _cfg is not None
 
 
 def main():

@@ -86,7 +86,7 @@ Im selben Ordner wie Schritt 3 (*WinRM-Dienst*):
 |---|---|---|
 | Standardauthentifizierung zulassen (*Allow Basic authentication*) | **Deaktiviert** | Basic schickt Benutzer und Kennwort nur Base64-kodiert – POCKET KNIFE braucht es nie |
 | Unverschlüsselten Datenverkehr zulassen (*Allow unencrypted traffic*) | **Deaktiviert** | POCKET KNIFE verschlüsselt auch über HTTP 5985 (Kerberos/NTLM-Nachrichtenverschlüsselung); unverschlüsselt wäre nur ein Risiko |
-| CredSSP-Authentifizierung zulassen (*Allow CredSSP authentication*) | **Deaktiviert** – nur aktivieren, wenn POCKET KNIFE „CredSSP“ nutzt | CredSSP gibt die Anmeldedaten an den Client weiter; ein Angreifer mit Administratorrechten auf dem Client könnte sie abgreifen |
+| CredSSP-Authentifizierung zulassen (*Allow CredSSP authentication*) | **Deaktiviert** – POCKET KNIFE nutzt CredSSP nicht | CredSSP gibt die Anmeldedaten an den Client weiter; ein Angreifer mit Administratorrechten auf dem Client könnte sie abgreifen |
 | Speichern von RunAs-Anmeldeinformationen durch WinRM nicht zulassen (*Disallow WinRM from storing RunAs credentials*) | **Aktiviert** | keine gespeicherten Kennwörter in WinRM-Plugins |
 | Kerberos-Authentifizierung nicht zulassen / Negotiate-Authentifizierung nicht zulassen | **nicht konfiguriert** | POCKET KNIFE meldet sich darüber an – aktiviert sperrt es sich selbst aus |
 | Kompatibilitäts-HTTP-/HTTPS-Listener aktivieren | **nicht konfiguriert** | alte Ports 80/443, nicht nötig |
@@ -110,7 +110,7 @@ In POCKET KNIFE unter **Einstellungen → Verbindung & Konten → Anmeldeverfahr
 
 - **Kerberos** braucht die Computer per **DNS-Namen** (kommt aus dem AD-Abgleich), eine synchrone Uhrzeit und Port 88 zu den Domänencontrollern. SPNs müssen nicht angelegt werden.
 - Gehört das Dienstkonto zur Gruppe **„Geschützte Benutzer“** (*Protected Users*) – sehr empfehlenswert –, ist **NTLM und CredSSP für das Konto gesperrt**. Dann muss POCKET KNIFE auf „Nur Kerberos“ stehen, das Repository mit DNS-Namen angegeben sein und das Konto AES unterstützen („Dieses Konto unterstützt Kerberos AES 256-Bit-Verschlüsselung“); sonst schlagen Anmeldungen fehl. Fernsitzungen per RDP mit dem Dienstkonto gehen dann nicht (sie nutzen NTLM).
-- **CredSSP** nur, wenn es wirklich nötig ist (z. B. ein Paket greift aus der Sitzung auf eine weitere Freigabe zu) – dann zusätzlich „CredSSP-Authentifizierung zulassen“ aktivieren.
+- **CredSSP** unterstützt POCKET KNIFE nicht (mehr): Es gäbe das Kennwort des Dienstkontos an jeden Client weiter. Pakete brauchen es nicht – Installationsdateien kopiert POCKET KNIFE selbst auf den Client.
 
 ### Optional: WinRM über HTTPS (5986)
 
@@ -220,7 +220,7 @@ Standard ist das fertige Image aus der Registry (`ghcr.io/soleil0815/pocketknife
 
 Danach `https://<docker-host>:8443` öffnen und mit einem Konto aus der Zugriffsgruppe anmelden. Beim ersten Start wird ein selbstsigniertes Zertifikat in `data/tls/` erzeugt; ein eigenes Zertifikat wird unter **Einstellungen → Zertifikat (HTTPS)** hochgeladen (siehe [Eigenes Zertifikat](#certificate)).
 
-> **Tipp:** Das Dienstkonto muss nicht in der `.env` stehen. Hinterlegen Sie es nach der ersten Anmeldung unter **Einstellungen → Verbindung & Konten** – dort wird es vor dem Speichern geprüft und verschlüsselt abgelegt. Für die erste Anmeldung ohne AD-Zugriff gibt es optional einen Notfallzugang (`PK_BREAKGLASS_USER`/`PK_BREAKGLASS_PASSWORD`).
+> **Tipp:** Das Dienstkonto muss nicht in der `.env` stehen. Hinterlegen Sie es nach der ersten Anmeldung unter **Einstellungen → Verbindung & Konten** – dort wird es vor dem Speichern geprüft und verschlüsselt abgelegt. Für die erste Anmeldung ohne AD-Zugriff gibt es optional einen Notfallzugang (`PK_BREAKGLASS_USER`/`PK_BREAKGLASS_PASSWORD`). Er unterliegt keiner AD-Kontosperre: ein langes, zufälliges Kennwort (mindestens 16 Zeichen) wählen und die Benachrichtigung **„Notfallzugang benutzt“** einschalten. Fehlversuche sind je Adresse begrenzt; jeder wird gemeldet.
 
 ## Update {#update}
 
@@ -646,7 +646,7 @@ Für Netze ohne direkten Internetzugang: **Einstellungen → Repository & winget
 
 **POCKET KNIFE selbst** lädt über den Proxy den winget-Katalog. Ohne Eintrag gilt wie bisher die Netzwerkkonfiguration des Containers (Umgebungsvariable `HTTPS_PROXY` im Container, falls gesetzt). **Speichern & testen** lädt die ersten Bytes des Katalogs und zeigt, ob es klappt; bei „407“ verlangt der Proxy eine Anmeldung.
 
-**Clients:** Mit dem Haken setzt POCKET KNIFE bei der nächsten winget-Bereitstellung auf dem Client die winget-Einstellung `DefaultProxy` (einmalig, danach nur bei einer Änderung) und nutzt den Proxy auch beim Nachinstallieren von winget. Nimmt man den Haken heraus, entfernt POCKET KNIFE die Einstellung wieder – aber nur, wenn es sie selbst gesetzt hat (Merker `C:\ProgramData\PocketKnife\winget-proxy.txt`). **Benutzer und Kennwort gehen nie an die Clients.** Verlangt der Proxy eine Anmeldung, melden sich die Clients mit ihrem Computerkonto an – der Proxy muss dafür die Windows-Anmeldung (Kerberos/NTLM) zulassen oder die Clients per IP-Bereich ohne Anmeldung durchlassen.
+**Clients:** Mit dem Haken setzt POCKET KNIFE bei der nächsten winget-Bereitstellung auf dem Client die winget-Einstellung `DefaultProxy` (einmalig, danach nur bei einer Änderung) und nutzt den Proxy auch beim Nachinstallieren von winget. Nimmt man den Haken heraus, entfernt POCKET KNIFE die Einstellung wieder – aber nur, wenn es sie selbst gesetzt hat (Merker in der Registry: `HKLM\SOFTWARE\PocketKnife`, Wert `WingetProxy`). **Benutzer und Kennwort gehen nie an die Clients.** Verlangt der Proxy eine Anmeldung, melden sich die Clients mit ihrem Computerkonto an – der Proxy muss dafür die Windows-Anmeldung (Kerberos/NTLM) zulassen oder die Clients per IP-Bereich ohne Anmeldung durchlassen.
 
 ## winget auf Servern {#wingetbootstrap}
 
@@ -883,7 +883,7 @@ Im Kiosk installieren Nutzer freigegebene Software selbst – ohne Administrator
 
 - **Nur den eigenen Computer:** POCKET KNIFE prüft live per WinRM, an welchem Computer der Nutzer angemeldet ist (über die Anmeldedaten aus dem Inventar, die Adresse des Browsers und den DNS-Namen). Für andere Computer lässt sich nichts anfordern – auch nicht über die Schnittstelle.
 - **Nur den Katalog:** Installieren bzw. Anfordern, Deinstallieren (falls hinterlegt), Status je Software („Wartet auf Freigabe“, „Wird ausgeführt“, „Fertig“, „Fehlgeschlagen“), eigene Anfragen zurückziehen, solange sie noch nicht laufen.
-- **Neustart planen:** Braucht eine Installation einen Neustart (oder meldet der letzte Scan einen ausstehenden Neustart), bietet der Kiosk „Jetzt (in 2 Minuten)“, „In 1 Stunde“ oder eine Uhrzeit am selben Tag an. Vor dem Neustart erscheint am Computer ein Hinweis; ein geplanter Neustart lässt sich wieder absagen.
+- **Neustart planen:** Braucht eine Installation einen Neustart (oder meldet der letzte Scan einen ausstehenden Neustart), bietet der Kiosk „Jetzt (in 2 Minuten)“, „In 1 Stunde“ oder eine Uhrzeit am selben Tag an. Vor dem Neustart erscheint am Computer ein Hinweis; ein geplanter Neustart lässt sich wieder absagen. Nicht möglich bei **Servern** (auch Terminalservern) und solange **noch andere Benutzer** am Computer angemeldet sind.
 - **Keine Verwaltung:** Kiosk-Anmeldungen haben auf die POCKET-KNIFE-Oberfläche keinerlei Zugriff (auch nicht auf Fernsitzungen). Mitglieder der Zugriffsgruppe können den Kiosk für ihren eigenen Rechner ebenfalls nutzen.
 
 Installationen aus dem Kiosk sind normale Bereitstellungen (Name „Kiosk: …“) – mit Protokoll, Ausführen als Dienstkonto und Scan danach wie gewohnt. Alles steht im Protokoll unter der Kategorie „Kiosk“. Die Abmeldung bei Inaktivität gilt auch im Kiosk.
@@ -997,6 +997,7 @@ Unter **Einstellungen → E-Mail & Benachrichtigungen** lassen sich Mails bei be
 | Bereitstellung fehlgeschlagen | eine Bereitstellung ganz (optional auch teilweise) fehlgeschlagen – eine Meldung je Bereitstellung |
 | Dienstkonto-Schutz ausgelöst | automatische Zugriffe wurden pausiert, weil das Dienstkonto abgelehnt wurde |
 | Sicherung fehlgeschlagen | die automatische Datenbanksicherung ist fehlgeschlagen |
+| Notfallzugang benutzt | jede Anmeldung über den Notfallzugang und jeder Fehlversuch dafür |
 | Eigener Bericht: … | ein [eigener Bericht](#customreports) liefert Zeilen – je eigenem Bericht eine Benachrichtigung |
 
 Geprüft wird jede Minute. Jeder Fall (z. B. „PC-17 Laufwerk C:“) wird **nur einmal** gemeldet; mehrere neue Fälle kommen gesammelt in einer Mail. Optional: **Erinnerung** nach N Stunden, solange der Fall offen ist, und **Entwarnung**, wenn er behoben ist. Beim Speicherplatz gilt ein Fall erst als behoben, wenn wieder mindestens 10 % mehr als die Grenze frei sind – so gibt es kein Hin und Her um den Grenzwert. **Was würde jetzt gemeldet?** im Dialog zeigt die aktuell zutreffenden Fälle, ohne etwas zu senden. Ereignisse (Bereitstellungen, Sicherungen) zählen erst ab dem Einschalten.
@@ -1072,7 +1073,7 @@ Weitere Schutzregeln:
 - Zeitpläne von OU-Admins: als Sammlung nur die des eigenen Mandanten. Ein Mandant, der einmal OU-Admins hatte, erreicht ohne Sammlung keinen Computer; Mandanten mit Zeitplänen lassen sich erst löschen, wenn diese umgehängt sind. Jede Änderung an Gruppe, Sammlung oder Rechten eines Mandanten beendet die Sitzungen seiner OU-Admins (sie melden sich neu an).
 - Deinstallationsbefehle „für alle merken“, das zentrale VNC-Kennwort und der Kiosk über die OU-Admin-Anmeldung bleiben Hauptadmins bzw. Kiosk-Benutzern vorbehalten.
 
-> **Empfehlung:** OU-Admins sind auf ihren Computern Administratoren. POCKET KNIFE meldet sich dort mit dem domänenweiten Dienstkonto an. Daher: Kerberos statt CredSSP verwenden (Einstellungen → Verbindung), das Dienstkonto in die Gruppe „Protected Users“ aufnehmen (dann „Nur Kerberos“ – siehe [WinRM per Gruppenrichtlinie](#winrm-gpo)) und SMB-Signierung per GPO erzwingen. Wer noch strenger trennen will, nimmt je Standort eine eigene POCKET-KNIFE-Instanz mit eigenem Dienstkonto.
+> **Empfehlung:** OU-Admins sind auf ihren Computern Administratoren. POCKET KNIFE meldet sich dort mit dem domänenweiten Dienstkonto an. Daher: Kerberos statt NTLM verwenden (Einstellungen → Verbindung), das Dienstkonto in die Gruppe „Protected Users“ aufnehmen (dann „Nur Kerberos“ – siehe [WinRM per Gruppenrichtlinie](#winrm-gpo)) und SMB-Signierung per GPO erzwingen. Wer noch strenger trennen will, nimmt je Standort eine eigene POCKET-KNIFE-Instanz mit eigenem Dienstkonto.
 
 ## Eigenes Zertifikat {#certificate}
 

@@ -458,6 +458,15 @@ def plan_reboot(user, ip, cid, when):
     if not c:
         raise KioskError("Computer nicht gefunden.")
     check_computer(user["username"], ip, cid)
+    # Audit 2.29: nie Server/Terminalserver neu starten und nie, wenn noch jemand anderes angemeldet ist
+    if "server" in str(c.get("os_name") or "").lower():
+        raise KioskError("Server lassen sich über den Kiosk nicht neu starten – bitte an die IT wenden.")
+    # alle Anmeldungen zählen – auch lokale Konten und solche anderer Domänen (die der Kiosk sonst nicht beachtet)
+    raw = db.val("SELECT current_user FROM computers WHERE id=?", (cid,)) or ""
+    me = _sam(user["username"])
+    others = {x.strip().lower() for x in raw.split(",") if x.strip() and _domain_sam(x, c["name"]) != me}
+    if others:
+        raise KioskError("An diesem Computer sind noch andere Benutzer angemeldet – Neustart über den Kiosk nicht möglich.")
     at = _when(when)
     delay = 120 if at is None else 300
     from . import rebootmsg

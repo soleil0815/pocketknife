@@ -10,7 +10,7 @@ Veraltete Einträge im DNS der Domäne selbst (fehlende Bereinigung/„Scavengin
 presence.identify(), ob unter der Adresse wirklich der erwartete Computer antwortet.
 """
 import ipaddress
-import random
+import secrets
 import socket
 import struct
 import threading
@@ -82,7 +82,7 @@ def servers():
 # --- Minimaler DNS-Client (nur A-Einträge) --------------------------------------------------------
 def _query(name, server, timeout=2.0):
     """A-Abfrage an einen Server. ip (str), "" (Name existiert nicht/kein A-Eintrag) oder None (keine Antwort)."""
-    qid = random.randint(0, 0xFFFF)
+    qid = secrets.randbits(16)  # Audit 2.29: nicht vorhersagbar (random.randint ist es)
     q = struct.pack(">HHHHHH", qid, 0x0100, 1, 0, 0, 0)  # Standardabfrage, Rekursion erwünscht
     for label in name.split("."):
         b = label.encode("idna") if label else b""
@@ -92,11 +92,17 @@ def _query(name, server, timeout=2.0):
     q += b"\x00" + struct.pack(">HH", 1, 1)  # Typ A, Klasse IN
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.settimeout(timeout)
+    end = time.time() + timeout
     try:
-        s.sendto(q, (server, 53))
+        # connect(): der Kernel nimmt nur noch Antworten genau dieses Servers an (Absender gefälschter Antworten)
+        s.connect((server, 53))
+        s.send(q)
         while True:
-            data, _addr = s.recvfrom(4096)
-            if len(data) >= 12 and struct.unpack(">H", data[:2])[0] == qid:
+            if time.time() > end:
+                return None
+            data = s.recv(4096)
+            # gleiche Kennung UND gleiche Frage (Name, Typ, Klasse) – sonst ist es nicht die Antwort auf diese Abfrage
+            if len(data) >= len(q) and struct.unpack(">H", data[:2])[0] == qid and data[12:len(q)].lower() == q[12:].lower():
                 break
     except OSError:
         return None

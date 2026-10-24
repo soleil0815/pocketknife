@@ -15,24 +15,29 @@ on:
     tags: ["v*"]
   workflow_dispatch:
 
-permissions:
-  contents: write     # Release anlegen
-  packages: write     # Image nach ghcr.io
+permissions: {}       # nichts vorab – der Job bekommt nur, was er braucht
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release        # nie zwei Releases gleichzeitig (Tag und „Run workflow“ derselben Version)
   cancel-in-progress: false
 
 jobs:
   release:
     runs-on: ubuntu-24.04
     timeout-minutes: 150
+    permissions:
+      contents: write     # Release anlegen
+      packages: write     # Image nach ghcr.io
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false   # Token nicht im Arbeitsordner liegen lassen (Bau, Selbsttest)
 
       - name: Version prüfen
         id: v
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VER=$(tr -d ' \r\n' < VERSION)
           case "$VER" in ''|*[!0-9.]*) echo "::error::Ungültige VERSION: '$VER'"; exit 1 ;; esac
@@ -42,8 +47,24 @@ jobs:
           grep -q "^## pocketknife-$VER " CHANGELOG.md || { echo "::error::CHANGELOG.md hat keinen Eintrag für $VER"; exit 1; }
           python3 -c "import json,sys; v=sys.argv[1]; d=json.load(open('app/news.json')); sys.exit(0 if any(x['version']==v for x in d['versions']) else 1)" "$VER" \
             || { echo "::error::app/news.json hat keine Neuigkeiten für $VER (Seitenleiste „Neu“)"; exit 1; }
+          # Nur Stände, die auf dem Hauptzweig liegen (kein Release aus einem Nebenzweig oder fremden Tag)
+          DEF=$(gh api "repos/$GITHUB_REPOSITORY" --jq .default_branch)
+          ST=$(gh api "repos/$GITHUB_REPOSITORY/compare/$DEF...$GITHUB_SHA" --jq .status)
+          case "$ST" in identical|behind) ;; *) echo "::error::$GITHUB_SHA liegt nicht auf $DEF ($ST)"; exit 1 ;; esac
+          # Veröffentlichte Versionen werden nie überschrieben – für Änderungen VERSION erhöhen
+          if gh release view "v$VER" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::Release v$VER gibt es schon – bitte VERSION erhöhen"; exit 1
+          fi
+          # „latest“ nur, wenn diese Version die höchste ist (ein nachgereichtes älteres Release zieht latest nicht zurück)
+          LATEST=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName 2>/dev/null | sed 's/^v//' || true)
+          IMG="ghcr.io/${GITHUB_REPOSITORY,,}"
+          TAGS="$IMG:$VER"
+          ISLATEST=false
+          if [ -z "$LATEST" ] || [ "$(printf '%s\n%s\n' "$LATEST" "$VER" | sort -V | tail -n 1)" = "$VER" ]; then TAGS="$TAGS,$IMG:latest"; ISLATEST=true; fi
+          echo "latest=$ISLATEST" >> "$GITHUB_OUTPUT"
           echo "version=$VER" >> "$GITHUB_OUTPUT"
-          echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+          echo "image=$IMG" >> "$GITHUB_OUTPUT"
+          echo "tags=$TAGS" >> "$GITHUB_OUTPUT"
 
       - name: Programm-ZIP (wie bisher, Ordner pocketknife/)
         run: |
@@ -117,9 +138,7 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: |
-            ${{ steps.v.outputs.image }}:${{ steps.v.outputs.version }}
-            ${{ steps.v.outputs.image }}:latest
+          tags: ${{ steps.v.outputs.tags }}
           labels: |
             org.opencontainers.image.title=POCKET KNIFE
             org.opencontainers.image.version=${{ steps.v.outputs.version }}
@@ -142,9 +161,5 @@ jobs:
             echo "**Update:** \`sh update.sh --pull\` (Image aus der Registry) oder \`sh update.sh pocketknife-$VER.zip\`."
             echo "**Image:** \`$(cat "dist/pocketknife-$VER.image")\` (linux/amd64, linux/arm64)"
           } >> notes.md
-          TAG="v$VER"
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" dist/* --clobber
-          else
-            gh release create "$TAG" dist/* --title "POCKET KNIFE $VER" --notes-file notes.md --target "$GITHUB_SHA"
-          fi
+          gh release create "v$VER" dist/* --title "POCKET KNIFE $VER" --notes-file notes.md --target "$GITHUB_SHA" \
+            --repo "$GITHUB_REPOSITORY" --latest=${{ steps.v.outputs.latest }}

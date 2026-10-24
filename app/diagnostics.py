@@ -13,6 +13,7 @@ Oberfläche nachschlagen oder als CSV herunterladen.
 import bisect
 import collections
 import csv
+import html
 import io
 import json
 import os
@@ -121,7 +122,7 @@ def _fixed_list():
 
 # --- Platzhalter ---------------------------------------------------------------------------------
 PREFIX = {"dc": "dom", "computer": "PC", "user": "USER", "server": "SRV", "ip": "IP", "mac": "MAC", "mail": "MAIL", "ou": "OU", "group": "GRUPPE",
-          "display": "Person"}
+          "display": "Person", "tenant": "MANDANT"}
 ANON_DOMAIN, ANON_NETBIOS = "firma.local", "FIRMA"
 
 
@@ -223,6 +224,33 @@ class Anonymizer:
             g = g.strip()
             if g and not re.match(r"^(CN|OU|DC)=", g, re.I):
                 self.alias("group", g.split("\\")[-1])
+        # Audit 2.29: Mandanten (Namen verraten Kunden), deren Admin-Gruppen, Anzeigenamen der Sitzungen und
+        # Computer-Beschreibungen (oft Personennamen)
+        try:
+            for t in db.q("SELECT name, admin_group, admin_group_dn FROM tenants"):
+                if t["name"]:
+                    a = self.alias("tenant", t["name"])
+                    esc = html.escape(t["name"], quote=False)
+                    if esc != t["name"]:
+                        self.text[esc.lower()] = a
+                for g in (t["admin_group"], t["admin_group_dn"]):
+                    g = str(g or "").strip()
+                    m = re.match(r"^CN=((?:[^,\\]|\\.)+)", g, re.I)
+                    g = m.group(1) if m else g.split("\\")[-1]
+                    if g:
+                        self.alias("group", g)
+        except Exception:
+            pass
+        try:
+            for r in db.q("SELECT DISTINCT display_name FROM sessions WHERE COALESCE(display_name,'') <> ''"):
+                if " " in r["display_name"].strip():
+                    self.alias("display", r["display_name"])
+        except Exception:
+            pass
+        for c in db.q("SELECT description FROM computers WHERE COALESCE(description,'') <> ''"):
+            d = c["description"].strip()
+            if " " in d and 5 <= len(d) <= 120:  # einzelne Wörter („Empfang“) sind meist Rollen, keine Namen
+                self.alias("display", d)
         for s in list(config.LDAP_SERVERS or []) + [config.PUBLIC_HOSTNAME] + _setting_hosts():
             if s and s.lower() not in ("localhost", "127.0.0.1") and s.lower() != dom:
                 self.alias("server", s)
@@ -335,9 +363,15 @@ WORD_RX = re.compile(r"[^\W_][\w.\-]*")
 _SECRET_RXS = [
     (re.compile(r"(?i)\b([\w-]*(?:password|passwort|passwd|kennwort|pwd|secret|token|apikey|api_key)[\w-]*\s*[=:]\s*)"
                 r"(\"[^\"]*\"|'[^']*'|[^\s;,]+)"), lambda m: m.group(1) + "***"),
-    (re.compile(r"(?i)(-(?:password|passwort|kennwort|pwd|secret|token)\s+)(\"[^\"]*\"|'[^']*'|\S+)"), lambda m: m.group(1) + "***"),
+    (re.compile(r"(?i)((?<![\w-])-(?:password|passwort|kennwort|pwd|secret|token)\s+)(\"[^\"]*\"|'[^']*'|\S+)"), lambda m: m.group(1) + "***"),
     (re.compile(r"(?i)(/user:\S+\s+)(?!/)(\"[^\"]*\"|\S+)"), lambda m: m.group(1) + "***"),
     (re.compile(r"(?i)(ConvertTo-SecureString\s+(?:-String\s+)?)(\"[^\"]*\"|'[^']*')"), lambda m: m.group(1) + "'***'"),
+    # Audit 2.29: cmdkey /pass:, psexec -p, sqlcmd -P, net user <name> <kennwort>, HTTP-Anmeldedaten, GitHub-Tokens
+    (re.compile(r"(?i)(/pass(?:word)?:)(\"[^\"]*\"|\S+)"), lambda m: m.group(1) + "***"),
+    (re.compile(r"(?<=\s)(-[pP]\s+)(?!-)(?![\d:]+(?:\s|$))(\"[^\"]*\"|'[^']*'|\S+)"), lambda m: m.group(1) + "***"),  # Ports (-p 8443:8443) bleiben
+    (re.compile(r"(?i)(\bnet(?:\.exe)?\s+user\s+(?:\"[^\"]*\"|\S+)\s+)(?!/)(\"[^\"]*\"|\S+)"), lambda m: m.group(1) + "***"),
+    (re.compile(r"\b([Bb]earer|[Bb]asic|BEARER|BASIC)\s+(?=\S*[\d+/=]|\S*[A-Z]\S*[a-z]|\S*[a-z]\S*[A-Z])[A-Za-z0-9._~+/=\-]{12,}"), lambda m: m.group(1) + " ***"),
+    (re.compile(r"\b(?:gh[opusr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})"), lambda m: "***"),
 ]
 
 
@@ -417,11 +451,12 @@ def _setting_hosts():
 
 # --- Inhalte --------------------------------------------------------------------------------------
 def _csv(rows, cols):
+    from . import reports
     buf = io.StringIO()
     w = csv.writer(buf, delimiter=";")
     w.writerow(cols)
     for r in rows:
-        w.writerow(["" if r.get(c) is None else r.get(c) for c in cols])
+        w.writerow([reports._safe(r.get(c)) for c in cols])  # Audit 2.29: Formel-Injektion entschärfen
     return "\ufeff" + buf.getvalue()
 
 

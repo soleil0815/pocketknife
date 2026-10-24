@@ -14,3 +14,6 @@ pocketknife-*/
 !dist/pocketknife-*.zip.sha256
 .git/
 .github/
+.pk-rollback-ref
+.pk-rotiert-gerade
+.pk-update-unvollstaendig

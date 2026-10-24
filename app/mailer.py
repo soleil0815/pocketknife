@@ -103,7 +103,9 @@ def save(data, user=None):
     if usr and sec == "none":
         raise ValueError("Anmeldung nur mit Verschlüsselung (STARTTLS oder SSL/TLS) – sonst ginge das Kennwort im Klartext übers Netz.")
     old = settings()
-    moved = old["password_set"] and (host.lower(), port, sec, usr.lower()) != (old["host"].lower(), old["port"], old["security"], old["user"].lower())
+    # Audit 2.29: auch das Abschalten der Zertifikatsprüfung zählt (sonst ginge das Kennwort an einen Server mit falschem Zertifikat)
+    moved = old["password_set"] and ((host.lower(), port, sec, usr.lower()) != (old["host"].lower(), old["port"], old["security"], old["user"].lower())
+                                     or (old.get("verify", True) and not data.get("verify", True)))
     if moved and not data.get("password") and usr:
         # Gespeichertes Kennwort nie an einen anderen Server/Port/Benutzer schicken – neu eingeben lassen
         raise ValueError("Server, Port, Verschlüsselung oder Benutzer geändert – bitte das Kennwort erneut eingeben.")

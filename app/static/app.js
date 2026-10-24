@@ -1416,8 +1416,9 @@ function tableCsv(t, rows) {
     if ((v === null || v === undefined || typeof v === 'object') && c.render) { const x = c.render(r); v = x instanceof Node ? x.textContent : x; }
     v = v === null || v === undefined ? '' : String(v);
     // Schutz vor Formel-Injektion beim Öffnen in Excel (Werte stammen teils von den Clients)
-    if (/^[=+\-@\t\r]/.test(v) && !/^[-+]?\d+([.,]\d+)?$/.test(v)) v = `'${v}`;
-    return /[;"\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+    // Audit 2.29: auch mit Leerzeichen davor („ =HYPERLINK(…)“) – Excel ignoriert sie
+    if (/^[\s]*[=+\-@]|^[\t\r]/.test(v) && !/^\s*[-+]?\d+([.,]\d+)?\s*$/.test(v)) v = `'${v}`;
+    return /[;"\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
   };
   return '﻿' + [cols.map((c) => c.label).join(';'), ...rows.map((r) => cols.map((c) => cell(c, r)).join(';'))].join('\r\n');
 }
@@ -5785,6 +5786,7 @@ function authCard(sys) {
     route();
   }, { cls: 'primary small' });
   return h('div.card', h('div.card-h', h('h2', 'Anmeldeverfahren (NTLM / Kerberos)')), h('div.card-b',
+    sys.winrm.auth === 'ntlm' ? h('p.hint', h('span.badge.warn', 'Hinweis'), ' Das Dienstkonto meldet sich per NTLM an. NTLM-Anmeldungen lassen sich weiterleiten oder offline angreifen – empfohlen: „Negotiate“ und nach erfolgreichem Test „Nur Kerberos“.') : null,
     kv([['Aktiv', h('b', (k.modes.find((m) => m.key === sys.winrm.auth) || { label: sys.winrm.auth }).label)],
       ['Kerberos-Bibliotheken', k.available ? `vorhanden (gssapi ${k.version})` : h('span.badge.warn', 'fehlen – Image neu bauen')],
       ['Realm', k.realm || '—'], ['Dienstkonto als', h('span.mono', k.principal || '—')],
@@ -6413,7 +6415,9 @@ function mdInline(text) {
         out.push(rawEl('figure', 'help-fig', img, m[2] ? rawEl('figcaption', '', m[2]) : null));
       } else {
         const a = rawEl('a', '', m[2]);
-        if (/^#/.test(m[3])) a.href = '#/help?s=' + m[3].slice(1); else { a.href = m[3]; a.rel = 'noopener noreferrer'; a.target = '_blank'; }
+        if (/^#/.test(m[3])) a.href = '#/help?s=' + m[3].slice(1);
+        else if (/^(https?:|mailto:)/i.test(m[3])) { a.href = m[3]; a.rel = 'noopener noreferrer'; a.target = '_blank'; }
+        // Audit 2.29: andere Schemata (javascript:, data: …) nie als Link
         out.push(a);
       }
     } else if (m[4]) out.push(rawEl('code', '', m[5]));

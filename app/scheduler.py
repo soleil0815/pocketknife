@@ -214,6 +214,9 @@ def tick():
     for d in db.q("SELECT id FROM deployments WHERE status='scheduled' AND scheduled_at <= ?", (util.now(),)):
         # im Hintergrund: vor dem Start werden die Repository-Dateien geprüft (2.26), das darf den Takt nicht aufhalten
         _bg(f"start-{d['id']}", lambda did=d["id"]: deploy.start(did))
+    if _due("stuck", 2):
+        _last["stuck"] = time.time()
+        _bg("stuck", deploy.restart_stuck)
     if _due("integrity", 5):
         _last["integrity"] = time.time()
         from . import integrity

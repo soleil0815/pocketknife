@@ -86,7 +86,7 @@ In the same folder as step 3 (*WinRM Service*):
 |---|---|---|
 | Allow Basic authentication | **Disabled** | Basic sends user and password only Base64-encoded – POCKET KNIFE never needs it |
 | Allow unencrypted traffic | **Disabled** | POCKET KNIFE encrypts also over HTTP 5985 (Kerberos/NTLM message encryption); unencrypted would only be a risk |
-| Allow CredSSP authentication | **Disabled** – enable only if POCKET KNIFE uses "CredSSP" | CredSSP passes the credentials on to the client; an attacker with administrator rights on the client could grab them |
+| Allow CredSSP authentication | **Disabled** – POCKET KNIFE does not use CredSSP | CredSSP passes the credentials on to the client; an attacker with administrator rights on the client could grab them |
 | Disallow WinRM from storing RunAs credentials | **Enabled** | no stored passwords in WinRM plug-ins |
 | Disallow Kerberos authentication / Disallow Negotiate authentication | **Not configured** | POCKET KNIFE signs in with these – enabling them locks it out |
 | Turn On Compatibility HTTP/HTTPS Listener | **Not configured** | legacy ports 80/443, not needed |
@@ -110,7 +110,7 @@ In POCKET KNIFE under **Settings → Connection & accounts → Authentication me
 
 - **Kerberos** needs the computers by **DNS name** (comes from the AD sync), synchronized time and port 88 to the domain controllers. SPNs do not have to be created.
 - If the service account is a member of **"Protected Users"** – highly recommended – **NTLM and CredSSP are blocked for the account**. POCKET KNIFE must then be set to "Kerberos only", the repository must be given with its DNS name and the account must support AES ("This account supports Kerberos AES 256 bit encryption"); otherwise sign-ins fail. Remote sessions via RDP with the service account then do not work (they use NTLM).
-- **CredSSP** only if really needed (e.g. a package accesses another share from the session) – then also enable "Allow CredSSP authentication".
+- POCKET KNIFE does **not** support **CredSSP** (any more): it would pass the service account's password to every client. Packages do not need it – POCKET KNIFE copies installation files to the client itself.
 
 ### Optional: WinRM over HTTPS (5986)
 
@@ -220,7 +220,7 @@ The default is the ready-made image from the registry (`ghcr.io/soleil0815/pocke
 
 Then open `https://<docker-host>:8443` and sign in with an account from the access group. On first start, a self-signed certificate is generated in `data/tls/`; upload your own certificate under **Settings → Certificate (HTTPS)** (see [Your own certificate](#certificate)).
 
-> **Tip:** The service account does not need to be in the `.env`. Add it after your first sign-in under **Settings → Connection & Accounts** – it is verified before saving and stored encrypted. For the first sign-in without AD access, an optional emergency access is available (`PK_BREAKGLASS_USER`/`PK_BREAKGLASS_PASSWORD`).
+> **Tip:** The service account does not need to be in the `.env`. Add it after your first sign-in under **Settings → Connection & Accounts** – it is verified before saving and stored encrypted. For the first sign-in without AD access, an optional emergency access is available (`PK_BREAKGLASS_USER`/`PK_BREAKGLASS_PASSWORD`). It is not subject to AD account lockout: choose a long random password (at least 16 characters) and enable the alert **"Emergency access used"**. Failed attempts are limited per address; each one is reported.
 
 ## Update {#update}
 
@@ -646,7 +646,7 @@ For networks without direct internet access: **Settings → Repository & winget 
 
 **POCKET KNIFE itself** downloads the winget catalog through the proxy. Without an entry the container's network configuration applies as before (environment variable `HTTPS_PROXY` in the container, if set). **Save & test** downloads the first bytes of the catalog and shows whether it works; "407" means the proxy requires authentication.
 
-**Clients:** With the check box, POCKET KNIFE sets the winget setting `DefaultProxy` on the client with the next winget deployment (once, afterwards only on a change) and also uses the proxy when installing winget. Clearing the check box removes the setting again – but only if POCKET KNIFE set it itself (marker `C:\ProgramData\PocketKnife\winget-proxy.txt`). **User and password never go to the clients.** If the proxy requires authentication, the clients sign in with their computer account – the proxy must allow Windows authentication (Kerberos/NTLM) for this or let the clients through by IP range without authentication.
+**Clients:** With the check box, POCKET KNIFE sets the winget setting `DefaultProxy` on the client with the next winget deployment (once, afterwards only on a change) and also uses the proxy when installing winget. Clearing the check box removes the setting again – but only if POCKET KNIFE set it itself (marker in the registry: `HKLM\SOFTWARE\PocketKnife`, value `WingetProxy`). **User and password never go to the clients.** If the proxy requires authentication, the clients sign in with their computer account – the proxy must allow Windows authentication (Kerberos/NTLM) for this or let the clients through by IP range without authentication.
 
 ## winget on Servers {#wingetbootstrap}
 
@@ -883,7 +883,7 @@ In the kiosk, users install approved software themselves – without administrat
 
 - **Only their own computer:** POCKET KNIFE checks live via WinRM which computer the user is signed in to (using the logon data from the inventory, the browser's address and the DNS name). Nothing can be requested for other computers – not even via the API.
 - **Only the catalog:** install or request, uninstall (if configured), status per software ("Waiting for approval", "Running", "Done", "Failed"), withdraw own requests as long as they are not running yet.
-- **Plan a restart:** if an installation needs a restart (or the last scan reports a pending restart), the kiosk offers "Now (in 2 minutes)", "In 1 hour" or a time on the same day. A notice appears on the computer before the restart; a planned restart can be cancelled.
+- **Plan a restart:** if an installation needs a restart (or the last scan reports a pending restart), the kiosk offers "Now (in 2 minutes)", "In 1 hour" or a time on the same day. A notice appears on the computer before the restart; a planned restart can be cancelled. Not possible for **servers** (including terminal servers) and while **other users** are still signed in to the computer.
 - **No administration:** kiosk sign-ins have no access whatsoever to the POCKET KNIFE interface (nor to remote sessions). Members of the access group can also use the kiosk for their own computer.
 
 Installations from the kiosk are normal deployments (name "Kiosk: …") – with log, run as service account and a scan afterwards as usual. Everything is logged under the category "Kiosk". The sign-out when idle also applies in the kiosk.
@@ -997,6 +997,7 @@ Under **Settings → E-mail & notifications** you can turn on e-mails for certai
 | Deployment failed | a deployment failed completely (optionally also partially) – one notification per deployment |
 | Service account guard triggered | automatic access was paused because the service account was rejected |
 | Backup failed | the automatic database backup failed |
+| Emergency access used | every sign-in via the emergency access and every failed attempt for it |
 | Custom report: … | a [custom report](#customreports) returns rows – one notification per custom report |
 
 Checks run every minute. Each case (e.g. "PC-17 drive C:") is reported **only once**; several new cases are combined in one e-mail. Optional: a **reminder** after N hours while the case is open, and an **all-clear** when it is resolved. For disk space a case only counts as resolved once at least 10 % more than the limit is free again – no back and forth around the limit. **What would be reported now?** in the dialog shows the currently matching cases without sending anything. Events (deployments, backups) only count from the moment the notification is turned on.
@@ -1072,7 +1073,7 @@ Further safeguards:
 - Schedules of OU admins: only their own tenant's collection as a collection target. A tenant that once had OU admins reaches no computers without a collection; tenants with schedules can only be deleted once these are reassigned. Any change to a tenant's group, collection or permissions ends its OU admins' sessions (they sign in again).
 - Remembering uninstall commands "for all", the central VNC password and the kiosk via the OU admin sign-in remain reserved for main admins or kiosk users.
 
-> **Recommendation:** OU admins are administrators on their computers. POCKET KNIFE signs in there with the domain-wide service account. Therefore: use Kerberos instead of CredSSP (Settings → Connection), add the service account to the "Protected Users" group (then "Kerberos only" – see [WinRM by Group Policy](#winrm-gpo)) and enforce SMB signing via GPO. For even stricter separation, use a separate POCKET KNIFE instance with its own service account per site.
+> **Recommendation:** OU admins are administrators on their computers. POCKET KNIFE signs in there with the domain-wide service account. Therefore: use Kerberos instead of NTLM (Settings → Connection), add the service account to the "Protected Users" group (then "Kerberos only" – see [WinRM by Group Policy](#winrm-gpo)) and enforce SMB signing via GPO. For even stricter separation, use a separate POCKET KNIFE instance with its own service account per site.
 
 ## Your own certificate {#certificate}
 

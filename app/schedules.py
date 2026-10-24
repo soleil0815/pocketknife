@@ -582,7 +582,7 @@ def _fire_safe(s, cids=None, reason="Zeitplan"):
     """Lauf starten; scheitert schon der Start (z. B. Datenbank gesperrt, Paket fehlerhaft), geht er nicht
     verloren: ein ganzer Lauf wird alle 15 Minuten wiederholt, einzelne Ziele werden vorgemerkt."""
     try:
-        fire(s, cids, reason=reason)
+        res = fire(s, cids, reason=reason)
     except ValueError as e:
         # Fehler in der Einrichtung (Paket fehlt, kein Ziel im Mandanten …): wird durch Wiederholen nicht besser –
         # einmal melden statt endlos alle 15 Minuten bzw. bei jedem Heartbeat
@@ -610,7 +610,9 @@ def _fire_safe(s, cids=None, reason="Zeitplan"):
         return False
     if cids is None:
         _clear_retry(s["id"])
-    return True
+    # Audit 2.29: vom Bruch im Repository unterbrochen = nichts geprüft/gestartet → kein „erledigt“ (sonst wären die
+    # automatischen Wiederholungen eines vorübergehenden Bruchs auf einen Schlag aufgebraucht)
+    return not (isinstance(res, dict) and res.get("blocked"))
 
 
 def retry_candidates(s):

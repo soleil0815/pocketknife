@@ -142,12 +142,12 @@ if ($cmd) {{
 $ok = ($code -eq 0 -or $code -eq 3010 -or $code -eq 1641 -or $code -eq 1605 -or $code -eq 1614)
 if ($key -and $ok -and $cmd) {{
   # Manche Uninstaller (z. B. NSIS) starten sich als Kopie neu und kehren sofort zurück – auf das Entfernen warten
-  for ($i = 0; $i -lt 60 -and (Test-Path $key); $i++) {{ Start-Sleep -Seconds 3 }}
+  for ($i = 0; $i -lt 60 -and (Test-Path -LiteralPath $key); $i++) {{ Start-Sleep -Seconds 3 }}
 }}
-if ($key -and (Test-Path $key)) {{
+if ($key -and (Test-Path -LiteralPath $key)) {{
   if ($cleanup) {{
-    Remove-Item -Path $key -Recurse -Force -ErrorAction SilentlyContinue
-    if (Test-Path $key) {{ Write-Output 'Registry-Eintrag konnte nicht entfernt werden.' }} else {{ Write-Output 'Verwaister Registry-Eintrag entfernt.' }}
+    Remove-Item -LiteralPath $key -Recurse -Force -ErrorAction SilentlyContinue
+    if (Test-Path -LiteralPath $key) {{ Write-Output 'Registry-Eintrag konnte nicht entfernt werden.' }} else {{ Write-Output 'Verwaister Registry-Eintrag entfernt.' }}
     if ($ok -or -not $cmd) {{ $code = 0 }} else {{ Write-Output ('Der Uninstaller ist fehlgeschlagen (Exitcode ' + $code + ') – die Software ist evtl. noch installiert.') }}
   }} elseif ($ok) {{
     Write-Output 'Hinweis: Der Registry-Eintrag ist nach 3 Minuten noch vorhanden – evtl. wartet der Uninstaller auf eine Eingabe.'

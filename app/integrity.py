@@ -461,10 +461,14 @@ def check_all(live=None):
 def _prune(used, before):
     """Stände von Dateien, die kein Paket mehr braucht, entfernen (Tabelle bleibt klein). Nur ältere als der Beginn des
     Durchlaufs – ein gerade gespeichertes Paket hat seinen Stand vielleicht erst währenddessen festgehalten."""
+    # Audit 2.29: auch Dateien behalten, die nur noch gespeicherte Bereitstellungen brauchen (geplant, „Erneut verteilen“,
+    # „Schritt wiederholen“) – sonst würde eine danach ausgetauschte Datei beim nächsten Lauf als neuer Stand übernommen
+    snap_files, snap_dirs = _snapshot_refs()
     for r in db.q("SELECT path FROM repo_baseline WHERE confirmed_at < ?", (before,)):
-        if r["path"] not in used:
-            db.ex("DELETE FROM repo_baseline WHERE path=?", (r["path"],))
-    dirs = set()
+        p = r["path"]
+        if p not in used and p not in snap_files and not any(p.startswith(d + "\\") for d in snap_dirs):
+            db.ex("DELETE FROM repo_baseline WHERE path=?", (p,))
+    dirs = set(snap_dirs)
     from . import deploy
     for row in db.q("SELECT * FROM packages"):
         for rel, kind, _m in refs(deploy.row_to_package(row)):
@@ -473,6 +477,24 @@ def _prune(used, before):
     for r in db.q("SELECT path FROM repo_baseline_dirs WHERE confirmed_at < ?", (before,)):
         if r["path"] not in dirs:
             db.ex("DELETE FROM repo_baseline_dirs WHERE path=?", (r["path"],))
+
+
+def _snapshot_refs():
+    """Repository-Dateien und -Ordner aus den Paket-Ständen gespeicherter Bereitstellungen."""
+    files, dirs = set(), set()
+    for d in db.q("SELECT DISTINCT package_json FROM deployments WHERE package_json IS NOT NULL"):
+        try:
+            pkg = json.loads(d["package_json"] or "{}")
+            for rel, kind, _m in refs(pkg):
+                k = key(rel)
+                if k:
+                    if kind in ("dir", "auto"):
+                        dirs.add(k)
+                    if kind != "dir":
+                        files.add(k)
+        except Exception:  # noqa: BLE001 – ein kaputter alter Stand darf das Aufräumen nicht verhindern
+            continue
+    return files, dirs
 
 
 def process_queue(seconds=240):
@@ -601,6 +623,17 @@ def guard(pkg, package_id=None, name=None):
     gespeichert – pkg kann ein Ausschnitt (Wiederholen einzelner Schritte) oder ein alter Stand sein."""
     res = evaluate(pkg, live=True, adopt=True, hash_now=True)
     nm = name or pkg.get("name") or "?"
+    # Audit 2.29: Hauptdatei mit anderem Änderungsdatum, deren Fingerabdruck vor dem Start nicht fertig wurde → nicht
+    # einfach laufen lassen (gleich große, ausgetauschte Datei); der Fingerabdruck wird im Hintergrund fertig gerechnet
+    # Nur die Installationsdatei selbst (nicht jede Datei eines kopierten Ordners – ein neu kopierter Ordner hätte sonst
+    # jeden Lauf blockiert)
+    inst = {key(r) for r, kd, m in refs(pkg) if kd == "file" and m}
+    for x in res.get("issues") or []:
+        if x["kind"] == "pending" and x["main"] and key(x["path"]) in inst:
+            x["level"] = "broken"
+            x["note"] = ("Änderungsdatum der Installationsdatei anders – Fingerabdruck noch nicht fertig (wird im Hintergrund "
+                         "berechnet); danach erneut starten")
+            res["state"] = "broken"
     if res["state"] == "broken":
         bad = {"issues": [x for x in res["issues"] if x["level"] == "broken"], "total": None}
         raise IntegrityError(f"Unterbrochen – Paket „{nm}“: Dateien im Repository haben sich geändert ({summary(bad)}). "

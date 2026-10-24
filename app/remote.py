@@ -1194,29 +1194,56 @@ def smb_probe(server, auth, user=None, password=None, share="ADMIN$"):
 # C:\Windows\Temp\PocketKnife: normale Benutzer dürfen in C:\Windows\Temp Ordner anlegen. Ein vorab angelegter
 # „PocketKnife“-Ordner mit eigenen Rechten würde es erlauben, Skripte/Installer vor dem Start als SYSTEM auszutauschen.
 # Deshalb: fremden Ordner beiseiteschieben und die Rechte auf SYSTEM + Administratoren beschränken.
-SECURE_BASE = r"""$b = Join-Path $env:windir 'Temp\PocketKnife'
-$okSids = @('S-1-5-18', 'S-1-5-32-544', [Security.Principal.WindowsIdentity]::GetCurrent().User.Value)
+SECURE_BASE = r"""$ErrorActionPreference = 'Stop'
+$b = Join-Path $env:windir 'Temp\PocketKnife'
+# Nur Cmdlets, Eigenschaften und icacls – läuft auch im Constrained Language Mode (SRP/AppLocker) unverändert sicher.
+# Besitzer und Berechtigungen kommen aus der SDDL (sprachunabhängig, keine .NET-Methoden).
+$me = ''
+try { $me = ((@(& whoami.exe /user /fo csv /nh) | Select-Object -Last 1) -split ',')[-1].Trim().Trim('"') } catch {}
+$okSids = @('SY', 'BA', 'S-1-5-18', 'S-1-5-32-544')
+if ($me -like 'S-1-*') { $okSids += $me }
+function PkTrusted([string]$p) {
+  try { $s = [string](Get-Acl -LiteralPath $p).Sddl } catch { return 'Rechte nicht lesbar' }
+  if ($s -notmatch '^O:(.+?)G:') { return 'kein Besitzer' }
+  $o = $Matches[1]
+  if ($okSids -notcontains $o) { return $o }
+  # jede Erlaubnis (A) darf nur SYSTEM/Administratoren gelten – sonst hat ein Benutzer Rechte hinterlegt
+  foreach ($m in @(Select-String -InputObject $s -Pattern '\(A;[^;]*;[^;]*;[^;]*;[^;]*;([^)]+)\)' -AllMatches | ForEach-Object { $_.Matches })) {
+    if ($okSids -notcontains $m.Groups[1].Value) { return 'Recht für ' + $m.Groups[1].Value }
+  }
+  return ''
+}
+function PkAside([string]$why) {
+  Rename-Item -LiteralPath $b -NewName ('PocketKnife.untrusted-' + (Get-Date -Format 'yyyyMMddHHmmss') + '-' + (Get-Random))
+  'PK_MOVED:' + $why
+}
 if (Test-Path -LiteralPath $b) {
-  $own = ''
-  try { $own = (Get-Acl -LiteralPath $b).GetOwner([Security.Principal.SecurityIdentifier]).Value } catch {}
-  if ($okSids -notcontains $own) {
-    [IO.Directory]::Move($b, $b + '.untrusted-' + [guid]::NewGuid().ToString('N'))
-    'PK_MOVED:' + $own
-  }
+  $why = PkTrusted $b
+  if ($why) { PkAside $why }
 }
+$new = $false
 if (-not (Test-Path -LiteralPath $b)) {
-  # Gleich mit den richtigen Rechten anlegen – sonst erbt der Ordner kurz die Rechte von C:\Windows\Temp
-  # (Benutzer dürfen dort Ordner anlegen) und ein Benutzer könnte in diesem Moment Unterordner vorbereiten
-  $sec = New-Object System.Security.AccessControl.DirectorySecurity
-  $sec.SetAccessRuleProtection($true, $false)
-  foreach ($sid in 'S-1-5-18', 'S-1-5-32-544') {
-    $sec.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule((New-Object System.Security.Principal.SecurityIdentifier($sid)), 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')))
+  $new = $true
+  if ($ExecutionContext.SessionState.LanguageMode -eq 'FullLanguage') {
+    # Gleich mit den richtigen Rechten anlegen – sonst erbt der Ordner kurz die Rechte von C:\Windows\Temp
+    $sec = New-Object System.Security.AccessControl.DirectorySecurity
+    $sec.SetAccessRuleProtection($true, $false)
+    foreach ($sid in 'S-1-5-18', 'S-1-5-32-544') {
+      $sec.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule((New-Object System.Security.Principal.SecurityIdentifier($sid)), 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')))
+    }
+    try { [void][IO.Directory]::CreateDirectory($b, $sec) } catch { New-Item -ItemType Directory -Path $b | Out-Null }
+  } else {
+    New-Item -ItemType Directory -Path $b | Out-Null  # ohne -Force: hat ihn gerade jemand angelegt → Fehler, nächster Versuch
   }
-  try { [void][IO.Directory]::CreateDirectory($b, $sec) }
-  catch { New-Item -ItemType Directory -Path $b -Force | Out-Null }  # ältere/neuere .NET-Versionen ohne diese Überladung
 }
+& icacls.exe $b /setowner '*S-1-5-32-544' /Q | Out-Null
 & icacls.exe $b /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' /Q | Out-Null
-if ($LASTEXITCODE -ne 0) { 'PK_ACLFAIL:' + $LASTEXITCODE } else { 'PK_BASE_OK' }
+if ($LASTEXITCODE -ne 0) { 'PK_ACLFAIL:' + $LASTEXITCODE; return }
+# Audit 2.29: danach erneut prüfen (Besitzer, Rechte) – ein im selben Moment angelegter fremder Ordner fällt so auf
+$why = PkTrusted $b
+if (-not $why -and $new -and @(Get-ChildItem -LiteralPath $b -Force).Count -gt 0) { $why = 'Inhalt beim Anlegen' }
+if ($why) { PkAside $why; 'PK_UNTRUSTED'; return }
+'PK_BASE_OK'
 """
 _secured = {}
 
@@ -1229,7 +1256,7 @@ def secure_workdir(host, force=False):
     out, err, _ = ps(host, SECURE_BASE)
     if "PK_MOVED:" in out:
         from . import pklog
-        pklog.warn("deploy", f"{host}: fremder Ordner C:\\Windows\\Temp\\PocketKnife (Besitzer {out.split('PK_MOVED:', 1)[1].split()[0] if out.split('PK_MOVED:', 1)[1].split() else '?'}) "
+        pklog.warn("deploy", f"{host}: fremder Ordner C:\\Windows\\Temp\\PocketKnife (Grund: {out.split('PK_MOVED:', 1)[1].split()[0] if out.split('PK_MOVED:', 1)[1].split() else '?'}) "
                              "wurde beiseitegeschoben und neu angelegt.")
     if "PK_BASE_OK" not in out:
         raise RemoteError("Arbeitsordner C:\\Windows\\Temp\\PocketKnife konnte nicht abgesichert werden: " + (err or out).strip()[:500])

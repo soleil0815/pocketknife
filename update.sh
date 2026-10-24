@@ -43,7 +43,8 @@ PULL=""
 PULLTAG=""
 PULLREF=""
 LOCAL_IMAGE="pocketknife:local"      # image name in docker-compose.yml
-PREV_IMAGE="pocketknife:previous"    # the previous image – going back needs no build
+PREV_IMAGE="pocketknife:previous"    # the image before the current (good) version – after a successful update
+BACK_IMAGE="pocketknife:rollback"    # the image running before THIS update – going back needs no build
 DEFAULT_IMAGE_REPO="ghcr.io/soleil0815/pocketknife"
 TAB=$(printf '\t')
 while [ $# -gt 0 ]; do
@@ -205,7 +206,8 @@ restore_prev() {
     fi
   fi
   if [ ! -s "$TMP/moved_old" ] && [ -z "${ENVCHANGED:-}" ] && [ -z "${ROTATE:-}" ]; then
-    rm -f "${MARK:-/nonexistent}"
+    # Was the run before this one already unfinished, the marker stays: .pk-vorher/ holds the last GOOD version
+    [ -n "${UNFINISHED:-}" ] || rm -f "${MARK:-/nonexistent}"
     STAGE=restored
   fi
   [ -n "$_e" ] && set -e
@@ -268,6 +270,13 @@ from_zip() {
   need_docker
 
   info "Checking $ZIP"
+  # Checksum from the release (pocketknife-X.zip.sha256 next to the ZIP): if present, it must match
+  if [ -f "$ZIP.sha256" ] && command -v sha256sum >/dev/null 2>&1; then
+    WANT=$(awk '{print $1; exit}' "$ZIP.sha256")
+    HAVE=$(sha256sum "$ZIP" | awk '{print $1}')
+    [ "$WANT" = "$HAVE" ] || die "Checksum of $(basename "$ZIP") does not match $(basename "$ZIP").sha256 – damaged or altered download. Nothing was changed."
+    say "  Checksum OK ($(basename "$ZIP").sha256)."
+  fi
   TMP=$(mktemp -d "$INST/.pk-update.XXXXXX") || die "Cannot create a temporary folder in $INST."
   # STAGE: empty = nothing changed yet; swap = program files (partly) swapped, the previous version is still running
   # → on ANY abort (error, Ctrl+C, full disk) put everything back automatically; started = new version started
@@ -279,7 +288,7 @@ from_zip() {
   if command -v unzip >/dev/null 2>&1; then
     unzip -q "$ZIP" -d "$TMP/zip" || die "The ZIP cannot be unpacked (damaged or incompletely downloaded?)."
   elif command -v python3 >/dev/null 2>&1; then
-    python3 -m zipfile -e "$ZIP" "$TMP/zip" || die "The ZIP cannot be unpacked."
+    python3 -I -m zipfile -e "$ZIP" "$TMP/zip" || die "The ZIP cannot be unpacked."
   else
     die "\"unzip\" is missing for unpacking (apt install unzip)."
   fi
@@ -339,11 +348,17 @@ from_zip() {
   done
   PREV="$INST/.pk-vorher"
   MARK="$INST/.pk-update-unvollstaendig"
-  ROTATE=1
+  ROTATE=1; UNFINISHED=""
   if [ -e "$MARK" ]; then
     ROTATE=""; say "  The last update was not completed – the saved state in .pk-vorher/ is kept."
-    # Abort (e.g. power failure) in the middle of rotating: the complete predecessor is then in .pk-vorher.alt
-    if [ -d "$PREV.alt" ]; then rm -rf "$PREV" && mv "$PREV.alt" "$PREV"; fi
+    # Only an abort IN THE MIDDLE of rotating (marker .pk-rotiert-gerade) leaves the complete predecessor in .pk-vorher.alt.
+    # Was the rotation finished (e.g. the new version did not start and going back was declined), .pk-vorher/ holds
+    # the last good version – then .pk-vorher.alt is only the one before and is NOT put back over it.
+    if [ -e "$INST/.pk-rotiert-gerade" ] && [ -d "$PREV.alt" ]; then rm -rf "${PREV:?}" && mv "$PREV.alt" "$PREV"
+    else rm -rf "${PREV:?}.alt"
+    fi
+    rm -f "$INST/.pk-rotiert-gerade"
+    UNFINISHED=1
   elif [ "$OLDVER" = "$NEWVER" ] && [ -d "$PREV" ]; then
     ROTATE=""; say "  Same version again – the saved state in .pk-vorher/ ($(tr -d ' \r\n' < "$PREV/VERSION" 2>/dev/null || echo ?)) is kept."
   fi
@@ -355,6 +370,7 @@ from_zip() {
   : > "$TMP/moved_old"; : > "$TMP/moved_new"
   STAGE=swap
   if [ -n "$ROTATE" ]; then
+    : > "$INST/.pk-rotiert-gerade"   # until all previous files are in .pk-vorher/ (see above)
     rm -rf "$PREV.alt"; [ -d "$PREV" ] && mv "$PREV" "$PREV.alt"
     mkdir -p "$PREV"
     [ -n "$HADENV" ] && cp "$TMP/bisher/.env" "$PREV/.env"
@@ -363,6 +379,7 @@ from_zip() {
     # record first, then move – so putting back knows exactly what happened even after an abort in between
     if [ -e "$INST/$n" ] || [ -L "$INST/$n" ]; then printf '%s\n' "$n" >> "$TMP/moved_old"; mv "$INST/$n" "$KEEP/$n"; fi
   done < "$TMP/items"
+  rm -f "$INST/.pk-rotiert-gerade"
   while IFS= read -r n; do
     if [ -e "$SRC/$n" ]; then printf '%s\n' "$n" >> "$TMP/moved_new"; mv "$SRC/$n" "$INST/$n"; fi
   done < "$TMP/items"
@@ -401,9 +418,17 @@ from_zip() {
   HAVEPREV=""; OLDREF=""
   PREVID=$(docker inspect pocketknife --format '{{.Image}}' 2>/dev/null || true)
   OLDREF=$(docker inspect pocketknife --format '{{.Config.Image}}' 2>/dev/null || true)
-  if [ -n "$PREVID" ] && docker tag "$PREVID" "$PREV_IMAGE" 2>/dev/null; then HAVEPREV=1
+  # RUN_BACK: the image running now – going back in THIS run starts it again (matches the program files put back).
+  # BACK_IMAGE („rollback“): the image of the last GOOD version (the one in .pk-vorher/). Normally both are the same.
+  # Was the last update not completed (going back declined), what runs now is the not-good version: then „rollback“
+  # keeps the last good image (never overwritten) and only RUN_BACK points to the running one.
+  RUN_BACK="$BACK_IMAGE"
+  if [ -n "$UNFINISHED" ] && docker image inspect "$BACK_IMAGE" >/dev/null 2>&1; then
+    RUN_BACK="pocketknife:rollback-run"
+    if [ -n "$PREVID" ] && docker tag "$PREVID" "$RUN_BACK" 2>/dev/null; then HAVEPREV=1; fi
+  elif [ -n "$PREVID" ] && docker tag "$PREVID" "$BACK_IMAGE" 2>/dev/null; then HAVEPREV=1
   elif docker image inspect "$LOCAL_IMAGE" >/dev/null 2>&1; then
-    docker tag "$LOCAL_IMAGE" "$PREV_IMAGE" && HAVEPREV=1 && OLDREF="$LOCAL_IMAGE"
+    docker tag "$LOCAL_IMAGE" "$BACK_IMAGE" && HAVEPREV=1 && OLDREF="$LOCAL_IMAGE"
   fi
   case "$OLDREF" in ''|*@*) OLDREF="$LOCAL_IMAGE" ;; esac
   if [ -n "$PULLREF" ]; then
@@ -411,7 +436,7 @@ from_zip() {
   else
     info "Building POCKET KNIFE $NEWVER (this can take a few minutes) ..."
     if ! docker build -t "$LOCAL_IMAGE" .; then
-      [ -n "$HAVEPREV" ] && docker tag "$PREV_IMAGE" "$OLDREF" 2>/dev/null
+      [ -n "$HAVEPREV" ] && docker tag "$RUN_BACK" "$OLDREF" 2>/dev/null
       restore_prev
       [ "$STAGE" = restored ] || die "The build failed; the previous program files could not be put back completely (see above)."
       die "The build failed – the previous version keeps running unchanged (program files restored)."
@@ -434,12 +459,12 @@ from_zip() {
       BACKUP_UP="back_build"
       # previous image still there → start exactly that one (no build, no internet)
       # (under the name the previous .env expects – e.g. …/pocketknife:latest already points to the NEW image)
-      if [ -n "$HAVEPREV" ] && docker tag "$PREV_IMAGE" "$OLDREF" 2>/dev/null; then BACKUP_UP="docker compose up -d"; fi
+      if [ -n "$HAVEPREV" ] && docker tag "$RUN_BACK" "$OLDREF" 2>/dev/null; then BACKUP_UP="docker compose up -d"; fi
       if ! ( cd "$BACKDIR" && if [ "$BACKUP_UP" = back_build ]; then back_build; else $BACKUP_UP; fi ); then
         die "The previous version $OLDVER does not start either (program files are restored). The cause is in:
   cd $BACKDIR && docker compose logs --tail 50   (e.g. port in use, Docker service disturbed)"
       fi
-      rm -f "$MARK"
+      [ -n "$UNFINISHED" ] || rm -f "$MARK"   # still unfinished: .pk-vorher/ keeps the last GOOD version
       say "Previous version $OLDVER is running again."
       say "If the new version already extended the database and the old one shows errors: Settings → Backup →"
       say "backup \"vor-$NEWVER\" (README: restore)."
@@ -448,11 +473,18 @@ from_zip() {
   fi
   # Done: the new state applies, .pk-vorher/ contains exactly the previous one
   rm -f "$MARK"; rm -rf "$PREV.alt"
+  # the image before this (now good) version stays as „previous“ (for going back by hand); a failed update never
+  # overwrites it – so the last good image is not pruned
+  if docker image inspect "$BACK_IMAGE" >/dev/null 2>&1; then
+    docker tag "$BACK_IMAGE" "$PREV_IMAGE" 2>/dev/null && docker rmi "$BACK_IMAGE" >/dev/null 2>&1 || true
+  fi
+  [ "$RUN_BACK" = "$BACK_IMAGE" ] || docker rmi "$RUN_BACK" >/dev/null 2>&1 || true
   STAGE=done
   mounts >> "$TMP/protect"   # and those of the new version
 
   info "Self-test (checks that fixed bugs have not come back) ..."
-  if docker compose exec -T pocketknife python3 tools/selftest.py > "$TMP/selftest.txt" 2>&1; then
+  # -I: als root nie Code aus Benutzer-site-packages oder PYTHON*-Variablen; HOME, an dem niemand etwas ablegen kann
+  if docker compose exec -T -e HOME=/nonexistent pocketknife python3 -I /opt/pocketknife/tools/selftest.py > "$TMP/selftest.txt" 2>&1; then
     tail -n 1 "$TMP/selftest.txt"
   else
     tail -n 15 "$TMP/selftest.txt" || true

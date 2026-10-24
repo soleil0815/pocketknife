@@ -71,8 +71,27 @@ def available():
 
 
 def mode():
+    # Audit 2.29: CredSSP gibt das Kennwort des Dienstkontos an jeden Client weiter (dort von jedem lokalen Admin
+    # auslesbar, z. B. OU-Admins) – wird nicht mehr unterstützt; „credssp“ in der .env gilt als Negotiate.
     m = (_setting("auth_mode") or config.WINRM_AUTH or "ntlm").strip().lower()
-    return m if m in MODES or m == "credssp" else "ntlm"
+    if m == "credssp":
+        _warn_credssp()
+        return "negotiate"
+    return m if m in MODES else "ntlm"
+
+
+_credssp_warned = []
+
+
+def _warn_credssp():
+    if not _credssp_warned:
+        _credssp_warned.append(1)
+        try:
+            from . import pklog
+            pklog.warn("system", "PK_WINRM_AUTH=credssp wird nicht mehr unterstützt (gibt das Kennwort des Dienstkontos an die "
+                                 "Clients weiter) – es gilt „Negotiate“. Empfehlung: „Nur Kerberos“.")
+        except Exception:
+            pass
 
 
 def _setting(key):

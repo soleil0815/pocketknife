@@ -117,7 +117,9 @@ def substitute(text, c, mode=None):
     def enc(name, v):
         if mode == "url":
             return urllib.parse.quote(v, safe=".:-_\\")
-        if mode in ("powershell", "cmd") and not SAFE_VALUE.match(v):
+        # Audit 2.29: auch ein Wert, der mit „-“ beginnt oder „ -“ enthält, gilt als unsicher (würde unzitiert zu einem
+        # weiteren Parameter, z. B. „max -Force“)
+        if mode in ("powershell", "cmd") and (not SAFE_VALUE.match(v) or v.startswith("-") or " -" in v):
             # Werte vom Client (z. B. Benutzername) könnten Code enthalten: „x&calc“, „$(…)“, „O'Brien“
             if mode == "powershell":
                 return f"$($PK_{name})"  # sicher zitierte Variable (ps_variables) statt des Textes

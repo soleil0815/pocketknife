@@ -1283,13 +1283,22 @@ def forget_idents(pid):
     db.ex("DELETE FROM pkg_ident WHERE package_id=?", (pid,))
 
 
+_backfill_pos = {"after": 0}
+
+
 def backfill(limit=100, seconds=60):
     """Kennzeichen nachtragen (Pakete von vor 2.27, Fingerabdruck inzwischen berechnet). Neue Duplikate über Bereiche
     hinweg lassen sich nachträglich nicht mehr sperren – sie kommen ins Protokoll."""
     t0 = time.time()
     n = 0
-    for r in db.q("SELECT * FROM packages WHERE ident_at IS NULL OR ident_at < COALESCE(updated_at, '') ORDER BY id LIMIT ?", (limit,)):
+    # Audit 2.29: reihum weiter (ab der zuletzt bearbeiteten ID) – sonst kämen bei ≥ limit dauerhaft offenen Paketen
+    # (Freigabe meldet Fehler für deren Dateien) die späteren nie an die Reihe
+    rows = db.q("SELECT * FROM packages WHERE (ident_at IS NULL OR ident_at < COALESCE(updated_at, '')) AND id > ? "
+                "ORDER BY id LIMIT ?", (_backfill_pos["after"], limit))
+    _backfill_pos["after"] = rows[-1]["id"] if len(rows) >= limit else 0
+    for r in rows:
         if time.time() - t0 > seconds:
+            _backfill_pos["after"] = max(0, r["id"] - 1)
             break
         p = deploy.row_to_package(r)
         ids, pending = idents(p)

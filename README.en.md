@@ -2,7 +2,7 @@ Deutsche Fassung: [README.md](README.md)
 
 # POCKET KNIFE
 
-Current version: **pocketknife-2.28.2** – see `CHANGELOG.md` (German).
+Current version: **pocketknife-2.29** – see `CHANGELOG.md` (German).
 
 Website: [helfi.space](https://helfi.space)
 
@@ -254,7 +254,7 @@ With a private repository the image is private too; the Docker hosts sign in onc
 | `PK_COMPUTER_BASE_DN` | Initial value for the search bases (from 2.2 maintainable under Settings → Active Directory) | `PK_BASE_DN` |
 | `PK_ACCESS_GROUP` | Access group (name or DN) | `POCKETKNIFE-Admins` |
 | `PK_SERVICE_USER` / `PK_SERVICE_PASSWORD` | Service account (`*_FILE` for Docker secrets). **Optional from 2.2** – better stored under Settings → "Service account & repository account" | – |
-| `PK_WINRM_AUTH` | Authentication method for WinRM/SMB: `ntlm`, `negotiate`, `kerberos`, `credssp` (can be overridden in the interface) | `ntlm` |
+| `PK_WINRM_AUTH` | Authentication method for WinRM/SMB: `ntlm`, `negotiate`, `kerberos` (can be overridden in the interface; `credssp` is no longer supported since 2.29) | `ntlm` |
 | `PK_LDAP_CA_FILE` | Domain CA (PEM) for full validation of the LDAPS certificate, e.g. `/data/ca.pem` | empty = remember the certificate on first contact |
 | `PK_WINRM_CA_FILE` | CA (PEM) for validating the client certificates with WinRM over HTTPS, e.g. `/data/winrm-ca.pem` | empty = do not validate |
 | `PK_KDC` | Domain controllers for Kerberos (comma-separated), if DNS SRV is not sufficient | DNS |

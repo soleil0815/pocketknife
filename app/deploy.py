@@ -94,20 +94,28 @@ $pkWeb = @{}
 if ($PKProxy) { $pkWeb.Proxy = $PKProxy; $pkWeb.ProxyUseDefaultCredentials = $true }
 function PK-WingetProxy {
   # Proxy aus POCKET KNIFE als winget-Administratoreinstellung „DefaultProxy“ setzen – und nur selbst gesetzte wieder entfernen
-  $mark = Join-Path $env:ProgramData 'PocketKnife\winget-proxy.txt'
-  $old = ''
-  if (Test-Path $mark) { $old = ('' + (Get-Content $mark -Raw -ErrorAction SilentlyContinue)).Trim() }
+  # Merker in HKLM (nur Administratoren/SYSTEM) – nicht in %ProgramData%, dort dürfen Benutzer Ordner vorab anlegen (Audit 2.29)
+  $mark = 'HKLM:\SOFTWARE\PocketKnife'
+  $old = $null
+  try { $old = ('' + (Get-ItemProperty -LiteralPath $mark -Name WingetProxy -ErrorAction Stop).WingetProxy).Trim() } catch {}
+  if ($null -eq $old) {
+    # bis 2.28 lag der Merker als Datei vor – einmalig übernehmen (nur lesen)
+    $old = ''
+    $f = Join-Path $env:ProgramData 'PocketKnife\winget-proxy.txt'
+    if (Test-Path -LiteralPath $f -PathType Leaf) { $old = ('' + (Get-Content -LiteralPath $f -Raw -ErrorAction SilentlyContinue)).Trim() }
+  }
   if ($PKProxy -eq $old) { return }
   $id = [Security.Principal.WindowsIdentity]::GetCurrent()
   if (-not $id.IsSystem -and -not ([Security.Principal.WindowsPrincipal]$id).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { return }
   if ($PKProxy) { $o = & $wg settings set DefaultProxy $PKProxy 2>&1 } else { $o = & $wg settings reset DefaultProxy 2>&1 }
   if ($LASTEXITCODE -eq 0) {
     if ($PKProxy) {
-      New-Item -ItemType Directory -Force -Path (Split-Path $mark) | Out-Null
-      Set-Content -Path $mark -Value $PKProxy -Encoding ASCII
+      if (-not (Test-Path -LiteralPath $mark)) { New-Item -Path $mark -Force | Out-Null }
+      Set-ItemProperty -LiteralPath $mark -Name WingetProxy -Value $PKProxy
       Write-Output ('winget-Proxy eingestellt: ' + $PKProxy)
     } else {
-      Remove-Item $mark -Force -ErrorAction SilentlyContinue
+      if (-not (Test-Path -LiteralPath $mark)) { New-Item -Path $mark -Force | Out-Null }
+      Set-ItemProperty -LiteralPath $mark -Name WingetProxy -Value ''
       Write-Output 'winget-Proxy von POCKET KNIFE wieder entfernt.'
     }
   } else { Write-Output ('winget-Proxy nicht übernommen: ' + (($o | Out-String).Trim())) }
@@ -117,8 +125,13 @@ function PK-FindWinget {
   if ($c.Count -gt 0) {
     return ($c | Sort-Object { try { [version](($_.Path -split '_')[1]) } catch { [version]'0.0' } } -Descending | Select-Object -First 1).Path
   }
-  $g = Get-Command winget.exe -ErrorAction SilentlyContinue
-  if ($g) { return $g.Source }
+  # Ersatzweg über PATH nur mit gültiger Microsoft-Signatur – sonst liefe als SYSTEM eine untergeschobene winget.exe
+  # aus einem für Benutzer beschreibbaren PATH-Ordner (Audit 2.29)
+  $g = Get-Command winget.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+  if ($g) {
+    $sig = Get-AuthenticodeSignature -LiteralPath $g.Source -ErrorAction SilentlyContinue
+    if ($sig -and "$($sig.Status)" -eq 'Valid' -and "$($sig.SignerCertificate.Subject)" -match 'O=Microsoft Corporation') { return $g.Source }
+  }
   return $null
 }
 function PK-InstallWinget {
@@ -383,7 +396,7 @@ WINGET_MESSAGES = {
 
 
 # --- Ablauf ----------------------------------------------------------------
-def tenant_members(tid):
+def tenant_members(tid, strict=False):
     """Computer, die ein Mandant erreichen darf: set – oder None = keine Einschränkung.
     Sicherheitsregeln: Mandant gelöscht → keine Computer; Mandant, der je OU-Admins hatte, ohne (gültige) Sammlung →
     keine Computer (deren Pakete/Zeitpläne dürfen nie „überall“ laufen)."""
@@ -397,10 +410,12 @@ def tenant_members(tid):
     try:
         return set(collections_.member_ids(int(col)))
     except Exception:
+        if strict:
+            raise
         return set()
 
 
-def tenant_filter(pkg, ids):
+def tenant_filter(pkg, ids, strict=False):
     """Pakete eines Mandanten (auch verschachtelte) nur auf Computer der Mandanten-Sammlung verteilen."""
     from . import collections_, steps
     tenants = set()
@@ -414,7 +429,7 @@ def tenant_filter(pkg, ids):
     walk(pkg)
     allowed = None
     for t in tenants:
-        mem = tenant_members(t)
+        mem = tenant_members(t, strict)
         if mem is not None:
             allowed = mem if allowed is None else allowed & mem
     if allowed is None:
@@ -509,12 +524,50 @@ def start(did, checked=False):
             except integrity.IntegrityError as e:
                 _interrupt(did, str(e))
                 return
+    _rescope(did)
     # Nur wenn noch nicht abgebrochen – sonst stünde eine abgebrochene Bereitstellung für immer auf „läuft“
     if db.ex_count("UPDATE deployments SET status='running', started_at=COALESCE(started_at, ?) WHERE id=? "
                    "AND status IN ('queued','scheduled','running')", (util.now(), did)) != 1:
         return
     for t in db.q("SELECT id FROM deployment_targets WHERE deployment_id=? AND status='queued'", (did,)):
         pool().submit(_run_target_safe, did, t["id"])
+
+
+def _rescope(did):
+    """Audit 2.29: Mandantenbereich beim START erneut anwenden (nicht nur beim Anlegen) – ein Computer, der seit dem
+    Planen die Mandanten-Sammlung verlassen hat, bekommt das Mandantenpaket nicht mehr."""
+    d = db.q1("SELECT package_json FROM deployments WHERE id=?", (did,))
+    if not d:
+        return
+    try:
+        pkg = json.loads(d["package_json"] or "{}")
+    except ValueError:
+        return
+    rows = db.q("SELECT id, computer_id FROM deployment_targets WHERE deployment_id=? AND status='queued'", (did,))
+    try:
+        # strict: eine kurze Störung (Datenbank gesperrt) darf nicht alle Ziele als „nicht mehr im Mandanten“ auslassen
+        keep, dropped = tenant_filter(pkg, [r["computer_id"] for r in rows if r["computer_id"]], strict=True)
+    except Exception as e:  # noqa: BLE001
+        pklog.warn("deploy", f"Bereitstellung #{did}: Mandantenbereich beim Start nicht prüfbar ({e}) – Ziele wie beim Anlegen.")
+        return
+    if not dropped:
+        return
+    keep = set(keep)
+    now = util.now()
+    for r in rows:
+        if r["computer_id"] not in keep:
+            db.ex("UPDATE deployment_targets SET status='skipped', message=?, finished_at=? WHERE id=? AND status='queued'",
+                  ("Gehört nicht (mehr) zum Mandanten des Pakets – ausgelassen", now, r["id"]))
+    pklog.info("deploy", f"Bereitstellung #{did}: {dropped} Computer gehören nicht mehr zum Mandanten und wurden ausgelassen.")
+
+
+def restart_stuck(minutes=3):
+    """Audit 2.29: „wartend“ angelegte Bereitstellungen, deren Start scheiterte (z. B. Datenbank kurz gesperrt), blieben
+    bis zum nächsten Neustart liegen – und sperrten ihre Computer für alle Zeitpläne. Jetzt holt der Takt sie nach."""
+    old = util.ago(minutes=minutes)
+    for d in db.q("""SELECT d.id FROM deployments d WHERE d.status='queued' AND d.created_at <= ? AND EXISTS(
+                     SELECT 1 FROM deployment_targets t WHERE t.deployment_id = d.id AND t.status='queued')""", (old,)):
+        start(d["id"])
 
 
 def _interrupt(did, msg):

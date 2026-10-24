@@ -2,6 +2,48 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.29",
+   "date": "2026-10-24",
+   "items": [
+    {
+     "kind": "security",
+     "audience": "admin",
+     "de": "Code-Audit: Fehlt eine Sammlung aus einer Paket-Bedingung oder ist sie nicht auswertbar, wird das Paket übersprungen (bisher wurde aus „nicht Mitglied von Ausnahmen“ still „überall“). Solche Sammlungen lassen sich nicht mehr löschen.",
+     "en": "Code audit: if a collection used in a package condition is missing or cannot be evaluated, the package is skipped (previously “not a member of exceptions” silently became “everywhere”). Such collections can no longer be deleted."
+    },
+    {
+     "kind": "security",
+     "audience": "admin",
+     "de": "Mandantenpakete laufen nie als Dienstkonto; der Arbeitsordner auf dem Client wird nach dem Anlegen erneut geprüft (auch im eingeschränkten Sprachmodus); der Datei-Explorer folgt beim Löschen/Kopieren keinen Verknüpfungen; CredSSP wird nicht mehr unterstützt.",
+     "en": "Tenant packages never run as the service account; the work folder on the client is re-checked after creation (also in Constrained Language Mode); the file explorer no longer follows links when deleting/copying; CredSSP is no longer supported."
+    },
+    {
+     "kind": "security",
+     "audience": "admin",
+     "de": "Notfallzugang: neue Benachrichtigung „Notfallzugang benutzt“. Anmeldefehler nennen keine Domänencontroller mehr; das Diagnosepaket maskiert weitere Kennwörter und anonymisiert Mandanten.",
+     "en": "Emergency access: new alert “Emergency access used”. Sign-in errors no longer name domain controllers; the diagnostics package masks more passwords and anonymises tenants."
+    },
+    {
+     "kind": "security",
+     "audience": "all",
+     "de": "Kiosk: kein Neustart von Servern und keiner, solange noch andere Benutzer angemeldet sind.",
+     "en": "Kiosk: no restart of servers and none while other users are still signed in."
+    },
+    {
+     "kind": "fixed",
+     "audience": "admin",
+     "de": "Zeitpläne: ein vorübergehender Bruch im Repository verbraucht keine Wiederholungen mehr, und Bereitstellungen bleiben nicht mehr auf „wartend“ hängen. Paket-Import ordnet gleichnamige Sammlungen eindeutig zu.",
+     "en": "Schedules: a temporary repository break no longer uses up retries, and deployments no longer get stuck as “queued”. Package import maps collections with the same name unambiguously."
+    },
+    {
+     "kind": "improved",
+     "audience": "admin",
+     "de": "update.sh behält nach einem abgelehnten Zurückgehen den letzten guten Stand und das letzte gute Image und prüft die Prüfsumme der ZIP, falls vorhanden.",
+     "en": "update.sh keeps the last good state and image after a declined rollback and verifies the ZIP checksum if present."
+    }
+   ]
+  },
+  {
    "version": "2.28.2",
    "date": "2026-10-24",
    "items": [

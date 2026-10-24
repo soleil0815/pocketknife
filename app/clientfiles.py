@@ -398,7 +398,6 @@ def rename(cid, path, name, new):
 
 def delete(cid, items):
     """items: [{path, name, dir}] – Dateien und (rekursiv) Ordner löschen. Gibt (gelöscht, [fehler]) zurück."""
-    import smbclient.shutil as smbshutil
     smbclient, _c, host = _session(cid)
     ok, errs = 0, []
     for it in items or []:
@@ -415,7 +414,7 @@ def delete(cid, items):
                 # Nur die Verknüpfung entfernen – niemals ihr Ziel (z. B. C:\ProgramData) rekursiv löschen
                 (smbclient.rmdir if isdir else smbclient.remove)(unc)
             elif isdir:
-                smbshutil.rmtree(unc)
+                rmtree_nofollow(smbclient, unc)  # Audit 2.29: nie in Junctions hinein (smbclient.shutil.rmtree täte das)
             else:
                 smbclient.remove(unc)
             ok += 1
@@ -424,6 +423,59 @@ def delete(cid, items):
         except FileError as e:
             errs.append(f"{it.get('name')}: {e}")
     return ok, errs
+
+
+REPARSE, DIRECTORY = 0x400, 0x10
+TREE_MAX = 200000  # Einträge je Löschen/Kopieren (Schutz vor endlosen Strukturen)
+
+
+def _attr(smbclient, path):
+    return getattr(smbclient.lstat(path), "st_file_attributes", 0) or 0
+
+
+def rmtree_nofollow(smbclient, path, _n=None):
+    """Ordner löschen, OHNE Verknüpfungen (Junctions, Symlinks) zu folgen: eine Verknüpfung darin wird nur selbst
+    entfernt. smbclient.shutil.rmtree ginge hinein – der Server löst sie auf SEINER Seite auf, gelöscht würde dann
+    deren Ziel (mit Administratorrechten), z. B. von einem Benutzer gesetzt."""
+    n = _n if _n is not None else [0]
+    attr = _attr(smbclient, path)
+    if attr & REPARSE:
+        smbclient.rmdir(path) if attr & DIRECTORY else smbclient.remove(path)
+        return
+    for e in list(smbclient.scandir(path)):
+        n[0] += 1
+        if n[0] > TREE_MAX:
+            raise FileError("Zu viele Einträge – bitte in kleineren Teilen löschen.")
+        sub = ntpath.join(path, e.name)
+        a = _attr(smbclient, sub)  # direkt vor dem Löschen erneut nachsehen (nicht dem Verzeichnislisting trauen)
+        if a & REPARSE:
+            smbclient.rmdir(sub) if a & DIRECTORY else smbclient.remove(sub)
+        elif a & DIRECTORY:
+            rmtree_nofollow(smbclient, sub, n)
+        else:
+            smbclient.remove(sub)
+    smbclient.rmdir(path)
+
+
+def copytree_nofollow(smbclient, smbshutil, src, dst, _n=None):
+    """Ordner kopieren; Verknüpfungen darin werden ausgelassen (nicht verfolgt) – sonst ließen sich über eine
+    gesetzte Junction geschützte Dateien an einen lesbaren Ort kopieren."""
+    n = _n if _n is not None else [0]
+    if _attr(smbclient, src) & REPARSE:
+        raise FileError("Verknüpfungen lassen sich nicht kopieren.")
+    smbclient.mkdir(dst)
+    for e in list(smbclient.scandir(src)):
+        n[0] += 1
+        if n[0] > TREE_MAX:
+            raise FileError("Zu viele Einträge – bitte in kleineren Teilen kopieren.")
+        s, d = ntpath.join(src, e.name), ntpath.join(dst, e.name)
+        a = _attr(smbclient, s)
+        if a & REPARSE:
+            continue
+        if a & DIRECTORY:
+            copytree_nofollow(smbclient, smbshutil, s, d, n)
+        else:
+            smbshutil.copyfile(s, d)
 
 
 def transfer(cid, action, src_dir, items, dst_dir):
@@ -452,7 +504,7 @@ def transfer(cid, action, src_dir, items, dst_dir):
             if action == "move":
                 smbclient.rename(s, d)
             elif isdir:
-                smbshutil.copytree(s, d)
+                copytree_nofollow(smbclient, smbshutil, s, d)
             else:
                 smbshutil.copyfile(s, d)
             ok += 1

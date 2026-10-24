@@ -138,7 +138,11 @@ def probe(c, now=None, force=False):
     if r.get("error") in ("paused", "other"):
         # Nicht prüfbar (Dienstkonto-Schutz, Zeitüberschreitung): beim bisherigen Ergebnis bleiben
         _set_addr(c["id"], c, **fields)
-        return _verdict(prob) if prob else (True, True)
+        if prob:
+            return _verdict(prob)
+        # Audit 2.29: neue, noch nie bestätigte Adresse → nicht als bestätigt behandeln (erreichbar, aber nicht nutzbar,
+        # bis die Prüfung beim nächsten Durchlauf klappt)
+        return (True, False) if verified_ip and verified_ip != ip else (True, True)
     if r.get("error") in ("auth", "krb_modified"):
         fields.update(addr_problem="unverified",
                       addr_detail=(f"Unter {ip} kann das Gerät das Kerberos-Ticket für {c['name']} nicht lesen – der DNS-Eintrag "

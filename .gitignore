@@ -10,3 +10,6 @@ dist/
 .pk-pull.*/
 data-backup/
 repo/
+.pk-rollback-ref
+.pk-rotiert-gerade
+.pk-update-unvollstaendig

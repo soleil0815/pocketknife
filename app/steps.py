@@ -599,6 +599,10 @@ def effective_run_as(st, pkg):
     if st["type"] == "install" and st.get("source") == "winget" and ra == "deploy":
         # winget ist für das Dienstkonto meist nicht registriert – als SYSTEM läuft es zuverlässig
         ra, note = "system", "winget läuft als Lokales System, weil der App-Installer für das Dienstkonto nicht registriert ist."
+    elif ra == "deploy" and pkg.get("tenant_id"):
+        # Audit 2.29: Mandantenpakete nie als domänenweites Dienstkonto – ihre Dateien (Mandantenordner) kann der OU-Admin
+        # austauschen, egal wer das Paket gespeichert hat. Die Dateien kopiert POCKET KNIFE selbst; SYSTEM genügt.
+        ra, note = "system", "Mandantenpaket – läuft als Lokales System statt als Dienstkonto."
     return ra, note
 
 
@@ -679,7 +683,7 @@ def preview(st, pkg):
         lines += ["  " + x for x in st["script"].splitlines()[:30]]
     elif t == "filecopy":
         tgt = st["target"]
-        lines.append(f'robocopy.exe "{RUN_DIR}\\payload" "{tgt}" /E /R:1 /W:2 /NP{" /XC /XN /XO" if not st.get("overwrite", True) else ""}')
+        lines.append(f'robocopy.exe "{RUN_DIR}\\payload" "{tgt}" /E /XJ /R:1 /W:2 /NP{" /XC /XN /XO" if not st.get("overwrite", True) else ""}')
         notes.append(f"Vorher wird „{st['source']}“ aus dem Repository nach {RUN_DIR}\\payload kopiert.")
     elif t == "registry":
         lines += [reg_line(e, st.get("view", "64")) for e in st["entries"][:60]]
@@ -752,7 +756,7 @@ def body_for(st, pkg):
                 "New-Item -ItemType Directory -Path $pkT -Force | Out-Null\n"
                 # robocopy liest \" als Anführungszeichen: abschließenden \ entfernen (Laufwerk: C:\ -> C:\.)
                 "$pkT = $pkT.TrimEnd('\\'); if ($pkT -match '^[A-Za-z]:$') { $pkT += '\\.' }\n"
-                f"PK-Run 'robocopy.exe' ('\"' + (Join-Path $PKDir 'payload') + '\" \"' + $pkT + '\" /E /R:1 /W:2 /NP /NJH /NJS{extra}')\n"
+                f"PK-Run 'robocopy.exe' ('\"' + (Join-Path $PKDir 'payload') + '\" \"' + $pkT + '\" /E /XJ /R:1 /W:2 /NP /NJH /NJS{extra}')\n"
                 "if ($global:PKExit -lt 8) { Write-Output 'Kopieren erfolgreich.'; $global:PKExit = 0 }\n")
     if t == "registry":
         return reg_body(st)
@@ -874,11 +878,15 @@ class Runner:
             if cc["id"] == 0:  # Pseudo-Sammlung „Alle Computer“
                 mem, name = True, "Alle Computer"
             else:
+                # Audit 2.29: fehlt die Sammlung oder lässt sie sich gerade nicht auswerten, gilt die Bedingung als NICHT
+                # erfüllt (beide Arten) – sonst würde aus „nicht Mitglied von Ausnahmen“ still „überall installieren“
+                name = db.val("SELECT name FROM collections WHERE id=?", (cc["id"],))
+                if name is None:
+                    return False, f"Sammlung #{cc['id']} aus der Bedingung gibt es nicht mehr – Paket-Bedingung anpassen"
                 try:
                     mem = self.c["id"] in collections_.member_ids(cc["id"])
-                except Exception:
-                    mem = False
-                name = db.val("SELECT name FROM collections WHERE id=?", (cc["id"],), f"#{cc['id']}")
+                except Exception as e:  # noqa: BLE001
+                    return False, f"Mitgliedschaft in „{name}“ nicht prüfbar ({str(e)[:120]}) – sicherheitshalber übersprungen"
             if cc["mode"] == "member" and not mem:
                 return False, f"nicht Mitglied der Sammlung „{name}“"
             if cc["mode"] == "not_member" and mem:
@@ -970,7 +978,9 @@ class Runner:
                 return "success", ""
             if t == "message":
                 tm = f"/TIME:{st['timeout_sec']} " if st.get("timeout_sec") else ""
-                out, err, _ = remote.ps(self.host, f"& msg.exe * {tm}{util.psq(st['text'])} 2>&1; 'Exitcode: ' + $LASTEXITCODE")
+                # Audit 2.29: Text bereinigt (keine " – Windows PowerShell 5.1 gibt das Argument sonst zerlegt an msg.exe weiter)
+                txt = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", " ", st["text"]).replace('"', "'").rstrip().rstrip("\\") or "-"
+                out, err, _ = remote.ps(self.host, f"& msg.exe * {tm}{util.psq(txt)} 2>&1; 'Exitcode: ' + $LASTEXITCODE")
                 mrc = re.search(r"Exitcode:\s*(-?\d+)", out or "")
                 if mrc and int(mrc.group(1)) != 0:
                     # msg.exe meldet z. B. 1, wenn niemand angemeldet ist – kein Grund, das Paket abzubrechen
@@ -1111,6 +1121,8 @@ $out = foreach ($r in $roots) { Get-ChildItem -Path $r | ForEach-Object {
                 body = deploy._winget_body(p2)
             else:
                 body = deploy._custom_body(p2)
+            if ra == "deploy" and pkg.get("tenant_id"):
+                ra = "system"  # Audit 2.29: Mandantenpakete nie als Dienstkonto (siehe effective_run_as)
             self.n += 1
             name = f"{self.did}_{self.tid}_{self.n}_{self.token}"
             self.set_status(f"Schritt: deinstalliere {sw['name']} …")
