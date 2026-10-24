@@ -230,6 +230,9 @@ CREATE INDEX IF NOT EXISTS ix_repo_hash_sha ON repo_hash(sha256);
 CREATE TABLE IF NOT EXISTS pkg_ident(package_id INTEGER NOT NULL, kind TEXT NOT NULL, value TEXT NOT NULL,
   PRIMARY KEY(package_id, kind, value));
 CREATE INDEX IF NOT EXISTS ix_pkg_ident_v ON pkg_ident(kind, value);
+
+-- 2.28: Neuigkeiten in der App – je Benutzer die zuletzt angesehene Version
+CREATE TABLE IF NOT EXISTS news_seen(username TEXT PRIMARY KEY, version TEXT, at TEXT);
 """
 
 DEFAULT_SETTINGS = {
@@ -256,6 +259,8 @@ DEFAULT_SETTINGS = {
     # 2.27 Repository-Upload: größte Datei, Standard-Kontingent je Mandant (0 = unbegrenzt), erlaubte Dateitypen für
     # OU-Admins (Hauptadmins dürfen alles hochladen)
     "repo_upload_max_mb": 4096, "repo_tenant_quota_mb": 0,
+    # 2.28: Hinweis auf neue Versionen (der Server fragt einmal täglich bei GitHub; Token verschlüsselt als „update_token“)
+    "update_check_enabled": 1, "update_repo": "soleil0815/pocketknife",
     "repo_upload_types": "msi,msp,msu,mst,exe,cmd,bat,ps1,psm1,psd1,vbs,reg,zip,7z,cab,msix,msixbundle,appx,appxbundle,"
                          "ini,inf,cat,sys,dll,xml,json,txt,cfg,config,conf,lic,cer,crt,iso,wim,dat,bin,ico,png",
     "integrity_full_enabled": 1, "integrity_full_start": 1, "integrity_full_end": 6, "integrity_full_mbps": 50,

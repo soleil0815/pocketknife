@@ -287,6 +287,23 @@ To change the width of the collection tree (and the report list), drag its right
 
 Almost every page has a **?** at the top right that jumps directly to the matching chapter of this help.
 
+## News and updates {#news}
+
+After an update, a discreet **New** appears below the version number at the top left – with security updates **New · Security** with a red dot. One click opens the news: short points per version, marked as **Security**, **New**, **Improved** or **Fixed** (security always at the top). Afterwards the hint disappears; the news remains available via **News** in the same place. POCKET KNIFE remembers per user what they have seen – anyone who missed several updates sees all of them since. All details remain in the CHANGELOG.
+
+**New version available** (main admins only): the POCKET KNIFE server checks GitHub for the newest release once a day – never the browser, and through the proxy server if one is set. If there is a newer version, it shows **↑ 2.28.1 available** (red if it contains security updates). The click shows its news and the command for the update on the Docker host (`sh update.sh --pull`, see [Update](#update)); it is logged once.
+
+Settings under **Settings → Maintenance → News and updates**:
+
+| Field | Meaning |
+|---|---|
+| Check | ask once a day for new versions (can be switched off) |
+| Repository | GitHub repository with the releases, e.g. `soleil0815/pocketknife` (or your own fork) |
+| Read token | only for a private repository: fine-grained token with read access to the repository ("Contents: Read"). Stored encrypted, never shown, never in the diagnostics package |
+| Check now | ask immediately; the status shows the result or the reason (token invalid, repository not found, no connection) |
+
+Without internet access or without a token nothing happens – no error in the interface.
+
 ## Tables {#tables}
 
 All lists work the same way:

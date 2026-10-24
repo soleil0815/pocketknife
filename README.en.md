@@ -2,7 +2,7 @@ Deutsche Fassung: [README.md](README.md)
 
 # POCKET KNIFE
 
-Current version: **pocketknife-2.27.1** – see `CHANGELOG.md` (German).
+Current version: **pocketknife-2.28** – see `CHANGELOG.md` (German).
 
 Website: [helfi.space](https://helfi.space)
 
@@ -33,6 +33,7 @@ For developers: the manual texts are in `app/static/help/de.md` and `en.md`; `py
 | Packages | Built from **steps** (Preparation, Steps, Finalize): Install (winget or file from the repository: MSI, MSP, MSU, EXE, CMD/BAT, PS1, REG – with MSI auto-detection), Command, PowerShell, nested package, file copy, Registry (set and delete values/keys, .reg import), Scan, Restart, Wait, Message, Sign out. Conditions (operating system, architecture, PowerShell, sign-in status, file, registry, collection), run as service account/System/logged-on user, error behavior, preview of the actual command line; after a successful installation/update optionally a **Windows notification** for the logged-on user ("7-Zip has been updated. Installed version: 26.00"); repository search while building packages (instant, via an in-memory directory); **export/import** of packages as a file (e.g. into a second installation – without IDs, repository paths relative); **break detection**: size, date and fingerprint of the repository files used are recorded – if a file is missing or the installation file changes, deployments and schedules are interrupted until someone accepts the new state (quick check every 5 minutes, weekly full check at night) |
 | Deployments | Immediately or scheduled, for a selection or collection, list with target (collection/computer), live progress, result per step and computer, "Retry failed" and **retry individual failed steps** ("Only this step" / "From this step", for all affected computers or a single one) |
 | Schedules | **Everything automatic in one place** – kind "Deploy packages" (several packages in sequence) or "winget updates" (all or specific IDs, exclusions); triggers incl. **Heartbeat**, optional time window (weekdays, also across midnight), targets, queue offline computers, wait time after failure, re-serve after X hours, preview, target history |
+| News | discreetly in the sidebar: what is new (security, new, improved, fixed) and – for main admins – whether a new version is available (the server checks GitHub once a day) |
 | Repository | Manage installation files directly in the web interface: **upload** (files and whole folders, also by dragging from the desktop, in pieces with resume), create folders, rename, **move with automatic adjustment of the paths in all packages** (preview, backup first, rollback on error), delete only what no package uses; wizard "Restructure repository"; **duplicate block** (same winget ID, MSI product code or file by SHA-256 only once – central or with one tenant); **find file** by fingerprint when something was moved outside |
 | Tenants | Packages and schedules per customer/site, optionally restricted to a collection; **OU admins**: members of a tenant's AD group sign in and manage only that tenant's computers (deploy all packages, change only their own, own ones only with approval; repository folder `Mandanten\<Name>` is created automatically, upload with quota) – checked server-side at every interface |
 | Reports | 19 reports (including software, outdated software, operating systems, disk space, Windows updates, security status, local admins, software changes, deployment history) – table, CSV export (Excel-compatible), print view |
@@ -243,7 +244,7 @@ First steps after signing in:
 
 The source code lives on GitHub; GitHub builds the images. Steps for a new version:
 
-1. Increase `VERSION` and add a section `## pocketknife-<version> (date)` to `CHANGELOG.md` (without a matching section the build stops).
+1. Increase `VERSION`, add a section `## pocketknife-<version> (date)` to `CHANGELOG.md` and the version's news to `app/news.json` (short, German and English; kind `security`/`new`/`improved`/`fixed`) – if one is missing, the build stops.
 2. Commit and push – `Test` builds the image (amd64) and runs the self-test in it.
 3. Set a tag: `git tag v<version> && git push origin v<version>`. `Release` then builds for **amd64 and arm64**, runs the self-test in both (arm64 emulated, takes longer), uploads the image as `ghcr.io/<owner>/pocketknife:<version>` and `:latest` and creates a release with `pocketknife-<version>.zip`, checksum and image digest. If a step fails, nothing is published.
 

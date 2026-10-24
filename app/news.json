@@ -1,0 +1,89 @@
+{
+ "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
+ "versions": [
+  {"version": "2.28", "date": "2026-10-24", "items": [
+   {"kind": "new", "audience": "all",
+    "de": "Neuigkeiten direkt in POCKET KNIFE: Nach einem Update zeigt die Seitenleiste dezent „Neu“ – ein Klick zeigt, was sich geändert hat. Sicherheitsupdates stehen immer oben.",
+    "en": "News right in POCKET KNIFE: after an update the sidebar shows a discreet “New” – one click shows what has changed. Security updates are always at the top."},
+   {"kind": "new", "audience": "admin",
+    "de": "Hinweis auf neue Versionen: POCKET KNIFE fragt einmal täglich bei GitHub nach und zeigt „Version … verfügbar“ samt Neuigkeiten und Update-Befehl. Abschaltbar unter Einstellungen → Wartung → Neuigkeiten und Updates.",
+    "en": "Notice of new versions: POCKET KNIFE checks GitHub once a day and shows “Version … available” with its news and the update command. Can be switched off under Settings → Maintenance → News and updates."}
+  ]},
+  {"version": "2.27.1", "date": "2026-10-24", "items": [
+   {"kind": "new", "audience": "admin",
+    "de": "Update mit fertigem Image: „sh update.sh --pull“ lädt die neue Version für amd64 und arm64 aus der Registry – ohne lokales Bauen. Der ZIP-Weg bleibt.",
+    "en": "Update with a ready-made image: “sh update.sh --pull” fetches the new version for amd64 and arm64 from the registry – no local build. The ZIP way remains."},
+   {"kind": "improved", "audience": "admin",
+    "de": "Neues Hilfe-Kapitel „WinRM per Gruppenrichtlinie einrichten und absichern“ mit Abbildungen – von der Firewall bis zum Anmeldeverfahren.",
+    "en": "New help chapter “Set up and secure WinRM by Group Policy” with illustrations – from the firewall to the authentication method."},
+   {"kind": "security", "audience": "admin",
+    "de": "Hinweis korrigiert: Das Dienstkonto in „Geschützte Benutzer“ funktioniert nur zusammen mit „Nur Kerberos“ (NTLM ist dann gesperrt).",
+    "en": "Note corrected: putting the service account into “Protected Users” only works together with “Kerberos only” (NTLM is blocked then)."}
+  ]},
+  {"version": "2.27", "date": "2026-10-24", "items": [
+   {"kind": "new", "audience": "all",
+    "de": "Ansicht „Repository“: Installationsdateien hochladen (auch ganze Ordner, per Ziehen), Ordner anlegen, umbenennen, verschieben und löschen – die Pfade in den Paketen werden automatisch angepasst.",
+    "en": "“Repository” view: upload installation files (also whole folders, by dragging), create folders, rename, move and delete – paths in packages are adjusted automatically."},
+   {"kind": "new", "audience": "all",
+    "de": "Duplikatsperre: Dieselbe Software (winget-ID, MSI-Produktcode, gleiche Datei) gibt es nur einmal – zentral oder bei einem Mandanten. Alle dürfen alle Pakete verteilen.",
+    "en": "Duplicate block: the same software (winget ID, MSI product code, identical file) exists only once – central or with one tenant. Everyone may deploy all packages."},
+   {"kind": "new", "audience": "all",
+    "de": "„Datei suchen …“ im Paket findet verschobene Dateien per Fingerabdruck wieder und übernimmt die neuen Pfade.",
+    "en": "“Find file …” in the package finds moved files again by fingerprint and applies the new paths."},
+   {"kind": "security", "audience": "all",
+    "de": "Dateien in Ordnern, die zentrale Pakete oder andere Mandanten benutzen, lassen sich von OU-Admins nicht ändern oder ergänzen; Löschen folgt nie einer Verknüpfung.",
+    "en": "Files in folders used by central packages or other tenants cannot be changed or added to by OU admins; deleting never follows a link."}
+  ]},
+  {"version": "2.26", "date": "2026-10-24", "items": [
+   {"kind": "new", "audience": "all",
+    "de": "Bruchprüfung: Fehlt eine Repository-Datei eines Pakets oder wurde die Installationsdatei ausgetauscht, werden Bereitstellungen unterbrochen, bis jemand den neuen Stand übernimmt. Spalte „Zustand“ in der Paketliste.",
+    "en": "Break detection: if a repository file of a package is missing or the installation file was replaced, deployments are interrupted until someone accepts the new state. “State” column in the package list."}
+  ]},
+  {"version": "2.25.7", "date": "2026-10-23", "items": [
+   {"kind": "improved", "audience": "all",
+    "de": "Datei-Explorer: ein einziges Suchfeld – Enter durchsucht den Ordner samt Unterordnern auf dem Computer.",
+    "en": "File explorer: a single search field – Enter searches the folder including subfolders on the computer."}
+  ]},
+  {"version": "2.25.6", "date": "2026-10-23", "items": [
+   {"kind": "fixed", "audience": "all",
+    "de": "Suche im Datei-Explorer findet jetzt auch tief verschachtelte Dateien – und ist rund 40-mal schneller.",
+    "en": "File explorer search now also finds deeply nested files – and is about 40 times faster."}
+  ]},
+  {"version": "2.25.5", "date": "2026-10-23", "items": [
+   {"kind": "improved", "audience": "all",
+    "de": "Paketliste: grünes Häkchen bei Paketen, nach denen der Benutzer eine Windows-Benachrichtigung bekommt.",
+    "en": "Package list: green check mark for packages after which the user gets a Windows notification."}
+  ]},
+  {"version": "2.25.4", "date": "2026-10-23", "items": [
+   {"kind": "new", "audience": "all",
+    "de": "Datei-Explorer durchsuchbar – die Suche läuft auf dem Computer selbst. Repository-Suche ohne Wartezeit.",
+    "en": "File explorer searchable – the search runs on the computer itself. Repository search without waiting."},
+   {"kind": "new", "audience": "all",
+    "de": "Pakete exportieren und importieren (z. B. in eine zweite Installation).",
+    "en": "Export and import packages (e.g. into a second installation)."}
+  ]},
+  {"version": "2.25.3", "date": "2026-10-23", "items": [
+   {"kind": "new", "audience": "all",
+    "de": "Wiederholen mit frei gewählten Schritten: einzelne Schritte einer Bereitstellung gezielt erneut ausführen.",
+    "en": "Retry with freely chosen steps: run individual steps of a deployment again."}
+  ]},
+  {"version": "2.25.2", "date": "2026-10-23", "items": [
+   {"kind": "new", "audience": "all",
+    "de": "Notizen und eigene Felder (z. B. Inventarnummer, Raum) direkt beim Computer.",
+    "en": "Notes and custom fields (e.g. inventory number, room) right on the computer."}
+  ]},
+  {"version": "2.25.1", "date": "2026-10-23", "items": [
+   {"kind": "security", "audience": "all",
+    "de": "Änderungen im AD wirken von selbst: Wer aus der Gruppe entfernt wird, verliert den Zugang nach spätestens 2 Minuten.",
+    "en": "Changes in AD take effect on their own: anyone removed from the group loses access within 2 minutes."}
+  ]},
+  {"version": "2.25", "date": "2026-10-22", "items": [
+   {"kind": "new", "audience": "admin",
+    "de": "OU-Admins: Mitglieder der AD-Gruppe eines Mandanten betreuen nur dessen Computer.",
+    "en": "OU admins: members of a tenant's AD group manage only that tenant's computers."},
+   {"kind": "security", "audience": "all",
+    "de": "Für OU-Admins ist jede Funktion gesperrt, die nicht ausdrücklich freigegeben ist; ihre Pakete laufen nie als Dienstkonto.",
+    "en": "For OU admins every function is blocked unless explicitly enabled; their packages never run as the service account."}
+  ]}
+ ]
+}

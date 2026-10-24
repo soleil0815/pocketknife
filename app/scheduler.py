@@ -218,6 +218,10 @@ def tick():
         _last["integrity"] = time.time()
         from . import integrity
         _bg("integrity", integrity.background)
+    if _due("update_check", 60):
+        _last["update_check"] = time.time()
+        from . import news
+        _bg("update_check", news.check)  # fragt selbst nur einmal täglich bei GitHub (CHECK_HOURS)
     if _due("repo_idents", 10):
         _last["repo_idents"] = time.time()
         from . import repofiles

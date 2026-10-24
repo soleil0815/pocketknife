@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTex
 from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 
-from . import (access, backup, clientfiles, integrity, kiosk, pkgexport, repofiles, sso, customreports, mailer, notify, diskusage, kerberos, presence, tls, actions, ad, auth, guard, profiles, remote_desktop, scanners, tools, uninstall, collections_, config, db, deploy, inventory, pklog, remote, reports, scheduler,
+from . import (access, backup, clientfiles, integrity, kiosk, news, pkgexport, repofiles, sso, customreports, mailer, notify, diskusage, kerberos, presence, tls, actions, ad, auth, guard, profiles, remote_desktop, scanners, tools, uninstall, collections_, config, db, deploy, inventory, pklog, remote, reports, scheduler,
                schedules, steps, util, winget)
 
 
@@ -250,6 +250,38 @@ def api_me(user=U):
         me["may_build"] = access.may_build(user)
         me["computers"] = len(access.computer_ids(user))
     return me
+
+
+@app.get("/api/news")
+def api_news(user=U):
+    """Neuigkeiten in der App (Seitenleiste „Neu“); für Hauptadmins dazu eine neuere Version, falls verfügbar."""
+    return news.for_user(user)
+
+
+@app.post("/api/news/seen")
+def api_news_seen(data: dict = Body(default={}), user=U):
+    return news.mark_seen(user, (data or {}).get("version"))
+
+
+@app.get("/api/system/updates")
+def api_updates(user=U):
+    return news.settings()
+
+
+@app.put("/api/system/updates")
+def api_updates_save(data: dict = Body(...), user=U):
+    try:
+        out = news.save(data)
+    except ValueError as e:
+        _err(e)
+    pklog.info("system", "Einstellungen „Neuigkeiten und Updates“ geändert.", user=user["username"])
+    return out
+
+
+@app.post("/api/system/updates/check")
+def api_updates_check(user=U):
+    """Jetzt bei GitHub nach einer neuen Version fragen (sonst einmal täglich im Hintergrund)."""
+    return {**news.check(force=True, who=user["username"]), "settings": news.settings()}
 
 
 @app.post("/api/session/active")
@@ -2780,7 +2812,8 @@ def api_logs_csv(level: str = "", category: str = "", q: str = "", limit: int = 
 INTERNAL_SETTINGS = {"ldap_cert_fingerprint", "ldap_cert_fingerprints", "ldap_cert_pending", "ad_filter", "ad_containers",
                      "ad_last_sync", "ad_last_status", "ad_sync_minutes", "ad_remove_missing", "ad_auto_sync",
                      "ad_sync_disabled", "ad_ou_collections", "ad_group_collections",
-                     "proxy_url", "proxy_user", "proxy_clients"}  # Proxy: nur über /api/system/proxy (geprüft, Kennwort im Tresor)
+                     "proxy_url", "proxy_user", "proxy_clients",
+                     "update_check_enabled", "update_repo"}  # 2.28: nur über /api/system/updates (geprüft)  # Proxy: nur über /api/system/proxy (geprüft, Kennwort im Tresor)
 def rebootmsg_clean(v, limit):
     from . import rebootmsg
     return rebootmsg.clean(v, limit)

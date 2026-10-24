@@ -287,6 +287,23 @@ Die Breite des Sammlungsbaums (und der Berichtsliste) ändern Sie, indem Sie den
 
 Fast jede Seite hat oben rechts ein **?**, das direkt zum passenden Kapitel dieser Hilfe springt.
 
+## Neuigkeiten und Updates {#news}
+
+Unter der Versionsnummer links oben steht nach einem Update dezent **Neu** – bei Sicherheitsupdates **Neu · Sicherheit** mit rotem Punkt. Ein Klick öffnet die Neuigkeiten: je Version kurze Punkte, gekennzeichnet als **Sicherheit**, **Neu**, **Verbessert** oder **Behoben** (Sicherheit immer oben). Danach verschwindet der Hinweis; die Neuigkeiten bleiben über **Neuigkeiten** an derselben Stelle erreichbar. POCKET KNIFE merkt sich je Benutzer, was er gesehen hat – wer mehrere Updates verpasst hat, sieht alle seither. Alle Einzelheiten stehen weiterhin im CHANGELOG.
+
+**Neue Version verfügbar** (nur Hauptadmins): Der POCKET-KNIFE-Server fragt einmal täglich bei GitHub nach dem neuesten Release – nie der Browser, und über den Proxyserver, falls eingetragen. Gibt es eine neuere Version, steht dort **↑ 2.28.1 verfügbar** (rot, wenn sie Sicherheitsupdates enthält). Der Klick zeigt ihre Neuigkeiten und den Befehl für das Update auf dem Docker-Host (`sh update.sh --pull`, siehe [Update](#update)); im Protokoll steht es einmal.
+
+Einstellungen unter **Einstellungen → Wartung → Neuigkeiten und Updates**:
+
+| Feld | Bedeutung |
+|---|---|
+| Prüfen | einmal täglich nach neuen Versionen fragen (abschaltbar) |
+| Repository | GitHub-Repository mit den Releases, z. B. `soleil0815/pocketknife` (oder ein eigener Fork) |
+| Lese-Token | nur bei einem privaten Repository: fein granulares Token mit Lesezugriff auf das Repository („Contents: Read“). Verschlüsselt gespeichert, nie angezeigt, nie im Diagnosepaket |
+| Jetzt prüfen | sofort fragen; der Stand zeigt das Ergebnis oder den Grund (Token ungültig, Repository nicht gefunden, keine Verbindung) |
+
+Ohne Internetzugang oder ohne Token passiert einfach nichts – kein Fehler in der Oberfläche.
+
 ## Tabellen {#tables}
 
 Alle Listen funktionieren gleich:

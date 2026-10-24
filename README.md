@@ -2,7 +2,7 @@ English version: [README.en.md](README.en.md)
 
 # POCKET KNIFE
 
-Aktuelle Version: **pocketknife-2.27.1** – siehe `CHANGELOG.md`.
+Aktuelle Version: **pocketknife-2.28** – siehe `CHANGELOG.md`.
 
 Webseite: [helfi.space](https://helfi.space)
 
@@ -33,6 +33,7 @@ Für Entwickler: Die Texte des Handbuchs stehen in `app/static/help/de.md` und `
 | Pakete | Aus **Schritten** (Vorbereitung, Schritte, Abschluss): Installieren (winget oder Datei aus dem Repository: MSI, MSP, MSU, EXE, CMD/BAT, PS1, REG – mit MSI-Autoerkennung), Befehl, PowerShell, verschachteltes Paket, Dateikopie, Registry (Werte/Schlüssel setzen und löschen, .reg-Import), Scannen, Neustart, Warten, Nachricht, Abmelden. Bedingungen (Betriebssystem, Architektur, PowerShell, Anmeldestatus, Datei, Registry, Sammlung), Ausführen als Dienstkonto/System/angemeldeter Benutzer, Fehlerverhalten, Vorschau des tatsächlichen Aufrufs; nach erfolgreicher Installation/Aktualisierung optional eine **Windows-Benachrichtigung** für den angemeldeten Benutzer („7-Zip wurde aktualisiert. Installierte Version: 26.00“); Repository-Suche beim Paketbau (sofort, über ein Verzeichnis im Arbeitsspeicher); **Export/Import** von Paketen als Datei (z. B. in eine zweite Installation – ohne IDs, Repository-Pfade relativ); **Bruchprüfung**: Größe, Datum und Fingerabdruck der benutzten Repository-Dateien werden festgehalten – fehlt eine Datei oder ändert sich die Installationsdatei, werden Bereitstellungen und Zeitpläne unterbrochen, bis jemand den neuen Stand übernimmt (Schnellprüfung alle 5 Minuten, wöchentliche Vollprüfung nachts) |
 | Bereitstellungen | Sofort oder geplant, für Auswahl oder Sammlung, Liste mit Ziel (Sammlung/Computer), Live-Fortschritt, Ergebnis je Schritt und Computer, „Fehlgeschlagene erneut“ sowie **einzelne fehlgeschlagene Schritte wiederholen** („Nur diesen Schritt“ / „Ab diesem Schritt“, für alle betroffenen oder einen einzelnen Computer) |
 | Zeitpläne | **Alles Automatische an einer Stelle** – Art „Pakete verteilen“ (mehrere Pakete nacheinander) oder „winget-Updates“ (alle oder bestimmte IDs, Ausnahmen); Auslöser inkl. **Heartbeat**, optionales Zeitfenster (Wochentage, auch über Mitternacht), Ziele, offline Computer vormerken, Wartezeit nach Fehlschlag, erneut versorgen nach X Stunden, Vorschau, Zielverlauf |
+| Neuigkeiten | dezent in der Seitenleiste: was ist neu (Sicherheit, Neu, Verbessert, Behoben) und – für Hauptadmins – ob eine neue Version verfügbar ist (der Server fragt einmal täglich bei GitHub) |
 | Repository | Installationsdateien direkt in der Oberfläche verwalten: **hochladen** (Dateien und ganze Ordner, auch per Ziehen vom Desktop, in Stücken mit Fortsetzen), Ordner anlegen, umbenennen, **verschieben mit automatischer Anpassung der Pfade in allen Paketen** (Vorschau, Sicherung vorher, Zurückdrehen bei Fehler), löschen nur, was kein Paket benutzt; Assistent „Repository umstrukturieren“; **Duplikatsperre** (gleiche winget-ID, MSI-Produktcode oder Datei per SHA-256 nur einmal – zentral oder bei einem Mandanten); **Datei suchen** per Fingerabdruck, wenn außerhalb verschoben wurde |
 | Mandanten | Pakete und Zeitpläne je Kunde/Standort, optional auf eine Sammlung beschränkt; **OU-Admins**: Mitglieder der AD-Gruppe eines Mandanten melden sich an und betreuen nur dessen Computer (alle Pakete verteilen, ändern nur eigene, eigene nur mit Freigabe; Repository-Ordner `Mandanten\<Name>` wird automatisch angelegt, Upload mit Kontingent) – serverseitig an jeder Schnittstelle geprüft |
 | Berichte | 19 Berichte (u. a. Software, veraltete Software, Betriebssysteme, Speicherplatz, Windows-Updates, Sicherheitsstatus, lokale Admins, Softwareänderungen, Bereitstellungsverlauf) – Tabelle, CSV-Export (Excel-kompatibel), Druckansicht |
@@ -243,7 +244,7 @@ Erste Schritte nach der Anmeldung:
 
 Der Quellcode liegt auf GitHub; GitHub baut die Images. Ablauf für eine neue Version:
 
-1. `VERSION` erhöhen und in `CHANGELOG.md` einen Abschnitt `## pocketknife-<Version> (Datum)` anlegen (ohne passenden Abschnitt bricht der Bau ab).
+1. `VERSION` erhöhen, in `CHANGELOG.md` einen Abschnitt `## pocketknife-<Version> (Datum)` anlegen und in `app/news.json` die Neuigkeiten der Version (kurz, Deutsch und Englisch; Art `security`/`new`/`improved`/`fixed`) – fehlt eins davon, bricht der Bau ab.
 2. Committen und pushen – `Test` baut das Image (amd64) und führt den Selbsttest darin aus.
 3. Tag setzen: `git tag v<Version> && git push origin v<Version>`. `Release` baut dann für **amd64 und arm64**, führt den Selbsttest in beiden aus (arm64 emuliert, dauert länger), lädt das Image als `ghcr.io/<besitzer>/pocketknife:<Version>` und `:latest` hoch und legt ein Release mit `pocketknife-<Version>.zip`, Prüfsumme und Image-Digest an. Schlägt ein Schritt fehl, wird nichts veröffentlicht.
 

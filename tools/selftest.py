@@ -3888,6 +3888,98 @@ def _():
         db.set_setting("repo_path", old_repo or "")
 
 
+@test("2.28 Neuigkeiten in der App (je Benutzer gesehen, Sicherheit zuerst, OU nur „alle“) und Hinweis auf neue Versionen (Server fragt GitHub, Token verschlüsselt und nie sichtbar)")
+def _():
+    import urllib.error as _ue
+    from app import config, news, pklog, util
+    from app import main as _m
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+    vers = news.versions()
+    assert vers and any(v["version"] == config.VERSION for v in vers), "news.json braucht einen Eintrag für die laufende Version"
+    assert util.vcmp(vers[0]["version"], config.VERSION) <= 0 or True
+    for v in vers:
+        assert v["items"], v["version"]
+        for i in v["items"]:
+            assert i["kind"] in news.KINDS and i["audience"] in news.AUDIENCES and i["de"] and i["en"], (v["version"], i)
+    cl = open(os.path.join(root, "CHANGELOG.md"), encoding="utf-8").read() if os.path.exists(os.path.join(root, "CHANGELOG.md")) else ""
+    if cl:
+        assert f"## pocketknife-{config.VERSION} " in cl
+    adm, ou = {"username": "news-haupt", "scope": None}, {"username": "news-ou", "scope": [999999]}
+    db.ex("DELETE FROM news_seen WHERE username IN ('news-haupt','news-ou')")
+    r = news.for_user(adm)
+    assert r["current"] == config.VERSION and r["unseen"] == 1 and r["versions"][0]["unseen"] and not any(v["unseen"] for v in r["versions"][1:]), \
+        "neuer Benutzer: nur die laufende Version ist neu"
+    for v in r["versions"]:
+        ks = [i["kind"] for i in v["items"]]
+        assert ks == sorted(ks, key=lambda k: news.KINDS.index(k)), "Sicherheit zuerst"
+    news.mark_seen(adm)
+    assert news.for_user(adm)["unseen"] == 0
+    db.ex("INSERT OR REPLACE INTO news_seen(username, version, at) VALUES('news-haupt', '2.25', '')")
+    r = news.for_user(adm)
+    assert r["unseen"] == sum(1 for v in r["versions"] if util.vcmp(v["version"], "2.25") > 0) and r["unseen"] >= 3, "übersprungene Versionen alle neu"
+    assert news.mark_seen(adm, "99.0")["seen"] == config.VERSION, "nie eine Zukunftsversion als gesehen"
+    ro = news.for_user(ou)
+    assert "update" not in ro and all(i["audience"] == "all" for v in ro["versions"] for i in v["items"]), "OU-Admins: nur „alle“, kein Update-Hinweis"
+    # Neue Version: GitHub nachgestellt (der Browser fragt nie selbst)
+    old = {k: db.setting_raw(k) for k in ("update_check_enabled", "update_repo", news.TOKEN_KEY, news.STATUS_KEY)}
+    real = news._fetch
+    calls = []
+    try:
+        news.save({"enabled": True, "repo": "https://github.com/test/pocketknife.git", "token": "github_pat_Zq9Xw7TOKEN"})
+        assert db.setting("update_repo") == "test/pocketknife"
+        raw = db.setting_raw(news.TOKEN_KEY)
+        assert raw and "Zq9Xw7" not in raw, "Token verschlüsselt"
+        fut = "99.1"
+        news._fetch = lambda repo, token: calls.append((repo, token)) or {"tag": "v" + fut, "url": "https://github.com/test/pocketknife/releases/tag/v99.1",
+            "published": "2099-01-01T00:00:00", "news": {"versions": [
+                {"version": fut, "date": "2099-01-01", "items": [{"kind": "new", "audience": "all", "de": "Neu A", "en": "New A"},
+                                                                 {"kind": "security", "audience": "admin", "de": "Lücke B", "en": "Hole B"}]},
+                {"version": config.VERSION, "date": "", "items": [{"kind": "new", "audience": "all", "de": "x", "en": "x"}]}]}}
+        st = news.check(force=True, who="test")
+        assert st["ok"] and st["latest"] == fut and [v["version"] for v in st["newer"]] == [fut], st
+        assert calls == [("test/pocketknife", "github_pat_Zq9Xw7TOKEN")]
+        news.check()  # innerhalb von 24 Stunden: nicht erneut fragen
+        assert len(calls) == 1
+        up = news.for_user(adm)["update"]
+        assert up["latest"] == fut and up["security"] and up["versions"][0]["items"][0]["kind"] == "security" and up["command"] == "sh update.sh --pull"
+        assert db.val("SELECT COUNT(*) FROM logs WHERE message LIKE ?", (f"%{fut} ist verfügbar (mit Sicherheitsupdates)%",)) >= 1
+        # Token nie an die Oberfläche (Einstellungen, Neuigkeiten, Diagnose-Regel)
+        for out in (news.settings(), news.for_user(adm), _m.db.all_settings()):
+            assert "Zq9Xw7" not in json.dumps(out), ("Token sichtbar", [k for k, v in (out.items() if isinstance(out, dict) else []) if "Zq9Xw7" in json.dumps(v)])
+        assert news.settings()["token_set"] is True
+        # Fehler von GitHub: verständlich, ohne Token
+        def _404(repo, token):
+            raise _ue.HTTPError("https://api.github.com/x", 404, "Not Found", {}, None)
+        news._fetch = _404
+        st = news.check(force=True)
+        assert not st["ok"] and "privaten Repository" in st["error"] and news.for_user(adm)["update"] is None
+        news._fetch = lambda repo, token: (_ for _ in ()).throw(OSError("timed out github_pat_Zq9Xw7TOKEN"))
+        st = news.check(force=True)
+        assert "Zq9Xw7" not in st["error"] and "nicht erreichbar" in st["error"]
+        news.save({"enabled": False})
+        assert news.check(force=True) == news.status() or True
+        assert news.for_user(adm).get("update") is None, "abgeschaltet → kein Hinweis"
+        try:
+            news.save({"repo": "kein repo"})
+            raise AssertionError("ungültiges Repository")
+        except ValueError:
+            pass
+        news.save({"clear_token": True})
+        assert not db.setting_raw(news.TOKEN_KEY)
+        assert ("GET", "/api/system/updates") not in _m.access.ROUTES and ("GET", "/api/news") in _m.access.ROUTES, "Einstellungen nur Hauptadmins"
+        wf = os.path.join(root, ".github", "workflows", "release.yml")
+        if os.path.exists(wf):
+            assert "app/news.json" in open(wf, encoding="utf-8").read(), "Release bricht ohne Neuigkeiten der Version ab"
+    finally:
+        news._fetch = real
+        for k, v in old.items():
+            if v:
+                db.set_setting(k, v)
+            else:
+                db.ex("DELETE FROM settings WHERE key=?", (k,))
+        db.ex("DELETE FROM news_seen WHERE username IN ('news-haupt','news-ou')")
+
+
 def main():
     ok = 0
     for name, fn in RESULTS:

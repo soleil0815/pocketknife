@@ -305,6 +305,8 @@ OPEN = None
 ROUTES = {
     # Sitzung
     ("GET", "/api/me"): OPEN,
+    ("GET", "/api/news"): OPEN,             # Handler: OU-Admins nur Neuigkeiten für alle, nie Update-Hinweise
+    ("POST", "/api/news/seen"): OPEN,
     # Übersicht und Computer (Handler filtern Listen)
     ("GET", "/api/dashboard"): OPEN,
     ("GET", "/api/computers"): OPEN,

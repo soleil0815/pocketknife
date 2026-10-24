@@ -40,6 +40,8 @@ jobs:
             echo "::error::Tag $GITHUB_REF_NAME passt nicht zu VERSION $VER (erwartet v$VER)"; exit 1
           fi
           grep -q "^## pocketknife-$VER " CHANGELOG.md || { echo "::error::CHANGELOG.md hat keinen Eintrag für $VER"; exit 1; }
+          python3 -c "import json,sys; v=sys.argv[1]; d=json.load(open('app/news.json')); sys.exit(0 if any(x['version']==v for x in d['versions']) else 1)" "$VER" \
+            || { echo "::error::app/news.json hat keine Neuigkeiten für $VER (Seitenleiste „Neu“)"; exit 1; }
           echo "version=$VER" >> "$GITHUB_OUTPUT"
           echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
 

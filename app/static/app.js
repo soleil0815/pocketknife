@@ -943,7 +943,7 @@ function rawCol(c) {
 
 function renderShell() {
   const nav = h('nav.nav',
-    h('div.brand', h('img', { src: '/static/logo.svg', alt: '' }), h('div', h('b', 'POCKET KNIFE'), h('small', `Version ${S.me.version || ''}`))),
+    h('div.brand', h('img', { src: '/static/logo.svg', alt: '' }), h('div', h('b', 'POCKET KNIFE'), h('small', `Version ${S.me.version || ''}`), h('div#news-pill'))),
     h('ul', NAV.filter((n) => !n || ((!isOU() || !OU_HIDDEN.has(n[0])) && (n[0] !== 'repository' || mayBuild()))).map((n) => (n ? h('li', h('a', { href: `#/${n[0]}`, 'data-nav': n[0] }, icon(n[2]), n[1])) : h('li.sep')))),
     h('div.user', h('b', S.me.display_name || S.me.username), h('span.muted', S.me.username),
       isOU() ? h('span.badge.info', { style: { marginTop: '6px', display: 'block', width: 'fit-content' }, title: tr('Sie sehen und verwalten nur die Computer dieses Mandanten.') },
@@ -952,6 +952,111 @@ function renderShell() {
       websiteLink('nav-web')));
   const main = h('div.main', h('header.topbar#topbar'), h('div#tabs'), h('main.content#content'));
   $('#app').replaceChildren(h('div.shell', nav, main));
+  loadNews();
+}
+
+// --- Neuigkeiten (2.28): dezent in der Seitenleiste unter der Version -------------------------------------------
+const NEWS_KIND = { security: ['err', 'Sicherheit'], new: ['info', 'Neu'], improved: ['ok', 'Verbessert'], fixed: ['', 'Behoben'] };
+let NEWS = null;
+async function loadNews() {
+  try { NEWS = await GET('/api/news'); } catch (e) { NEWS = null; }
+  drawNewsPill();
+}
+function drawNewsPill() {
+  const el = $('#news-pill');
+  if (!el) return;
+  const kids = [];
+  if (NEWS && NEWS.unseen) {
+    kids.push(h('a.news-pill', { href: '#', class: NEWS.security ? 'sec' : '', title: NEWS.security ? tr('Neuigkeiten – mit Sicherheitsupdates') : tr('Neuigkeiten dieser Version'),
+      onclick: (e) => { e.preventDefault(); newsDlg(); } }, h('span.dot'), NEWS.security ? tr('Neu · Sicherheit') : tr('Neu')));
+  }
+  const up = NEWS && NEWS.update;
+  if (up) {
+    kids.push(h('a.news-pill.up', { href: '#', class: up.security ? 'sec' : '', title: tr('Neue Version verfügbar – Klick für die Neuigkeiten und den Update-Befehl'),
+      onclick: (e) => { e.preventDefault(); newsDlg(true); } }, up.security ? '⚠ ' : '↑ ', fmtT('{0} verfügbar', up.latest)));
+  }
+  if (!kids.length && NEWS) {
+    kids.push(h('a.news-link', { href: '#', onclick: (e) => { e.preventDefault(); newsDlg(); } }, tr('Neuigkeiten')));
+  }
+  el.replaceChildren(...kids);
+}
+function newsItems(items) {
+  const lang = PK_LANG === 'en' ? 'en' : 'de';
+  return h('ul.news-list', items.map((i) => h('li', h('span.badge', { class: (NEWS_KIND[i.kind] || ['', ''])[0] }, tr((NEWS_KIND[i.kind] || ['', i.kind])[1])),
+    h('span.raw', i[lang] || i.de))));
+}
+async function newsDlg(focusUpdate = false) {
+  if (!NEWS) await loadNews();
+  if (!NEWS) return;
+  const up = NEWS.update;
+  const parts = [];
+  if (up) {
+    parts.push(h('div.news-up', { class: up.security ? 'sec' : '' },
+      h('div.row', { style: { gap: '8px', alignItems: 'center' } }, h('b', fmtT('Version {0} ist verfügbar', up.latest)),
+        up.security ? h('span.badge.err', tr('enthält Sicherheitsupdates')) : null, h('div.spacer'),
+        up.url ? h('a', { href: up.url, target: '_blank', rel: 'noopener noreferrer' }, tr('Release auf GitHub')) : null),
+      ...up.versions.map((v) => h('div', h('div.news-ver', h('b.raw', v.version), v.date ? h('span.muted.small', ' · ' + fmtDate(v.date, false)) : null), newsItems(v.items))),
+      h('div.muted.small', { style: { marginTop: '6px' } }, tr('Update auf dem Docker-Host im Programmordner:')),
+      h('div.row', { style: { gap: '6px', alignItems: 'center' } }, h('code.raw', up.command), btn('Kopieren', () => copyText(up.command), { cls: 'small ghost' }))));
+  }
+  const vers = NEWS.versions || [];
+  let shown = 6;
+  const list = h('div');
+  const draw = () => {
+    list.replaceChildren(...vers.slice(0, shown).map((v) => h('div.news-block',
+      h('div.news-ver', h('b.raw', v.version), v.date ? h('span.muted.small', ' · ' + fmtDate(v.date, false)) : null,
+        v.unseen ? h('span.badge.info', { style: { marginLeft: '8px' } }, tr('neu für Sie')) : null,
+        v.version === NEWS.current ? h('span.muted.small', ' · ' + tr('installiert')) : null),
+      newsItems(v.items))),
+    vers.length > shown ? btn('Ältere Neuigkeiten', () => { shown += 10; draw(); }, { cls: 'small ghost' }) : '');
+  };
+  draw();
+  modal(tr('Neuigkeiten'), h('div.news', ...parts, list, h('p.muted.small', { style: { marginTop: '10px' } },
+    tr('Alle Einzelheiten stehen im CHANGELOG und in der Hilfe.'), isOU() ? '' : ' ' + tr('Hinweise auf neue Versionen: Einstellungen → Wartung.'))),
+  [{ label: 'Schließen', cls: 'primary' }], { wide: true });
+  if (focusUpdate) setTimeout(() => { const u = document.querySelector('.news-up'); if (u) u.scrollIntoView({ block: 'nearest' }); }, 50);
+  if (NEWS.unseen) {
+    try { await POST('/api/news/seen', { version: NEWS.current }); NEWS.unseen = 0; NEWS.security = false; vers.forEach((v) => { v.unseen = false; }); drawNewsPill(); } catch (e) { /* egal */ }
+  }
+}
+
+// Einstellungen → Wartung: Hinweis auf neue Versionen (der Server fragt GitHub, nie der Browser)
+function updatesCard() {
+  const body = h('div.card-b', h('p.muted', 'Wird geladen …'));
+  const card = h('div.card', h('div.card-h', h('h2', 'Neuigkeiten und Updates')), body);
+  async function draw(d) {
+    try { d = d || await GET('/api/system/updates'); } catch (e) { body.replaceChildren(h('p.muted', e.message)); return; }
+    const en = h('input', { type: 'checkbox', checked: d.enabled });
+    const repo = h('input', { value: d.repo || '', placeholder: 'besitzer/name, z. B. soleil0815/pocketknife', style: { width: '320px' } });
+    const tok = h('input', { type: 'password', autocomplete: 'new-password', placeholder: d.token_set ? tr('gespeichert – leer lassen zum Behalten') : tr('nur bei privatem Repository'), style: { width: '320px' } });
+    const st = d.status;
+    const stTxt = !st ? tr('Noch nicht geprüft.') : st.ok
+      ? (NEWS && NEWS.update ? fmtT('Geprüft {0}: Version {1} ist verfügbar.', fmtDate(st.checked), st.latest) : fmtT('Geprüft {0}: aktuell (neueste Version {1}).', fmtDate(st.checked), st.latest))
+      : fmtT('Geprüft {0}: {1}', fmtDate(st.checked), st.error || tr('Fehler'));
+    body.replaceChildren(
+      h('p.muted.small', { style: { marginTop: 0 } }, tr('POCKET KNIFE fragt einmal täglich bei GitHub nach einer neuen Version und zeigt sie Hauptadmins dezent in der Seitenleiste – mit den Neuigkeiten (Sicherheitsupdates hervorgehoben) und dem Update-Befehl. Der Server fragt, nie der Browser; über den Proxyserver, falls eingetragen.')),
+      h('div.form',
+        field('Prüfen', h('label.chk', en, tr('einmal täglich nach neuen Versionen fragen'))),
+        field('Repository', repo, 'GitHub-Repository mit den Releases.'),
+        field('Lese-Token', h('div.row', { style: { gap: '6px', alignItems: 'center' } }, tok, d.token_set ? btn('Token löschen', async () => {
+          const r = await run(() => PUT('/api/system/updates', { clear_token: true }), 'Token gelöscht'); if (r) draw(r);
+        }, { cls: 'small ghost' }) : null), 'Nur bei einem privaten Repository: fein granulares Token mit Lesezugriff auf das Repository („Contents: Read“). Wird verschlüsselt gespeichert und nie angezeigt.'),
+        field('Stand', h('span.small', { class: st && !st.ok ? 'err-text' : 'muted' }, stTxt))),
+      h('div.row', { style: { gap: '8px', marginTop: '8px' } },
+        btn('Speichern', async () => {
+          const b = { enabled: en.checked, repo: repo.value.trim() };
+          if (tok.value.trim()) b.token = tok.value.trim();
+          const r = await run(() => PUT('/api/system/updates', b), 'Gespeichert'); if (r) draw(r);
+        }, { cls: 'small primary' }),
+        btn('Jetzt prüfen', async () => {
+          const r = await run(() => POST('/api/system/updates/check'));
+          if (!r) return;
+          toast(r.ok ? (r.latest ? fmtT('Neueste Version: {0}', r.latest) : tr('Geprüft')) : (r.error || tr('Fehler')), r.ok ? 'ok' : 'err');
+          draw(r.settings); loadNews();
+        }, { cls: 'small', icon: 'refresh' })));
+  }
+  draw();
+  return card;
 }
 
 function setTop(title, sub, ...actions) {
@@ -5563,7 +5668,7 @@ async function viewSettings() {
     ['mail', 'E-Mail & Benachrichtigungen', 'mail', [mailCard(), alertsCard()], false],
     ['inventory', 'Inventar & Felder', 'db', [scCard, fCard], false],
     ['tenants', 'Mandanten', 'user', [tenantsCard()], false],
-    ['maint', 'Wartung', 'gear', [maint, diagCard], false],
+    ['maint', 'Wartung', 'gear', [maint, updatesCard(), diagCard], false],
   ];
   const cur = (() => { const k = parseHash().params.get('s'); return SECTIONS.some((x) => x[0] === k) ? k : 'conn'; })();
   const panes = {};
