@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.29.4",
+   "date": "2026-10-24",
+   "items": [
+    {
+     "kind": "security",
+     "audience": "admin",
+     "de": "Alle Pakete im Image werden aktuell gehalten – auch die des Basis-Images; pip ist nicht mehr im Image. Das wöchentliche Update bleibt bei Python-Reihe und Debian-Version und meldet rechtzeitig, wann der Unterbau angehoben werden muss.",
+     "en": "All packages in the image are kept up to date – including those of the base image; pip is no longer in the image. The weekly update stays on the Python series and Debian version and reports in good time when the foundation must be raised."
+    }
+   ]
+  },
+  {
    "version": "2.29.3",
    "date": "2026-10-24",
    "items": [

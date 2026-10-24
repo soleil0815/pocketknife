@@ -1,6 +1,6 @@
 # Exact versions of all Python packages (incl. dependencies) – state of the running installation of 2026-10-20
 # Base: python:3.12.15-slim-trixie@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1
-# pip itself is fixed by the base image (25.0.1). Update: ./tools/pin-versions.sh --update
+# pip is removed from the finished image (not needed at runtime). Update: ./tools/pin-versions.sh --update
 annotated-doc==0.0.5
 annotated-types==0.8.0
 anyio==4.15.1

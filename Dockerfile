@@ -55,7 +55,9 @@ RUN set -e; \
       pip install --no-cache-dir --no-index --find-links /tmp/wheels -r requirements.txt; \
     fi; \
     pip check; \
-    rm -rf /tmp/wheels /tmp/pk
+    python -m pip uninstall -y -q pip; \
+    rm -rf /tmp/wheels /tmp/pk /usr/local/lib/python3*/ensurepip/_bundled
+# pip wird zur Laufzeit nicht gebraucht – entfernt, damit keine veraltete Komponente im Image bleibt (2.29.4)
 
 # Temporary files in the data directory (the root file system is read-only in operation, /tmp is small)
 # HOME: für root (Healthcheck, docker exec) ein Ort, an dem niemand etwas ablegen kann – sonst könnte der App-Benutzer

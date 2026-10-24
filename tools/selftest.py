@@ -4546,6 +4546,55 @@ def _():
     news.validate(json.loads(rd("app", "news.json")))  # Aufbau passt
 
 
+@test("2.29.4 Alles im Image aktuell: alle Debian-Pakete (auch die des Basis-Images) auf Snapshot-Stand, pip nicht im Image, Update bleibt in Python-Reihe und Debian-Version, guacd neueste Version; Unterbau-Warnung rechtzeitig vor Ende der Updates")
+def _():
+    import subprocess as _sp
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+    pv = os.path.join(root, "tools", "pin-versions.sh")
+    if not os.path.exists(pv):
+        return  # im Container liegen die Bauwerkzeuge nicht
+    ai = open(os.path.join(root, "docker", "apt-install.sh"), encoding="utf-8").read()
+    assert ai.index("upgrade") < ai.index("apt-get install -y --no-install-recommends $PKGS"), "erst alles aktualisieren, dann installieren"
+    df = open(os.path.join(root, "Dockerfile"), encoding="utf-8").read()
+    assert df.index("pip check") < df.index("pip uninstall -y -q pip"), "pip nach der Prüfung entfernt"
+    src = open(pv, encoding="utf-8").read()
+    assert "python:3.12-slim|" not in src, "nie „python:3.12-slim“ ohne Debian-Namen (wechselte still die Debian-Version)"
+    assert "PK_PYTHON_BASE" in src and "importlib.metadata" in src and "hub.docker.com/v2/repositories/guacamole/guacd/tags" in src
+    line = [x for x in src.splitlines() if x.strip().startswith("BASE_TAG=$(printf")][0]
+    sedexpr = line.split("sed -n '", 1)[1].rsplit("'", 1)[0]
+    for cur, want in (("python:3.12.15-slim-trixie@sha256:" + "a" * 64, "python:3.12-slim-trixie"),
+                      ("python:3.13.2-slim-forky", "python:3.13-slim-forky")):
+        out = _sp.run(["sed", "-n", sedexpr], input=cur, capture_output=True, text=True).stdout.strip()
+        assert out == want, (cur, out)
+    # Unterbau: rechtzeitig melden, nie die Sicherheitsupdates blockieren
+    import importlib.util as _iu
+    spec = _iu.spec_from_file_location("pk_unterbau", os.path.join(root, "tools", "unterbau-check.py"))
+    m = _iu.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    d = tempfile.mkdtemp(prefix="pk-unterbau-", dir=TMP)
+    pj, dj = os.path.join(d, "py.json"), os.path.join(d, "deb.json")
+    json.dump({"result": {"releases": [{"name": "3.13", "eolFrom": "2029-10-31"}, {"name": "3.12", "eolFrom": "2028-10-31"}]}}, open(pj, "w"))
+    json.dump({"result": {"releases": [{"name": "13", "eolFrom": "2028-08-09"}]}}, open(dj, "w"))
+    assert m.eol(json.load(open(pj)), "3.12").isoformat() == "2028-10-31"
+    assert m.eol([{"cycle": "3.12", "eol": "2028-10-31"}], "3.12").isoformat() == "2028-10-31", "altes Format"
+    py, code = m.base()
+    assert __import__("re").match(r"^\d+\.\d+$", py) and code in m.DEBIAN, (py, code)
+    run = lambda today, p=pj: _sp.run([sys.executable, "-I", os.path.join(root, "tools", "unterbau-check.py"), "--python-json", p,  # noqa: E731
+                                      "--debian-json", dj, "--today", today], capture_output=True, text=True, timeout=60)
+    r = run("2026-10-24")
+    assert r.returncode == 0 and "::" not in r.stdout, r.stdout
+    r = run("2027-12-01")
+    assert r.returncode == 0 and "::warning" in r.stdout and "einplanen" in r.stdout
+    r = run("2028-06-01")
+    assert r.returncode == 1 and "::error title=Unterbau anheben" in r.stdout
+    r = run("2028-06-01", p=os.path.join(d, "fehlt.json"))
+    assert "nicht ermittelbar" in r.stdout
+    wf = open(os.path.join(root, ".github", "workflows", "weekly.yml"), encoding="utf-8").read()
+    assert "unterbau:" in wf and "tools/unterbau-check.py" in wf and "guacd prüfen" in wf
+    sec = open(os.path.join(root, ".github", "workflows", "security.yml"), encoding="utf-8").read()
+    assert 'exit "$rc"' in sec and "grc=0" in sec, "guacd-Befunde nur als Hinweis"
+
+
 def main():
     ok = 0
     for name, fn in RESULTS:

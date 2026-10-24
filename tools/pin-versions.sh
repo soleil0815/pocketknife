@@ -31,12 +31,42 @@ say() { printf '\n== %s\n' "$*"; }
 
 if [ "$UPDATE" = 1 ]; then
   say "Fetching latest versions (Dockerfile without pinning)"
-  sed -i -e 's|^ARG PYTHON_IMAGE=.*|ARG PYTHON_IMAGE=python:3.12-slim|' -e 's|^ARG DEBIAN_SNAPSHOT=.*|ARG DEBIAN_SNAPSHOT=|' Dockerfile
+  # Unterbau bleibt: dieselbe Python-Reihe (z. B. 3.12) auf derselben Debian-Version (z. B. trixie) – nur deren neueste
+  # Updates. „python:3.12-slim“ ohne Debian-Namen wechselte still auf die nächste Debian-Version. Den Unterbau anheben
+  # (z. B. Python 3.13 oder Debian 14) nur bewusst: PK_PYTHON_BASE=python:3.13-slim-trixie ./tools/pin-versions.sh --update
+  CUR=$(sed -n 's/^ARG PYTHON_IMAGE=//p' Dockerfile)
+  BASE_TAG=$(printf '%s' "$CUR" | sed -n 's|^python:\([0-9]*\.[0-9]*\)[0-9.]*-slim-\([a-z]*\).*|python:\1-slim-\2|p')
+  BASE_TAG="${PK_PYTHON_BASE:-${BASE_TAG:-python:3.12-slim-trixie}}"
+  echo "Basis: $BASE_TAG"
+  sed -i -e "s|^ARG PYTHON_IMAGE=.*|ARG PYTHON_IMAGE=${BASE_TAG}|" -e 's|^ARG DEBIAN_SNAPSHOT=.*|ARG DEBIAN_SNAPSHOT=|' Dockerfile
   for f in docker/apt-build.txt docker/apt-runtime.txt build-requirements.txt; do
     sed -i -e '/^[[:space:]]*#/!s/[=<>!~].*$//' "$f"
   done
   printf '# Exact versions of all Python packages (incl. dependencies) – created with tools/pin-versions.sh.\n' > requirements.lock
   sed -i -e 's|^\(    image: guacamole/guacd:[^@]*\)@sha256:[0-9a-f]*|\1|' docker-compose.yml
+  # guacd: neueste stabile Version (x.y.z) von Docker Hub – bei einem Fehler bleibt die bisherige
+  GNEW=$(python3 -c '
+import json, re, urllib.request
+u = "https://hub.docker.com/v2/repositories/guacamole/guacd/tags?page_size=100"
+best = None
+for _ in range(5):
+    d = json.load(urllib.request.urlopen(u, timeout=30))
+    for t in d.get("results") or []:
+        n = t.get("name", "")
+        if re.fullmatch(r"\d+\.\d+\.\d+", n):
+            v = tuple(int(x) for x in n.split("."))
+            best = max(best or v, v)
+    u = d.get("next")
+    if not u:
+        break
+print(".".join(map(str, best)) if best else "")
+' 2>/dev/null || true)
+  if [ -n "$GNEW" ]; then
+    sed -i -e "s|^\(    image: guacamole/guacd:\)[^@ ]*|\1${GNEW}|" docker-compose.yml
+    echo "guacd: $GNEW"
+  else
+    echo "guacd: neueste Version nicht ermittelbar – bleibt"
+  fi
   docker build --pull --no-cache -t "$IMG" .
 else
   docker build -t "$IMG" .
@@ -61,7 +91,8 @@ say "Python packages"
 {
   printf '# Exact versions of all Python packages (incl. dependencies) – created with tools/pin-versions.sh on %s\n' "$(date -u +%Y-%m-%d)"
   printf '# Base: %s\n' "$PIN_BASE"
-  docker run --rm --entrypoint pip "$IMG" freeze --disable-pip-version-check | LC_ALL=C sort -f
+  # pip ist im fertigen Image nicht mehr enthalten – Pakete über importlib.metadata lesen
+  docker run --rm --entrypoint python "$IMG" -c 'import importlib.metadata as m; print("\n".join(sorted({d.metadata["Name"] + "==" + d.version for d in m.distributions() if d.metadata["Name"].lower() not in ("pip", "setuptools", "wheel")})))' | LC_ALL=C sort -f
 } > requirements.lock.new
 grep -c '==' requirements.lock.new | sed 's/^/Packages: /'
 mv requirements.lock.new requirements.lock

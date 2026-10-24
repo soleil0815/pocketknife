@@ -2,7 +2,7 @@ English version: [README.en.md](README.en.md)
 
 # POCKET KNIFE
 
-Aktuelle Version: **pocketknife-2.29.3** – siehe `CHANGELOG.md`.
+Aktuelle Version: **pocketknife-2.29.4** – siehe `CHANGELOG.md`.
 
 Webseite: [helfi.space](https://helfi.space)
 
@@ -253,6 +253,8 @@ Ein Image mit bekannten Schwachstellen wird nicht veröffentlicht. `tools/trivy-
 | `Wöchentliches Sicherheitsupdate` | montags 03:23 UTC und von Hand | Basis-Image, Debian- und Python-Pakete und guacd auf den neuesten Stand, ohne Cache bauen, Selbsttest, Trivy – **nur wenn alles bestanden ist**: neue Versionsnummer (z. B. 2.29.3 → 2.29.4) mit Eintrag in CHANGELOG und Neuigkeiten, dann `Release` (amd64/arm64, Selbsttest und Trivy noch einmal) unter `<Version>` und `:latest`. Ohne Änderung passiert nichts; schlägt etwas fehl, wird nichts veröffentlicht (Mail von GitHub) |
 | `Sicherheits-Scan` | täglich 05:17 UTC und von Hand | prüft das veröffentlichte `:latest` – Schwachstellen werden oft erst nach einem Release bekannt; ein roter Lauf schickt GitHub als Mail |
 | `Versionen aktualisieren` | von Hand | `tools/pin-versions.sh --update`: Basis-Image, Debian-Pakete, Python-Pakete und guacd neu festlegen, ohne Cache bauen, Selbsttest, Trivy – Ergebnis als Pull Request |
+
+**Was „aktuell“ heißt:** *alle* Debian-Pakete im Image (auch die des Basis-Images, per `apt-get upgrade` auf den Stand des Snapshots), alle Python-Pakete, das Basis-Image innerhalb der Python-Reihe und Debian-Version (z. B. 3.12 auf Debian 13 „trixie“) und guacd in der neuesten Version. pip ist im fertigen Image nicht enthalten (wird zur Laufzeit nicht gebraucht). **Den Unterbau** (nächste Python-Reihe oder Debian-Version) hebt der wöchentliche Lauf nie still an – er meldet ab 12 Monaten vor dem Ende der Updates einen Hinweis und ab 6 Monaten einen roten Lauf (Mail), Daten von endoflife.date. Anheben: `PK_PYTHON_BASE=python:<Reihe>-slim-<Debian> tools/pin-versions.sh --update` mit vollem Test.
 
 Mit `:latest` und einer Container-Verwaltung wie Dockhand sind die Container damit jede Woche auf dem neuesten Stand der Sicherheitsupdates, auch wenn sich am Programm nichts ändert. Wer das nicht will, legt die Version fest (`PK_IMAGE=…:<Version>`) oder schaltet den Workflow unter *Actions → Wöchentliches Sicherheitsupdate → Disable workflow* ab.
 

@@ -2,7 +2,7 @@ Deutsche Fassung: [README.md](README.md)
 
 # POCKET KNIFE
 
-Current version: **pocketknife-2.29.3** – see `CHANGELOG.md` (German).
+Current version: **pocketknife-2.29.4** – see `CHANGELOG.md` (German).
 
 Website: [helfi.space](https://helfi.space)
 
@@ -253,6 +253,8 @@ An image with known vulnerabilities is not published. `tools/trivy-scan.sh` chec
 | `Wöchentliches Sicherheitsupdate` | Mondays 03:23 UTC and manually | update base image, Debian and Python packages and guacd, build without cache, self-test, Trivy – **only if everything passes**: new version number (e.g. 2.29.3 → 2.29.4) with an entry in CHANGELOG and news, then `Release` (amd64/arm64, self-test and Trivy once more) as `<version>` and `:latest`. If nothing changed, nothing happens; if something fails, nothing is published (e-mail from GitHub) |
 | `Sicherheits-Scan` | daily 05:17 UTC and manually | checks the published `:latest` – vulnerabilities often become known after a release; a red run makes GitHub send an e-mail |
 | `Versionen aktualisieren` | manually | `tools/pin-versions.sh --update`: re-pin base image, Debian packages, Python packages and guacd, build without cache, self-test, Trivy – result as a pull request |
+
+**What "up to date" means:** *all* Debian packages in the image (including those of the base image, via `apt-get upgrade` to the snapshot's state), all Python packages, the base image within the Python series and Debian version (e.g. 3.12 on Debian 13 "trixie") and guacd in its newest version. pip is not included in the finished image (not needed at runtime). **The foundation** (next Python series or Debian version) is never raised silently by the weekly run – it reports a notice from 12 months before the end of updates and a red run (e-mail) from 6 months, data from endoflife.date. Raising: `PK_PYTHON_BASE=python:<series>-slim-<debian> tools/pin-versions.sh --update` with a full test.
 
 With `:latest` and a container manager such as Dockhand, the containers are thus up to date with security updates every week, even if nothing changes in the program. If you do not want this, pin the version (`PK_IMAGE=…:<version>`) or disable the workflow under *Actions → Wöchentliches Sicherheitsupdate → Disable workflow*.
 

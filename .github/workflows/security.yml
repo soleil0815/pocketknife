@@ -43,6 +43,11 @@ jobs:
           rc=0; sh tools/trivy-scan.sh "$IMG" || rc=$?
           if [ -f trivy.md ]; then cat trivy.md >> "$GITHUB_STEP_SUMMARY"; fi
           if [ "$rc" = 1 ]; then
-            echo "::error title=Sicherheits-Scan::Im veröffentlichten Image gibt es Schwachstellen mit verfügbarer Korrektur. Abhilfe: Actions → Versionen aktualisieren → Run workflow, danach ein neues Release."
+            echo "::error title=Sicherheits-Scan::Im veröffentlichten Image gibt es Schwachstellen mit verfügbarer Korrektur. Abhilfe: Actions → Wöchentliches Sicherheitsupdate → Run workflow."
           fi
+          # guacd (vom Guacamole-Projekt) nur als Hinweis – POCKET KNIFE kann es nicht selbst korrigieren
+          G=$(sed -n 's/^    image: \(guacamole\/guacd:[^ ]*\)$/\1/p' docker-compose.yml | head -n 1)
+          grc=0; PK_TRIVY_REPORT=trivy-guacd.md sh tools/trivy-scan.sh "$G" || grc=$?
+          if [ -f trivy-guacd.md ]; then cat trivy-guacd.md >> "$GITHUB_STEP_SUMMARY"; fi
+          [ "$grc" = 0 ] || echo "::warning title=guacd::$G hat Befunde (oder ließ sich nicht prüfen) – Korrektur nur durch das Guacamole-Projekt."
           exit "$rc"

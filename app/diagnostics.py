@@ -104,7 +104,7 @@ def _changelog(oldest):
         m = re.match(r"## pocketknife-(\S+)", sec)
         if oldest and m and m.group(1) == oldest:
             break
-        if len(out) > 40:
+        if len(out) > 300:  # wöchentliche Sicherheitsupdates: viele kleine Versionen
             break
     return "".join(out)
 

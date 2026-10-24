@@ -1,5 +1,12 @@
 # Änderungen
 
+## pocketknife-2.29.4 (24.10.2026)
+- **Alles im Image aktuell:** Beim Bau bringt `apt-get upgrade` *alle* Debian-Pakete auf den Stand des Snapshots – auch die des Basis-Images (bisher nur die eigenen). pip wird nach der Installation aus dem fertigen Image entfernt (zur Laufzeit nicht gebraucht – eine Komponente weniger, die veralten kann)
+- **Wöchentliches Update bleibt im Unterbau:** innerhalb der Python-Reihe und Debian-Version des Images (z. B. `python:3.12-slim-trixie`) – bisher hätte `python:3.12-slim` still auf die nächste Debian-Version gewechselt. guacd kommt immer in der neuesten Version (Docker Hub); dessen Befunde zeigt Trivy als Hinweis (Korrektur nur durch das Guacamole-Projekt)
+- **Neu: Unterbau-Warnung** im wöchentlichen Lauf (`tools/unterbau-check.py`, Daten von endoflife.date): ab 12 Monaten vor dem Ende der Sicherheitsupdates für Python-Reihe oder Debian-Version ein Hinweis, ab 6 Monaten ein roter Lauf (Mail) – dann den Unterbau bewusst anheben (`PK_PYTHON_BASE=… tools/pin-versions.sh --update`). Blockiert die Sicherheitsupdates nie
+- Behoben: Das Diagnosepaket nahm höchstens 40 CHANGELOG-Abschnitte auf – bei wöchentlichen Versionen zu wenige (jetzt 300)
+- **Selbsttest:** Upgrade vor der Installation, pip entfernt, Update bleibt in Reihe und Debian-Version, guacd-Abfrage, Unterbau-Prüfung (Hinweis, rot, nicht erreichbar, altes und neues Datenformat)
+
 ## pocketknife-2.29.3 (24.10.2026)
 - **Neu: wöchentliches Sicherheitsupdate** (montags 03:23 UTC, auch von Hand): GitHub bringt Basis-Image, Debian- und Python-Pakete und guacd auf den neuesten Stand (`tools/pin-versions.sh --update`), baut ohne Cache neu und lässt Selbsttest und Trivy laufen. **Nur wenn alles bestanden ist**, bekommt der Stand eine neue Versionsnummer (z. B. 2.29.3 → 2.29.4) mit Eintrag in CHANGELOG und Neuigkeiten (`tools/security-release.py`, listet die geänderten Pakete), und das Release baut amd64/arm64, prüft beide noch einmal und veröffentlicht unter `<Version>` und `:latest`. Mit Dockhand o. Ä. sind die Container so jede Woche aktuell – auch ohne Programmänderung. Ohne Änderung passiert nichts; schlägt etwas fehl, wird nichts veröffentlicht (Mail von GitHub). Abschalten: Actions → Wöchentliches Sicherheitsupdate → Disable workflow; bei einer Version bleiben: `PK_IMAGE=…:<Version>`
 - Wöchentliches Update und Release laufen nie gleichzeitig
