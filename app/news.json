@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.28.2",
+   "date": "2026-10-24",
+   "items": [
+    {
+     "kind": "new",
+     "audience": "admin",
+     "de": "Automatische Updates: Der Container nutzt standardmäßig ghcr.io/soleil0815/pocketknife:latest – eine Container-Verwaltung wie Dockhand oder Watchtower kann neue Versionen selbst ziehen. Wer bei einer Version bleiben will, legt den Tag fest.",
+     "en": "Automatic updates: by default the container uses ghcr.io/soleil0815/pocketknife:latest – a container manager such as Dockhand or Watchtower can pull new versions itself. To stay on a version, pin the tag."
+    }
+   ]
+  },
+  {
    "version": "2.28.1",
    "date": "2026-10-24",
    "items": [

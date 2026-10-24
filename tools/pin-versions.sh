@@ -37,9 +37,9 @@ if [ "$UPDATE" = 1 ]; then
   done
   printf '# Exact versions of all Python packages (incl. dependencies) – created with tools/pin-versions.sh.\n' > requirements.lock
   sed -i -e 's|^\(    image: guacamole/guacd:[^@]*\)@sha256:[0-9a-f]*|\1|' docker-compose.yml
-  docker compose build --pull --no-cache pocketknife
+  docker build --pull --no-cache -t "$IMG" .
 else
-  docker compose build pocketknife
+  docker build -t "$IMG" .
 fi
 docker build -q --target build -t "$BUILDIMG" . >/dev/null
 
@@ -124,8 +124,8 @@ fi
 if [ "$VERIFY" = 1 ]; then
   say "Check: complete rebuild with the pinned versions"
   echo "(If this fails, e.g. because a Debian version is missing in the snapshot: ./tools/pin-versions.sh --update)"
-  docker compose build --no-cache pocketknife
+  docker build --no-cache -t "$IMG" .
   docker run --rm --entrypoint python "$IMG" tools/selftest.py
 fi
 say "Done. Pinned in Dockerfile, requirements.lock, build-requirements.txt, docker/apt-*.txt, docker-compose.yml."
-echo "Apply with: docker compose up -d"
+echo "Apply with: PK_IMAGE=pocketknife:local in the .env, then docker compose up -d"

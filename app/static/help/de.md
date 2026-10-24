@@ -212,8 +212,11 @@ Empfohlene Ordnerstruktur auf dem Docker-Host – die Daten liegen außerhalb de
 cd /opt/pocketknife/pocketknife-2.4
 cp .env.example .env
 nano .env                  # Domäne, DCs, DNS-Server, Zugriffsgruppe, Datenpfad
-docker compose up -d --build
+docker login ghcr.io -u <GitHub-Benutzer>   # nur bei privater Registry (Token mit read:packages)
+docker compose up -d       # lädt ghcr.io/soleil0815/pocketknife:latest (amd64/arm64)
 ```
+
+Standard ist das fertige Image aus der Registry (`ghcr.io/soleil0815/pocketknife:latest`). Mit `:latest` kann eine Container-Verwaltung wie Dockhand oder Watchtower POCKET KNIFE **automatisch** aktualisieren (oder von Hand `docker compose pull && docker compose up -d`); bei einer Version bleiben Sie mit `PK_IMAGE=ghcr.io/soleil0815/pocketknife:<Version>` in der `.env`. Ohne Internet: `docker build -t pocketknife:local .` und `PK_IMAGE=pocketknife:local`.
 
 Danach `https://<docker-host>:8443` öffnen und mit einem Konto aus der Zugriffsgruppe anmelden. Beim ersten Start wird ein selbstsigniertes Zertifikat in `data/tls/` erzeugt; ein eigenes Zertifikat wird unter **Einstellungen → Zertifikat (HTTPS)** hochgeladen (siehe [Eigenes Zertifikat](#certificate)).
 
@@ -256,7 +259,7 @@ cd pocketknife-2.24.1
 ./update.sh /opt/pocketknife
 ```
 
-Zurück zum vorigen Stand von Hand: die Dateien aus `.pk-vorher/` in den Programmordner zurückkopieren und `docker compose up -d --build`.
+Zurück zum vorigen Stand von Hand: die Dateien aus `.pk-vorher/` in den Programmordner zurückkopieren und `docker compose up -d` (lokal gebaut: vorher `docker build -t pocketknife:local .`).
 
 Laufen beim Update noch Bereitstellungen, werden sie unterbrochen; POCKET KNIFE räumt danach auf den Computern auf und wartet dabei noch laufende Installer ab (siehe [Neustart während einer Bereitstellung](#deploy-restart)).
 
@@ -1133,7 +1136,7 @@ Zurück auf NTLM: in derselben Auswahl „NTLM“ wählen und speichern.
 
 | Meldung | Lösung |
 |---|---|
-| Kerberos-Bibliotheken fehlen | Image neu bauen (`docker compose build`, bzw. `update.sh`) |
+| Kerberos-Bibliotheken fehlen | Image neu laden bzw. bauen (`sh update.sh --pull` oder `update.sh` mit der ZIP-Datei) |
 | Kein KDC gefunden / nicht erreichbar | DNS-SRV-Einträge prüfen oder `PK_KDC` setzen; Firewall Port 88 |
 | Uhrzeit weicht ab (Clock skew) | NTP auf dem Docker-Host einrichten |
 | Kein Dienstprinzipalname (SPN) | Computer per DNS-Namen ansprechen, DNS-Eintrag und Computerkonto prüfen |

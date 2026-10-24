@@ -27,6 +27,8 @@
 #   → pulls the image (amd64/arm64, Docker picks the right one), takes the program ZIP contained in it (checked
 #     against its SHA-256), replaces the program files as above and starts exactly the pulled image (no build).
 #     The container then shows where it comes from (PK_IMAGE in the .env, e.g. ghcr.io/soleil0815/pocketknife:latest).
+#   Automatically: with :latest a container manager (Dockhand, Watchtower …) can pull and restart the new image
+#   itself – the program files on the host are then refreshed by the next  sh update.sh --pull  (optional).
 #     Registry: PK_IMAGE_REPO in the .env (default ghcr.io/soleil0815/pocketknife). For a private registry log in
 #     once as the user that runs the update:  docker login ghcr.io -u <github user>  (token with read:packages).
 #   The ZIP way stays unchanged (e.g. without internet access).
@@ -51,7 +53,7 @@ while [ $# -gt 0 ]; do
             case "${2:-}" in [0-9]*) PULLTAG="$2"; shift ;; esac ;;
     --pull=*) PULL=1; PULLTAG="${1#--pull=}" ;;
     --keep) shift ;;   # formerly: keep old version folders – since 2.24.1 there is only one program folder
-    -h|--help) sed -n '2,35p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,37p' "$0"; exit 0 ;;
     *) ARG="$1" ;;
   esac
   shift
@@ -110,6 +112,13 @@ ver_lt() {
   [ "$1" = "$2" ] && return 1
   first=$(printf '%s\n%s\n' "$1" "$2" | sort -t. -k1,1n -k2,2n -k3,3n -k4,4n | head -n 1)
   [ "$first" = "$1" ]
+}
+
+# Going back without a saved image: build the previous version again (old compose files with or without „build:“)
+back_build() {
+  if grep -q '^[[:space:]]*build:' docker-compose.yml 2>/dev/null; then docker compose up -d --build
+  else docker build -t "$LOCAL_IMAGE" . && docker compose up -d
+  fi
 }
 
 need_docker() {
@@ -241,7 +250,9 @@ classic() {
   fi
   need_docker
   info "Building and starting POCKET KNIFE $(cat VERSION) ..."
-  docker compose up -d --build
+  [ "$(envval .env PK_IMAGE)" = "$LOCAL_IMAGE" ] || { env_set .env PK_IMAGE "$LOCAL_IMAGE"; chmod 600 .env 2>/dev/null || true; }
+  docker build -t "$LOCAL_IMAGE" .
+  docker compose up -d
   docker compose ps
 }
 
@@ -376,9 +387,10 @@ from_zip() {
     done
   fi
   # Image name for docker-compose.yml (PK_IMAGE): from the registry the container shows where it comes from
-  # (ghcr.io/…/pocketknife:latest, like other containers); the ZIP way builds locally as pocketknife:local.
+  # (ghcr.io/…/pocketknife:latest, like other containers); the ZIP way builds locally as pocketknife:local
+  # (without the entry docker-compose.yml would use the registry image).
   # The .env is put back with everything else if the update fails.
-  WANT_IMAGE=""; [ -n "$PULLREF" ] && WANT_IMAGE="$PULLNAME"
+  WANT_IMAGE="$LOCAL_IMAGE"; [ -n "$PULLREF" ] && WANT_IMAGE="$PULLNAME"
   if [ "$(envval "$INST/.env" PK_IMAGE)" != "$WANT_IMAGE" ]; then
     env_set "$INST/.env" PK_IMAGE "$WANT_IMAGE"; ENVCHANGED=1
   fi
@@ -398,7 +410,7 @@ from_zip() {
     info "Using the pulled image $PULLNAME for POCKET KNIFE $NEWVER (no build) ..."
   else
     info "Building POCKET KNIFE $NEWVER (this can take a few minutes) ..."
-    if ! docker compose build; then
+    if ! docker build -t "$LOCAL_IMAGE" .; then
       [ -n "$HAVEPREV" ] && docker tag "$PREV_IMAGE" "$OLDREF" 2>/dev/null
       restore_prev
       [ "$STAGE" = restored ] || die "The build failed; the previous program files could not be put back completely (see above)."
@@ -419,11 +431,11 @@ from_zip() {
       restore_prev
       [ "$STAGE" = restored ] || die "The previous program files could not be put back completely (see above)."
       BACKDIR="$INST"; [ -n "$MIGRATE" ] && BACKDIR="$ENVSRC"
-      BACKUP_UP="docker compose up -d --build"
+      BACKUP_UP="back_build"
       # previous image still there → start exactly that one (no build, no internet)
       # (under the name the previous .env expects – e.g. …/pocketknife:latest already points to the NEW image)
       if [ -n "$HAVEPREV" ] && docker tag "$PREV_IMAGE" "$OLDREF" 2>/dev/null; then BACKUP_UP="docker compose up -d"; fi
-      if ! ( cd "$BACKDIR" && $BACKUP_UP ); then
+      if ! ( cd "$BACKDIR" && if [ "$BACKUP_UP" = back_build ]; then back_build; else $BACKUP_UP; fi ); then
         die "The previous version $OLDVER does not start either (program files are restored). The cause is in:
   cd $BACKDIR && docker compose logs --tail 50   (e.g. port in use, Docker service disturbed)"
       fi

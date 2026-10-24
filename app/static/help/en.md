@@ -212,8 +212,11 @@ Recommended folder structure on the Docker host – the data is kept outside the
 cd /opt/pocketknife/pocketknife-2.4
 cp .env.example .env
 nano .env                  # domain, DCs, DNS servers, access group, data path
-docker compose up -d --build
+docker login ghcr.io -u <GitHub user>       # only for a private registry (token with read:packages)
+docker compose up -d       # pulls ghcr.io/soleil0815/pocketknife:latest (amd64/arm64)
 ```
+
+The default is the ready-made image from the registry (`ghcr.io/soleil0815/pocketknife:latest`). With `:latest` a container manager such as Dockhand or Watchtower can update POCKET KNIFE **automatically** (or by hand `docker compose pull && docker compose up -d`); to stay on a version use `PK_IMAGE=ghcr.io/soleil0815/pocketknife:<version>` in the `.env`. Without internet: `docker build -t pocketknife:local .` and `PK_IMAGE=pocketknife:local`.
 
 Then open `https://<docker-host>:8443` and sign in with an account from the access group. On first start, a self-signed certificate is generated in `data/tls/`; upload your own certificate under **Settings → Certificate (HTTPS)** (see [Your own certificate](#certificate)).
 
@@ -256,7 +259,7 @@ cd pocketknife-2.24.1
 ./update.sh /opt/pocketknife
 ```
 
-To return to the previous state manually: copy the files from `.pk-vorher/` back into the program folder and run `docker compose up -d --build`.
+To return to the previous state manually: copy the files from `.pk-vorher/` back into the program folder and run `docker compose up -d` (built locally: first `docker build -t pocketknife:local .`).
 
 Deployments still running during the update are interrupted; POCKET KNIFE then cleans up on the computers and waits for installers that are still running (see [Restart during a deployment](#deploy-restart)).
 
@@ -1133,7 +1136,7 @@ Back to NTLM: choose "NTLM" in the same list and save.
 
 | Message | Solution |
 |---|---|
-| Kerberos libraries missing | rebuild the image (`docker compose build` or `update.sh`) |
+| Kerberos libraries missing | pull or rebuild the image (`sh update.sh --pull` or `update.sh` with the ZIP file) |
 | No KDC found / not reachable | check DNS SRV records or set `PK_KDC`; firewall port 88 |
 | Clock skew | set up NTP on the Docker host |
 | No service principal name (SPN) | address the computer by DNS name, check DNS record and computer account |

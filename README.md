@@ -2,7 +2,7 @@ English version: [README.en.md](README.en.md)
 
 # POCKET KNIFE
 
-Aktuelle Version: **pocketknife-2.28.1** – siehe `CHANGELOG.md`.
+Aktuelle Version: **pocketknife-2.28.2** – siehe `CHANGELOG.md`.
 
 Webseite: [helfi.space](https://helfi.space)
 
@@ -153,19 +153,11 @@ Empfohlene Ordnerstruktur auf dem Docker-Host – die Daten liegen außerhalb de
 cd /opt/pocketknife/pocketknife-1.1
 cp .env.example .env
 nano .env                 # Domäne, DCs, DNS-Server, Dienstkonto, Gruppe, Datenpfad
-docker compose up -d --build
+docker login ghcr.io -u <GitHub-Benutzer>   # nur bei privater Registry; Kennwort = Token mit read:packages
+docker compose up -d      # lädt das fertige Image ghcr.io/soleil0815/pocketknife:latest (amd64/arm64)
 ```
 
-**Fertiges Image statt Bauen (ab 2.27.1):** Für amd64 und arm64 gibt es das Image in der GitHub Container Registry. Statt `docker compose up -d --build`:
-
-```bash
-docker login ghcr.io -u <GitHub-Benutzer>          # nur bei privater Registry; Kennwort = Token mit read:packages
-echo "PK_IMAGE=ghcr.io/soleil0815/pocketknife:latest" >> .env
-docker compose pull pocketknife
-docker compose up -d
-```
-
-Danach aktualisiert `sh update.sh --pull` (siehe unten).
+**Image (ab 2.28.2):** Standard ist das fertige Image aus der GitHub Container Registry, `ghcr.io/soleil0815/pocketknife:latest` – der Container zeigt das wie andere Container auch. **Automatisch aktualisieren:** Mit `:latest` kann eine Container-Verwaltung wie Dockhand oder Watchtower das neue Image selbst ziehen und den Container neu starten (oder von Hand: `docker compose pull && docker compose up -d`). Vor dem Start sichert POCKET KNIFE die Datenbank („vor Update“) und erweitert sie bei Bedarf. **Bei einer Version bleiben:** in der `.env` `PK_IMAGE=ghcr.io/soleil0815/pocketknife:2.28.2` – bzw. in der Container-Verwaltung den Tag festlegen. **Ohne Internet / selbst bauen:** `docker build -t pocketknife:local .` und `PK_IMAGE=pocketknife:local` in der `.env` (das macht `update.sh` mit der ZIP-Datei selbst).
 
 **Reproduzierbarer Build:** Basis-Image (Python-Version und Digest), Debian-Pakete (über einen festen Stand von snapshot.debian.org) und alle Python-Pakete samt Abhängigkeiten werden exakt festgeschrieben (`Dockerfile`, `requirements.lock`, `build-requirements.txt`, `docker/apt-*.txt`). Festschreiben bzw. bewusst aktualisieren mit `./tools/pin-versions.sh` (aktueller Stand) oder `./tools/pin-versions.sh --update` (neueste Versionen) – das Werkzeug baut danach zur Kontrolle neu und führt den Selbsttest aus. Ist `requirements.lock` leer, baut das Image nach `requirements.txt` und weist darauf hin.
 
@@ -220,7 +212,7 @@ cd pocketknife-2.24.1
 ./update.sh /opt/pocketknife   # übernimmt die .env des alten Ordners, baut und startet neu
 ```
 
-Da der Compose-Projektname fest `pocketknife` ist, ersetzt die neue Version den alten Container automatisch. Die Datenbank wird beim Start bei Bedarf erweitert. Vorher legt POCKET KNIFE automatisch eine Sicherung „vor Update“ an (Einstellungen → Sicherung) – damit kommt man auch nach einer Datenbank-Änderung sicher auf den alten Stand zurück. Zurück zum vorigen Stand von Hand: die Dateien aus `.pk-vorher/` in den Programmordner zurückkopieren (`.env` dort nur bei Bedarf) und `docker compose up -d --build`.
+Da der Compose-Projektname fest `pocketknife` ist, ersetzt die neue Version den alten Container automatisch. Die Datenbank wird beim Start bei Bedarf erweitert. Vorher legt POCKET KNIFE automatisch eine Sicherung „vor Update“ an (Einstellungen → Sicherung) – damit kommt man auch nach einer Datenbank-Änderung sicher auf den alten Stand zurück. Zurück zum vorigen Stand von Hand: die Dateien aus `.pk-vorher/` in den Programmordner zurückkopieren (`.env` dort nur bei Bedarf) und `docker compose up -d` (lokal gebaut: vorher `docker build -t pocketknife:local .`).
 
 Danach `https://<docker-host>:8443` öffnen und mit einem Konto aus der Zugriffsgruppe anmelden. Beim ersten Start wird ein selbstsigniertes Zertifikat in `/data/tls/` erzeugt.
 

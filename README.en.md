@@ -2,7 +2,7 @@ Deutsche Fassung: [README.md](README.md)
 
 # POCKET KNIFE
 
-Current version: **pocketknife-2.28.1** – see `CHANGELOG.md` (German).
+Current version: **pocketknife-2.28.2** – see `CHANGELOG.md` (German).
 
 Website: [helfi.space](https://helfi.space)
 
@@ -153,19 +153,11 @@ Recommended folder structure on the Docker host – the data is stored outside t
 cd /opt/pocketknife/pocketknife-1.1
 cp .env.example .env
 nano .env                 # domain, DCs, DNS servers, service account, group, data path
-docker compose up -d --build
+docker login ghcr.io -u <GitHub user>       # only for a private registry; password = token with read:packages
+docker compose up -d      # pulls the ready-made image ghcr.io/soleil0815/pocketknife:latest (amd64/arm64)
 ```
 
-**Ready-made image instead of building (from 2.27.1):** the image for amd64 and arm64 is available in the GitHub Container Registry. Instead of `docker compose up -d --build`:
-
-```bash
-docker login ghcr.io -u <GitHub user>              # only for a private registry; password = token with read:packages
-echo "PK_IMAGE=ghcr.io/soleil0815/pocketknife:latest" >> .env
-docker compose pull pocketknife
-docker compose up -d
-```
-
-After that `sh update.sh --pull` updates (see below).
+**Image (from 2.28.2):** the default is the ready-made image from the GitHub Container Registry, `ghcr.io/soleil0815/pocketknife:latest` – the container shows that like other containers. **Automatic updates:** with `:latest` a container manager such as Dockhand or Watchtower can pull the new image itself and restart the container (or by hand: `docker compose pull && docker compose up -d`). Before starting, POCKET KNIFE backs up the database ("before update") and extends it if necessary. **Stay on a version:** in the `.env` `PK_IMAGE=ghcr.io/soleil0815/pocketknife:2.28.2` – or set the tag in the container manager. **Without internet / build yourself:** `docker build -t pocketknife:local .` and `PK_IMAGE=pocketknife:local` in the `.env` (`update.sh` does that itself with the ZIP file).
 
 **Reproducible build:** the base image (Python version and digest), Debian packages (via a fixed point in time on snapshot.debian.org) and all Python packages including dependencies are pinned exactly (`Dockerfile`, `requirements.lock`, `build-requirements.txt`, `docker/apt-*.txt`). Pin or deliberately update with `./tools/pin-versions.sh` (current state) or `./tools/pin-versions.sh --update` (newest versions) – the tool then rebuilds as a check and runs the self-test. If `requirements.lock` is empty, the image is built from `requirements.txt` with a notice.
 
@@ -220,7 +212,7 @@ cd pocketknife-2.24.1
 ./update.sh /opt/pocketknife   # takes over the .env of the old folder, builds and restarts
 ```
 
-Since the Compose project name is fixed as `pocketknife`, the new version replaces the old container automatically. The database is extended on start if necessary. Beforehand, POCKET KNIFE automatically creates a "before update" backup (Settings → Backup) – so you can safely return to the old state even after a database change. To return to the previous state manually: copy the files from `.pk-vorher/` back into the program folder (`.env` there only if needed) and run `docker compose up -d --build`.
+Since the Compose project name is fixed as `pocketknife`, the new version replaces the old container automatically. The database is extended on start if necessary. Beforehand, POCKET KNIFE automatically creates a "before update" backup (Settings → Backup) – so you can safely return to the old state even after a database change. To return to the previous state manually: copy the files from `.pk-vorher/` back into the program folder (`.env` there only if needed) and run `docker compose up -d` (built locally: first `docker build -t pocketknife:local .`).
 
 Then open `https://<docker-host>:8443` and sign in with an account from the access group. On the first start, a self-signed certificate is created in `/data/tls/`.
 

@@ -1,5 +1,11 @@
 # Änderungen
 
+## pocketknife-2.28.2 (24.10.2026)
+- **Automatische Updates mit `:latest`:** `docker-compose.yml` nimmt standardmäßig das fertige Image `ghcr.io/soleil0815/pocketknife:latest` (amd64/arm64) – ohne `build:`. Eine Container-Verwaltung wie Dockhand oder Watchtower kann damit neue Versionen selbst ziehen und den Container neu starten (oder von Hand `docker compose pull && docker compose up -d`); vor dem Start sichert POCKET KNIFE die Datenbank und erweitert sie bei Bedarf. Bei einer Version bleiben: `PK_IMAGE=ghcr.io/soleil0815/pocketknife:<Version>` in der `.env` bzw. den Tag in der Container-Verwaltung festlegen. In der Übersicht steht nie mehr `pocketknife:local`, außer man baut selbst
+- **Selbst bauen** (ZIP-Weg ohne Internet, `tools/pin-versions.sh`): `docker build -t pocketknife:local .`; `update.sh` setzt dazu `PK_IMAGE=pocketknife:local` in der `.env` (bei einem Fehlschlag mit zurückgelegt). Ältere Programmstände ohne `build:`-Eintrag werden beim Zurückgehen ebenso gebaut
+- Erstinstallation: `docker login ghcr.io` (private Registry) und `docker compose up -d` – das Image wird geladen, nicht gebaut
+- **Selbsttest:** Standard-Image aus der Registry ohne `build:`, ZIP-Weg baut lokal und trägt `pocketknife:local` ein, Bau-Fehler legt auch die `.env` zurück
+
 ## pocketknife-2.28.1 (24.10.2026)
 - **Container zeigt die Herkunft:** Nach `sh update.sh --pull` läuft der Container – wie andere Container – unter dem Namen aus der Registry, z. B. `ghcr.io/soleil0815/pocketknife:latest` (bzw. `:2.28.1` bei `--pull 2.28.1`), statt `pocketknife:local`. Dafür trägt `update.sh` `PK_IMAGE` in die `.env` ein (wird bei einem Fehlschlag mit zurückgelegt); `docker-compose.yml` nimmt `image: ${PK_IMAGE:-pocketknife:local}`. Der ZIP-Weg baut wie bisher lokal als `pocketknife:local` und leert `PK_IMAGE`
 - Wer schon 2.28 per `--pull` hat: nach dem Update auf 2.28.1 noch einmal `sh update.sh --pull` – ist das Image dasselbe, stellt es nur den Namen um (Neustart, kein Tausch)

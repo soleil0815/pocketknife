@@ -1771,7 +1771,7 @@ def _():
     src = open(f, encoding="utf-8").read()
     if _sh.which("dash"):
         assert _sp.run(["dash", "-n", f]).returncode == 0, "update.sh muss mit /bin/sh (dash) laufen"
-    for need in ("Update to POCKET KNIFE $NEWVER now?", "if ! docker compose build", "wait_healthy",
+    for need in ("Update to POCKET KNIFE $NEWVER now?", 'if ! docker build -t "$LOCAL_IMAGE" .', "wait_healthy",
                  "tools/selftest.py", "PK_DATA_PATH PK_REPO_MOUNT PK_BACKUP_PATH", "restore_prev", "envval()",
                  'INST="$SCRIPTDIR"', ".pk-vorher", "PROGRAM_ITEMS=",
                  "mounts >> \"$TMP/protect\"", "canon()", "env_set()", "exit 130"):
@@ -1924,7 +1924,7 @@ def _():
     assert r.returncode == 0, r.stdout[-800:] + r.stderr[-800:]
     assert rd("VERSION") == "2.24.4" and rd(".pk-vorher", "VERSION") == "2.24.2" and rd(".pk-vorher", "app", "m.txt") == "ALT"
     assert not os.path.exists(os.path.join(inst, "fremd.txt")), "nur bekannte Programmdateien übernehmen"
-    assert rd("data", "pocketknife.db") == "DB" and rd(".env") == "PK_DNS_1=1.2.3.4"
+    assert rd("data", "pocketknife.db") == "DB" and rd(".env") == "PK_DNS_1=1.2.3.4\nPK_IMAGE=pocketknife:local", rd(".env")
     # Gleiche Version noch einmal → .pk-vorher behält den echten Vorgänger
     r = run(mkzip("2.24.4", "NEU2"))
     assert r.returncode == 0 and rd(".pk-vorher", "VERSION") == "2.24.2" and rd("run.py") == "NEU2", r.stdout[-500:]
@@ -1933,7 +1933,7 @@ def _():
     r = run(mkzip("2.24.5", "KAPUTT"))
     assert r.returncode != 0 and "Restored." in r.stderr, r.stdout[-500:] + r.stderr[-500:]
     assert rd("VERSION") == "2.24.4" and rd("run.py") == "NEU2" and rd("app", "m.txt") == "NEU2", "Programmordner wieder vollständig"
-    assert rd(".pk-vorher", "VERSION") == "2.24.2" and rd(".env") == "PK_DNS_1=1.2.3.4"
+    assert rd(".pk-vorher", "VERSION") == "2.24.2" and rd(".env") == "PK_DNS_1=1.2.3.4\nPK_IMAGE=pocketknife:local"
     assert not os.path.exists(os.path.join(inst, ".pk-update-unvollstaendig"))
     assert not [n for n in os.listdir(inst) if n.startswith(".pk-update.")], "kein temporärer Ordner übrig"
     os.remove(os.path.join(st, "mvfail"))
@@ -1956,6 +1956,7 @@ def _():
     import hashlib as _hl
     import shutil as _sh
     import subprocess as _sp
+    import re as _re
     import zipfile as _z
     root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
     f = os.path.join(root, "update.sh")
@@ -1965,6 +1966,9 @@ def _():
     for need in ('--pull) PULL=1', 'env_set "$INST/.env" PK_IMAGE "$WANT_IMAGE"', 'docker tag "$PREVID" "$PREV_IMAGE"', "sha256sum -c",
                  'DEFAULT_IMAGE_REPO="ghcr.io/', "docker login"):
         assert need in src, need
+    dc = open(os.path.join(root, "docker-compose.yml"), encoding="utf-8").read()
+    assert "image: ${PK_IMAGE:-ghcr.io/soleil0815/pocketknife:latest}" in dc, "Standard: fertiges Image aus der Registry (:latest – Dockhand/Watchtower)"
+    assert not _re.search(r"^\s*build:", dc.split("guacd:")[0], _re.M), "kein „build:“ – sonst baut eine Container-Verwaltung statt zu ziehen"
     df = open(os.path.join(root, "Dockerfile"), encoding="utf-8").read()
     assert "dist* /opt/pocketknife/dist/" in df, "Programm-ZIP gehört ins Image (für update.sh --pull)"
     di = open(os.path.join(root, ".dockerignore"), encoding="utf-8").read()
@@ -1982,7 +1986,7 @@ def _():
         h.write('#!/bin/sh\nst="$FAKE_STATE"\necho "$*" >> "$st/calls"\ncase "$1" in\n info) exit 0 ;;\n'
                 ' pull) [ -f "$st/pullfail" ] && { echo "denied" >&2; exit 1; }; exit 0 ;;\n'
                 ' create) echo cid123 ;;\n cp) cp -r "$st/dist/." "$3" ;;\n rm) exit 0 ;;\n'
-                ' tag) echo "$2 $3" >> "$st/tags" ;;\n'
+                ' tag) echo "$2 $3" >> "$st/tags" ;;\n build) touch "$st/built" ;;\n'
                 ' image) case "$*" in *RepoDigests*) echo "ghcr.io/test/pocketknife@sha256:abc" ;; *image.version*) cat "$st/imgver" ;;'
                 ' *.Id*) cat "$st/newid" ;; esac; exit 0 ;;\n'
                 ' inspect) case "$*" in *working_dir*) cat "$st/running" 2>/dev/null ;; *Health*) if [ -f "$st/unhealthy" ]; then echo unhealthy; else echo healthy; fi ;; *Config.Image*) cat "$st/runref" ;; *.Image*) cat "$st/runid" ;; esac; exit 0 ;;\n'
@@ -2055,7 +2059,7 @@ def _():
                 z.write(os.path.join(dp, n), os.path.relpath(os.path.join(dp, n), zd))
     r = run(zp)
     assert r.returncode == 0 and os.path.exists(os.path.join(st, "built")), r.stdout[-500:]
-    assert "PK_IMAGE=\n" in rd(".env") + "\n" or rd(".env").endswith("PK_IMAGE="), rd(".env")
+    assert "PK_IMAGE=pocketknife:local" in rd(".env"), ("ZIP-Weg: lokal gebautes Image", rd(".env"))
     os.remove(os.path.join(st, "built"))
     # Neue Version startet nicht → zurück zum vorigen Image unter dem Namen, den die bisherige .env erwartet
     open(os.path.join(inst, ".env"), "w").write("PK_DNS_1=1.2.3.4\nPK_IMAGE_REPO=ghcr.io/test/pocketknife\nPK_IMAGE=ghcr.io/test/pocketknife:latest\n")
@@ -2167,7 +2171,7 @@ def _():
     bind, st = os.path.join(base, "bin"), os.path.join(base, "st")
     os.makedirs(bind); os.makedirs(st)
     with open(os.path.join(bind, "docker"), "w") as h:
-        h.write('#!/bin/sh\nst="$FAKE_STATE"\ncase "$1" in\n info|image) exit 0 ;;\n'
+        h.write('#!/bin/sh\nst="$FAKE_STATE"\ncase "$1" in\n info|image) exit 0 ;;\n build) [ -f "$st/buildfail" ] && exit 1; exit 0 ;;\n'
                 ' inspect) case "$*" in *working_dir*) cat "$st/running" 2>/dev/null; exit 0 ;; *Health*) echo healthy; exit 0 ;; esac; exit 0 ;;\n'
                 ' compose) case "$2" in build) [ -f "$st/buildfail" ] && exit 1; exit 0 ;; up) pwd > "$st/running"; exit 0 ;; exec) echo ok; exit 0 ;; esac; exit 0 ;;\nesac\nexit 0\n')
     with open(os.path.join(bind, "mv"), "w") as h:  # Zurücklegen von app/ scheitert genau einmal (z. B. E/A-Fehler)
@@ -2212,7 +2216,7 @@ def _():
     assert r.returncode != 0 and "Restored." in r.stderr, r.stdout[-400:] + r.stderr[-600:]
     assert rd("VERSION") == "2.24.4" and rd("run.py") == "NEU" and rd("app", "m.txt") == "NEU", "Programmordner vollständig"
     assert rd(".pk-vorher", "VERSION") == "2.24.2" and rd(".pk-vorher", "app", "m.txt") == "ALT", "gesicherter Vorgänger unversehrt"
-    assert rd(".env") == "PK_SERVICE_PASSWORD=geheim"
+    assert rd(".env") == "PK_SERVICE_PASSWORD=geheim\nPK_IMAGE=pocketknife:local", rd(".env")  # Stand vor diesem Lauf
     assert not os.path.exists(os.path.join(inst, ".pk-update-unvollstaendig"))
     src = open(f, encoding="utf-8").read()
     assert "list_drop" in src and "trap '' INT TERM" in src and 'cp "$TMP/bisher/.env" "$INST/.env"' not in src
