@@ -33,4 +33,12 @@ jobs:
           cache-to: type=gha,scope=amd64,mode=max
 
       - name: Selbsttest im Image
-        run: docker run --rm pocketknife-test:amd64 python3 tools/selftest.py
+        run: |
+          # Fehlgeschlagene Tests als Hinweis direkt am Lauf zeigen (Annotation)
+          if ! docker run --rm -e PK_SELFTEST_TRACE=1 pocketknife-test:amd64 python3 tools/selftest.py > selftest.txt 2>&1; then
+            tail -n 120 selftest.txt
+            msg=$( (grep -A14 "✗" selftest.txt || tail -n 60 selftest.txt) | head -n 150 | sed -e ':a' -e 'N' -e '$!ba' -e 's/%/%25/g' -e 's/\r/%0D/g' -e 's/\n/%0A/g')
+            echo "::error title=Selbsttest im Image::${msg:-Selbsttest fehlgeschlagen (siehe Log)}"
+            exit 1
+          fi
+          tail -n 1 selftest.txt

@@ -3836,19 +3836,39 @@ def _():
         finally:
             integrity.evaluate = real_eval
         assert db.val("SELECT COUNT(*) FROM repo_baseline") == n_base, "nichts aufgeräumt"
-        # H1: Ordner auf der Freigabe löschen folgt keiner Junction darin (SMB-Ersatz)
-        import importlib
-        sb = os.environ.get("SMB_SANDBOX") or _tf.mkdtemp(prefix="pk-smb27-", dir=TMP)
-        os.environ["SMB_SANDBOX"] = sb
-        import smbclient as _smbc
-        _smbc.ROOT = sb
-        os.makedirs(os.path.join(sb, "P", "alt", "sub"), exist_ok=True)
-        open(os.path.join(sb, "P", "alt", "sub", "f.txt"), "w").write("x")
-        os.makedirs(os.path.join(sb, "P", "Zentral"), exist_ok=True)
-        open(os.path.join(sb, "P", "Zentral", "wichtig.msi"), "w").write("x")
-        os.symlink("JDIR:P:\\Zentral", os.path.join(sb, "P", "alt", "junction"))
-        remote._smb_rmtree("\\\\srv\\P$\\alt")
-        assert not os.path.exists(os.path.join(sb, "P", "alt")) and os.path.isfile(os.path.join(sb, "P", "Zentral", "wichtig.msi"))
+        # H1: Ordner auf der Freigabe löschen folgt keiner Junction darin – mit einem nachgebildeten smbclient
+        # (Junction = Eintrag mit Attribut 0x400; der echte Server würde ihr folgen)
+        import types as _ty
+        sb = _tf.mkdtemp(prefix="pk-smb27-", dir=TMP)
+        loc = lambda unc: os.path.join(sb, *[x for x in unc.replace("\\\\srv\\P$", "").split("\\") if x])  # noqa: E731
+
+        class _St:
+            def __init__(self, p):
+                self.st_file_attributes = 0x410 if os.path.islink(p) else (0x10 if os.path.isdir(p) else 0x20)
+
+        class _E:
+            def __init__(self, n):
+                self.name = n
+        fake = _ty.SimpleNamespace(
+            lstat=lambda u: _St(loc(u)),
+            scandir=lambda u: [_E(n) for n in sorted(os.listdir(loc(u)))],
+            rmdir=lambda u: os.remove(loc(u)) if os.path.islink(loc(u)) else os.rmdir(loc(u)),
+            remove=lambda u: os.remove(loc(u)))
+        os.makedirs(os.path.join(sb, "alt", "sub"))
+        open(os.path.join(sb, "alt", "sub", "f.txt"), "w").write("x")
+        os.makedirs(os.path.join(sb, "Zentral"))
+        open(os.path.join(sb, "Zentral", "wichtig.msi"), "w").write("x")
+        os.symlink(os.path.join(sb, "Zentral"), os.path.join(sb, "alt", "junction"))
+        real_mod = sys.modules.get("smbclient")
+        sys.modules["smbclient"] = fake
+        try:
+            remote._smb_rmtree("\\\\srv\\P$\\alt")
+        finally:
+            if real_mod is not None:
+                sys.modules["smbclient"] = real_mod
+            else:
+                sys.modules.pop("smbclient", None)
+        assert not os.path.exists(os.path.join(sb, "alt")) and os.path.isfile(os.path.join(sb, "Zentral", "wichtig.msi")), "Ziel der Junction bleibt"
         src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "remote.py"), encoding="utf-8").read()
         assert "smbshutil.rmtree" not in src, "nie smbclient.shutil.rmtree (folgt Junctions)"
         # Zugriffsregeln: alle neuen Routen für OU-Admins nur über _p_repo bzw. _p_pkg_edit
