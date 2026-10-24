@@ -54,7 +54,7 @@ services:
   # Reachable internally only (no published port); connects directly to the clients (3389/5900).
   guacd:
     # Pinned exactly (version + digest); update with tools/pin-versions.sh --update
-    image: guacamole/guacd:1.6.0@sha256:8974eaa9ba32f713daf311e7cc8cd7e4cdfba1edea39eed75524e78ef4b08f4f
+    image: guacamole/guacd:1.6.0
     container_name: pocketknife-guacd
     restart: unless-stopped
     # guacd already runs as its own user in the official image; additionally no privilege escalation

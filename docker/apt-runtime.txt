@@ -1,6 +1,6 @@
 # Debian packages of the runtime image. libgssapi-krb5-2: Kerberos for WinRM/SMB; krb5-user: kinit/klist for troubleshooting.
 # Pinned exactly (Debian 13.7 "trixie"); dependencies via DEBIAN_SNAPSHOT in the Dockerfile.
-tzdata=2026c-0+deb13u1
 iputils-ping=3:20240905-3
-libgssapi-krb5-2=1.21.3-5+deb13u1
 krb5-user=1.21.3-5+deb13u1
+libgssapi-krb5-2=1.21.3-5+deb13u1
+tzdata=2026e-0+deb13u1

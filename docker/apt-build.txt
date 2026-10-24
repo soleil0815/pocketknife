@@ -1,6 +1,6 @@
 # Debian packages of the build stage (compiler and Kerberos headers for gssapi/krb5).
 # libkrb5-dev pinned to match the runtime library; gcc/libc6-dev via DEBIAN_SNAPSHOT.
 # Pin all with version: tools/pin-versions.sh
-gcc
-libc6-dev
+gcc=4:14.2.0-1
+libc6-dev=2.41-12+deb13u4
 libkrb5-dev=1.21.3-5+deb13u1
