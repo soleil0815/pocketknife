@@ -1,0 +1,7 @@
+# POCKET KNIFE – bewusst hingenommene Befunde von Trivy (tools/trivy-scan.sh).
+# Nur eintragen, was geprüft und NICHT ausnutzbar ist – immer mit Begründung und Ablaufdatum, damit es erneut geprüft wird:
+#
+#   # libfoo im Image unbenutzt (nur Abhängigkeit von X, keine Netzfunktion) – geprüft 2026-10-24
+#   CVE-2026-12345 exp:2026-12-31
+#
+# Ohne Eintrag gilt: Schwachstelle HOCH/KRITISCH mit verfügbarer Korrektur → kein Release.

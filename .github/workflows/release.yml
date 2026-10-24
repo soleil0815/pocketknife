@@ -8,6 +8,7 @@
 # Die Programm-ZIP liegt zusätzlich IM Image (/opt/pocketknife/dist) – update.sh --pull nimmt sie von dort und
 # braucht so nur die Docker-Anmeldung an der Registry, keinen weiteren Zugang zu GitHub.
 # Alle Actions sind auf einen Commit festgelegt (wie die übrigen Bausteine, siehe tools/pin-versions.sh).
+# Vor dem Hochladen prüft Trivy beide Images (tools/trivy-scan.sh): Schwachstellen mit Korrektur → kein Release.
 name: Release
 
 on:
@@ -123,6 +124,20 @@ jobs:
             exit 1
           fi
           tail -n 1 selftest.txt
+
+      - name: Schwachstellen prüfen (Trivy)
+        env:
+          PK_TRIVY_REPORT: trivy.md
+        run: |
+          # Bekannte Schwachstellen HOCH/KRITISCH mit verfügbarer Korrektur → kein Release (siehe tools/trivy-scan.sh)
+          rc=0; sh tools/trivy-scan.sh pocketknife-test:amd64 pocketknife-test:arm64 || rc=$?
+          if [ -f trivy.md ]; then cat trivy.md >> "$GITHUB_STEP_SUMMARY"; fi
+          if [ "$rc" = 1 ]; then
+            echo "::error title=Trivy::Schwachstellen mit verfügbarer Korrektur im Image – es wird nichts veröffentlicht. Abhilfe: Actions → Versionen aktualisieren → Run workflow."
+          elif [ "$rc" != 0 ]; then
+            echo "::error title=Trivy::Prüfung nicht möglich (Exitcode $rc) – ohne Prüfung kein Release. Lauf später wiederholen."
+          fi
+          exit "$rc"
 
       - name: Anmelden an ghcr.io
         uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6  # v4.7.0

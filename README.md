@@ -199,7 +199,7 @@ Das Skript zieht das Image, nimmt die Programm-ZIP **aus dem Image** (geprüft p
 - **Ohne Internet** oder bei einer eigenen Änderung am Code bleibt der ZIP-Weg wie bisher (baut lokal).
 - Der erste Wechsel auf 2.27.1 geht mit der ZIP-Datei (das alte `update.sh` kennt `--pull` noch nicht); danach genügt `--pull`.
 
-**Woher das Image kommt:** Bei jeder Version baut GitHub (Workflow `.github/workflows/release.yml`) das Image für amd64 und arm64, lässt den Selbsttest in beiden laufen und lädt es nur dann hoch; dazu ein Release mit der ZIP-Datei und ihrer Prüfsumme. Ausgelöst wird es mit einem Tag `v<Version>`, der zur Datei `VERSION` passen muss. Jeder Push und Pull Request baut und testet zusätzlich (`test.yml`), ohne etwas zu veröffentlichen.
+**Woher das Image kommt:** Bei jeder Version baut GitHub (Workflow `.github/workflows/release.yml`) das Image für amd64 und arm64, lässt den Selbsttest in beiden laufen, prüft beide mit **Trivy** auf bekannte Schwachstellen und lädt es nur dann hoch; dazu ein Release mit der ZIP-Datei und ihrer Prüfsumme. Ausgelöst wird es mit einem Tag `v<Version>`, der zur Datei `VERSION` passen muss. Jeder Push und Pull Request baut und testet zusätzlich (`test.yml`), ohne etwas zu veröffentlichen.
 
 **Umstieg von Versionsordnern:** Wer mit `update.sh` aus 2.23.3/2.24 aktualisiert hat, hat Unterordner wie `pocketknife-2.24/`. Läuft POCKET KNIFE noch aus so einem Ordner, übernimmt das Skript dessen `.env` in den Programmordner, startet von dort und bietet an, die Versionsordner zu löschen. Liegt das neue Skript noch nicht im Programmordner: `unzip -oj pocketknife-2.24.1.zip pocketknife/update.sh -d /opt/pocketknife`. `-y` beantwortet alle Fragen mit „ja“.
 
@@ -241,6 +241,21 @@ Der Quellcode liegt auf GitHub; GitHub baut die Images. Ablauf für eine neue Ve
 3. Tag setzen: `git tag v<Version> && git push origin v<Version>`. `Release` baut dann für **amd64 und arm64**, führt den Selbsttest in beiden aus (arm64 emuliert, dauert länger), lädt das Image als `ghcr.io/<besitzer>/pocketknife:<Version>` und `:latest` hoch und legt ein Release mit `pocketknife-<Version>.zip`, Prüfsumme und Image-Digest an. Schlägt ein Schritt fehl, wird nichts veröffentlicht.
 
 Bei einem privaten Repository ist auch das Image privat; die Docker-Hosts melden sich einmal mit `docker login ghcr.io` an (Token mit `read:packages`).
+
+### Schwachstellen-Prüfung (Trivy)
+
+Ein Image mit bekannten Schwachstellen wird nicht veröffentlicht. `tools/trivy-scan.sh` prüft Debian- und Python-Pakete im Image auf Schwachstellen der Stufen **HOCH und KRITISCH, für die es eine Korrektur gibt** (ohne verfügbare Korrektur kann man nichts tun – das würde jedes Release blockieren):
+
+| Workflow | Wann | Wirkung |
+|---|---|---|
+| `Release` | vor dem Hochladen, amd64 und arm64 | Befund → **nichts wird veröffentlicht**; Tabelle in der Zusammenfassung des Laufs |
+| `Test` | jeder Push | Befund → Lauf rot (frühe Warnung, bevor ein Release scheitert) |
+| `Sicherheits-Scan` | täglich 05:17 UTC und von Hand | prüft das veröffentlichte `:latest` – Schwachstellen werden oft erst nach einem Release bekannt; ein roter Lauf schickt GitHub als Mail |
+| `Versionen aktualisieren` | von Hand | `tools/pin-versions.sh --update`: Basis-Image, Debian-Pakete, Python-Pakete und guacd neu festlegen, ohne Cache bauen, Selbsttest, Trivy – Ergebnis als Pull Request |
+
+**Wenn Trivy etwas findet:** *Actions → Versionen aktualisieren → Run workflow*. Den Pull Request prüfen und zusammenführen, dann wie oben eine neue Version veröffentlichen. Ist die Korrektur noch nicht in Debian oder auf PyPI angekommen, zeigt der Pull Request den offenen Befund. Bewusst hingenommene, nicht ausnutzbare Befunde stehen mit Begründung und Ablaufdatum in `.trivyignore`. Für den Pull Request muss unter *Settings → Actions → General* „Allow GitHub Actions to create and approve pull requests“ eingeschaltet sein (sonst nur ein Zweig).
+
+Trivy wird in genau einer Version geladen und per SHA-256 geprüft – keine GitHub Action (im März 2026 wurden trivy-action, setup-trivy und Trivy 0.69.4–0.69.6 kompromittiert, CVE-2026-33634). Auf einem Docker-Host lässt sich ein lokales Image genauso prüfen: `sh tools/trivy-scan.sh pocketknife:local`.
 
 ## Umgebungsvariablen
 

@@ -200,7 +200,7 @@ The script pulls the image, takes the program ZIP **from the image** (checked by
 - **Without internet** or with your own code changes, the ZIP way stays as before (builds locally).
 - The first switch to 2.27.1 is done with the ZIP file (the old `update.sh` does not know `--pull` yet); after that `--pull` is enough.
 
-**Where the image comes from:** for every version GitHub (workflow `.github/workflows/release.yml`) builds the image for amd64 and arm64, runs the self-test in both and only then uploads it; plus a release with the ZIP file and its checksum. It is triggered by a tag `v<version>` that must match the file `VERSION`. Every push and pull request is additionally built and tested (`test.yml`) without publishing anything.
+**Where the image comes from:** for every version GitHub (workflow `.github/workflows/release.yml`) builds the image for amd64 and arm64, runs the self-test in both, checks both with **Trivy** for known vulnerabilities and only then uploads it; plus a release with the ZIP file and its checksum. It is triggered by a tag `v<version>` that must match the file `VERSION`. Every push and pull request is additionally built and tested (`test.yml`) without publishing anything.
 **Switching from version folders:** If you updated with `update.sh` from 2.23.3/2.24, you have subfolders such as `pocketknife-2.24/`. If POCKET KNIFE is still running from such a folder, the script takes over its `.env` into the program folder, starts from there and offers to delete the version folders. If the new script is not yet in the program folder: `unzip -oj pocketknife-2.24.1.zip pocketknife/update.sh -d /opt/pocketknife`. `-y` answers all questions with "yes".
 
 As before, it can also be done manually:
@@ -241,6 +241,21 @@ The source code lives on GitHub; GitHub builds the images. Steps for a new versi
 3. Set a tag: `git tag v<version> && git push origin v<version>`. `Release` then builds for **amd64 and arm64**, runs the self-test in both (arm64 emulated, takes longer), uploads the image as `ghcr.io/<owner>/pocketknife:<version>` and `:latest` and creates a release with `pocketknife-<version>.zip`, checksum and image digest. If a step fails, nothing is published.
 
 With a private repository the image is private too; the Docker hosts sign in once with `docker login ghcr.io` (token with `read:packages`).
+
+### Vulnerability check (Trivy)
+
+An image with known vulnerabilities is not published. `tools/trivy-scan.sh` checks the Debian and Python packages in the image for vulnerabilities of severity **HIGH and CRITICAL that have a fix** (without an available fix nothing can be done – that would block every release):
+
+| Workflow | When | Effect |
+|---|---|---|
+| `Release` | before uploading, amd64 and arm64 | finding → **nothing is published**; table in the run summary |
+| `Test` | every push | finding → run red (early warning before a release fails) |
+| `Sicherheits-Scan` | daily 05:17 UTC and manually | checks the published `:latest` – vulnerabilities often become known after a release; a red run makes GitHub send an e-mail |
+| `Versionen aktualisieren` | manually | `tools/pin-versions.sh --update`: re-pin base image, Debian packages, Python packages and guacd, build without cache, self-test, Trivy – result as a pull request |
+
+**If Trivy finds something:** *Actions → Versionen aktualisieren → Run workflow*. Review and merge the pull request, then publish a new version as above. If the fix has not yet arrived in Debian or on PyPI, the pull request shows the open finding. Deliberately accepted, non-exploitable findings go into `.trivyignore` with a reason and an expiry date. For the pull request, *Settings → Actions → General* "Allow GitHub Actions to create and approve pull requests" must be enabled (otherwise only a branch).
+
+Trivy is downloaded in exactly one version and verified by SHA-256 – no GitHub Action (in March 2026 trivy-action, setup-trivy and Trivy 0.69.4–0.69.6 were compromised, CVE-2026-33634). On a Docker host a local image can be checked the same way: `sh tools/trivy-scan.sh pocketknife:local`.
 
 ## Environment variables
 

@@ -4448,6 +4448,56 @@ def _():
         access.flush()
 
 
+@test("2.29.2 Trivy: Schwachstellen HOCH/KRITISCH mit Korrektur stoppen das Release vor dem Hochladen; Trivy fest in Version und Prüfsumme (keine Action); täglicher Scan des veröffentlichten Images; Versionen aktualisieren per Pull Request")
+def _():
+    import re as _re
+    import shutil as _sh
+    import subprocess as _sp
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+    sc = os.path.join(root, "tools", "trivy-scan.sh")
+    wfd = os.path.join(root, ".github", "workflows")
+    if not os.path.exists(sc) or not os.path.isdir(wfd):
+        return  # im Container liegen Skript und Workflows nicht
+    src = open(sc, encoding="utf-8").read()
+    assert _re.search(r"^TRIVY_VERSION=\d+\.\d+\.\d+$", src, _re.M), "feste Trivy-Version"
+    assert _re.search(r'^SHA_LINUX_64="[0-9a-f]{64}"$', src, _re.M) and _re.search(r'^SHA_LINUX_ARM64="[0-9a-f]{64}"$', src, _re.M)
+    assert "sha256sum -c" in src and "--ignore-unfixed" in src and "HIGH,CRITICAL" in src
+    ver = tuple(int(x) for x in _re.search(r"^TRIVY_VERSION=(\S+)$", src, _re.M).group(1).split("."))
+    assert not ((0, 69, 4) <= ver <= (0, 69, 6)), "kompromittierte Trivy-Versionen (CVE-2026-33634)"
+    wfs = {f: open(os.path.join(wfd, f), encoding="utf-8").read() for f in os.listdir(wfd) if f.endswith(".yml")}
+    for f, t in wfs.items():
+        for use in _re.findall(r"uses:\s*(\S+)", t):
+            assert _re.search(r"@[0-9a-f]{40}$", use), f"{f}: Action nicht auf Commit festgelegt: {use}"
+        assert "aquasecurity/" not in t, f"{f}: Trivy nur über tools/trivy-scan.sh (keine Action)"
+    rel = wfs["release.yml"]
+    assert rel.index("tools/trivy-scan.sh pocketknife-test:amd64 pocketknife-test:arm64") < rel.index("Bauen und hochladen"), \
+        "Trivy prüft VOR dem Hochladen"
+    assert "tools/trivy-scan.sh" in wfs["test.yml"]
+    assert "schedule:" in wfs["security.yml"] and ":latest" in wfs["security.yml"] and "packages: read" in wfs["security.yml"]
+    assert "pin-versions.sh --update" in wfs["update-pins.yml"] and "gh pr create" in wfs["update-pins.yml"]
+    assert ".trivyignore" in open(os.path.join(root, "update.sh"), encoding="utf-8").read()
+    if not _sh.which("sh") or not _sh.which("sha256sum"):
+        return
+    # Ablauf mit einer Trivy-Attrappe: sauber → 0, Befund → 1 (+ Bericht), nicht prüfbar → 3
+    d = tempfile.mkdtemp(prefix="pk-trivy-", dir=TMP)
+    fake = os.path.join(d, "trivy")
+    with open(fake, "w") as h:
+        h.write('#!/bin/sh\ncase "$1" in\n image) out=""; prev=""; for a in "$@"; do [ "$prev" = "--output" ] && out="$a"; prev="$a"; img="$a"; done\n'
+                '   case "$img" in *schlecht*) printf \'{\\n "Results": [\\n  {\\n   "Vulnerabilities": [\\n    {\\n     "VulnerabilityID": "CVE-2026-1111",\\n'
+                '     "PkgName": "libssl3t64",\\n     "InstalledVersion": "1",\\n     "FixedVersion": "2",\\n     "Severity": "CRITICAL",\\n     "Title": "t"\\n    }\\n   ]\\n  }\\n ]\\n}\\n\' > "$out" ;;\n'
+                '   *fehlt*) exit 1 ;; *) echo \'{"Results": []}\' > "$out" ;; esac ;;\n convert) echo Tabelle ;;\nesac\n')
+    os.chmod(fake, 0o755)
+    rep = os.path.join(d, "r.md")
+    env = {**os.environ, "PK_TRIVY_BIN": fake, "PK_TRIVY_REPORT": rep}
+    env.pop("GITHUB_ACTIONS", None)
+    rc = lambda img: _sp.run(["sh", sc, img], env=env, capture_output=True, text=True, timeout=60).returncode  # noqa: E731
+    assert rc("pk-gut") == 0 and rc("pk-schlecht") == 1 and rc("pk-fehlt") == 3
+    r = _sp.run(["sh", sc, "pk-gut", "pk-schlecht"], env=env, capture_output=True, text=True, timeout=60)
+    assert r.returncode == 1 and "Versionen aktualisieren" in r.stderr, "Befund in einem von mehreren Images zählt"
+    t = open(rep, encoding="utf-8").read()
+    assert "CVE-2026-1111" in t and "libssl3t64" in t and "Keine Schwachstellen" in t, t
+
+
 def main():
     ok = 0
     for name, fn in RESULTS:

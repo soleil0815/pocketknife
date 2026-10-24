@@ -44,3 +44,12 @@ jobs:
             exit 1
           fi
           tail -n 1 selftest.txt
+
+      - name: Schwachstellen prüfen (Trivy)
+        env:
+          PK_TRIVY_REPORT: trivy.md
+        run: |
+          rc=0; sh tools/trivy-scan.sh pocketknife-test:amd64 || rc=$?
+          if [ -f trivy.md ]; then cat trivy.md >> "$GITHUB_STEP_SUMMARY"; fi
+          [ "$rc" = 1 ] && echo "::error title=Trivy::Schwachstellen mit verfügbarer Korrektur – ein Release würde abgelehnt. Abhilfe: Actions → Versionen aktualisieren."
+          exit "$rc"
