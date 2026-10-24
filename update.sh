@@ -159,7 +159,7 @@ wait_healthy() {
 
 # Program files replaced by an update (everything else in the program folder stays untouched)
 PROGRAM_ITEMS="app tools docker Dockerfile docker-compose.yml VERSION CHANGELOG.md README.md README.en.md run.py healthcheck.py \
-requirements.txt requirements.lock build-requirements.txt .dockerignore .env.example .gitignore .gitattributes .github .trivyignore"
+requirements.txt requirements.lock requirements.caps build-requirements.txt .dockerignore .env.example .gitignore .gitattributes .github .trivyignore"
 
 # Remove an entry from a list (after the step is done – a second run does not repeat it)
 list_drop() {

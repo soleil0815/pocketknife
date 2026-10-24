@@ -1,0 +1,67 @@
+#!/usr/bin/env python3
+"""POCKET KNIFE – Obergrenzen für Python-Pakete beim wöchentlichen Update (von tools/pin-versions.sh --update genutzt).
+
+Grundsatz „kein Versionssprung“: Jedes Paket bleibt auf seiner Hauptversion (cryptography 50.x bleibt 50.x), Pakete vor
+1.0 auf ihrer Unterversion (fastapi 0.155.x bleibt 0.155.x) – Fehler- und Sicherheitskorrekturen darin kommen weiter.
+Ausnahme: Kalenderversionen (certifi 2026.10.19, tzdata 2026.1) – dort ist jede neue Version eine reine Datenaktualisierung
+(z. B. Stammzertifikate) und muss immer mitkommen.
+
+  python3 tools/caps.py lock  requirements.lock      → Obergrenzen aller Pakete (für requirements.caps)
+  python3 tools/caps.py build build-requirements.txt  → dieselbe Datei mit Bereichen statt ==, Kommentare bleiben
+
+Ein Sprung auf eine neue Hauptversion nur bewusst: PK_ALLOW_MAJOR=1 tools/pin-versions.sh --update (mit vollem Test).
+"""
+import re
+import sys
+
+VER = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)==([0-9][^\s;#]*)")
+
+
+def cap(version):
+    """Obergrenze („<51“, „<0.156“) oder None (Kalenderversion / nicht lesbar)."""
+    nums = [int(x) for x in re.findall(r"\d+", version.split("+")[0])[:2]]
+    if not nums:
+        return None
+    if nums[0] >= 1900:  # Kalenderversion
+        return None
+    if nums[0] == 0:
+        return f"<0.{(nums[1] if len(nums) > 1 else 0) + 1}"
+    return f"<{nums[0] + 1}"
+
+
+def line_for(name, version):
+    c = cap(version)
+    return f"{name}>={version},{c}" if c else f"{name}>={version}"
+
+
+def lock_caps(text):
+    out = ["# Obergrenzen für das wöchentliche Update – erzeugt von tools/caps.py aus requirements.lock.",
+           "# Jedes Paket bleibt auf seiner Hauptversion (vor 1.0: Unterversion); Kalenderversionen ohne Grenze.",
+           "# Neue Hauptversionen nur bewusst: PK_ALLOW_MAJOR=1 tools/pin-versions.sh --update"]
+    for raw in text.splitlines():
+        m = VER.match(raw.strip())
+        if m:
+            out.append(line_for(m.group(1), m.group(2)))
+    return "\n".join(out) + "\n"
+
+
+def build_ranges(text):
+    out = []
+    for raw in text.splitlines():
+        s = raw.strip()
+        m = VER.match(s)
+        if m:
+            out.append(line_for(m.group(1), m.group(2)))
+        elif s.startswith("#") or not s:
+            out.append(raw)
+        else:
+            out.append(re.split(r"[=<>!~ ]", s, maxsplit=1)[0])  # ohne Version: so lassen (nur der Name)
+    return "\n".join(out) + "\n"
+
+
+if __name__ == "__main__":
+    if len(sys.argv) != 3 or sys.argv[1] not in ("lock", "build"):
+        print(__doc__)
+        sys.exit(2)
+    t = open(sys.argv[2], encoding="utf-8").read()
+    sys.stdout.write(lock_caps(t) if sys.argv[1] == "lock" else build_ranges(t))

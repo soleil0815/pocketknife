@@ -4595,6 +4595,37 @@ def _():
     assert 'exit "$rc"' in sec and "grc=0" in sec, "guacd-Befunde nur als Hinweis"
 
 
+@test("2.29.5 Kein Versionssprung bei Python-Paketen: jedes bleibt auf seiner Hauptversion (vor 1.0 Unterversion), Kalenderversionen (certifi) immer neu; Grenzen gelten beim wöchentlichen Update; neue Hauptversion nur bewusst")
+def _():
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+    tool = os.path.join(root, "tools", "caps.py")
+    if not os.path.exists(tool):
+        return  # im Container liegen die Bauwerkzeuge nicht
+    import importlib.util as _iu
+    spec = _iu.spec_from_file_location("pk_caps", tool)
+    m = _iu.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    assert m.cap("50.0.2") == "<51" and m.cap("0.155.0") == "<0.156" and m.cap("0.0.5") == "<0.1" and m.cap("2.9.1") == "<3"
+    assert m.cap("2026.10.19") is None and m.cap("2025.2") is None, "Kalenderversionen ohne Grenze (Stammzertifikate, Zeitzonen)"
+    assert m.line_for("fastapi", "0.155.0") == "fastapi>=0.155.0,<0.156" and m.line_for("certifi", "2026.10.19") == "certifi>=2026.10.19"
+    t = m.build_ranges("# Kommentar\nCython==3.2.1\nsetuptools\n")
+    assert t == "# Kommentar\nCython>=3.2.1,<4\nsetuptools\n", t
+    lock = open(os.path.join(root, "requirements.lock"), encoding="utf-8").read()
+    caps = open(os.path.join(root, "requirements.caps"), encoding="utf-8").read()
+    names = {x.split("==")[0].lower() for x in lock.splitlines() if "==" in x and not x.startswith("#")}
+    capped = {__import__("re").split(r"[<>=]", x)[0].lower() for x in caps.splitlines() if x and not x.startswith("#")}
+    assert names == capped, ("requirements.caps passt nicht zu requirements.lock", names ^ capped)
+    df = open(os.path.join(root, "Dockerfile"), encoding="utf-8").read()
+    assert df.count("-c requirements.caps") == 2 and df.count("requirements.caps") >= 4, "Grenzen in Bau- und Laufzeit-Stufe"
+    pv = open(os.path.join(root, "tools", "pin-versions.sh"), encoding="utf-8").read()
+    assert pv.index("tools/caps.py lock requirements.lock") < pv.index("' > requirements.lock"), "Grenzen VOR dem Leeren der Datei"
+    assert "PK_ALLOW_MAJOR" in pv
+    for f in ("weekly.yml", "update-pins.yml"):
+        w = open(os.path.join(root, ".github", "workflows", f), encoding="utf-8").read()
+        assert "requirements.caps" in w and "::error title=Versionen aktualisieren::" in w, f
+    assert "requirements.caps" in open(os.path.join(root, "update.sh"), encoding="utf-8").read()
+
+
 def main():
     ok = 0
     for name, fn in RESULTS:

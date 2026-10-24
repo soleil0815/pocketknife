@@ -27,7 +27,15 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       - name: Versionen neu ermitteln, festlegen und prüfen (Bau ohne Cache + Selbsttest)
-        run: sh tools/pin-versions.sh --update
+        run: |
+          # Fehler direkt am Lauf zeigen (Annotation) – die Protokolle sind sonst nur in der Weboberfläche lesbar
+          if ! sh tools/pin-versions.sh --update > pin.log 2>&1; then
+            tail -n 150 pin.log
+            msg=$(tail -n 60 pin.log | sed -e ':a' -e 'N' -e '$!ba' -e 's/%/%25/g' -e 's/\r/%0D/g' -e 's/\n/%0A/g')
+            echo "::error title=Versionen aktualisieren::${msg:-fehlgeschlagen (siehe Log)}"
+            exit 1
+          fi
+          tail -n 40 pin.log
 
       - name: Schwachstellen prüfen (Trivy)
         id: trivy
@@ -46,7 +54,7 @@ jobs:
           if git diff --quiet; then echo "Alles ist schon aktuell – nichts zu tun." >> "$GITHUB_STEP_SUMMARY"; exit 0; fi
           BR="versionen-$(date -u +%Y%m%d-%H%M)"
           git switch -c "$BR"
-          git add -A Dockerfile requirements.lock build-requirements.txt docker/apt-build.txt docker/apt-runtime.txt docker-compose.yml
+          git add -A Dockerfile requirements.lock requirements.caps build-requirements.txt docker/apt-build.txt docker/apt-runtime.txt docker-compose.yml
           git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
             commit -qm "Versionen aktualisiert (tools/pin-versions.sh --update)"
           git push -q origin "$BR"

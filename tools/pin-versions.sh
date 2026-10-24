@@ -39,9 +39,20 @@ if [ "$UPDATE" = 1 ]; then
   BASE_TAG="${PK_PYTHON_BASE:-${BASE_TAG:-python:3.12-slim-trixie}}"
   echo "Basis: $BASE_TAG"
   sed -i -e "s|^ARG PYTHON_IMAGE=.*|ARG PYTHON_IMAGE=${BASE_TAG}|" -e 's|^ARG DEBIAN_SNAPSHOT=.*|ARG DEBIAN_SNAPSHOT=|' Dockerfile
-  for f in docker/apt-build.txt docker/apt-runtime.txt build-requirements.txt; do
+  for f in docker/apt-build.txt docker/apt-runtime.txt; do
     sed -i -e '/^[[:space:]]*#/!s/[=<>!~].*$//' "$f"
   done
+  # Python-Pakete: kein Versionssprung – jedes bleibt auf seiner Hauptversion (vor 1.0: Unterversion), Korrekturen darin
+  # kommen mit (tools/caps.py). Neue Hauptversionen nur bewusst: PK_ALLOW_MAJOR=1
+  if [ "${PK_ALLOW_MAJOR:-0}" = 1 ]; then
+    echo "PK_ALLOW_MAJOR=1: neue Hauptversionen der Python-Pakete erlaubt"
+    printf '# keine Obergrenzen (PK_ALLOW_MAJOR=1)\n' > requirements.caps
+    sed -i -e '/^[[:space:]]*#/!s/[=<>!~].*$//' build-requirements.txt
+  else
+    python3 tools/caps.py lock requirements.lock > requirements.caps.new && mv requirements.caps.new requirements.caps
+    python3 tools/caps.py build build-requirements.txt > build-requirements.txt.new && mv build-requirements.txt.new build-requirements.txt
+    echo "Obergrenzen: $(grep -c '<' requirements.caps) Python-Pakete bleiben auf ihrer Hauptversion"
+  fi
   printf '# Exact versions of all Python packages (incl. dependencies) – created with tools/pin-versions.sh.\n' > requirements.lock
   sed -i -e 's|^\(    image: guacamole/guacd:[^@]*\)@sha256:[0-9a-f]*|\1|' docker-compose.yml
   # guacd: neueste stabile Version (x.y.z) von Docker Hub – bei einem Fehler bleibt die bisherige

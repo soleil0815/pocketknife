@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.29.5",
+   "date": "2026-10-24",
+   "items": [
+    {
+     "kind": "improved",
+     "audience": "admin",
+     "de": "Das wöchentliche Update hält jedes Python-Paket auf seiner Hauptversion – Sicherheits- und Fehlerkorrekturen kommen weiter, große Versionssprünge nur bewusst.",
+     "en": "The weekly update keeps every Python package on its major version – security and bug fixes keep coming, big version jumps only deliberately."
+    }
+   ]
+  },
+  {
    "version": "2.29.4",
    "date": "2026-10-24",
    "items": [

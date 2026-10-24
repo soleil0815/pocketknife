@@ -38,12 +38,20 @@ jobs:
         run: git worktree add -q "$RUNNER_TEMP/vorher" HEAD
 
       - name: Versionen aktualisieren, ohne Cache bauen, Selbsttest
-        run: sh tools/pin-versions.sh --update
+        run: |
+          # Fehler direkt am Lauf zeigen (Annotation) – die Protokolle sind sonst nur in der Weboberfläche lesbar
+          if ! sh tools/pin-versions.sh --update > pin.log 2>&1; then
+            tail -n 150 pin.log
+            msg=$(tail -n 60 pin.log | sed -e ':a' -e 'N' -e '$!ba' -e 's/%/%25/g' -e 's/\r/%0D/g' -e 's/\n/%0A/g')
+            echo "::error title=Versionen aktualisieren::${msg:-fehlgeschlagen (siehe Log)}"
+            exit 1
+          fi
+          tail -n 40 pin.log
 
       - name: Etwas geändert?
         id: diff
         run: |
-          if git diff --quiet -- Dockerfile requirements.lock build-requirements.txt docker/apt-build.txt docker/apt-runtime.txt docker-compose.yml; then
+          if git diff --quiet -- Dockerfile requirements.lock requirements.caps build-requirements.txt docker/apt-build.txt docker/apt-runtime.txt docker-compose.yml; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             echo "Alles ist schon aktuell – keine neue Version." >> "$GITHUB_STEP_SUMMARY"
           else
@@ -81,7 +89,7 @@ jobs:
         run: |
           VER=$(python3 tools/security-release.py "$RUNNER_TEMP/vorher")
           echo "version=$VER" >> "$GITHUB_OUTPUT"
-          git add -A Dockerfile requirements.lock build-requirements.txt docker/apt-build.txt docker/apt-runtime.txt \
+          git add -A Dockerfile requirements.lock requirements.caps build-requirements.txt docker/apt-build.txt docker/apt-runtime.txt \
             docker-compose.yml VERSION CHANGELOG.md app/news.json README.md README.en.md
           git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
             commit -qm "pocketknife $VER: wöchentliches Sicherheitsupdate (Basis-Image und Pakete)"

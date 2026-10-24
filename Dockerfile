@@ -16,7 +16,7 @@ ARG DEBIAN_SNAPSHOT
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1
 COPY docker/apt-install.sh docker/apt-build.txt /tmp/pk/
 RUN sh /tmp/pk/apt-install.sh "$DEBIAN_SNAPSHOT" /tmp/pk/apt-build.txt
-COPY requirements.txt requirements.lock build-requirements.txt /tmp/pk/
+COPY requirements.txt requirements.lock requirements.caps build-requirements.txt /tmp/pk/
 # Install the build tools first (so pin-versions.sh can read their versions) and use exactly these versions
 # via PIP_CONSTRAINT in the isolated build environments of gssapi/krb5 as well
 RUN set -e; cd /tmp/pk; \
@@ -25,7 +25,7 @@ RUN set -e; cd /tmp/pk; \
       PIP_CONSTRAINT=/tmp/pk/build-requirements.txt pip wheel --no-cache-dir --no-deps --wheel-dir /wheels -r requirements.lock; \
     else \
       echo "WARNING: requirements.lock is empty – versions not pinned (run tools/pin-versions.sh)."; \
-      PIP_CONSTRAINT=/tmp/pk/build-requirements.txt pip wheel --no-cache-dir --wheel-dir /wheels -r requirements.txt; \
+      PIP_CONSTRAINT=/tmp/pk/build-requirements.txt pip wheel --no-cache-dir --wheel-dir /wheels -r requirements.txt -c requirements.caps; \
     fi
 
 # --- Runtime -------------------------------------------------------------------
@@ -46,13 +46,13 @@ RUN sh /tmp/pk/apt-install.sh "$DEBIAN_SNAPSHOT" /tmp/pk/apt-runtime.txt \
  && useradd --system --uid 10001 --gid 10001 --home-dir /nonexistent --no-create-home --shell /usr/sbin/nologin pocketknife
 
 WORKDIR /opt/pocketknife
-COPY requirements.txt requirements.lock ./
+COPY requirements.txt requirements.lock requirements.caps ./
 COPY --from=build /wheels /tmp/wheels
 RUN set -e; \
     if grep -q '^[A-Za-z0-9].*==' requirements.lock; then \
       pip install --no-cache-dir --no-index --no-deps --find-links /tmp/wheels -r requirements.lock; \
     else \
-      pip install --no-cache-dir --no-index --find-links /tmp/wheels -r requirements.txt; \
+      pip install --no-cache-dir --no-index --find-links /tmp/wheels -r requirements.txt -c requirements.caps; \
     fi; \
     pip check; \
     python -m pip uninstall -y -q pip; \

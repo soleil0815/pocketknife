@@ -1,5 +1,10 @@
 # Änderungen
 
+## pocketknife-2.29.5 (24.10.2026)
+- **Kein Versionssprung bei Python-Paketen:** Das wöchentliche Update hält jedes Python-Paket auf seiner Hauptversion (vor 1.0 auf seiner Unterversion, z. B. fastapi 0.155.x) – Fehler- und Sicherheitskorrekturen darin kommen weiter jede Woche. Die Grenzen stehen in `requirements.caps` (erzeugt von `tools/caps.py` aus den festgelegten Versionen) und gelten beim Bau. Kalenderversionen (certifi mit den Stammzertifikaten) kommen immer neu. Eine neue Hauptversion nur bewusst: `PK_ALLOW_MAJOR=1 tools/pin-versions.sh --update` mit vollem Test
+- Wöchentliches Update und „Versionen aktualisieren“: schlägt das Aktualisieren fehl, steht die Ursache jetzt direkt am Lauf (Annotation)
+- **Selbsttest:** Grenzen (Haupt-/Unterversion, Kalenderversionen), Grenzen passen zu `requirements.lock`, gelten in Bau- und Laufzeit-Stufe, werden vor dem Leeren der Datei erzeugt
+
 ## pocketknife-2.29.4 (24.10.2026)
 - **Alles im Image aktuell:** Beim Bau bringt `apt-get upgrade` *alle* Debian-Pakete auf den Stand des Snapshots – auch die des Basis-Images (bisher nur die eigenen). pip wird nach der Installation aus dem fertigen Image entfernt (zur Laufzeit nicht gebraucht – eine Komponente weniger, die veralten kann)
 - **Wöchentliches Update bleibt im Unterbau:** innerhalb der Python-Reihe und Debian-Version des Images (z. B. `python:3.12-slim-trixie`) – bisher hätte `python:3.12-slim` still auf die nächste Debian-Version gewechselt. guacd kommt immer in der neuesten Version (Docker Hub); dessen Befunde zeigt Trivy als Hinweis (Korrektur nur durch das Guacamole-Projekt)
