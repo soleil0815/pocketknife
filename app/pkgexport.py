@@ -316,6 +316,10 @@ def run_import(user, data, tenant_id=None, conflict="skip", dry_run=True, pkg_va
                         res["id"] = pid
                     taken.add(res["new_name"].lower())
                     names.setdefault(res["new_name"].lower(), pid)  # gleicher Name zweimal in der Datei
+                    if vals.get("tenant_id"):
+                        from .main import net_hints  # 2.29.1: Hinweis, keine Sperre
+                        for x in net_hints({"steps": json.loads(vals["steps"])})[:5]:
+                            res["warnings"].append(f"Zugriff auf Freigaben/Internet im Skript: {x}")
                     if access.scoped(user) and vals.get("run_as") == "system" and p.get("run_as") == "deploy":
                         res["warnings"].append("Läuft als „Lokales System“ statt als Dienstkonto (OU-Admin).")
                 except (ImportError_, ValueError, TypeError, KeyError, AttributeError) as e:

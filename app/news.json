@@ -2,6 +2,30 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.29.1",
+   "date": "2026-10-24",
+   "items": [
+    {
+     "kind": "security",
+     "audience": "admin",
+     "de": "Mandanten: Befehls- und PowerShell-Schritte (und eigene Deinstallationsbefehle) dürfen OU-Admins nur noch mit eigener Freigabe beim Mandanten schreiben – standardmäßig aus. Skripte gehören als Datei in den Repository-Ordner des Mandanten.",
+     "en": "Tenants: OU admins may only write command and PowerShell steps (and custom uninstall commands) with a separate approval for the tenant – off by default. Scripts belong in the tenant's repository folder as files."
+    },
+    {
+     "kind": "new",
+     "audience": "admin",
+     "de": "Hinweis nach dem Speichern, wenn ein Mandantenpaket im Skript auf Freigaben oder das Internet zugreift, und neues Hilfekapitel „Mandanten absichern“.",
+     "en": "Notice after saving if a tenant package accesses shares or the internet in a script, and new help chapter “Securing tenants”."
+    },
+    {
+     "kind": "improved",
+     "audience": "all",
+     "de": "OU-Admins: Skripte bitte als Datei (.ps1/.cmd) in den eigenen Repository-Ordner legen und mit „Installieren“ ausführen.",
+     "en": "OU admins: please put scripts as files (.ps1/.cmd) in your own repository folder and run them with “Install”."
+    }
+   ]
+  },
+  {
    "version": "2.29",
    "date": "2026-10-24",
    "items": [

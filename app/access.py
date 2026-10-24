@@ -54,6 +54,16 @@ def may_build(user):
     return any(t.get("allow_packages") for t in tenants(user))
 
 
+def may_script(user, tenant_id=None):
+    """Darf eigenen Code in Pakete schreiben (Befehl, PowerShell, eigener Deinstallationsbefehl)? Hauptadmins immer;
+    OU-Admins nur, wenn beim Mandanten „eigene Pakete“ UND „Skript-Schritte“ erlaubt sind (2.29.1). Skripte als Datei
+    im Repository-Ordner des Mandanten (.ps1/.cmd über „Installieren“) brauchen das nicht."""
+    if not scoped(user):
+        return True
+    return any(t.get("allow_packages") and t.get("allow_scripts") and (tenant_id is None or t["id"] == tenant_id)
+               for t in tenants(user))
+
+
 def build_tenants(user):
     """Mandanten, für die der OU-Admin Pakete/Zeitpläne bauen darf."""
     return [t for t in tenants(user) if t.get("allow_packages")]

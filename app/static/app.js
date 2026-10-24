@@ -923,6 +923,14 @@ const NAV = [
 // (der Server sperrt sie ohnehin – app/access.py)
 const OU_HIDDEN = new Set(['scanners', 'kiosk', 'reports', 'settings']);
 const isOU = () => !!(S.me && S.me.scoped);
+// 2.29.1: Befehls-/PowerShell-Schritte für OU-Admins nur, wenn beim Mandanten erlaubt (der Server prüft es ohnehin)
+const mayScript = (tid) => !isOU() || !!((S.me.tenants || []).find((t) => t.id === Number(tid)) || {}).allow_scripts;
+function netWarn(r) {
+  if (r && r.warnings && r.warnings.length) {
+    modal(tr('Hinweis: Zugriff auf Freigaben oder Internet'), h('div', h('p', tr('Das Paket wurde gespeichert. Diese Stellen greifen auf Freigaben oder das Internet zu – bitte prüfen, ob das gewollt ist (steht auch im Protokoll):')),
+      h('ul', r.warnings.map((x) => h('li', h('span.raw', x))))), [{ label: 'OK', cls: 'primary' }]);
+  }
+}
 const mayBuild = () => !isOU() || !!S.me.may_build;
 
 // Webseite des Autors (nur ein Link – es wird nichts aus dem Internet geladen)
@@ -2320,7 +2328,7 @@ async function uninstallDlg(rows) {
   let body; let cmd = null; let runAs = null; let rem = null; let pat = null;
   if (single) {
     const i = infos[0];
-    cmd = h('textarea.mono', { rows: 3, value: i.command });
+    cmd = h('textarea.mono', { rows: 3, value: i.command, readOnly: isOU() && !S.me.may_script, title: isOU() && !S.me.may_script ? tr('Eigene Befehle sind für Ihren Mandanten nicht freigegeben.') : '' });
     runAs = sel(RUNAS, i.run_as);
     rem = h('input', { type: 'checkbox' });
     pat = h('input', { value: i.pattern, style: { maxWidth: '260px' } });
@@ -3379,7 +3387,8 @@ async function packageDlg(pidOrPkg, preset = {}) {
   }
   function addMenu(e, ph) {
     const r = e.currentTarget.getBoundingClientRect();
-    contextMenu(r.left, r.bottom + 2, Object.entries(meta.step_types).map(([k, l]) => ({ label: l, icon: STEP_ICON[k], onClick: () => {
+    const noCode = !mayScript(p.tenant_id);
+    contextMenu(r.left, r.bottom + 2, Object.entries(meta.step_types).filter(([k]) => !(noCode && (k === 'command' || k === 'powershell'))).map(([k, l]) => ({ label: l, icon: STEP_ICON[k], onClick: () => {
       p.steps[ph].push(newStep(k)); selKey = { phase: ph, idx: p.steps[ph].length - 1 }; drawTree(); drawPanel();
     } })));
   }
@@ -3575,8 +3584,9 @@ async function packageDlg(pidOrPkg, preset = {}) {
   if (!isNew) {
     buttons.unshift({ label: 'Löschen', cls: 'danger', onClick: async () => { if (!(await confirmDlg(`Paket „${p.name}“ löschen?`, 'Löschen', true))) return false; await DEL(`/api/packages/${p.id}`); toast('Gelöscht', 'ok'); route(); } });
     buttons.splice(1, 0, { label: 'Speichern & bereitstellen …', icon: 'send', onClick: async () => {
-      if (await saveWithDup((x) => PUT(`/api/packages/${p.id}`, { ...body(), ...x })) === false) return false;
-      route(); deployDlg({ packageId: p.id });
+      const r = await saveWithDup((x) => PUT(`/api/packages/${p.id}`, { ...body(), ...x }));
+      if (r === false) return false;
+      route(); deployDlg({ packageId: p.id }); netWarn(r);
     } });
   }
   buttons.push({ label: 'Speichern', cls: 'primary', onClick: async () => {
@@ -3584,7 +3594,7 @@ async function packageDlg(pidOrPkg, preset = {}) {
     const r = await saveWithDup((x) => (isNew ? POST('/api/packages', { ...body(), ...x }) : PUT(`/api/packages/${p.id}`, { ...body(), ...x })));
     if (r === false) return false;
     if (isNew) p.id = r.id;
-    toast('Paket gespeichert', 'ok'); PKG_META = null; route();
+    toast('Paket gespeichert', 'ok'); PKG_META = null; route(); netWarn(r);
   } });
   if (!isNew && isOU() && p.editable === false) {
     // OU-Admin und zentrales Paket: ansehen und auf eigene Computer verteilen – ändern nur als eigene Kopie
@@ -3802,8 +3812,14 @@ function tenantsCard() {
     const grp = h('input', { value: t.admin_group || '', placeholder: 'z. B. PK-OU-Hamburg (leer = keine OU-Admins)', style: { flex: 1 } });
     const allow = h('input', { type: 'checkbox', checked: !!t.allow_packages });
     const allowRow = h('label.chk', allow, tr('dürfen eigene Pakete und Zeitpläne für diesen Mandanten anlegen'));
-    const syncAllow = () => { const on = !!grp.value.trim(); allow.disabled = !on; allowRow.style.opacity = on ? '' : '.5'; };
-    grp.addEventListener('input', syncAllow); syncAllow();
+    const scripts = h('input', { type: 'checkbox', checked: !!t.allow_scripts });
+    const scriptsRow = h('label.chk', scripts, tr('dürfen dabei Befehls- und PowerShell-Schritte schreiben (eigener Code)'));
+    const scriptsHint = h('div.hint', tr('Aus (empfohlen): OU-Admins verwenden nur Installieren, Dateikopie, Registry, winget usw. Skripte legen sie als Datei (.ps1/.cmd) in ihren Repository-Ordner und führen sie mit „Installieren“ aus. Siehe Hilfe „Mandanten absichern“.'));
+    const syncAllow = () => {
+      const on = !!grp.value.trim(); allow.disabled = !on; allowRow.style.opacity = on ? '' : '.5';
+      const s2 = on && allow.checked; scripts.disabled = !s2; scriptsRow.style.opacity = s2 ? '' : '.5';
+    };
+    grp.addEventListener('input', syncAllow); allow.addEventListener('change', syncAllow); syncAllow();
     const pick = btn('Wählen …', async () => {
       const chosen = await adPicker('group');
       if (chosen && chosen.length) { grp.value = chosen[0].sam || chosen[0].name; syncAllow(); }
@@ -3812,12 +3828,13 @@ function tenantsCard() {
       field('Computer', col, 'Pakete dieses Mandanten werden nur auf Computer dieser Sammlung verteilt (andere werden ignoriert). Für eine OU: dynamische Sammlung mit Filter „Distinguished Name / OU“ – oder die automatisch angelegte Sammlung der OU.'),
       field('Repository-Ordner', folder, 'Pakete dieses Mandanten dürfen nur Dateien aus diesem Ordner verwenden (wird beim Speichern geprüft). OU-Admins sehen und bearbeiten im Repository nur diesen Ordner. Leer lassen: bei „eigene Pakete“ legt POCKET KNIFE „Mandanten\\<Name>“ selbst an.'),
       field('Speicherkontingent (MB)', quota, 'Wie viel die OU-Admins dieses Mandanten im Repository hochladen dürfen. 0 = unbegrenzt.'),
-      field('OU-Admins', h('div', h('div.row', grp, pick), h('div', { style: { marginTop: '8px' } }, allowRow)),
+      field('OU-Admins', h('div', h('div.row', grp, pick), h('div', { style: { marginTop: '8px' } }, allowRow), h('div', { style: { marginTop: '4px', marginLeft: '22px' } }, scriptsRow, scriptsHint)),
         'AD-Gruppe, deren Mitglieder sich anmelden dürfen – aber nur für die Computer dieses Mandanten. Sie gehören NICHT in die Gruppe der Hauptadmins. Sie sehen nur ihre Computer, deren Software, Bereitstellungen und Protokoll; zentrale Pakete können sie verteilen, aber nicht ändern. Einstellungen, Scanprofile, Kiosk-Verwaltung und Berichte bleiben den Hauptadmins vorbehalten.')), [
       { label: 'Abbrechen' },
       { label: 'Speichern', cls: 'primary', onClick: async () => {
         const b = { name: name.value, description: desc.value, collection_id: col.value || null, repo_folder: folder.value,
-          admin_group: grp.value.trim(), allow_packages: allow.checked && !!grp.value.trim(), quota_mb: quota.value === '' ? null : Number(quota.value) };
+          admin_group: grp.value.trim(), allow_packages: allow.checked && !!grp.value.trim(),
+          allow_scripts: scripts.checked && allow.checked && !!grp.value.trim(), quota_mb: quota.value === '' ? null : Number(quota.value) };
         if (t.id) await PUT(`/api/tenants/${t.id}`, b); else await POST('/api/tenants', b);
         toast('Gespeichert', 'ok'); PKG_META = null; draw();
       } }]);
@@ -3829,7 +3846,7 @@ function tenantsCard() {
       { key: 'name', label: 'Name', render: (r) => h('a', { href: '#', onclick: (e) => { e.preventDefault(); tenantDlg(r); } }, r.name) },
       { key: 'collection', label: 'Computer', value: (r) => r.collection || 'alle' },
       { key: 'repo_folder', label: 'Repository-Ordner', render: (r) => h('span.raw.small', r.repo_folder || '—') },
-      { key: 'admin_group', label: 'OU-Admins', value: (r) => (r.admin_group ? r.admin_group + (r.allow_packages ? ' · ' + tr('eigene Pakete') : '')
+      { key: 'admin_group', label: 'OU-Admins', value: (r) => (r.admin_group ? r.admin_group + (r.allow_packages ? ' · ' + tr('eigene Pakete') + (r.allow_scripts ? ' + ' + tr('Skripte') : '') : '')
         + (r.admin_group_sid ? '' : ' · ' + tr('bitte einmal neu speichern (Gruppe wird dann eindeutig festgelegt)')) : '—') },
       { key: 'packages', label: 'Pakete', cls: 'right', render: (r) => h('a', { href: `#/packages?tenant=${r.id}` }, String(r.packages)) },
       { key: 'schedules', label: 'Zeitpläne', cls: 'right' },

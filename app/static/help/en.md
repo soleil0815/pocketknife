@@ -1060,7 +1060,7 @@ Members of the group then sign in as usual. "OU admin: Hamburg" is shown at the 
 | Actions on computers (services, files, remote session, LAPS/BitLocker, run tools) | all | own computers only |
 | Packages (central and those of other tenants) | change and deploy | view **all** and deploy to own computers; change only their own (copy: only if the software does not exist yet – duplicate block) |
 | Repository | everything | only the tenant's folder: upload, folders, rename, move, delete (see [Repository](#repository)) |
-| Own packages and schedules | – | only if enabled for the tenant; files only from its repository folder |
+| Own packages and schedules | – | only if enabled for the tenant; files only from its repository folder; command/PowerShell steps only with a separate approval (see [Securing tenants](#tenant-security)) |
 | Deployments | all | only with own computers; cancel/retry only if all targets are their own |
 | Settings, scan profiles, kiosk administration, reports, e-mail, creating tools | yes | no |
 
@@ -1069,11 +1069,34 @@ Members of the group then sign in as usual. "OU admin: Hamburg" is shown at the 
 Further safeguards:
 
 - The group is resolved **unambiguously** in AD when saving (first via the group name "sAMAccountName", which is unique across AD) and stored with its **SID** – AD must be reachable for this. At sign-in only this group counts: a group with the same name in another OU, or one deleted and recreated, never grants access; renaming or moving does no harm. If a name is ambiguous, enter the full DN.
-- Packages and custom commands of OU admins never run as the service account but as "Local System" (or the signed-in user). Uninstalls using the command from the computer's registry never run as the service account for anyone – main admins included – because whoever is administrator on the computer determines that command. Repository files only with a repository folder for the tenant.
+- Tenant packages (also those saved by main admins) and custom commands of OU admins never run as the service account but as "Local System" (or the signed-in user). Uninstalls using the command from the computer's registry never run as the service account for anyone – main admins included – because whoever is administrator on the computer determines that command. Repository files only with a repository folder for the tenant.
 - Schedules of OU admins: only their own tenant's collection as a collection target. A tenant that once had OU admins reaches no computers without a collection; tenants with schedules can only be deleted once these are reassigned. Any change to a tenant's group, collection or permissions ends its OU admins' sessions (they sign in again).
 - Remembering uninstall commands "for all", the central VNC password and the kiosk via the OU admin sign-in remain reserved for main admins or kiosk users.
 
 > **Recommendation:** OU admins are administrators on their computers. POCKET KNIFE signs in there with the domain-wide service account. Therefore: use Kerberos instead of NTLM (Settings → Connection), add the service account to the "Protected Users" group (then "Kerberos only" – see [WinRM by Group Policy](#winrm-gpo)) and enforce SMB signing via GPO. For even stricter separation, use a separate POCKET KNIFE instance with its own service account per site.
+
+### Securing tenants {#tenant-security}
+
+A tenant should only bring to its computers what is in **its repository folder**. POCKET KNIFE enforces this in three levels:
+
+**1. Files only from its own folder.** For tenant packages, Install and File copy take files only from the tenant's repository folder (`Mandanten\<Name>`). The server rejects other folders, UNC paths (`\\server\…`) and `..` when saving.
+
+**2. No own code without approval.** Under "own packages", the tenant has the additional switch **"may write command and PowerShell steps"** – **off** by default. Then, for OU admins:
+
+| Allowed | Not allowed |
+|---|---|
+| Install (MSI, EXE, MSU, **also .ps1/.cmd as a file from their own repository folder**), winget, File copy, Registry, Uninstall (with the detected command), Restart, Message, Wait, Scan, nested packages | "Command" and "PowerShell" steps, custom uninstall commands (in packages and in the software list) |
+
+Scripts therefore belong **in the repository as files** – there the integrity check (fingerprint) sees and checks them like any other installation file. Steps written by a main admin may be left unchanged by an OU admin, but not changed or added. Existing packages keep running.
+
+**3. What a tenant package reaches on the network.** Tenant packages always run on the client as **Local System** – never as the service account, even if a main admin saved them. If a script or installer accesses a share, it signs in there with the **computer account** (e.g. `CORP\PC-17$`). It therefore only reaches what is shared with "Domain Computers", "Authenticated Users" or "Everyone".
+
+> **Important:** every installer is executable code – an MSI can also access shares or the internet in the background. Levels 1 and 2 determine **where** the code comes from; what it **reaches** is determined by the permissions on the network (level 3). Therefore also:
+
+- **Check shares:** anything not meant for all computers should not be shared with "Domain Computers", "Authenticated Users" or "Everyone" – on the share **and** in NTFS. The repository does **not** need any permissions for "Domain Computers" either: POCKET KNIFE reads it with the repository/service account and copies the files to the client itself – otherwise a tenant script could read other tenants' files.
+- **Optionally restrict by GPO** what clients can reach: *Computer Configuration → Policies → Windows Settings → Security Settings → Windows Defender Firewall with Advanced Security → Outbound Rules* – allow outbound SMB (TCP 445) only to the file servers the clients need (e.g. logon scripts, profiles, print servers). Try it in a test OU first: domain controllers (SYSVOL/NETLOGON) must always remain reachable.
+- **Notice when saving:** if a tenant package contains access to shares (`\\server\…`, `net use`, `New-PSDrive`) or downloads (`Invoke-WebRequest`, `curl`, `bitsadmin`, `https://` …) in commands, PowerShell or arguments, POCKET KNIFE shows a notice after saving and writes it to the log. This is **a help for reviewing, not a block** – such things can be rewritten. Script files in the repository are not searched.
+
 
 ## Your own certificate {#certificate}
 

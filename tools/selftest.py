@@ -2343,8 +2343,8 @@ def _():
     col = db.ex("INSERT INTO collections(name, type) VALUES('OU Nord (Test)', 'static')")
     for c in (cin1, cin2):
         db.ex("INSERT INTO collection_members VALUES(?,?)", (col, c))
-    t_nord = db.ex("INSERT INTO tenants(name, collection_id, repo_folder, admin_group, allow_packages, created_at) "
-                   "VALUES('Nord', ?, 'Kunden\\Nord', 'PK-OU-Nord', 1, ?)", (col, util.now()))
+    t_nord = db.ex("INSERT INTO tenants(name, collection_id, repo_folder, admin_group, allow_packages, allow_scripts, created_at) "
+                   "VALUES('Nord', ?, 'Kunden\\Nord', 'PK-OU-Nord', 1, 1, ?)", (col, util.now()))  # Skript-Schritte erlaubt (2.29.1)
     t_sued = db.ex("INSERT INTO tenants(name, created_at) VALUES('Süd', ?)", (util.now(),))
     p_central = db.ex("INSERT INTO packages(name, version, steps, conditions, run_as, created_at) VALUES('Zentral (Test)','1',?,'{}','deploy',?)",
                       (json.dumps({"main": [{"id": "z1", "type": "command", "command": "hostname"}]}), util.now()))
@@ -3257,6 +3257,9 @@ def _():
         for st_ in one["packages"][0]["steps"]["main"]:
             if st_.get("folder"):
                 st_["folder"] = "Kunden\\Nord\\7zip"
+        r = pkgexport.run_import(ou, one, tenant_id=None, dry_run=True, pkg_values=_m._pkg_values)
+        assert r["items"][0]["status"] == "error" and "nicht freigegeben" in r["items"][0]["message"], ("2.29.1: Skripte nur mit Freigabe", r)
+        db.ex("UPDATE tenants SET allow_scripts=1 WHERE id=?", (tid,))
         r = pkgexport.run_import(ou, one, tenant_id=None, dry_run=False, pkg_values=_m._pkg_values)
         assert r["items"][0]["status"] == "new", r
         row = db.q1("SELECT * FROM packages WHERE name='Exp-OU'")
@@ -4353,6 +4356,96 @@ def _():
     assert 'if "content-security-policy" not in resp.headers' in msrc
     assert diagnostics._csv([{"a": "=HYPERLINK(1)"}], ["a"]).splitlines()[1].startswith("'="), "Diagnose-CSV entschärft"
     assert _cfg is not None
+
+
+@test("2.29.1 Mandanten absichern: Befehls-/PowerShell-Schritte nur mit eigener Freigabe (Hauptadmin-Schritte unverändert erlaubt, Skripte als Datei aus dem eigenen Ordner gehen), eigene Deinstallationsbefehle ebenso, Hinweis bei Zugriff auf Freigaben/Internet")
+def _():
+    import hashlib
+    import secrets
+    import time as _t
+    from app import access, auth
+    from app import main as _m
+    col = db.ex("INSERT INTO collections(name, type) VALUES('OU Skript (Test)', 'static')")
+    cid = db.ex("INSERT INTO computers(name, dns_name, created_at) VALUES('SK-IN1', 'sk-in1.firma.local', ?)", (util.now(),))
+    db.ex("INSERT INTO collection_members VALUES(?,?)", (col, cid))
+    tid = db.ex("INSERT INTO tenants(name, collection_id, repo_folder, admin_group, allow_packages, created_at) "
+                "VALUES('Skript-Test', ?, 'Kunden\\SK', 'PK-OU-SK', 1, ?)", (col, util.now()))
+    sw = db.ex("INSERT INTO software(computer_id, name, version, uninstall_string) VALUES(?,?,?,?)",
+               (cid, "SK-Programm", "1", '"C:\\Program Files\\SK\\unins000.exe"'))
+    access.flush()
+    tok = secrets.token_urlsafe(16)
+    th = hashlib.sha256(tok.encode()).hexdigest()
+    db.ex("INSERT INTO sessions(token_hash, username, display_name, created, expires, ip, last_active, role, scope) VALUES(?,?,?,?,?,?,?,?,?)",
+          (th, "ou-sk", "Test", util.now(), "2099-01-01 00:00:00", "127.0.0.1", util.now(), "admin", json.dumps([tid])))
+    auth._checked[th] = _t.time() + 10 ** 6
+    created = []
+    try:
+        me = _asgi("GET", "/api/me", tok)[1]
+        assert me["may_build"] and not me["may_script"] and me["tenants"][0]["allow_scripts"] is False, me
+        for stp_ in ({"type": "command", "command": "hostname"}, {"type": "powershell", "script": "Get-Date"},
+                     {"type": "uninstall", "match_name": "X*", "command": "cmd /c del x"}):
+            st, r = _asgi("POST", "/api/packages", tok, {"name": "SK verboten", "steps": {"main": [stp_]}})
+            assert st == 403 and "nicht freigegeben" in str(r), (stp_["type"], st, r)
+        # erlaubt: Skript als Datei aus dem eigenen Repository-Ordner, Registry, Deinstallation mit erkanntem Befehl
+        st, r = _asgi("POST", "/api/packages", tok, {"name": "SK Datei-Skript", "steps": {"main": [
+            {"type": "install", "source": "file", "folder": "Kunden\\SK\\tools", "install_file": "setup.ps1"},
+            {"type": "uninstall", "match_name": "Alt*"}]}})
+        assert st == 200, (st, r)
+        created.append(r["id"])
+        # Schritt eines Hauptadmins: unverändert speicherbar, geändert nicht
+        pid = db.ex("INSERT INTO packages(name, version, steps, conditions, run_as, tenant_id, created_at) VALUES('SK von Haupt','1',?,'{}','system',?,?)",
+                    (json.dumps({"main": [{"id": "h1", "type": "command", "command": "hostname"}]}), tid, util.now()))
+        created.append(pid)
+        pkg = _asgi("GET", f"/api/packages/{pid}", tok)[1]
+        pkg["description"] = "nur Beschreibung geändert"
+        st, r = _asgi("PUT", f"/api/packages/{pid}", tok, pkg)
+        assert st == 200, ("unveränderter Hauptadmin-Schritt", st, r)
+        pkg["steps"]["main"][0]["command"] = "net use Z: \\\\fremd\\c$"
+        assert _asgi("PUT", f"/api/packages/{pid}", tok, pkg)[0] == 403, "geänderter Code"
+        pkg["steps"]["main"].append({"type": "command", "command": "hostname"})
+        pkg["steps"]["main"][0]["command"] = "hostname"
+        assert _asgi("PUT", f"/api/packages/{pid}", tok, pkg)[0] == 403, "zusätzlicher Code (gleicher Text zählt nur einmal)"
+        # Software-Liste: erkannter Befehl ja, geänderter nein
+        from app import uninstall as _un
+        det = _un.command_for(db.q1("SELECT * FROM software WHERE id=?", (sw,)))["command"]
+        st, r = _asgi("POST", "/api/uninstall", tok, {"items": [{"software_id": sw, "command": det}]})
+        assert st == 200, ("erkannter Befehl", st, r)
+        for d in r["deployments"]:
+            db.ex("DELETE FROM deployment_targets WHERE deployment_id=?", (d,))
+            db.ex("DELETE FROM deployments WHERE id=?", (d,))
+        st, r = _asgi("POST", "/api/uninstall", tok, {"items": [{"software_id": sw, "command": "cmd /c whoami"}]})
+        assert st == 403, ("geänderter Befehl", st, r)
+        # Freigabe beim Mandanten: nur zusammen mit „eigene Pakete“; danach Code erlaubt, mit Hinweis bei Netzzugriff
+        db.ex("UPDATE tenants SET allow_scripts=1 WHERE id=?", (tid,))
+        access.flush()
+        st, r = _asgi("POST", "/api/packages", tok, {"name": "SK mit Netz", "steps": {"main": [
+            {"type": "powershell", "script": "Copy-Item \\\\fileserver\\daten\\x.txt C:\\Temp; Invoke-WebRequest https://example.org -OutFile a"}]}})
+        assert st == 200 and r["warnings"] and "fileserver" in r["warnings"][0], (st, r)
+        created.append(r["id"])
+        assert db.val("SELECT COUNT(*) FROM logs WHERE message LIKE '%SK mit Netz%Freigaben oder das Internet%'"), "Hinweis im Protokoll"
+        st, r = _asgi("POST", "/api/packages", tok, {"name": "SK ohne Netz", "steps": {"main": [{"type": "powershell", "script": "Get-Date"}]}})
+        assert st == 200 and r["warnings"] == [], r
+        created.append(r["id"])
+        assert _m.net_hints({"steps": {"main": [{"type": "command", "command": "net use x: \\\\srv\\a"}]}})
+        assert not _m.net_hints({"steps": {"main": [{"type": "command", "command": "msiexec /i C:\\Temp\\a.msi /qn"}]}})
+        # Mandant speichern: Skripte nur mit „eigene Pakete“
+        _m._tenant_scripts(tid, {"allow_scripts": True}, {"username": "t"})
+        assert db.val("SELECT allow_scripts FROM tenants WHERE id=?", (tid,)) == 1
+        db.ex("UPDATE tenants SET allow_packages=0 WHERE id=?", (tid,))
+        _m._tenant_scripts(tid, {"allow_scripts": True}, {"username": "t"})
+        assert db.val("SELECT allow_scripts FROM tenants WHERE id=?", (tid,)) == 0, "ohne eigene Pakete keine Skripte"
+        js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
+        assert "mayScript(p.tenant_id)" in js and "allow_scripts: scripts.checked && allow.checked" in js
+    finally:
+        for p in created:
+            db.ex("DELETE FROM packages WHERE id=?", (p,))
+        db.ex("DELETE FROM sessions WHERE token_hash=?", (th,))
+        db.ex("DELETE FROM software WHERE id=?", (sw,))
+        db.ex("DELETE FROM tenants WHERE id=?", (tid,))
+        db.ex("DELETE FROM collection_members WHERE collection_id=?", (col,))
+        db.ex("DELETE FROM collections WHERE id=?", (col,))
+        db.ex("DELETE FROM computers WHERE id=?", (cid,))
+        access.flush()
 
 
 def main():

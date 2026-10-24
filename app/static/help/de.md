@@ -1060,7 +1060,7 @@ Danach melden sich die Mitglieder der Gruppe ganz normal an. Unten links steht �
 | Aktionen auf Computern (Dienste, Dateien, Fernsitzung, LAPS/BitLocker, Tools ausführen) | alle | nur eigene Computer |
 | Pakete (zentrale und die anderer Mandanten) | ändern und verteilen | **alle** ansehen und auf eigene Computer verteilen; ändern nur die eigenen (Kopie: nur, wenn es die Software nicht schon gibt – Duplikatsperre) |
 | Repository | alles | nur der Ordner des Mandanten: hochladen, Ordner, umbenennen, verschieben, löschen (siehe [Repository](#repository)) |
-| Eigene Pakete und Zeitpläne | – | nur mit Freigabe beim Mandanten; Dateien nur aus dessen Repository-Ordner |
+| Eigene Pakete und Zeitpläne | – | nur mit Freigabe beim Mandanten; Dateien nur aus dessen Repository-Ordner; Befehls-/PowerShell-Schritte nur mit eigener Freigabe (siehe [Mandanten absichern](#tenant-security)) |
 | Bereitstellungen | alle | nur mit eigenen Computern; abbrechen/wiederholen nur, wenn alle Ziele eigene sind |
 | Einstellungen, Scanprofile, Kiosk-Verwaltung, Berichte, E-Mail, Tools anlegen | ja | nein |
 
@@ -1069,11 +1069,34 @@ Danach melden sich die Mitglieder der Gruppe ganz normal an. Unten links steht �
 Weitere Schutzregeln:
 
 - Die Gruppe wird beim Speichern **eindeutig** im AD aufgelöst (erst über den Gruppennamen „sAMAccountName“, der im ganzen AD eindeutig ist) und mit ihrer **SID** gespeichert – das AD muss dafür erreichbar sein. Bei der Anmeldung zählt nur diese Gruppe: eine gleichnamige in einer anderen OU oder eine gelöschte und neu angelegte gibt nie Zugang; Umbenennen oder Verschieben schadet nicht. Ist ein Name mehrdeutig, bitte den vollständigen DN eintragen.
-- Pakete und eigene Befehle von OU-Admins laufen nie als Dienstkonto, sondern als „Lokales System“ (bzw. angemeldeter Benutzer). Deinstallationen mit dem Befehl aus der Registry des Computers laufen für alle – auch für Hauptadmins – nie als Dienstkonto, denn diesen Befehl bestimmt, wer auf dem Computer Administrator ist. Dateien aus dem Repository nur mit Repository-Ordner des Mandanten.
+- Mandantenpakete (auch von Hauptadmins gespeicherte) und eigene Befehle von OU-Admins laufen nie als Dienstkonto, sondern als „Lokales System“ (bzw. angemeldeter Benutzer). Deinstallationen mit dem Befehl aus der Registry des Computers laufen für alle – auch für Hauptadmins – nie als Dienstkonto, denn diesen Befehl bestimmt, wer auf dem Computer Administrator ist. Dateien aus dem Repository nur mit Repository-Ordner des Mandanten.
 - Zeitpläne von OU-Admins: als Sammlung nur die des eigenen Mandanten. Ein Mandant, der einmal OU-Admins hatte, erreicht ohne Sammlung keinen Computer; Mandanten mit Zeitplänen lassen sich erst löschen, wenn diese umgehängt sind. Jede Änderung an Gruppe, Sammlung oder Rechten eines Mandanten beendet die Sitzungen seiner OU-Admins (sie melden sich neu an).
 - Deinstallationsbefehle „für alle merken“, das zentrale VNC-Kennwort und der Kiosk über die OU-Admin-Anmeldung bleiben Hauptadmins bzw. Kiosk-Benutzern vorbehalten.
 
 > **Empfehlung:** OU-Admins sind auf ihren Computern Administratoren. POCKET KNIFE meldet sich dort mit dem domänenweiten Dienstkonto an. Daher: Kerberos statt NTLM verwenden (Einstellungen → Verbindung), das Dienstkonto in die Gruppe „Protected Users“ aufnehmen (dann „Nur Kerberos“ – siehe [WinRM per Gruppenrichtlinie](#winrm-gpo)) und SMB-Signierung per GPO erzwingen. Wer noch strenger trennen will, nimmt je Standort eine eigene POCKET-KNIFE-Instanz mit eigenem Dienstkonto.
+
+### Mandanten absichern {#tenant-security}
+
+Ein Mandant soll nur das auf seine Computer bringen, was in **seinem Repository-Ordner** liegt. POCKET KNIFE setzt das in drei Stufen durch:
+
+**1. Dateien nur aus dem eigenen Ordner.** Installieren und Dateikopie holen Dateien bei Mandantenpaketen nur aus dem Repository-Ordner des Mandanten (`Mandanten\<Name>`). Andere Ordner, UNC-Pfade (`\\server\…`) und `..` lehnt der Server beim Speichern ab.
+
+**2. Kein eigener Code ohne Freigabe.** Beim Mandanten gibt es unter „eigene Pakete“ den zusätzlichen Schalter **„dürfen dabei Befehls- und PowerShell-Schritte schreiben“** – standardmäßig **aus**. Dann gilt für OU-Admins:
+
+| Erlaubt | Nicht erlaubt |
+|---|---|
+| Installieren (MSI, EXE, MSU, **auch .ps1/.cmd als Datei aus dem eigenen Repository-Ordner**), winget, Dateikopie, Registry, Deinstallieren (mit dem erkannten Befehl), Neustart, Nachricht, Warten, Scannen, verschachtelte Pakete | Schritte „Befehl“ und „PowerShell“, eigene Deinstallationsbefehle (im Paket und in der Software-Liste) |
+
+Skripte gehören damit **als Datei ins Repository** – dort sieht und prüft sie die Bruchprüfung (Fingerabdruck) wie jede andere Installationsdatei. Schritte, die ein Hauptadmin geschrieben hat, darf ein OU-Admin unverändert lassen, aber nicht ändern oder neu anlegen. Bestehende Pakete laufen weiter.
+
+**3. Was ein Mandantenpaket im Netz erreicht.** Mandantenpakete laufen auf dem Client immer als **Lokales System** – nie als Dienstkonto, auch wenn ein Hauptadmin sie gespeichert hat. Greift ein Skript oder Installer auf eine Freigabe zu, meldet es sich dort mit dem **Computerkonto** an (z. B. `FIRMA\PC-17$`). Es erreicht also nur, was für „Domänencomputer“, „Authentifizierte Benutzer“ oder „Jeder“ freigegeben ist.
+
+> **Wichtig:** Jedes Installationsprogramm ist ausführbarer Code – auch eine MSI kann im Hintergrund auf Freigaben oder das Internet zugreifen. Die Stufen 1 und 2 legen fest, **woher** der Code kommt; was er **erreicht**, legen die Rechte im Netz fest (Stufe 3). Deshalb zusätzlich:
+
+- **Freigaben prüfen:** Was nicht für alle Rechner gedacht ist, nicht für „Domänencomputer“, „Authentifizierte Benutzer“ oder „Jeder“ freigeben – auf der Freigabe **und** im NTFS. Auch das Repository braucht **keine** Rechte für „Domänencomputer“: POCKET KNIFE liest es mit dem Repository-/Dienstkonto und kopiert die Dateien selbst auf den Client – sonst könnte ein Mandantenskript die Dateien anderer Mandanten lesen.
+- **Optional per GPO einschränken**, was Clients erreichen: *Computerkonfiguration → Richtlinien → Windows-Einstellungen → Sicherheitseinstellungen → Windows Defender Firewall mit erweiterter Sicherheit → Ausgehende Regeln* – ausgehendes SMB (TCP 445) nur zu den Dateiservern erlauben, die die Clients brauchen (z. B. Anmeldeskripte, Profile, Druckserver). Vorher in einer Test-OU ausprobieren: Domänencontroller (SYSVOL/NETLOGON) müssen immer erreichbar bleiben.
+- **Hinweis beim Speichern:** Enthält ein Mandantenpaket in Befehlen, PowerShell oder Aufrufparametern Zugriffe auf Freigaben (`\\server\…`, `net use`, `New-PSDrive`) oder Downloads (`Invoke-WebRequest`, `curl`, `bitsadmin`, `https://` …), zeigt POCKET KNIFE nach dem Speichern einen Hinweis und schreibt ihn ins Protokoll. Das ist eine **Hilfe beim Prüfen, keine Sperre** – so etwas lässt sich umschreiben. In Skriptdateien im Repository wird nicht gesucht.
+
 
 ## Eigenes Zertifikat {#certificate}
 

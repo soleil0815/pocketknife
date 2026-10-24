@@ -4905,5 +4905,17 @@
  "Verbindung zu": null,
  "Bereitstellung #{0}: Mandantenbereich beim Start nicht prüfbar ({1}) – Ziele wie beim Anlegen.": "Deployment #{0}: tenant scope could not be checked at start ({1}) – targets as when created.",
  "Änderungsdatum der Installationsdatei anders – Fingerabdruck noch nicht fertig (wird im Hintergrund berechnet); danach erneut starten": "Modification date of the installation file differs – fingerprint not finished yet (being calculated in the background); start again afterwards",
- "{0}: fremder Ordner C:\\Windows\\Temp\\PocketKnife (Grund: {1}) wurde beiseitegeschoben und neu angelegt.": "{0}: foreign folder C:\\Windows\\Temp\\PocketKnife (reason: {1}) was moved aside and created again."
+ "{0}: fremder Ordner C:\\Windows\\Temp\\PocketKnife (Grund: {1}) wurde beiseitegeschoben und neu angelegt.": "{0}: foreign folder C:\\Windows\\Temp\\PocketKnife (reason: {1}) was moved aside and created again.",
+ "Befehls- und PowerShell-Schritte (und eigene Deinstallationsbefehle) sind für Ihren Mandanten nicht freigegeben. Skripte bitte als Datei (.ps1/.cmd) in Ihren Repository-Ordner legen und mit „Installieren“ ausführen – oder einen Hauptadmin fragen.": "Command and PowerShell steps (and custom uninstall commands) are not enabled for your tenant. Please put scripts as a file (.ps1/.cmd) in your repository folder and run them with \"Install\" – or ask a main admin.",
+ "Eigene Deinstallationsbefehle sind nur erlaubt, wenn für Ihren Mandanten „eigene Pakete“ und „Skript-Schritte“ freigegeben sind.": "Custom uninstall commands are only allowed if \"own packages\" and \"script steps\" are enabled for your tenant.",
+ "Mandant '{0}': Skript-Schritte für OU-Admins erlaubt.": "Tenant '{0}': script steps allowed for OU admins.",
+ "Mandant '{0}': Skript-Schritte für OU-Admins nicht erlaubt.": "Tenant '{0}': script steps not allowed for OU admins.",
+ "Paket '{0}' (Mandant) greift im Skript auf Freigaben oder das Internet zu: {1}": "Package '{0}' (tenant) accesses shares or the internet in a script: {1}",
+ "Zugriff auf Freigaben/Internet im Skript: {0}": "Access to shares/internet in script: {0}",
+ "Aus (empfohlen): OU-Admins verwenden nur Installieren, Dateikopie, Registry, winget usw. Skripte legen sie als Datei (.ps1/.cmd) in ihren Repository-Ordner und führen sie mit „Installieren“ aus. Siehe Hilfe „Mandanten absichern“.": "Off (recommended): OU admins only use Install, File copy, Registry, winget etc. They put scripts as a file (.ps1/.cmd) in their repository folder and run them with \"Install\". See help \"Securing tenants\".",
+ "Das Paket wurde gespeichert. Diese Stellen greifen auf Freigaben oder das Internet zu – bitte prüfen, ob das gewollt ist (steht auch im Protokoll):": "The package was saved. These places access shares or the internet – please check whether this is intended (also in the log):",
+ "Eigene Befehle sind für Ihren Mandanten nicht freigegeben.": "Custom commands are not enabled for your tenant.",
+ "Hinweis: Zugriff auf Freigaben oder Internet": "Notice: access to shares or internet",
+ "Skripte": "scripts",
+ "dürfen dabei Befehls- und PowerShell-Schritte schreiben (eigener Code)": "may write command and PowerShell steps (own code)"
 }

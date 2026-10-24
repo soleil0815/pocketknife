@@ -253,6 +253,9 @@ def api_me(user=U):
         me["tenants"] = [{"id": t["id"], "name": t["name"], "allow_packages": bool(t.get("allow_packages")),
                           "repo_folder": t.get("repo_folder") or ""} for t in access.tenants(user)]
         me["may_build"] = access.may_build(user)
+        me["may_script"] = access.may_script(user)
+        for t in me["tenants"]:
+            t["allow_scripts"] = access.may_script(user, t["id"])
         me["computers"] = len(access.computer_ids(user))
     return me
 
@@ -625,12 +628,13 @@ def api_uninstall(data: dict = Body(...), user=U):
             if it.get("remember"):
                 # „Für alle merken“ gilt auf ALLEN Computern – nur Hauptadmins
                 raise HTTPException(403, "Einen Deinstallationsbefehl für alle Computer merken dürfen nur Hauptadmins.")
-            if (it.get("command") or "").strip() and not access.may_build(user):
+            if (it.get("command") or "").strip() and not access.may_script(user):
                 # Audit 2.29: ein GEÄNDERTER Befehl ist eigener Code – wie Pakete nur mit „eigene Pakete erlaubt“;
                 # der erkannte Befehl (vorausgefüllt) bleibt erlaubt
                 sw = db.q1("SELECT * FROM software WHERE id=?", (int(it["software_id"]),)) or {}
                 if it["command"].strip() != (uninstall.command_for(sw).get("command") or "").strip():
-                    raise HTTPException(403, "Eigene Deinstallationsbefehle sind nur erlaubt, wenn für Ihren Mandanten „eigene Pakete“ freigegeben sind.")
+                    raise HTTPException(403, "Eigene Deinstallationsbefehle sind nur erlaubt, wenn für Ihren Mandanten „eigene Pakete“ "
+                                             "und „Skript-Schritte“ freigegeben sind.")
             if it.get("run_as") == "deploy" or (it.get("command") and it.get("run_as") not in ("system", "user")):
                 it["run_as"] = "system"  # OU-Admin: Deinstallation nie als Dienstkonto (auch nicht mit UninstallString)
             cid = db.val("SELECT computer_id FROM software WHERE id=?", (int(it["software_id"]),))
@@ -1739,6 +1743,21 @@ def _pkg_values(data, pid=None, user=None):
         for _k, st in steps.iter_steps(p):
             if st.get("run_as") == "deploy":
                 st["run_as"] = "system"
+        # 2.29.1: eigener Code (Befehl, PowerShell, eigener Deinstallationsbefehl) nur, wenn beim Mandanten erlaubt –
+        # unverändert übernommene Schritte (z. B. von einem Hauptadmin geschrieben) bleiben möglich
+        if not access.may_script(user, p.get("tenant_id")):
+            old = db.q1("SELECT steps FROM packages WHERE id=?", (pid,)) if pid else None
+            had = [_script_sig(st) for _k, st in steps.iter_steps(steps.normalize({"steps": old["steps"]}))] if old else []
+            for _k, st in steps.iter_steps(p):
+                sig = _script_sig(st)
+                if sig is None:
+                    continue
+                if sig in had:
+                    had.remove(sig)
+                    continue
+                raise HTTPException(403, "Befehls- und PowerShell-Schritte (und eigene Deinstallationsbefehle) sind für Ihren "
+                                         "Mandanten nicht freigegeben. Skripte bitte als Datei (.ps1/.cmd) in Ihren "
+                                         "Repository-Ordner legen und mit „Installieren“ ausführen – oder einen Hauptadmin fragen.")
         # Dateien aus dem Repository nur mit einem Repository-Ordner des Mandanten (sonst wäre jeder Ordner erreichbar)
         if not (db.val("SELECT repo_folder FROM tenants WHERE id=?", (p.get("tenant_id") or 0,)) or "").strip():
             for _k, st in steps.iter_steps(p):
@@ -1748,6 +1767,40 @@ def _pkg_values(data, pid=None, user=None):
     p["steps"] = json.dumps(p["steps"], ensure_ascii=False)
     p["conditions"] = json.dumps(p["conditions"], ensure_ascii=False)
     return p
+
+
+def _script_sig(st):
+    """Eigener Code in einem Schritt – (Art, Text) oder None."""
+    t = st.get("type")
+    if t == "command":
+        return ("command", (st.get("command") or "").strip())
+    if t == "powershell":
+        return ("powershell", (st.get("script") or "").strip())
+    if t == "uninstall" and (st.get("command") or "").strip():
+        return ("uninstall", st["command"].strip())
+    return None
+
+
+# Hinweis (KEINE Sicherheitsgrenze – lässt sich umschreiben): Zugriffe auf Freigaben oder Downloads in Mandanten-Skripten
+NET_HINT_RX = re.compile(r"(\\\\[A-Za-z0-9_.$-]+\\|\bnet(?:\.exe)?\s+use\b|New-PSDrive|Invoke-WebRequest|\biwr\b|"
+                         r"Invoke-RestMethod|\birm\b|Start-BitsTransfer|bitsadmin|Net\.WebClient|DownloadFile|DownloadString|"
+                         r"\bcurl(?:\.exe)?\b|\bwget\b|certutil[^\n]*-urlcache|https?://)", re.I)
+
+
+def net_hints(p):
+    """Stellen in Skripten eines Mandantenpakets, die auf Freigaben oder ins Internet zugreifen – nur als Hinweis."""
+    out = []
+    for _k, st in steps.iter_steps(steps.normalize(p)):
+        sig = _script_sig(st)
+        texts = [sig[1]] if sig else []
+        if st.get("type") == "install" and st.get("source") == "file":
+            texts.append(st.get("arguments") or "")
+        for t in texts:
+            m = NET_HINT_RX.search(t or "")
+            if m:
+                out.append(f"{steps.step_title(st)}: „{m.group(0)[:60]}“")
+                break
+    return out
 
 
 def _pkg_out(r, stats=None, names=None):
@@ -1864,7 +1917,7 @@ def api_package_create(data: dict = Body(...), user=U):
     repofiles.store_idents(pid, ids, pending)
     pklog.info("deploy", f"Paket '{p['name']}' angelegt.", user=user["username"])
     integrity.after_save(pid)  # Stand der Repository-Dateien festhalten
-    return {"id": pid}
+    return {"id": pid, "warnings": _net_warn(p, user)}
 
 
 @app.put("/api/packages/{pid}")
@@ -1880,7 +1933,23 @@ def api_package_update(pid: int, data: dict = Body(...), user=U):
     repofiles.store_idents(pid, ids, pending)
     pklog.info("deploy", f"Paket '{p['name']}' geändert.", user=user["username"])
     integrity.after_save(pid)  # neue Dateien festhalten – geänderte bleiben Bruch, bis jemand bestätigt
-    return {"ok": True}
+    return {"ok": True, "warnings": _net_warn(p, user)}
+
+
+def _net_warn(p, user):
+    """2.29.1: Mandantenpaket mit Zugriff auf Freigaben/Internet im Skript → Hinweis an die Oberfläche und ins Protokoll."""
+    if not p.get("tenant_id"):
+        return []
+    try:
+        hits = net_hints({"steps": json.loads(p["steps"]) if isinstance(p["steps"], str) else p["steps"]})
+    except Exception:  # noqa: BLE001 – ein Hinweis darf das Speichern nie verhindern
+        return []
+    if hits:
+        found = "; ".join(hits[:5])
+        pklog.warn("deploy", f"Paket '{p['name']}' (Mandant) greift im Skript auf Freigaben oder das Internet zu: {found}",
+                   user=user["username"])
+        return [f"Zugriff auf Freigaben/Internet im Skript: {x}" for x in hits[:10]]
+    return []
 
 
 def _dup_guard(p, pid, user, data):
@@ -2554,6 +2623,7 @@ def api_tenant_create(data: dict = Body(...), user=U):
                 "admin_group_sid, ou_ever, created_at) VALUES(?,?,?,?,?,?,?,?,?,?)", (*v, 1 if v[4] else 0, util.now()))
     pklog.info("system", f"Mandant '{v[0]}' angelegt" + (f" (OU-Admins: {v[4]})" if v[4] else "") + ".", user=user["username"])
     _tenant_quota(tid, data)
+    _tenant_scripts(tid, data, user)
     _tenants_changed()
     _tenant_folder_bg(tid)
     return {"id": tid}
@@ -2569,6 +2639,18 @@ def _tenant_quota(tid, data):
         except (TypeError, ValueError):
             _err("Speicherkontingent: bitte eine Zahl in MB (0 = unbegrenzt, leer = Standard).")
     db.ex("UPDATE tenants SET quota_mb=? WHERE id=?", (q, tid))
+
+
+def _tenant_scripts(tid, data, user, old=None):
+    """2.29.1: Skript-Schritte (Befehl, PowerShell, eigener Deinstallationsbefehl) nur mit „eigene Pakete“ – Standard aus."""
+    on = 1 if (data.get("allow_scripts") and db.val("SELECT allow_packages FROM tenants WHERE id=?", (tid,))) else 0
+    db.ex("UPDATE tenants SET allow_scripts=? WHERE id=?", (on, tid))
+    if on != int((old or {}).get("allow_scripts") or 0):
+        name = db.val("SELECT name FROM tenants WHERE id=?", (tid,))
+        if on:
+            pklog.warn("system", f"Mandant '{name}': Skript-Schritte für OU-Admins erlaubt.", user=user["username"])
+        else:
+            pklog.info("system", f"Mandant '{name}': Skript-Schritte für OU-Admins nicht erlaubt.", user=user["username"])
 
 
 def _tenant_folder_bg(tid):
@@ -2605,6 +2687,7 @@ def api_tenant_update(tid: int, data: dict = Body(...), user=U):
           "admin_group_dn=?, admin_group_sid=?, ou_ever=MAX(COALESCE(ou_ever, 0), ?) WHERE id=?", (*v, 1 if v[4] else 0, tid))
     pklog.info("system", f"Mandant '{v[0]}' geändert" + (f" (OU-Admins: {v[4]})" if v[4] else "") + ".", user=user["username"])
     _tenant_quota(tid, data)
+    _tenant_scripts(tid, data, user, old)
     _tenant_folder_bg(tid)
     changed = (old.get("admin_group_sid") != v[7] or old.get("admin_group_dn") != v[6] or old.get("collection_id") != v[2] or int(old.get("allow_packages") or 0) != v[5]
                or (old.get("repo_folder") or "") != v[3])
