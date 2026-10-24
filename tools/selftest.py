@@ -4620,6 +4620,7 @@ def _():
     pv = open(os.path.join(root, "tools", "pin-versions.sh"), encoding="utf-8").read()
     assert pv.index("tools/caps.py lock requirements.lock") < pv.index("' > requirements.lock"), "Grenzen VOR dem Leeren der Datei"
     assert "PK_ALLOW_MAJOR" in pv
+    assert pv.index('docker pull -q "$BASE"') < pv.index("DIGEST=$(docker image inspect"), "BuildKit: Basis-Image vor dem Lesen der Prüfsumme holen"
     for f in ("weekly.yml", "update-pins.yml"):
         w = open(os.path.join(root, ".github", "workflows", f), encoding="utf-8").read()
         assert "requirements.caps" in w and "::error title=Versionen aktualisieren::" in w, f

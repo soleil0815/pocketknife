@@ -89,6 +89,8 @@ BASE=$(sed -n 's/^ARG PYTHON_IMAGE=//p' Dockerfile)
 case "$BASE" in
   *@sha256:*) PIN_BASE="$BASE"; echo "already pinned: $BASE" ;;
   *)
+    # BuildKit lädt das Basis-Image in seinen eigenen Speicher – für die Prüfsumme hier einmal regulär holen
+    docker image inspect "$BASE" >/dev/null 2>&1 || docker pull -q "$BASE" >/dev/null
     DIGEST=$(docker image inspect "$BASE" --format '{{range .RepoDigests}}{{println .}}{{end}}' | sed -n 's/.*@//p' | head -n1)
     [ -n "$DIGEST" ] || { echo "Digest of $BASE not found (docker pull $BASE)" >&2; exit 1; }
     PYV=$(docker run --rm --entrypoint python "$IMG" -c 'import platform; print(platform.python_version())')
