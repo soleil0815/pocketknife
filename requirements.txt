@@ -1,0 +1,10 @@
+# Direct dependencies (minimum versions). The build uses requirements.lock (exact versions of all packages,
+# created with tools/pin-versions.sh) – only if that file is empty, this list.
+fastapi>=0.110
+uvicorn>=0.29
+ldap3>=2.9.1
+pypsrp>=0.8.1
+smbprotocol>=1.13
+pyspnego[kerberos]>=0.10
+cryptography>=42
+websockets>=12

@@ -1,0 +1,36 @@
+# POCKET KNIFE – bei jedem Push und Pull Request: Image bauen (amd64) und Selbsttest darin laufen lassen.
+# Es wird nichts veröffentlicht (dafür: release.yml mit einem Tag v<VERSION>).
+name: Test
+
+on:
+  push:
+    branches: ["**"]
+    tags-ignore: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069  # v4.4.1
+
+      - name: Bauen (amd64)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc  # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: pocketknife-test:amd64
+          cache-from: type=gha,scope=amd64
+          cache-to: type=gha,scope=amd64,mode=max
+
+      - name: Selbsttest im Image
+        run: docker run --rm pocketknife-test:amd64 python3 tools/selftest.py

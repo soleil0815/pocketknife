@@ -1,0 +1,29 @@
+/* POCKET KNIFE – Fernsitzung im Browser */
+body.remote { margin: 0; height: 100vh; overflow: hidden; background: #0d1016; color: var(--text); display: flex; flex-direction: column; }
+#rd-bar { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: var(--panel); border-bottom: 1px solid var(--line); flex: none; z-index: 5; }
+#rd-bar .name { font-weight: 600; }
+#rd-bar .state { font-size: 12px; }
+#rd-bar button { padding: 4px 10px; font-size: 13px; }
+#rd-bar .spacer { flex: 1; }
+body.remote.connected.autohide.fs #rd-bar { position: fixed; top: 0; left: 50%; transform: translate(-50%, -100%); border: 1px solid var(--line); border-top: none; border-radius: 0 0 8px 8px; transition: transform .15s; box-shadow: var(--shadow); }
+body.remote.connected.autohide.fs #rd-bar.show, body.remote.connected.autohide.fs #rd-bar:hover { transform: translate(-50%, 0); }
+#rd-hot { display: none; position: fixed; top: 0; left: 0; right: 0; height: 6px; z-index: 4; }
+#rd-stage { flex: 1; position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center; outline: none; }
+#rd-stage.scroll { overflow: auto; align-items: flex-start; justify-content: flex-start; }
+#rd-stage .rd-display { flex: none; cursor: none; box-shadow: 0 0 0 1px #000; }
+#rd-stage .rd-display canvas { image-rendering: auto; }
+#rd-overlay:empty { display: none; }
+#rd-overlay { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(8, 10, 14, .72); z-index: 10; overflow: auto; padding: 16px; }
+.rd-card { width: min(560px, 100%); background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); }
+.rd-card h2 { margin: 0; font-size: 17px; }
+.rd-card .rd-h { padding: 14px 18px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 10px; }
+.rd-card .rd-b { padding: 16px 18px; }
+.rd-card .rd-f { padding: 12px 18px; border-top: 1px solid var(--line); display: flex; justify-content: flex-end; gap: 8px; }
+.rd-card .form { grid-template-columns: 150px 1fr; }
+.rd-radio { display: flex; flex-direction: column; gap: 6px; }
+.rd-msg { white-space: pre-wrap; }
+.rd-clip textarea { width: 100%; min-height: 160px; font-family: var(--mono, monospace); }
+.rd-spin { width: 34px; height: 34px; border: 3px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: rdspin 0.9s linear infinite; margin: 8px auto 14px; }
+@keyframes rdspin { to { transform: rotate(360deg); } }
+@media (max-width: 600px) { .rd-card .form { grid-template-columns: 1fr; } #rd-bar .opt { display: none; } }
+body.remote.connected.autohide.fs #rd-hot { display: block; }

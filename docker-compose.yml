@@ -1,0 +1,68 @@
+# POCKET KNIFE - all adjustable values are in the .env
+# This file does NOT need to be edited when changing versions.
+name: pocketknife
+
+services:
+  pocketknife:
+    build: .
+    image: pocketknife:local
+    container_name: pocketknife
+    restart: unless-stopped
+    # Hardening (since 2.14): the service runs as user "pocketknife" (UID 10001) without special privileges.
+    # At start it hands /data and /backup over to this user once as root (hence CHOWN/DAC_OVERRIDE)
+    # and then drops the privileges for good (SETUID/SETGID). After that the process has no capabilities.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - SETUID
+      - SETGID
+    # Program files read-only; writes go only to /data, /backup and the small /tmp
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    # No custom sysctls: Docker (20.10+) already allows ports below 1024 and ping without root in the container.
+    # A fixed net.ipv4.ping_group_range prevents the start depending on the Docker configuration (2.14).
+    env_file: .env
+    environment:
+      TZ: ${PK_TIMEZONE:-Europe/Berlin}
+    ports:
+      - "${PK_PORT:-8443}:${PK_PORT:-8443}"
+    volumes:
+      # Database, logs, certificate, winget index (path from the .env)
+      - ${PK_DATA_PATH:-./data}:/data
+      # Optional repository folder (default: empty folder)
+      - ${PK_REPO_MOUNT:-./repo}:/repo:ro
+      # Automatic backups (default: folder next to the data directory, e.g. /opt/pocketknife/data-backup)
+      - ${PK_BACKUP_PATH:-${PK_DATA_PATH:-./data}-backup}:/backup
+    # DNS servers of the domain, so computer names can be resolved
+    dns:
+      - ${PK_DNS_1:?set PK_DNS_1 in the .env (DNS server of the domain)}
+      - ${PK_DNS_2:-${PK_DNS_1}}
+    dns_search:
+      - ${PK_DNS_SEARCH:-${PK_DOMAIN}}
+    depends_on:
+      - guacd
+
+  # Apache Guacamole – provides RDP/VNC for the remote sessions in the browser.
+  # Reachable internally only (no published port); connects directly to the clients (3389/5900).
+  guacd:
+    # Pinned exactly (version + digest); update with tools/pin-versions.sh --update
+    image: guacamole/guacd:1.6.0@sha256:8974eaa9ba32f713daf311e7cc8cd7e4cdfba1edea39eed75524e78ef4b08f4f
+    container_name: pocketknife-guacd
+    restart: unless-stopped
+    # guacd already runs as its own user in the official image; additionally no privilege escalation
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    environment:
+      TZ: ${PK_TIMEZONE:-Europe/Berlin}
+    dns:
+      - ${PK_DNS_1:?set PK_DNS_1 in the .env (DNS server of the domain)}
+      - ${PK_DNS_2:-${PK_DNS_1}}
+    dns_search:
+      - ${PK_DNS_SEARCH:-${PK_DOMAIN}}

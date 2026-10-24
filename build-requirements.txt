@@ -1,0 +1,3 @@
+# Build tools for gssapi/krb5 (built from source). tools/pin-versions.sh writes the exact versions.
+Cython
+setuptools

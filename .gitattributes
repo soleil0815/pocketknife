@@ -1,0 +1,6 @@
+# Not part of the program ZIP (git archive) – only needed on GitHub
+.github export-ignore
+.gitattributes export-ignore
+# Shell scripts always with LF (they run on Linux)
+*.sh text eol=lf
+update.sh text eol=lf

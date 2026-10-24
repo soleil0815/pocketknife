@@ -1,0 +1,65 @@
+/* Software-Kiosk für Nutzer – baut auf app.css (Farben, Knöpfe, Eingabefelder) auf */
+body.kiosk { background: var(--bg); overflow: auto; }
+.k-top { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 14px; padding: 12px 24px; background: var(--nav); color: var(--nav-text); }
+.k-top img { width: 32px; height: 32px; }
+.k-top .k-brand b { color: #fff; font-size: 16px; display: block; }
+.k-top .k-brand small { color: #8a92a5; font-size: 12px; }
+.k-top .spacer { flex: 1; }
+.k-top .k-user { text-align: right; font-size: 13px; line-height: 1.3; }
+.k-top .k-user b { color: #fff; display: block; }
+.k-top select { background: var(--nav-2); color: #fff; border-color: #2c3240; }
+.k-top button { background: var(--nav-2); color: var(--nav-text); border-color: #2c3240; }
+.k-wrap { max-width: 1180px; margin: 0 auto; padding: 22px 24px 60px; }
+.k-hello { margin: 0 0 4px; font-size: 22px; font-weight: 600; }
+.k-sub { color: var(--muted); margin: 0 0 18px; }
+.k-banner { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 14px 16px; border-radius: 10px; margin-bottom: 18px;
+  background: var(--warn-soft); border: 1px solid var(--warn); }
+.k-banner.info { background: var(--info-soft); border-color: var(--info); }
+.k-banner .k-bt { flex: 1; min-width: 240px; }
+.k-banner .k-bt b { display: block; margin-bottom: 2px; }
+.k-tools { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
+.k-tools input[type=search] { width: 280px; max-width: 100%; padding: 8px 12px; font-size: 14px; }
+.k-chip { border-radius: 16px; padding: 4px 12px; }
+.k-chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.k-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+.k-card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 8px; min-height: 170px; }
+.k-card .k-h { display: flex; gap: 12px; align-items: flex-start; }
+.k-card .k-ic { width: 40px; height: 40px; border-radius: 10px; background: var(--accent-soft); color: var(--accent); display: flex; align-items: center; justify-content: center; flex: none; font-weight: 700; font-size: 17px; }
+.k-card .k-ic.img { background: transparent; }
+.k-card .k-ic img { width: 40px; height: 40px; object-fit: contain; border-radius: 8px; }
+.k-card .k-n { font-weight: 600; font-size: 15px; line-height: 1.25; }
+.k-card .k-v { color: var(--muted); font-size: 12px; }
+.k-card .k-d { color: var(--muted); font-size: 13px; line-height: 1.45; flex: 1; }
+.k-card .k-st { font-size: 12.5px; display: flex; gap: 6px; align-items: center; min-height: 20px; }
+.k-card .k-act { display: flex; gap: 8px; flex-wrap: wrap; }
+.k-card .k-act button { padding: 6px 14px; }
+.k-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: var(--muted); flex: none; }
+.k-dot.ok { background: var(--ok); } .k-dot.err { background: var(--err); } .k-dot.warn { background: var(--warn); } .k-dot.run { background: var(--info); animation: kpulse 1.1s infinite; }
+@keyframes kpulse { 50% { opacity: .3; } }
+.k-sec { margin: 30px 0 10px; font-size: 16px; font-weight: 600; }
+.k-req { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.k-req th, .k-req td { padding: 8px 12px; border-bottom: 1px solid var(--line-2); text-align: left; font-size: 13px; }
+.k-req th { position: static; cursor: default; }
+.k-empty { padding: 40px 20px; text-align: center; color: var(--muted); background: var(--panel); border: 1px dashed var(--line); border-radius: 12px; }
+.k-login { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
+.k-login .box { width: 380px; max-width: 100%; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 26px; box-shadow: var(--shadow); }
+.k-login .lg { display: flex; gap: 12px; align-items: center; margin-bottom: 18px; }
+.k-login .lg img { width: 40px; height: 40px; }
+.k-login .lg b { display: block; font-size: 17px; }
+.k-login label { display: block; margin: 12px 0 4px; color: var(--muted); font-size: 13px; }
+.k-login input { width: 100%; padding: 8px 10px; font-size: 14px; }
+.k-login button[type=submit] { width: 100%; justify-content: center; margin-top: 18px; padding: 9px; font-size: 14px; }
+.k-login .err { color: var(--err); min-height: 18px; margin-top: 10px; font-size: 13px; }
+.k-login .wide { width: 100%; justify-content: center; padding: 10px; font-size: 14px; }
+.k-or { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 12px; margin: 16px 0 2px; }
+.k-or::before, .k-or::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+.k-sso-wait { display: flex; align-items: center; gap: 10px; justify-content: center; padding: 26px 0; color: var(--muted); }
+.k-sso-wait .spin { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--line); border-top-color: var(--accent); animation: k-spin .8s linear infinite; }
+@keyframes k-spin { to { transform: rotate(360deg); } }
+.k-modal-bg { position: fixed; inset: 0; background: rgba(0, 0, 0, .5); z-index: 50; display: flex; align-items: center; justify-content: center; padding: 16px; }
+.k-modal { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; width: 440px; max-width: 100%; box-shadow: var(--shadow); }
+.k-modal .mh { padding: 14px 18px; font-weight: 600; font-size: 15px; border-bottom: 1px solid var(--line); }
+.k-modal .mb { padding: 16px 18px; line-height: 1.5; }
+.k-modal .mf { padding: 12px 18px; border-top: 1px solid var(--line); display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+@media (max-width: 640px) { .k-top { padding: 10px 14px; flex-wrap: wrap; } .k-wrap { padding: 16px 14px 50px; } .k-top .k-user { text-align: left; } }
+.k-reqwrap { overflow-x: auto; border-radius: 10px; }

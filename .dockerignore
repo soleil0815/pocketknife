@@ -1,0 +1,16 @@
+data/
+data-backup/
+repo/
+.env
+__pycache__/
+*.pyc
+*.zip
+.pk-vorher/
+.pk-vorher.alt/
+.pk-update.*/
+pocketknife-*/
+# the program ZIP in dist/ belongs into images built by GitHub (update.sh --pull)
+!dist/pocketknife-*.zip
+!dist/pocketknife-*.zip.sha256
+.git/
+.github/

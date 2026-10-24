@@ -1,0 +1,12 @@
+data/
+.env
+__pycache__/
+*.pyc
+dist/
+*.zip
+.pk-vorher/
+.pk-vorher.alt/
+.pk-update.*/
+.pk-pull.*/
+data-backup/
+repo/
