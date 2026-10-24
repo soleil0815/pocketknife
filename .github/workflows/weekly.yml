@@ -42,7 +42,10 @@ jobs:
           # Fehler direkt am Lauf zeigen (Annotation) – die Protokolle sind sonst nur in der Weboberfläche lesbar
           if ! sh tools/pin-versions.sh --update > pin.log 2>&1; then
             tail -n 150 pin.log
-            msg=$(tail -n 60 pin.log | sed -e ':a' -e 'N' -e '$!ba' -e 's/%/%25/g' -e 's/\r/%0D/g' -e 's/\n/%0A/g')
+            # kurz halten (Annotationen werden nach ~4 KB abgeschnitten): Fehlerzeilen und das Ende, je Zeile gekürzt
+            { grep -nE 'ERROR|Error|error:|Traceback|✗|failed|FAILED|not found|No such|conflict' pin.log | tail -n 15; echo ...; tail -n 12 pin.log; } \
+              | cut -c1-220 > pin.err
+            msg=$(sed -e ':a' -e 'N' -e '$!ba' -e 's/%/%25/g' -e 's/\r/%0D/g' -e 's/\n/%0A/g' pin.err)
             echo "::error title=Versionen aktualisieren::${msg:-fehlgeschlagen (siehe Log)}"
             exit 1
           fi
