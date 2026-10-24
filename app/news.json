@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.29.2",
+   "date": "2026-10-24",
+   "items": [
+    {
+     "kind": "security",
+     "audience": "admin",
+     "de": "Images werden vor der Veröffentlichung mit Trivy auf bekannte Schwachstellen geprüft – ein Image mit behebbaren Schwachstellen (HOCH/KRITISCH) wird nicht veröffentlicht. Zusätzlich prüft GitHub das veröffentlichte Image täglich.",
+     "en": "Images are checked for known vulnerabilities with Trivy before publishing – an image with fixable vulnerabilities (HIGH/CRITICAL) is not published. In addition, GitHub checks the published image daily."
+    }
+   ]
+  },
+  {
    "version": "2.29.1",
    "date": "2026-10-24",
    "items": [

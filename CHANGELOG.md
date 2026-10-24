@@ -1,5 +1,13 @@
 # Änderungen
 
+## pocketknife-2.29.2 (24.10.2026)
+- **Neu: Schwachstellen-Prüfung mit Trivy.** Ein Image mit bekannten Schwachstellen der Stufen HOCH/KRITISCH, für die es eine Korrektur gibt, wird nicht mehr veröffentlicht: `Release` prüft amd64 und arm64 vor dem Hochladen, `Test` bei jedem Push (Tabelle der Befunde in der Zusammenfassung des Laufs)
+- **Neu: täglicher Sicherheits-Scan** des veröffentlichten Images (`:latest`) – Schwachstellen, die erst nach einem Release bekannt werden, meldet GitHub per Mail
+- **Neu: Workflow „Versionen aktualisieren“** (von Hand): Basis-Image, Debian- und Python-Pakete und guacd neu festlegen (`tools/pin-versions.sh --update`), ohne Cache bauen, Selbsttest und Trivy – das Ergebnis kommt als Pull Request
+- Trivy wird in fester Version geladen und per SHA-256 geprüft, ohne GitHub Action (wegen der Kompromittierung von trivy-action/setup-trivy im März 2026, CVE-2026-33634); auf dem Docker-Host: `sh tools/trivy-scan.sh pocketknife:local`. Bewusst hingenommene Befunde mit Begründung und Ablaufdatum in `.trivyignore`
+- Erster Lauf: das veröffentlichte Image 2.29.1 und der aktuelle Stand haben keine Befunde
+- **Selbsttest:** Trivy-Version und Prüfsummen fest (keine kompromittierte Version), alle Actions aller Workflows auf Commit festgelegt, keine Trivy-Action, Prüfung vor dem Hochladen, täglicher Scan, Ablauf sauber/Befund/nicht prüfbar mit Bericht
+
 ## pocketknife-2.29.1 (24.10.2026)
 - **Neu: Skript-Schritte je Mandant freigeben.** Beim Mandanten gibt es unter „eigene Pakete“ den Schalter **„dürfen dabei Befehls- und PowerShell-Schritte schreiben“** – standardmäßig **aus**. Ohne Freigabe dürfen OU-Admins keine Schritte „Befehl“ und „PowerShell“ und keine eigenen Deinstallationsbefehle (im Paket und in der Software-Liste) anlegen oder ändern; der Server prüft das beim Speichern, Kopieren und Importieren. Skripte legen sie stattdessen als Datei (.ps1/.cmd) in ihren Repository-Ordner und führen sie mit „Installieren“ aus – dort erfasst sie die Bruchprüfung. Schritte eines Hauptadmins dürfen unverändert bleiben; bestehende Pakete laufen weiter. Die Paketansicht bietet die Schritte ohne Freigabe gar nicht an
 - **Hinweis bei Zugriff auf Freigaben oder Internet:** Enthält ein Mandantenpaket in Befehlen, PowerShell oder Aufrufparametern Zugriffe auf Freigaben (`\\server\…`, `net use`, `New-PSDrive`) oder Downloads (`Invoke-WebRequest`, `curl`, `bitsadmin`, `https://` …), erscheint nach dem Speichern bzw. beim Import ein Hinweis, und er steht im Protokoll. Bewusst nur ein Hinweis, keine Sperre (lässt sich umschreiben)
