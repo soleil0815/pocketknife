@@ -1962,7 +1962,7 @@ def _():
     if not os.path.exists(f) or not _sh.which("sh") or not _sh.which("sha256sum"):
         return  # im Container liegt update.sh nicht
     src = open(f, encoding="utf-8").read()
-    for need in ('--pull) PULL=1', 'docker tag "$PULLREF" "$LOCAL_IMAGE"', 'docker tag "$LOCAL_IMAGE" "$PREV_IMAGE"', "sha256sum -c",
+    for need in ('--pull) PULL=1', 'env_set "$INST/.env" PK_IMAGE "$WANT_IMAGE"', 'docker tag "$PREVID" "$PREV_IMAGE"', "sha256sum -c",
                  'DEFAULT_IMAGE_REPO="ghcr.io/', "docker login"):
         assert need in src, need
     df = open(os.path.join(root, "Dockerfile"), encoding="utf-8").read()
@@ -1985,7 +1985,7 @@ def _():
                 ' tag) echo "$2 $3" >> "$st/tags" ;;\n'
                 ' image) case "$*" in *RepoDigests*) echo "ghcr.io/test/pocketknife@sha256:abc" ;; *image.version*) cat "$st/imgver" ;;'
                 ' *.Id*) cat "$st/newid" ;; esac; exit 0 ;;\n'
-                ' inspect) case "$*" in *working_dir*) cat "$st/running" 2>/dev/null ;; *Health*) echo healthy ;; *.Image*) cat "$st/runid" ;; esac; exit 0 ;;\n'
+                ' inspect) case "$*" in *working_dir*) cat "$st/running" 2>/dev/null ;; *Health*) if [ -f "$st/unhealthy" ]; then echo unhealthy; else echo healthy; fi ;; *Config.Image*) cat "$st/runref" ;; *.Image*) cat "$st/runid" ;; esac; exit 0 ;;\n'
                 ' compose) case "$2" in build) touch "$st/built" ;; up) pwd > "$st/running"; cat VERSION > "$st/runver" ;; exec) echo ok ;; esac; exit 0 ;;\n'
                 'esac\nexit 0\n')
     os.chmod(os.path.join(bind, "docker"), 0o755)
@@ -2014,6 +2014,7 @@ def _():
     env = {**os.environ, "PATH": bind + ":" + os.environ.get("PATH", ""), "FAKE_STATE": st}
     open(os.path.join(st, "running"), "w").write(inst + "\n")
     open(os.path.join(st, "runid"), "w").write("sha256:old\n")
+    open(os.path.join(st, "runref"), "w").write("pocketknife:local\n")
     open(os.path.join(st, "newid"), "w").write("sha256:new\n")
     run = lambda *a: _sp.run(["sh", "update.sh", "-y", *a], cwd=inst, env=env, capture_output=True, text=True, timeout=120)  # noqa: E731
     rd = lambda *p: open(os.path.join(inst, *p)).read().strip()  # noqa: E731
@@ -2023,7 +2024,8 @@ def _():
     assert rd("VERSION") == "2.27.1" and rd("run.py") == "NEU" and rd(".pk-vorher", "VERSION") == "2.27"
     assert not os.path.exists(os.path.join(st, "built")), "--pull baut nicht"
     tags = open(os.path.join(st, "tags")).read()
-    assert "pocketknife:local pocketknife:previous" in tags and "ghcr.io/test/pocketknife@sha256:abc pocketknife:local" in tags, tags
+    assert "sha256:old pocketknife:previous" in tags and "pocketknife:local" not in tags, tags
+    assert "PK_IMAGE=ghcr.io/test/pocketknife:latest" in rd(".env") and "PK_DNS_1=1.2.3.4" in rd(".env"), "Container zeigt die Herkunft (wie andere Container)"
     assert "pull ghcr.io/test/pocketknife:latest" in open(os.path.join(st, "calls")).read()
     assert not [n for n in os.listdir(inst) if n.startswith((".pk-pull.", ".pk-update."))], "keine temporären Ordner übrig"
     # bestimmte Version; Prüfsumme falsch → nichts geändert
@@ -2035,14 +2037,45 @@ def _():
     dist("2.27.2", "X"); open(os.path.join(st, "imgver"), "w").write("2.27.9\n")
     r = run("--pull=2.27.2")
     assert r.returncode != 0 and "do not match" in r.stderr and rd("VERSION") == "2.27.1"
-    # schon aktuell (genau dieses Image läuft) → nichts zu tun
+    # gleiches Image, aber der Container zeigt noch „pocketknife:local“ → nur den Namen umstellen
     dist("2.27.1", "NEU"); open(os.path.join(st, "runid"), "w").write("sha256:new\n")
+    open(os.path.join(inst, ".env"), "w").write("PK_DNS_1=1.2.3.4\nPK_IMAGE_REPO=ghcr.io/test/pocketknife\n")
+    r = run("--pull")
+    assert r.returncode == 0 and "now shows ghcr.io/test/pocketknife:latest" in r.stdout and "PK_IMAGE=ghcr.io/test/pocketknife:latest" in rd(".env"), r.stdout[-500:]
+    # schon aktuell (genau dieses Image unter diesem Namen) → nichts zu tun
+    open(os.path.join(st, "runref"), "w").write("ghcr.io/test/pocketknife:latest\n")
     r = run("--pull")
     assert r.returncode == 0 and "already up to date" in r.stdout, r.stdout[-500:]
+    # ZIP-Weg danach: wieder lokal gebaut als pocketknife:local (PK_IMAGE leer)
+    zd = tempfile.mkdtemp(dir=base); tree(os.path.join(zd, "pocketknife"), "2.27.3", "ZIP")
+    zp = os.path.join(base, "pocketknife-2.27.3.zip")
+    with _z.ZipFile(zp, "w") as z:
+        for dp, _dn, fn in os.walk(zd):
+            for n in fn:
+                z.write(os.path.join(dp, n), os.path.relpath(os.path.join(dp, n), zd))
+    r = run(zp)
+    assert r.returncode == 0 and os.path.exists(os.path.join(st, "built")), r.stdout[-500:]
+    assert "PK_IMAGE=\n" in rd(".env") + "\n" or rd(".env").endswith("PK_IMAGE="), rd(".env")
+    os.remove(os.path.join(st, "built"))
+    # Neue Version startet nicht → zurück zum vorigen Image unter dem Namen, den die bisherige .env erwartet
+    open(os.path.join(inst, ".env"), "w").write("PK_DNS_1=1.2.3.4\nPK_IMAGE_REPO=ghcr.io/test/pocketknife\nPK_IMAGE=ghcr.io/test/pocketknife:latest\n")
+    open(os.path.join(st, "runref"), "w").write("ghcr.io/test/pocketknife:latest\n")
+    open(os.path.join(st, "runid"), "w").write("sha256:old\n")
+    open(os.path.join(st, "tags"), "w").close()
+    open(os.path.join(st, "unhealthy"), "w").close()
+    dist("2.27.4", "KAPUTT")
+    r = run("--pull")
+    assert r.returncode != 0 and "Previous version 2.27.3 is running again" in r.stdout, r.stdout[-800:]
+    tags = open(os.path.join(st, "tags")).read()
+    assert "sha256:old pocketknife:previous" in tags and "pocketknife:previous ghcr.io/test/pocketknife:latest" in tags, tags
+    assert rd("VERSION") == "2.27.3" and "PK_IMAGE=ghcr.io/test/pocketknife:latest" in rd(".env")
+    assert not os.path.exists(os.path.join(st, "built")), "Rückweg ohne Bauen"
+    os.remove(os.path.join(st, "unhealthy"))
+    open(os.path.join(st, "runref"), "w").write("pocketknife:local\n")
     # Anmeldung fehlt → verständlicher Hinweis, nichts geändert
     open(os.path.join(st, "pullfail"), "w").close()
     r = run("--pull")
-    assert r.returncode != 0 and "docker login ghcr.io" in r.stdout and rd("VERSION") == "2.27.1"
+    assert r.returncode != 0 and "docker login ghcr.io" in r.stdout and rd("VERSION") == "2.27.3"
     assert not [n for n in os.listdir(inst) if n.startswith((".pk-pull.", ".pk-update."))]
 
 

@@ -26,6 +26,7 @@
 #
 #   → pulls the image (amd64/arm64, Docker picks the right one), takes the program ZIP contained in it (checked
 #     against its SHA-256), replaces the program files as above and starts exactly the pulled image (no build).
+#     The container then shows where it comes from (PK_IMAGE in the .env, e.g. ghcr.io/soleil0815/pocketknife:latest).
 #     Registry: PK_IMAGE_REPO in the .env (default ghcr.io/soleil0815/pocketknife). For a private registry log in
 #     once as the user that runs the update:  docker login ghcr.io -u <github user>  (token with read:packages).
 #   The ZIP way stays unchanged (e.g. without internet access).
@@ -50,7 +51,7 @@ while [ $# -gt 0 ]; do
             case "${2:-}" in [0-9]*) PULLTAG="$2"; shift ;; esac ;;
     --pull=*) PULL=1; PULLTAG="${1#--pull=}" ;;
     --keep) shift ;;   # formerly: keep old version folders – since 2.24.1 there is only one program folder
-    -h|--help) sed -n '2,34p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,35p' "$0"; exit 0 ;;
     *) ARG="$1" ;;
   esac
   shift
@@ -374,24 +375,31 @@ from_zip() {
       esac
     done
   fi
+  # Image name for docker-compose.yml (PK_IMAGE): from the registry the container shows where it comes from
+  # (ghcr.io/…/pocketknife:latest, like other containers); the ZIP way builds locally as pocketknife:local.
+  # The .env is put back with everything else if the update fails.
+  WANT_IMAGE=""; [ -n "$PULLREF" ] && WANT_IMAGE="$PULLNAME"
+  if [ "$(envval "$INST/.env" PK_IMAGE)" != "$WANT_IMAGE" ]; then
+    env_set "$INST/.env" PK_IMAGE "$WANT_IMAGE"; ENVCHANGED=1
+  fi
   chmod 600 "$INST/.env" 2>/dev/null || true
 
   cd "$INST"
-  # Keep the current image as „previous“: going back then needs neither a build nor the internet
-  HAVEPREV=""
-  if docker image inspect "$LOCAL_IMAGE" >/dev/null 2>&1; then
-    docker tag "$LOCAL_IMAGE" "$PREV_IMAGE" && HAVEPREV=1
+  # Keep the image that is running now as „previous“: going back then needs neither a build nor the internet
+  HAVEPREV=""; OLDREF=""
+  PREVID=$(docker inspect pocketknife --format '{{.Image}}' 2>/dev/null || true)
+  OLDREF=$(docker inspect pocketknife --format '{{.Config.Image}}' 2>/dev/null || true)
+  if [ -n "$PREVID" ] && docker tag "$PREVID" "$PREV_IMAGE" 2>/dev/null; then HAVEPREV=1
+  elif docker image inspect "$LOCAL_IMAGE" >/dev/null 2>&1; then
+    docker tag "$LOCAL_IMAGE" "$PREV_IMAGE" && HAVEPREV=1 && OLDREF="$LOCAL_IMAGE"
   fi
+  case "$OLDREF" in ''|*@*) OLDREF="$LOCAL_IMAGE" ;; esac
   if [ -n "$PULLREF" ]; then
-    info "Using the pulled image for POCKET KNIFE $NEWVER (no build) ..."
-    if ! docker tag "$PULLREF" "$LOCAL_IMAGE"; then
-      restore_prev
-      die "The pulled image could not be taken over – the previous version keeps running unchanged."
-    fi
+    info "Using the pulled image $PULLNAME for POCKET KNIFE $NEWVER (no build) ..."
   else
     info "Building POCKET KNIFE $NEWVER (this can take a few minutes) ..."
     if ! docker compose build; then
-      [ -n "$HAVEPREV" ] && docker tag "$PREV_IMAGE" "$LOCAL_IMAGE" 2>/dev/null
+      [ -n "$HAVEPREV" ] && docker tag "$PREV_IMAGE" "$OLDREF" 2>/dev/null
       restore_prev
       [ "$STAGE" = restored ] || die "The build failed; the previous program files could not be put back completely (see above)."
       die "The build failed – the previous version keeps running unchanged (program files restored)."
@@ -413,7 +421,8 @@ from_zip() {
       BACKDIR="$INST"; [ -n "$MIGRATE" ] && BACKDIR="$ENVSRC"
       BACKUP_UP="docker compose up -d --build"
       # previous image still there → start exactly that one (no build, no internet)
-      if [ -n "$HAVEPREV" ] && docker tag "$PREV_IMAGE" "$LOCAL_IMAGE" 2>/dev/null; then BACKUP_UP="docker compose up -d"; fi
+      # (under the name the previous .env expects – e.g. …/pocketknife:latest already points to the NEW image)
+      if [ -n "$HAVEPREV" ] && docker tag "$PREV_IMAGE" "$OLDREF" 2>/dev/null; then BACKUP_UP="docker compose up -d"; fi
       if ! ( cd "$BACKDIR" && $BACKUP_UP ); then
         die "The previous version $OLDVER does not start either (program files are restored). The cause is in:
   cd $BACKDIR && docker compose logs --tail 50   (e.g. port in use, Docker service disturbed)"
@@ -535,6 +544,7 @@ from_registry() {
   # Exactly this image from now on (by digest – the tag may move later)
   PULLREF=$(docker image inspect "$REPO:$TAG" --format '{{range .RepoDigests}}{{println .}}{{end}}' | grep -F "$REPO@" | head -n 1)
   [ -n "$PULLREF" ] || PULLREF="$REPO:$TAG"
+  PULLNAME="$REPO:$TAG"   # name the container shows (like other containers: …/pocketknife:latest)
   say "  Image: $PULLREF"
   PD=$(mktemp -d "$INST/.pk-pull.XXXXXX") || die "Cannot create a temporary folder in $INST."
   # removed again at the end (also on errors); from_zip installs its own handler, so remove it from there as well
@@ -558,6 +568,21 @@ from_registry() {
   NEWIMG=$(docker image inspect "$PULLREF" --format '{{.Id}}' 2>/dev/null || true)
   if [ -n "$RUNIMG" ] && [ "$RUNIMG" = "$NEWIMG" ] && [ "$(tr -d ' \r\n' < "$INST/VERSION" 2>/dev/null)" = "$ZIPVER" ]; then
     rm -rf "$PD"
+    RUNREF=$(docker inspect pocketknife --format '{{.Config.Image}}' 2>/dev/null || true)
+    if [ "$RUNREF" != "$PULLNAME" ] && [ -f "$INST/.env" ]; then
+      # Same image, but the container still shows the old name (e.g. pocketknife:local) → only switch the name
+      info "POCKET KNIFE $ZIPVER is up to date – the container now shows $PULLNAME"
+      cp "$INST/.env" "$INST/.env.pk-alt" && chmod 600 "$INST/.env.pk-alt"
+      env_set "$INST/.env" PK_IMAGE "$PULLNAME"; chmod 600 "$INST/.env" 2>/dev/null || true
+      if ! ( cd "$INST" && docker compose up -d ); then
+        mv "$INST/.env.pk-alt" "$INST/.env"; ( cd "$INST" && docker compose up -d ) || true
+        die "Starting with the new name failed – back to the previous name."
+      fi
+      rm -f "$INST/.env.pk-alt"
+      printf 'Waiting for the start '
+      wait_healthy || say "WARNING: POCKET KNIFE does not report as healthy – see: docker compose logs pocketknife"
+      exit 0
+    fi
     say ""
     say "POCKET KNIFE $ZIPVER is already up to date (exactly this image is running)."
     exit 0

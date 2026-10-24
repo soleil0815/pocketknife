@@ -2,7 +2,7 @@ Deutsche Fassung: [README.md](README.md)
 
 # POCKET KNIFE
 
-Current version: **pocketknife-2.28** – see `CHANGELOG.md` (German).
+Current version: **pocketknife-2.28.1** – see `CHANGELOG.md` (German).
 
 Website: [helfi.space](https://helfi.space)
 
@@ -160,8 +160,8 @@ docker compose up -d --build
 
 ```bash
 docker login ghcr.io -u <GitHub user>              # only for a private registry; password = token with read:packages
-docker pull ghcr.io/soleil0815/pocketknife:latest
-docker tag ghcr.io/soleil0815/pocketknife:latest pocketknife:local
+echo "PK_IMAGE=ghcr.io/soleil0815/pocketknife:latest" >> .env
+docker compose pull pocketknife
 docker compose up -d
 ```
 
@@ -201,7 +201,7 @@ sh update.sh --pull            # newest version
 sh update.sh --pull 2.27.1     # a specific version
 ```
 
-The script pulls the image, takes the program ZIP **from the image** (checked by SHA-256; image and ZIP versions must match), replaces the program files as with the ZIP way and starts **exactly this image** (by digest, without building) – with health check, self-test and the way back as above. For the way back it keeps the previous image as `pocketknife:previous`; going back then needs neither a build nor the internet. If exactly this image is already running, it reports "already up to date".
+The script pulls the image, takes the program ZIP **from the image** (checked by SHA-256; image and ZIP versions must match), replaces the program files as with the ZIP way and starts **exactly this image** (by digest, without building) – with health check, self-test and the way back as above. Afterwards the container runs – like other containers – under the name from the registry, e.g. `ghcr.io/soleil0815/pocketknife:latest` (stored as `PK_IMAGE` in the `.env`; the ZIP way builds locally as `pocketknife:local` again). For the way back it keeps the previous image as `pocketknife:previous`; going back then needs neither a build nor the internet. If exactly this image is already running, it reports "already up to date".
 
 - **Registry:** default `ghcr.io/soleil0815/pocketknife`; your own (e.g. a fork or a mirror registry) in the `.env` with `PK_IMAGE_REPO=ghcr.io/<owner>/pocketknife`.
 - **Private registry:** sign in once on the Docker host as the user running the update (usually root): `docker login ghcr.io -u <GitHub user>`, password = **personal access token** with `read:packages` (for a fine-grained token: access to the repository, "Packages: Read"). Docker remembers the sign-in; the token is not in the `.env`.

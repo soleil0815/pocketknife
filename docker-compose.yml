@@ -5,7 +5,9 @@ name: pocketknife
 services:
   pocketknife:
     build: .
-    image: pocketknife:local
+    # Since 2.28.1: from the registry (sh update.sh --pull) PK_IMAGE in the .env is e.g. ghcr.io/soleil0815/pocketknife:latest
+    # (the container then shows where it comes from); the ZIP way builds locally as pocketknife:local.
+    image: ${PK_IMAGE:-pocketknife:local}
     container_name: pocketknife
     restart: unless-stopped
     # Hardening (since 2.14): the service runs as user "pocketknife" (UID 10001) without special privileges.
