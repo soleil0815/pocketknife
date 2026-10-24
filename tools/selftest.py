@@ -4498,6 +4498,54 @@ def _():
     assert "CVE-2026-1111" in t and "libssl3t64" in t and "Keine Schwachstellen" in t, t
 
 
+@test("2.29.3 Wöchentliches Sicherheitsupdate: montags Pakete aktualisieren, neu bauen, Selbsttest und Trivy – nur bei Erfolg neue Version und Release (latest); ohne Änderung nichts; Versionsnummer, CHANGELOG und Neuigkeiten automatisch")
+def _():
+    import shutil as _sh
+    import subprocess as _sp
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+    wf = os.path.join(root, ".github", "workflows", "weekly.yml")
+    tool = os.path.join(root, "tools", "security-release.py")
+    if not os.path.exists(wf) or not os.path.exists(tool):
+        return  # im Container liegen Workflows und Werkzeuge nicht
+    t = open(wf, encoding="utf-8").read()
+    assert '"23 3 * * 1"' in t, "montags"
+    order = ["pin-versions.sh --update", "git diff --quiet", "tools/trivy-scan.sh pocketknife:local", "tools/security-release.py",
+             "git push", "gh workflow run release.yml"]
+    pos = [t.index(x) for x in order]
+    assert pos == sorted(pos), "Reihenfolge: aktualisieren/bauen/testen → Trivy → Version → speichern → Release"
+    assert t.count("if: steps.diff.outputs.changed == 'true'") >= 3, "ohne Änderung keine neue Version"
+    assert "actions: write" in t and "contents: write" in t and "packages: write" not in t, "veröffentlichen tut nur release.yml"
+    assert "group: release" in t and "group: release" in open(os.path.join(root, ".github", "workflows", "release.yml"), encoding="utf-8").read()
+    # Werkzeug: Version +1, CHANGELOG/Neuigkeiten/README, Änderungen aus den festgelegten Versionen
+    import importlib.util as _iu
+    spec = _iu.spec_from_file_location("pk_secrel", tool)
+    m = _iu.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    assert m.bump("2.29.2") == "2.29.3" and m.bump("2.30") == "2.30.1" and m.bump("3.0.9") == "3.0.10"
+    d = tempfile.mkdtemp(prefix="pk-secrel-", dir=TMP)
+    for side in ("alt", "neu"):
+        os.makedirs(os.path.join(d, side, "tools")); os.makedirs(os.path.join(d, side, "app")); os.makedirs(os.path.join(d, side, "docker"))
+        _sh.copy(tool, os.path.join(d, side, "tools"))
+        open(os.path.join(d, side, "VERSION"), "w").write("2.29.2\n")
+        open(os.path.join(d, side, "CHANGELOG.md"), "w").write("# Änderungen\n\n## pocketknife-2.29.2 (24.10.2026)\n- x\n")
+        open(os.path.join(d, side, "README.md"), "w").write("Aktuelle Version: **pocketknife-2.29.2** – siehe\n")
+        json.dump({"versions": [{"version": "2.29.2", "date": "2026-10-24", "items": []}]}, open(os.path.join(d, side, "app", "news.json"), "w"))
+        open(os.path.join(d, side, "docker", "apt-runtime.txt"), "w").write("# x\nlibssl3t64=" + ("3.5.1-1" if side == "alt" else "3.5.1-2") + "\n")
+        open(os.path.join(d, side, "requirements.lock"), "w").write("# x\nfastapi==0.155.0\n")
+        open(os.path.join(d, side, "Dockerfile"), "w").write("ARG PYTHON_IMAGE=python:3.12.15-slim-trixie@sha256:" + ("a" if side == "alt" else "b") * 64 + "\n")
+    r = _sp.run([sys.executable, "-I", os.path.join(d, "neu", "tools", "security-release.py"), os.path.join(d, "alt")],
+                capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0 and r.stdout.strip() == "2.29.3", r.stdout + r.stderr
+    rd = lambda *p: open(os.path.join(d, "neu", *p), encoding="utf-8").read()  # noqa: E731
+    assert rd("VERSION").strip() == "2.29.3" and "pocketknife-2.29.3**" in rd("README.md")
+    ch = rd("CHANGELOG.md")
+    assert ch.index("## pocketknife-2.29.3 (") < ch.index("## pocketknife-2.29.2") and "libssl3t64` 3.5.1-1 → 3.5.1-2" in ch and "Basis-Image" in ch, ch
+    nv = json.loads(rd("app", "news.json"))["versions"][0]
+    assert nv["version"] == "2.29.3" and nv["items"][0]["kind"] == "security" and nv["items"][0]["de"] and nv["items"][0]["en"]
+    from app import news
+    news.validate(json.loads(rd("app", "news.json")))  # Aufbau passt
+
+
 def main():
     ok = 0
     for name, fn in RESULTS:

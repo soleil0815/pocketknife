@@ -1,5 +1,10 @@
 # Änderungen
 
+## pocketknife-2.29.3 (24.10.2026)
+- **Neu: wöchentliches Sicherheitsupdate** (montags 03:23 UTC, auch von Hand): GitHub bringt Basis-Image, Debian- und Python-Pakete und guacd auf den neuesten Stand (`tools/pin-versions.sh --update`), baut ohne Cache neu und lässt Selbsttest und Trivy laufen. **Nur wenn alles bestanden ist**, bekommt der Stand eine neue Versionsnummer (z. B. 2.29.3 → 2.29.4) mit Eintrag in CHANGELOG und Neuigkeiten (`tools/security-release.py`, listet die geänderten Pakete), und das Release baut amd64/arm64, prüft beide noch einmal und veröffentlicht unter `<Version>` und `:latest`. Mit Dockhand o. Ä. sind die Container so jede Woche aktuell – auch ohne Programmänderung. Ohne Änderung passiert nichts; schlägt etwas fehl, wird nichts veröffentlicht (Mail von GitHub). Abschalten: Actions → Wöchentliches Sicherheitsupdate → Disable workflow; bei einer Version bleiben: `PK_IMAGE=…:<Version>`
+- Wöchentliches Update und Release laufen nie gleichzeitig
+- **Selbsttest:** Zeitplan montags, Reihenfolge (aktualisieren/bauen/testen → Trivy → Version → speichern → Release), ohne Änderung keine Version, nur Release veröffentlicht; Versionsnummer, CHANGELOG mit geänderten Paketen, Neuigkeiten und README automatisch
+
 ## pocketknife-2.29.2 (24.10.2026)
 - **Neu: Schwachstellen-Prüfung mit Trivy.** Ein Image mit bekannten Schwachstellen der Stufen HOCH/KRITISCH, für die es eine Korrektur gibt, wird nicht mehr veröffentlicht: `Release` prüft amd64 und arm64 vor dem Hochladen, `Test` bei jedem Push (Tabelle der Befunde in der Zusammenfassung des Laufs)
 - **Neu: täglicher Sicherheits-Scan** des veröffentlichten Images (`:latest`) – Schwachstellen, die erst nach einem Release bekannt werden, meldet GitHub per Mail

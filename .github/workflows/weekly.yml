@@ -1,0 +1,83 @@
+# POCKET KNIFE – wöchentliches Sicherheitsupdate (montags): Basis-Image, Debian- und Python-Pakete und guacd auf den
+# neuesten Stand bringen (tools/pin-versions.sh --update), ohne Cache neu bauen, Selbsttest, Schwachstellen-Prüfung
+# (Trivy) – und NUR wenn alles bestanden ist: neue Versionsnummer (z. B. 2.29.2 → 2.29.3), Eintrag in CHANGELOG und
+# Neuigkeiten, Commit auf main und Release starten. Der Release-Workflow baut dann amd64 und arm64, testet und prüft
+# beide noch einmal und veröffentlicht unter <Version> und :latest (Container-Verwaltungen wie Dockhand ziehen es).
+#
+# Hat sich nichts geändert, passiert nichts. Schlägt ein Schritt fehl, wird NICHTS veröffentlicht – GitHub schickt
+# eine Mail an den Besitzer. Von Hand: Actions → Wöchentliches Sicherheitsupdate → Run workflow.
+# Hinweis: GitHub pausiert geplante Läufe nach 60 Tagen ohne Änderung im Repository – durch die wöchentlichen
+# Commits passiert das hier normalerweise nicht.
+name: Wöchentliches Sicherheitsupdate
+
+on:
+  schedule:
+    - cron: "23 3 * * 1"   # montags 03:23 UTC
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: release        # nie gleichzeitig mit einem Release
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    permissions:
+      contents: write     # Commit auf main
+      actions: write      # Release-Workflow starten
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Bisherigen Stand merken
+        run: git worktree add -q "$RUNNER_TEMP/vorher" HEAD
+
+      - name: Versionen aktualisieren, ohne Cache bauen, Selbsttest
+        run: sh tools/pin-versions.sh --update
+
+      - name: Etwas geändert?
+        id: diff
+        run: |
+          if git diff --quiet -- Dockerfile requirements.lock build-requirements.txt docker/apt-build.txt docker/apt-runtime.txt docker-compose.yml; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Alles ist schon aktuell – keine neue Version." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            git diff --stat >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Schwachstellen prüfen (Trivy)
+        if: steps.diff.outputs.changed == 'true'
+        env:
+          PK_TRIVY_REPORT: trivy.md
+        run: |
+          rc=0; sh tools/trivy-scan.sh pocketknife:local || rc=$?
+          if [ -f trivy.md ]; then cat trivy.md >> "$GITHUB_STEP_SUMMARY"; fi
+          if [ "$rc" != 0 ]; then
+            echo "::error title=Wöchentliches Sicherheitsupdate::Trivy hat Befunde (oder konnte nicht prüfen) – es wird nichts veröffentlicht."
+          fi
+          exit "$rc"
+
+      - name: Neue Version eintragen und auf main speichern
+        id: ver
+        if: steps.diff.outputs.changed == 'true'
+        run: |
+          VER=$(python3 tools/security-release.py "$RUNNER_TEMP/vorher")
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+          git add -A Dockerfile requirements.lock build-requirements.txt docker/apt-build.txt docker/apt-runtime.txt \
+            docker-compose.yml VERSION CHANGELOG.md app/news.json README.md README.en.md
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -qm "pocketknife $VER: wöchentliches Sicherheitsupdate (Basis-Image und Pakete)"
+          git push -q origin "HEAD:${{ github.event.repository.default_branch }}"
+          echo "Neue Version **$VER** auf ${{ github.event.repository.default_branch }} gespeichert – Release wird gestartet." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Release starten
+        if: steps.diff.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref "${{ github.event.repository.default_branch }}"
