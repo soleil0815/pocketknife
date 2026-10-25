@@ -155,7 +155,7 @@ Over HTTP (5985) the content is already encrypted. HTTPS additionally protects t
 
 **Docker host**
 
-- Linux (e.g. Debian 12/13 or Ubuntu 22.04/24.04), 64-bit (x86_64), VM or physical
+- Linux (e.g. Debian 12/13 or Ubuntu 22.04/24.04), 64-bit (amd64 or arm64), VM, physical or a NAS with Docker
 - Docker Engine 24 or newer
 - **SSD storage** for the data directory (`PK_DATA_PATH`) – the SQLite database writes many small changes during scans
 - Domain DNS (`PK_DNS_1`), network access to the clients (WinRM 5985/5986, SMB 445, for remote sessions 3389/5900), the domain controllers (LDAPS 636) and the repository share
@@ -200,27 +200,141 @@ Parallel scans and installations and the heartbeat interval are set under **Sett
 
 ## Installation {#setup}
 
-Recommended folder structure on the Docker host – the data is kept outside the version folders:
+This guide takes you step by step from an empty Docker host to the first sign-in. It applies to any Docker host running Linux: a VM, a server or a NAS with Docker. The [prerequisites in the domain](#prereq) should be in place; you can set up WinRM on the clients ([via Group Policy](#winrm-gpo)) afterwards – installation and the first sign-in do not need it yet.
+
+POCKET KNIFE consists of two containers: **pocketknife** (program and web interface) and **pocketknife-guacd** (remote sessions in the browser). One file, `docker-compose.yml`, starts both; everything you configure goes into the `.env` file next to it.
+
+### Step 1: Prepare the Docker host
+
+- **Docker Engine 24 or newer with Docker Compose v2** – check with `docker version` and `docker compose version`. Processor amd64 (x86_64) or arm64; Docker pulls the matching image.
+- **A fixed IP address and a DNS name** for the host, e.g. `pocketknife.firma.local` (A record in the domain's DNS). You will open the interface under this name; the kiosk with Windows sign-in needs exactly this name.
+- **Time in sync** with the domain (NTP) – otherwise Kerberos and certificate checks fail.
+- **Storage:** the data directory on an SSD (size see [System requirements](#sizing)), backups preferably on another drive.
+- **Network:** the Docker host must reach the following (inbound only port 8443 from the operators' workstations):
+
+| Target | Port | Purpose |
+|---|---|---|
+| DNS servers of the domain | 53 TCP/UDP | resolve names of computers and domain controllers |
+| Domain controllers | 636 TCP (LDAPS); 88 TCP/UDP with Kerberos | sign-in, AD sync |
+| Clients | 5985 TCP (5986 with HTTPS), 445 TCP | inventory, deployments, files |
+| Clients (optional) | 3389 TCP (RDP), 5900 TCP (VNC) | remote sessions |
+| File server with the repository | 445 TCP | installation files |
+| Internet (optional) | 443 TCP | ready-made image (`ghcr.io`), winget index (`cdn.winget.microsoft.com`), notice of new versions (`api.github.com`) |
+
+It also works without internet: build the image yourself (see below) and upload the winget index offline.
+
+### Step 2: Create the folder and files
+
+Everything lives in **one** folder, e.g. `/opt/pocketknife` (on a NAS e.g. `/volume1/docker/pocketknife`). The program ZIP `pocketknife-<version>.zip` comes with every release (with a checksum in `pocketknife-<version>.zip.sha256`); it unpacks into a folder `pocketknife`:
+
+```bash
+cd /opt
+unzip pocketknife-2.30.zip        # creates /opt/pocketknife
+cd /opt/pocketknife
+cp .env.example .env
+```
+
+The folder then looks like this – `data/` and `data-backup/` are created on first start:
 
 ```
 /opt/pocketknife/
-├── data/                  Database, logs, certificate, key
-└── pocketknife-2.4/       current version with the .env
+├── docker-compose.yml     starts both containers – never edited
+├── .env.example           template
+├── .env                   your settings
+├── update.sh              for later updates
+├── …                      program files (the program itself is in the image)
+├── data/                  database, logs, certificate, key
+└── data-backup/           automatic backups
 ```
+
+> **Important:** `docker-compose.yml` and `.env` must be in the **same folder** – the compose file reads the `.env` from there. Please do not change `docker-compose.yml`: updates replace it, your values belong in the `.env`.
+
+### Step 3: Fill in the .env
+
+Open the `.env` (e.g. `nano .env`). Every line has the form `NAME=value`, without spaces around the `=`; lines starting with `#` are comments. **These values must be right:**
+
+| Variable | Example | Meaning |
+|---|---|---|
+| `PK_DOMAIN` | `firma.local` | DNS name of the domain. The AD search base and the sign-in name (`user@firma.local`) are derived from it. |
+| `PK_NETBIOS` | `FIRMA` | NetBIOS name of the domain (for `FIRMA\account`). |
+| `PK_DNS_1` | `10.0.10.5` | IP address of a **DNS server of the domain** (usually a domain controller) – not the router and not a public DNS, otherwise POCKET KNIFE cannot find the computers. |
+| `PK_DNS_2` | `10.0.10.6` | Optional: a **second, different** DNS server. If there is only one, leave it empty or delete the line. |
+| `PK_LDAP_SERVERS` | `dc1.firma.local,dc2.firma.local` | Domain controllers with LDAPS, comma-separated. Empty = `PK_DOMAIN`. |
+| `PK_ACCESS_GROUP` | `POCKETKNIFE-Admins` | AD group whose members may use POCKET KNIFE (nested groups count). |
+| `PK_PUBLIC_HOSTNAME` | `pocketknife.firma.local` | DNS name of the Docker host from step 1 – used in the certificate. |
+
+**These values are usually right but can be adjusted:**
+
+| Variable | Default | When to change? |
+|---|---|---|
+| `PK_DATA_PATH` | `/opt/pocketknife/data` | another folder, e.g. on a NAS `/volume1/docker/pocketknife/data`. A relative path (`./data`) starts at the folder of `docker-compose.yml`. |
+| `PK_BACKUP_PATH` | `<PK_DATA_PATH>-backup` | backups better on another drive or a mounted share. |
+| `PK_PORT` | `8443` | if the port is already in use on the host. |
+| `PK_TIMEZONE` | `Europe/Berlin` | another time zone. |
+| `PK_WINRM_AUTH` | `ntlm` | can be switched and tested later in the interface (Kerberos is recommended, see [Kerberos instead of NTLM](#kerberos)). |
+| `PK_REPO_MOUNT` | empty | only if the software repository is mounted as a folder on the host (in the container `/repo`). Otherwise enter a UNC path in the interface later, e.g. `\\fileserver.firma.local\software$`. |
+| `PK_UID` / `PK_GID` | `10001` | only if mounted folders must belong to a specific user (e.g. on a NAS with share permissions). |
+| `PK_BREAKGLASS_USER` / `PK_BREAKGLASS_PASSWORD` | empty | emergency access without AD – only if needed, with a long random password. |
+
+**The service account** (`PK_SERVICE_USER`, `PK_SERVICE_PASSWORD`) does **not** belong in the `.env`: delete the two lines and enter the account after the first sign-in under **Settings → Connection & Accounts** – it is checked there and stored encrypted. The first sign-in does not need it.
+
+All other variables are explained in `.env.example`; schedules, parallelism, retention, repository and winget are set in the interface.
+
+### Step 4: Start
 
 ```bash
-cd /opt/pocketknife/pocketknife-2.4
-cp .env.example .env
-nano .env                  # domain, DCs, DNS servers, access group, data path
-docker login ghcr.io -u <GitHub user>       # only for a private registry (token with read:packages)
-docker compose up -d       # pulls ghcr.io/soleil0815/pocketknife:latest (amd64/arm64)
+cd /opt/pocketknife
+docker compose up -d      # pulls the image, starts both containers
+docker compose ps         # "healthy" after about 1 minute
 ```
 
-The default is the ready-made image from the registry (`ghcr.io/soleil0815/pocketknife:latest`). With `:latest` a container manager such as Dockhand or Watchtower can update POCKET KNIFE **automatically** (or by hand `docker compose pull && docker compose up -d`); to stay on a version use `PK_IMAGE=ghcr.io/soleil0815/pocketknife:<version>` in the `.env`. Without internet: `docker build -t pocketknife:local .` and `PK_IMAGE=pocketknife:local`.
+After about a minute `docker compose ps` shows "healthy" for **pocketknife** and "Up" for **pocketknife-guacd**. If the image is in a private registry, run `docker login ghcr.io -u <GitHub user>` once beforehand (password = token with `read:packages`).
 
-Then open `https://<docker-host>:8443` and sign in with an account from the access group. On first start, a self-signed certificate is generated in `data/tls/`; upload your own certificate under **Settings → Certificate (HTTPS)** (see [Your own certificate](#certificate)).
+On first start POCKET KNIFE creates `data/` and `data-backup/`, the database, the key for stored passwords and a self-signed certificate (`data/tls/`). If `docker compose ps` does not show "healthy", the log shows why:
 
-> **Tip:** The service account does not need to be in the `.env`. Add it after your first sign-in under **Settings → Connection & Accounts** – it is verified before saving and stored encrypted. For the first sign-in without AD access, an optional emergency access is available (`PK_BREAKGLASS_USER`/`PK_BREAKGLASS_PASSWORD`). It is not subject to AD account lockout: choose a long random password (at least 16 characters) and enable the alert **"Emergency access used"**. Failed attempts are limited per address; each one is reported.
+```bash
+docker compose logs -f pocketknife   # Ctrl+C ends the display
+```
+
+Optionally run the built-in self-test (takes a few minutes, does not change your data):
+
+```bash
+docker compose exec -T -e HOME=/nonexistent pocketknife \
+  python3 -I /opt/pocketknife/tools/selftest.py | tail -n 1
+```
+
+**Image:** the default is the ready-made image `ghcr.io/soleil0815/pocketknife:latest`. To stay on a version: `PK_IMAGE=ghcr.io/soleil0815/pocketknife:<version>` in the `.env`. Without internet or with your own code: `docker build -t pocketknife:local .` in the program folder and `PK_IMAGE=pocketknife:local`.
+
+### Step 5: First sign-in
+
+1. Open `https://pocketknife.firma.local:8443` in the browser (your `PK_PUBLIC_HOSTNAME` and `PK_PORT`). The first time, the browser warns about the self-signed certificate – confirm; upload your own certificate later under **Settings → Certificate (HTTPS)** (see [Your own certificate](#certificate)).
+2. Sign in with an AD account from the access group – as `user`, `FIRMA\user` or `user@firma.local`. DNS and LDAPS are enough for this; the service account is not needed yet.
+3. Continue with the [first steps](#firststeps): enter the service account, sync the AD, test the connection to a computer, set up the repository.
+
+### With a container manager (NAS, Portainer, Dockhand …)
+
+Container managers use the same `docker-compose.yml`. What matters:
+
+- **Create the project from the folder:** first create the folder from step 2 with `docker-compose.yml` and a filled-in `.env`, and select it as the project or stack folder ("use existing docker-compose.yml"). If the compose file is only pasted into an input field, the tool often stores it in a folder of its own – then the `.env` is missing there (error `env file … not found`): put the `.env` into exactly that folder.
+- **Use absolute paths**, e.g. `PK_DATA_PATH=/volume1/docker/pocketknife/data` – then it is clear where the data lives.
+- **Permissions:** in the container the service runs as the user with ID 10001. It takes over the data and backup folders itself at start. A mounted repository folder (`PK_REPO_MOUNT`) must be **readable** for it: grant read access to everyone, or enter the IDs of an existing user with `PK_UID`/`PK_GID` (`id <user>` on the host shows them).
+- **Port:** if 8443 is taken (e.g. by another application on the NAS), change `PK_PORT`.
+- **Updates:** with `:latest` the container manager can pull the new image and restart the container itself; the data stays. POCKET KNIFE backs up the database before starting.
+- **Older Compose versions** (as shipped with some NAS packages) report duplicate DNS entries as an error. Since 2.30 the second DNS server is truly optional; with an older `docker-compose.yml` use the new one from the program ZIP.
+
+### Common installation errors {#setup-errors}
+
+| Message or behaviour | Cause and solution |
+|---|---|
+| `set PK_DNS_1 in the .env (DNS server of the domain)` | `PK_DNS_1` is missing – or the `.env` is not next to `docker-compose.yml`. |
+| `env file …/.env not found` | There is no `.env` in the project folder – see container manager above. |
+| `services.guacd.dns array items[0,1] must be unique` | Older Compose version and a `docker-compose.yml` before 2.30 with only one DNS server: use the new `docker-compose.yml` (or set `PK_DNS_2` to a second, different DNS server). |
+| `port is already allocated` / `address already in use` | The port is in use on the host: change `PK_PORT`. |
+| `denied`, `unauthorized` or `not found` when pulling the image | For a private registry run `docker login ghcr.io` first; otherwise check the Docker host's internet access or proxy. |
+| Container keeps restarting, log shows `Permission denied` for `/data` | The data directory is on a network share where the container may not set permissions: use a local drive or enter the folder's owner with `PK_UID`/`PK_GID`. |
+| Page not reachable | Open the port in the host's firewall; use `https://` (not `http://`). |
+| Sign-in fails although the password is right | Account not in `PK_ACCESS_GROUP`; UPN suffix different from `PK_DOMAIN` (then use `FIRMA\user`); LDAPS (636) not active on the DCs or blocked; `PK_DNS_1` does not point to the domain's DNS. `docker compose logs pocketknife` shows the exact reason. |
+| Computer "cannot be resolved" | `PK_DNS_1`/`PK_DNS_2` are not DNS servers of the domain. After changing the `.env`: `docker compose up -d` (applies the new values). |
 
 ## Update {#update}
 

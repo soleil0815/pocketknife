@@ -4908,6 +4908,43 @@ def _():
         access.flush()
 
 
+@test("2.30 docker-compose.yml: zweiter DNS-Server echt optional (nie dieselbe Adresse doppelt – ältere Compose-Versionen lehnen das ab); Installationsanleitung im Handbuch")
+def _():
+    import re as _re
+    base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+    src = os.path.join(base, "docker-compose.yml")
+    if not os.path.exists(src):
+        return  # im Image liegt die Compose-Datei nicht
+    y = open(src, encoding="utf-8").read()
+    assert "${PK_DNS_2:-${PK_DNS_1}}" not in y, "Ersatzwert für PK_DNS_2 darf nicht PK_DNS_1 sein (doppelter Eintrag)"
+
+    def interp(v, env):  # das Nötige von Compose: ${VAR}, ${VAR:-Standard}, ${VAR:?Meldung}
+        def one(m):
+            name, op, rest = m.group(1), m.group(2), m.group(3) or ""
+            val = env.get(name, "")
+            if op == ":?" and not val:
+                raise ValueError(rest)
+            return val if val else (interp(rest, env) if op == ":-" else "")
+        prev = None
+        while prev != v:
+            prev, v = v, _re.sub(r"\$\{(\w+)(?:(:-|:\?)((?:[^{}]|\$\{[^{}]*\})*))?\}", one, v)
+        return v
+    blocks = _re.findall(r"\n    dns:\n((?:      - .*\n)+)", y)
+    assert len(blocks) == 2, "dns bei pocketknife und guacd"
+    for env in ({"PK_DNS_1": "10.0.10.5"}, {"PK_DNS_1": "10.0.10.5", "PK_DNS_2": ""}, {"PK_DNS_1": "10.0.10.5", "PK_DNS_2": "10.0.10.6"}):
+        for b in blocks:
+            items = [interp(x.strip()[2:], env) for x in b.strip().splitlines()]
+            assert items[0] == "10.0.10.5" and len(items) == len(set(items)), (env, items)
+            assert [x for x in items if x] == [v for k, v in sorted(env.items()) if v], (env, items)
+    ex = open(os.path.join(base, ".env.example"), encoding="utf-8").read()
+    assert "PK_DNS_2 is optional" in ex and "leave empty" in ex
+    for lang, words in (("de", ("### Schritt 3: Die .env ausfüllen", "{#setup-errors}", "must be unique", "Container-Verwaltung")),
+                        ("en", ("### Step 3: Fill in the .env", "{#setup-errors}", "must be unique", "container manager"))):
+        md = open(os.path.join(base, "app", "static", "help", f"{lang}.md"), encoding="utf-8").read()
+        for w in words:
+            assert w in md, (lang, w)
+
+
 def main():
     ok = 0
     for name, fn in RESULTS:
