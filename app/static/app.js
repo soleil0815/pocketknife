@@ -1327,7 +1327,7 @@ async function viewDashboard() {
 
   const depCard = h('div.card', h('div.card-h', h('h2', 'Letzte Bereitstellungen'), btn('Alle', () => go('#/deployments'), { cls: 'small' })),
     h('div.card-b.flush', d.deployments.length ? h('table', h('tbody', d.deployments.map((x) => h('tr.clickable', { onclick: () => go(`#/deployment/${x.id}`) },
-      h('td', h('b', x.name), h('div.muted.small', fmtDate(x.created_at))), h('td', depBadge(x.status)),
+      h('td.wrap', h('b', x.name), h('div.muted.small', fmtDate(x.created_at))), h('td.nowrap', depBadge(x.status)),
       h('td.right.nowrap', `${x.ok}/${x.total}`))))) : h('div.empty', 'Noch keine Bereitstellungen.')));
 
   const logCard = h('div.card', h('div.card-h', h('h2', 'Warnungen & Fehler'), btn('Protokoll', () => go('#/logs'), { cls: 'small' })),

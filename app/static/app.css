@@ -129,6 +129,11 @@ label.chk { display: inline-flex; align-items: center; gap: 6px; cursor: pointer
 .grid { display: grid; gap: 14px; }
 .grid.tiles { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }
 .grid.two { grid-template-columns: repeat(auto-fit, minmax(440px, 1fr)); }
+/* 2.29.8: Inhalt darf eine Kachel nie über ihren Rand schieben (lange Paketnamen) – sonst wurde die Spalte breiter
+   als der Platz und Text lief über den Rahmen hinaus */
+.grid > * { min-width: 0; }
+.card > .card-b.flush { overflow-x: auto; }
+.card > .card-b.flush > table { width: 100%; }
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
 .card > .card-h { display: flex; align-items: center; gap: 8px; padding: 11px 14px; border-bottom: 1px solid var(--line-2); }
 .card > .card-h h2 { flex: 1; }

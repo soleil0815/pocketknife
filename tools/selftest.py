@@ -4657,6 +4657,16 @@ def _():
             assert t.count("persist-credentials: false") == n_co, f"{f}: Git-Anmeldedaten im Arbeitsordner"
 
 
+@test("2.29.8 Übersicht: lange Namen bei „Letzte Bereitstellungen“ werden umgebrochen und schieben die Kachel nicht über ihren Rand")
+def _():
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static")
+    js = open(os.path.join(root, "app.js"), encoding="utf-8").read()
+    dep = js[js.index("const depCard"):js.index("const logCard")]
+    assert "h('td.wrap', h('b', x.name)" in dep, "Name der Bereitstellung umbrechen"
+    css = open(os.path.join(root, "app.css"), encoding="utf-8").read()
+    assert ".grid > * { min-width: 0; }" in css and ".card > .card-b.flush { overflow-x: auto; }" in css
+
+
 def main():
     ok = 0
     for name, fn in RESULTS:

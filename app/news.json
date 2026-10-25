@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.29.8",
+   "date": "2026-10-25",
+   "items": [
+    {
+     "kind": "fixed",
+     "audience": "all",
+     "de": "Übersicht: Lange Namen bei „Letzte Bereitstellungen“ werden umgebrochen statt über den Rand der Kachel zu laufen.",
+     "en": "Dashboard: long names in “Recent deployments” wrap instead of running past the edge of the card."
+    }
+   ]
+  },
+  {
    "version": "2.29.7-s1",
    "date": "2026-10-25",
    "items": [

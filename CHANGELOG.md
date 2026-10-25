@@ -1,5 +1,9 @@
 # Änderungen
 
+## pocketknife-2.29.8 (25.10.2026)
+- **Behoben – Übersicht:** Bei „Letzte Bereitstellungen“ schoben lange Namen (z. B. „Deinstallation: Microsoft Visual C++ 2008 Redistributable …“) die Zeilen über den Rand der Kachel hinaus. Lange Namen werden jetzt umgebrochen; allgemein kann kein Tabelleninhalt eine Kachel der Übersicht mehr breiter machen als ihren Platz
+- **Selbsttest:** Umbruch und Begrenzung geprüft
+
 ## pocketknife-2.29.7-s1 (25.10.2026)
 - **Wöchentliches Sicherheitsupdate** (automatisch gebaut): Basis-Image, Debian- und Python-Pakete auf den neuesten Stand gebracht, ohne Cache neu gebaut, Selbsttest und Schwachstellen-Prüfung (Trivy) bestanden. Am Programm selbst hat sich nichts geändert (Programmstand 2.29.7)
 
