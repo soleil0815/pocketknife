@@ -4952,5 +4952,17 @@
  "Vom Hauptadmin angelegt – Sie können ihn ansehen und als Vorlage kopieren.": "Created by the main admin – you can view it and copy it as a template.",
  "Zentraler Zeitplan des Hauptadmins – Sie sehen ihn nur mit Ihren Computern. Ändern und starten kann ihn nur ein Hauptadmin; mit „Als Vorlage kopieren“ entsteht eine eigene Kopie.": "Central schedule of the main admin – you only see it with your computers. Only a main admin can change and start it; \"Copy as template\" creates your own copy.",
  "nur lesen": "read-only",
- "zentral": "central"
+ "zentral": "central",
+ "\nif ($global:PKExit -eq -1978335189) {\n  Write-Output 'Hinweis: keine passende Aktualisierung mit festgelegtem Bereich (--scope) – neuer Versuch ohne, so wie „winget upgrade“ von Hand (das Paket gibt im winget-Katalog keinen Bereich an).'\n  PK-Run $wg {0}\n}\n": null,
+ "    als PK_UID und PK_GID in die .env eintragen und den Container neu starten.": null,
+ "    auf den Daten- und Sicherungsordner geben (auf Unterordner und Dateien anwenden), seine IDs (id <benutzer>)": null,
+ "    oder einen lokalen Ordner statt einer Netzfreigabe verwenden.": null,
+ "  - Linux-Server: chown -R {0}:{1} auf den Datenordner (PK_DATA_PATH) und den Sicherungsordner (PK_BACKUP_PATH),": null,
+ "  - NAS mit eigenen Freigabe-Rechten (z. B. Synology): einen Benutzer für POCKET KNIFE anlegen, ihm Lesen/Schreiben": null,
+ "  Siehe Handbuch → Installation → Auf einem NAS.": null,
+ "  So beheben Sie es:": null,
+ "  Unterordner in {0} legt POCKET KNIFE selbst an – bitte nicht von Hand als anderer Benutzer anlegen.": null,
+ "POCKET KNIFE: Start abgebrochen – Benutzer {0}:{1} darf hier nicht schreiben:": null,
+ "Hinweis: keine passende Aktualisierung mit festgelegtem Bereich (--scope) – neuer Versuch ohne, so wie „winget upgrade“ von Hand (das Paket gibt im winget-Katalog keinen Bereich an).": "Note: no applicable update with a fixed scope (--scope) – trying again without, just like \"winget upgrade\" by hand (the package does not state a scope in the winget catalogue).",
+ "keine passende Aktualisierung mit festgelegtem Bereich (--scope) – neuer Versuch ohne, so wie „winget upgrade“ von Hand (das Paket gibt im winget-Katalog keinen Bereich an).": "no applicable update with a fixed scope (--scope) – trying again without, just like \"winget upgrade\" by hand (the package does not state a scope in the winget catalogue)."
 }

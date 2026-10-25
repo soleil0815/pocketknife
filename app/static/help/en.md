@@ -1399,6 +1399,7 @@ The mapping stays **only in your database**. If someone gives you a placeholder 
 | WinRM port not reachable | WinRM GPO, firewall, is the computer turned on? |
 | Access denied | The service account is not a local administrator |
 | Copy fails | Port 445 / ADMIN$ on the client, read access to the repository share |
+| winget: "No applicable update" (`-1978335189`) although a newer version can be installed ("A newer package version is available … but it does not apply") | The package does not state an installation scope in the winget catalogue (e.g. MobaXterm); with a fixed scope winget rejects the update. From 2.30.1 POCKET KNIFE then repeats the step once without `--scope`. Permanently: set the installation scope of the package to "Package default" |
 | winget not found | Enable automatic installation or use the "Check / install winget" tool |
 | Step as service account does not start ("Prozess als Dienstkonto konnte nicht gestartet werden") | check the WMI service (Winmgmt) on the client, the service account must be a local administrator – or set the step to "Local System" |
 | Custom command as service account cannot reach a share | No password is stored on the client (from 2.14). Have the file copied with "File from the repository" or run as "Local System" |

@@ -1,5 +1,9 @@
 # Änderungen
 
+## pocketknife-2.30.1 (25.10.2026)
+- **Behoben – winget meldete „bereits aktuell“, obwohl eine neuere Version da war:** Bei Paketen, die im winget-Katalog keinen Installationsbereich angeben (z. B. MobaXterm, kommt als ZIP mit MSI), lehnt winget die Aktualisierung einer installierten älteren Version mit `--scope machine` ab („A newer package version is available in a configured source, but it does not apply to your system or requirements“, Code -1978335189). POCKET KNIFE wertete das als „Keine passende Aktualisierung (bereits aktuell)“ – das Programm blieb alt. Jetzt wird der Schritt in diesem Fall einmal ohne `--scope` wiederholt, genau wie `winget upgrade` von Hand; ist das Paket wirklich aktuell, bleibt es bei „bereits aktuell“. Gilt für Pakete, Zeitpläne und den Kiosk
+- **Selbsttest:** Wiederholung ohne `--scope` (nur bei festgelegtem Bereich, nie bei Deinstallation), in echter PowerShell nachgespielt: wird aktualisiert bzw. ist wirklich aktuell
+
 ## pocketknife-2.30 (25.10.2026)
 - **Sicherheit – Mandanten sauber getrennt:** OU-Admins ändern nur noch, was ihnen gehört. Pakete und Zeitpläne, die ein Hauptadmin für ihren Mandanten angelegt hat, sehen sie, verteilen bzw. führen sie aus und können sie **als Vorlage kopieren** – ändern und löschen aber nicht mehr. Der Hauptadmin kann das je Paket bzw. Zeitplan mit **„OU-Admins dürfen ändern“** freigeben. Bestehendes, das ein OU-Admin angelegt oder geändert hatte, erkennt POCKET KNIFE einmalig am Protokoll und lässt es ihm
 - **Neu – eigene Sammlungen für OU-Admins:** Mit „eigene Pakete“ beim Mandanten legen OU-Admins eigene dynamische und statische Sammlungen und Ordner an. Sie enthalten nie mehr als die Computer des Mandanten (egal, was die Regel sagt), sind für andere Mandanten unsichtbar und taugen nicht als Mandantenbereich. Sammlungen des Hauptadmins sind für OU-Admins nur lesbar („Als Kopie für Ihren Bereich“); Regeln sehen sie nur bei eigenen Sammlungen

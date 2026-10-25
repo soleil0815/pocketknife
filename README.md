@@ -2,7 +2,7 @@ English version: [README.en.md](README.en.md)
 
 # POCKET KNIFE
 
-Aktuelle Version: **pocketknife-2.30** – siehe `CHANGELOG.md`.
+Aktuelle Version: **pocketknife-2.30.1** – siehe `CHANGELOG.md`.
 
 Webseite: [helfi.space](https://helfi.space)
 
@@ -594,6 +594,7 @@ Sicherung: Container kurz stoppen und `data/` kopieren – oder im laufenden Bet
 | Dateien-&-Ordner-Scanner findet nichts mit `%SYSTEMDRIVE%` o. ä. | Ab 2.5.15 werden Umgebungsvariablen (`%VAR%`, `$env:VAR`) auf dem Client aufgelöst. `%USERPROFILE%`/`%APPDATA%` sind die des Dienstkontos – für alle Benutzer `%SYSTEMDRIVE%\Users\*\…`. `**` = beliebig viele Ebenen (langsamer), `*` = eine Ebene |
 | Eigener Scanner zeigt Bytes statt GB | Scanner bearbeiten → **Größenangaben**: „automatisch erkennen“ greift bei Spaltennamen wie Size/Length/FreeSpace mit reinen Zahlen; sonst „nur diese Spalten“ und die Spalten eintragen. Gespeichert wird weiter der Bytewert |
 | PowerShell-Scanner liefert nichts | Im Scanner-Dialog „Testen“ – Fehler stehen in der Spalte „fehler“. Der Scanner läuft im festen Profil „PowerShell“ (dort einen Auslöser setzen) oder in eigenen Profilen, nicht im Standardprofil |
+| winget `-1978335189` „Keine passende Aktualisierung“, obwohl `winget upgrade` von Hand klappt | Paket ohne Bereich im winget-Katalog (z. B. MobaXterm): ab 2.30.1 einmal ohne `--scope` wiederholt; sonst Installationsbereich „Standard des Pakets“ |
 | winget Exitcode `-1978335216` | Kein passender Installer (Scope/Architektur) – im Paket den Installationsbereich auf „Standard des Pakets“ stellen |
 
 ## Technik
