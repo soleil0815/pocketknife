@@ -401,18 +401,21 @@ def tenant_members(tid, strict=False):
     Sicherheitsregeln: Mandant gelöscht → keine Computer; Mandant, der je OU-Admins hatte, ohne (gültige) Sammlung →
     keine Computer (deren Pakete/Zeitpläne dürfen nie „überall“ laufen)."""
     from . import collections_, profiles
-    t = db.q1("SELECT collection_id, COALESCE(ou_ever, 0) ou_ever, admin_group FROM tenants WHERE id=?", (int(tid),))
+    from . import access
+    t = db.q1("SELECT collection_id, collection_ids, COALESCE(ou_ever, 0) ou_ever, admin_group FROM tenants WHERE id=?", (int(tid),))
     if not t:
         return set()
-    col = t["collection_id"]
-    if not col or col == profiles.ALL_COMPUTERS:
+    cols = access.tenant_cols(t)
+    if not cols or profiles.ALL_COMPUTERS in cols:
         return set() if (t["ou_ever"] or t["admin_group"]) else None
-    try:
-        return set(collections_.member_ids(int(col)))
-    except Exception:
-        if strict:
-            raise
-        return set()
+    out = set()
+    for col in cols:  # 2.29.9: mehrere Sammlungen – zusammen
+        try:
+            out.update(collections_.member_ids(int(col)))
+        except Exception:
+            if strict:
+                raise
+    return out
 
 
 def tenant_filter(pkg, ids, strict=False):

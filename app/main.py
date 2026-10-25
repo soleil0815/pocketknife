@@ -1078,7 +1078,58 @@ def _computer_profiles(cid):
     return out
 
 
-def _collection_choices():
+def _visible_collections(user, rows=None, counts=None):
+    """2.29.9: Welche Sammlungen ein OU-Admin sieht – nur die seines Bereichs, nicht die ganze Domäne:
+    - die Sammlungen seiner Mandanten samt Unterordnern,
+    - jede andere Sammlung nur, wenn sie mindestens einen seiner Computer enthält (z. B. eine Ausnahme-Gruppe),
+    - die Standardsammlungen („Online“, „Veraltete Software“ … – zeigen ohnehin nur seine Computer),
+    - dazu die übergeordneten Ordner, damit der Baum lesbar bleibt.
+    Die Sammlungen anderer Mandanten bleiben immer verborgen. None = alle (Hauptadmin)."""
+    mine = access.computer_ids(user)
+    if mine is None:
+        return None
+    rows = rows if rows is not None else db.q("SELECT id, parent_id, type, builtin FROM collections")
+    kids, par = {}, {}
+    for r in rows:
+        kids.setdefault(r["parent_id"], []).append(r["id"])
+        par[r["id"]] = r["parent_id"]
+
+    def tree(ids):
+        out, todo = set(), list(ids)
+        while todo:
+            x = todo.pop()
+            if x in out:
+                continue
+            out.add(x)
+            todo.extend(kids.get(x, []))
+        return out
+    own_ids = {c for t in access.tenants(user) for c in access.tenant_cols(t)}
+    own = tree(own_ids)
+    foreign = tree({c for t in db.q("SELECT collection_id, collection_ids FROM tenants") for c in access.tenant_cols(t)} - own_ids) - own
+    keep = set(own)
+    for r in rows:
+        if r["id"] in foreign or r["type"] == "folder":
+            continue
+        if r["builtin"] == 1:
+            keep.add(r["id"])
+            continue
+        n = (counts or {}).get(r["id"])
+        if n is None:
+            try:
+                n = len(set(collections_.member_ids(r["id"])) & mine)
+            except Exception:
+                n = 0
+        if n:
+            keep.add(r["id"])
+    for x in list(keep):  # übergeordnete Ordner/Sammlungen für den Baum
+        p, n = par.get(x), 0
+        while p and p not in foreign and n < 50:
+            keep.add(p)
+            p, n = par.get(p), n + 1
+    return keep
+
+
+def _collection_choices(user=None):
     """Sammlungen zur Auswahl (ohne Ordner) mit Pfad der übergeordneten Ordner/Sammlungen – für eine gegliederte,
     alphabetische Auswahlliste (Zeitpläne, Scanprofile, Kiosk, Bedingungen)."""
     rows = db.q("SELECT id, name, parent_id, type, builtin, ad_kind FROM collections")
@@ -1100,7 +1151,11 @@ def _collection_choices():
         items.append({"id": r["id"], "name": r["name"], "path": " › ".join(x[0] for x in pp), "pparts": pp,
                       "builtin": r["builtin"] or 0, "ad": bool(r["ad_kind"])})
     items.sort(key=lambda x: (x["path"].lower(), x["name"].lower()))
-    return [{"id": profiles.ALL_COMPUTERS, "name": "Alle Computer (gesamter Bestand)", "path": "", "builtin": 1, "ad": False}] + items
+    vis = _visible_collections(user) if user is not None else None
+    if vis is not None:
+        items = [x for x in items if x["id"] in vis]
+    all_name = "Alle Computer (gesamter Bestand)" if vis is None else "Alle Computer Ihres Bereichs"
+    return [{"id": profiles.ALL_COMPUTERS, "name": all_name, "path": "", "builtin": 1, "ad": False}] + items
 
 
 @app.get("/api/scanprofiles")
@@ -1110,7 +1165,7 @@ def api_profiles(user=U):
         p.update(profiles.summary(p))
         out.append(p)
     return {"profiles": out, "modules": inventory.module_list(), "scanners": scanners.list_all(),
-            "collections": _collection_choices(), "trigger_types": profiles.TRIGGER_TYPES}
+            "collections": _collection_choices(user), "trigger_types": profiles.TRIGGER_TYPES}
 
 
 @app.get("/api/scanprofiles/{pid}")
@@ -1288,21 +1343,8 @@ def api_collections(user=U):
             except Exception:
                 r["count"] = 0
     if mine is not None:
-        # Audit 2.29: OU-Admins sehen die Sammlungen ANDERER Mandanten (samt Unterordnern) nicht – deren Namen verraten
-        # Kunden. Allgemeine Sammlungen bleiben sichtbar (z. B. für Ausnahmen in Paket-Bedingungen).
-        own = {t.get("collection_id") for t in access.tenants(user)}
-        foreign = {r["collection_id"] for r in db.q("SELECT collection_id FROM tenants WHERE collection_id IS NOT NULL")} - own
-        kids = {}
-        for r in rows:
-            kids.setdefault(r["parent_id"], []).append(r["id"])
-        hide, todo = set(), list(foreign)
-        while todo:
-            x = todo.pop()
-            if x in hide or x in own:
-                continue
-            hide.add(x)
-            todo.extend(kids.get(x, []))
-        rows = [r for r in rows if r["id"] not in hide]
+        vis = _visible_collections(user, rows, counts={r["id"]: r["count"] for r in rows})
+        rows = [r for r in rows if r["id"] in vis]
     return rows
 
 
@@ -1860,7 +1902,7 @@ def api_packages_meta(user=U):
             "tenants": ([{"id": t["id"], "name": t["name"], "repo_folder": t["repo_folder"]} for t in access.build_tenants(user)]
                         if access.scoped(user) else db.q("SELECT id, name, repo_folder FROM tenants ORDER BY name COLLATE NOCASE")),
             "profiles": [{"id": p["id"], "name": p["name"], "is_default": p["is_default"]} for p in profiles.all_profiles()],
-            "collections": _collection_choices(),
+            "collections": _collection_choices(user),
             "packages": [{"id": r["id"], "name": r["name"]} for r in db.q("SELECT id, name, tenant_id FROM packages ORDER BY name COLLATE NOCASE")
                          if access.can_see_package(user, r)]}
 
@@ -2466,7 +2508,7 @@ def _sched_scope(user, data):
         access.need_package(user, x)
     tg = data.get("targets") or {}
     access.check_ids(user, tg.get("computers"))
-    own_cols = {int(t["collection_id"]) for t in access.tenants(user) if t.get("collection_id")}
+    own_cols = {c for t in access.tenants(user) for c in access.tenant_cols(t)}
     for c in tg.get("collections") or []:
         try:
             c = int(c)
@@ -2555,15 +2597,37 @@ def api_schedule_reset(sid: int, data: dict = Body(default={}), user=U):
 
 
 # --- Mandanten -------------------------------------------------------------------------------
+def _tenant_cols_in(data):
+    """2.29.9: Sammlungen des Mandanten aus der Anfrage – collection_ids (Liste) oder wie bisher collection_id."""
+    raw = data.get("collection_ids")
+    if raw is None:
+        raw = [data.get("collection_id")]
+    if not isinstance(raw, list):
+        _err("Sammlungen als Liste angeben.")
+    cols = []
+    for c in raw:
+        if c in (None, "", 0, "0"):
+            continue
+        try:
+            c = int(c)
+        except (TypeError, ValueError):
+            _err("Ungültige Sammlung.")
+        if not db.val("SELECT 1 FROM collections WHERE id=? AND type != 'folder'", (c,)):
+            _err("Sammlung nicht gefunden.")
+        if c not in cols:
+            cols.append(c)
+    if len(cols) > 50:
+        _err("Höchstens 50 Sammlungen je Mandant.")
+    return cols  # leer = keine Einschränkung (nur ohne OU-Admins zulässig)
+
+
 def _tenant_values(data, tid=None):
     """→ (name, description, collection_id, repo_folder, admin_group, allow_packages, admin_group_dn, admin_group_sid)"""
     name = (data.get("name") or "").strip()
     if not name:
         _err("Name fehlt.")
-    col = data.get("collection_id")
-    col = int(col) if col not in (None, "", 0, "0") else None
-    if col is not None and col != profiles.ALL_COMPUTERS and not db.val("SELECT 1 FROM collections WHERE id=? AND type != 'folder'", (col,)):
-        _err("Sammlung nicht gefunden.")
+    cols = _tenant_cols_in(data)
+    col = cols[0] if cols else None
     folder = (data.get("repo_folder") or "").strip().strip("\\/")
     folder = "\\".join(x for x in folder.replace("/", "\\").split("\\") if x not in ("", "."))
     if ".." in folder.split("\\"):
@@ -2574,7 +2638,7 @@ def _tenant_values(data, tid=None):
         _err(e)
     group = re.sub(r"[\x00-\x1f]", "", str(data.get("admin_group") or "")).strip()[:400]
     had_ou = bool(tid and db.val("SELECT COALESCE(ou_ever, 0) OR COALESCE(admin_group, '') != '' FROM tenants WHERE id=?", (tid,)))
-    if (group or had_ou) and (col is None or col == profiles.ALL_COMPUTERS):
+    if (group or had_ou) and (not cols or profiles.ALL_COMPUTERS in cols):
         _err("Für OU-Admins bitte eine Sammlung wählen (z. B. die OU) – sonst wüssten sie nicht, welche Computer sie betreuen."
              + (" Dieser Mandant hatte bereits OU-Admins: ohne Sammlung erreichten seine Pakete und Zeitpläne keinen Computer."
                 if had_ou and not group else ""))
@@ -2612,7 +2676,10 @@ def api_tenants(user=U):
     for r in rows:
         r["packages"] = db.val("SELECT COUNT(*) FROM packages WHERE tenant_id=?", (r["id"],), 0)
         r["schedules"] = db.val("SELECT COUNT(*) FROM schedules WHERE tenant_id=?", (r["id"],), 0)
-        r["collection"] = db.val("SELECT name FROM collections WHERE id=?", (r["collection_id"],)) if r["collection_id"] else None
+        cols = access.tenant_cols(r)
+        r["collection_ids"] = cols
+        names = [db.val("SELECT name FROM collections WHERE id=?", (c,)) for c in cols]
+        r["collection"] = ", ".join(n for n in names if n) or None
     return rows
 
 
@@ -2624,6 +2691,7 @@ def api_tenant_create(data: dict = Body(...), user=U):
     pklog.info("system", f"Mandant '{v[0]}' angelegt" + (f" (OU-Admins: {v[4]})" if v[4] else "") + ".", user=user["username"])
     _tenant_quota(tid, data)
     _tenant_scripts(tid, data, user)
+    db.ex("UPDATE tenants SET collection_ids=? WHERE id=?", (json.dumps(_tenant_cols_in(data)), tid))
     _tenants_changed()
     _tenant_folder_bg(tid)
     return {"id": tid}
@@ -2688,8 +2756,10 @@ def api_tenant_update(tid: int, data: dict = Body(...), user=U):
     pklog.info("system", f"Mandant '{v[0]}' geändert" + (f" (OU-Admins: {v[4]})" if v[4] else "") + ".", user=user["username"])
     _tenant_quota(tid, data)
     _tenant_scripts(tid, data, user, old)
+    new_cols = _tenant_cols_in(data)
+    db.ex("UPDATE tenants SET collection_ids=? WHERE id=?", (json.dumps(new_cols), tid))
     _tenant_folder_bg(tid)
-    changed = (old.get("admin_group_sid") != v[7] or old.get("admin_group_dn") != v[6] or old.get("collection_id") != v[2] or int(old.get("allow_packages") or 0) != v[5]
+    changed = (old.get("admin_group_sid") != v[7] or old.get("admin_group_dn") != v[6] or access.tenant_cols(old) != new_cols or int(old.get("allow_packages") or 0) != v[5]
                or (old.get("repo_folder") or "") != v[3])
     _tenants_changed(tid if changed else None)
     return {"ok": True}
@@ -3663,7 +3733,7 @@ def api_kiosk_admin(user=U):
     return {"items": kiosk.admin_items(), "requests": kiosk.admin_requests(),
             "packages": [{"id": r["id"], "name": r["name"], "version": r["version"]}
                          for r in db.q("SELECT id, name, version FROM packages ORDER BY name COLLATE NOCASE")],
-            "collections": _collection_choices(), "enabled": kiosk.enabled(),
+            "collections": _collection_choices(user), "enabled": kiosk.enabled(),
             "settings": {k: db.setting(k) for k in db.DEFAULT_SETTINGS if k.startswith("kiosk_")},
             "url": (mailer.base_url() or "").rstrip("/") + "/kiosk", "sso": sso.info()}
 

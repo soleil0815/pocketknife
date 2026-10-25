@@ -69,6 +69,20 @@ def build_tenants(user):
     return [t for t in tenants(user) if t.get("allow_packages")]
 
 
+def tenant_cols(t):
+    """Sammlungen eines Mandanten (2.29.9: mehrere möglich) – Liste von IDs. Ältere Stände: nur collection_id."""
+    raw = (t or {}).get("collection_ids")
+    out = []
+    if raw:
+        try:
+            out = [int(x) for x in json.loads(raw) if str(x).lstrip("-").isdigit()]
+        except (ValueError, TypeError):
+            out = []
+    if not out and (t or {}).get("collection_id"):
+        out = [int(t["collection_id"])]
+    return list(dict.fromkeys(out))
+
+
 def computer_ids(user):
     """Erlaubte Computer-IDs (set) – None für Hauptadmins (alle)."""
     if not scoped(user):
@@ -82,12 +96,11 @@ def computer_ids(user):
     from . import collections_
     ids = set()
     for t in tenants(user):
-        if not t.get("collection_id"):
-            continue  # Mandant ohne Sammlung: keine Computer (nie „alle“)
-        try:
-            ids.update(collections_.member_ids(int(t["collection_id"])))
-        except Exception:
-            continue
+        for col in tenant_cols(t):  # Mandant ohne Sammlung: keine Computer (nie „alle“)
+            try:
+                ids.update(collections_.member_ids(col))
+            except Exception:
+                continue
     with _clock:
         _cache[key] = (now, frozenset(ids))
     return ids

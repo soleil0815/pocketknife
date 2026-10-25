@@ -1125,9 +1125,12 @@ function collChoiceLabel(c) {
   const pp = (c.pparts || []).map(([n, b]) => collNameTr(n, b));
   return [...pp, c.id === 0 ? tr(c.name) : collNameTr(c.name, c.builtin)].join(' › ');
 }
-function collChoiceOptions(list) {
-  return [...list].map((c) => [c.id, collChoiceLabel(c)])
+function collChoiceOptions(list, keep) {
+  const opts = [...list].map((c) => [c.id, collChoiceLabel(c)])
     .sort((a, b) => (a[0] === 0 ? -1 : b[0] === 0 ? 1 : deCmp(a[1], b[1])));
+  // 2.29.9: eine gewählte Sammlung, die hier nicht sichtbar ist (OU-Admin), bleibt erhalten statt still ersetzt zu werden
+  if (keep !== undefined && keep !== null && keep !== '' && !opts.some((o) => String(o[0]) === String(keep))) opts.push([keep, fmtT('Sammlung #{0} (nicht sichtbar)', keep)]);
+  return opts;
 }
 
 // Mehrfachauswahl von Sammlungen (Zeitpläne, Scanprofile). set: Set der gewählten IDs (0 = gesamter Bestand).
@@ -3211,7 +3214,7 @@ function conditionsEditor(c, meta, opt = {}) {
       sel(Object.entries(meta.reg_modes), x.mode, { onchange: bind(x, 'mode') }), h('input', { value: x.data || '', placeholder: 'Daten', style: { maxWidth: '120px' }, oninput: bind(x, 'data') })],
     () => ({ path: '', value: '', mode: 'exists', data: '' }), 'Registry-Bedingung')),
     field('Sammlung', listEditor(c.collections, (x) => [sel([['member', 'ist Mitglied von'], ['not_member', 'ist nicht Mitglied von']], x.mode, { onchange: bind(x, 'mode') }),
-      sel(collChoiceOptions(meta.collections), x.id, { 'data-notr': '1', onchange: (e) => { x.id = Number(e.target.value); } })],
+      sel(collChoiceOptions(meta.collections, x.id), x.id, { 'data-notr': '1', onchange: (e) => { x.id = Number(e.target.value); } })],
     () => ({ id: (meta.collections[0] || {}).id, mode: 'member' }), 'Sammlungs-Bedingung'), 'Wird vor der Ausführung auf dem Server geprüft.')));
   if (opt.hint) box.prepend(h('p.muted.small', { style: { marginTop: 0 } }, opt.hint));
   return box;
@@ -3806,7 +3809,9 @@ function tenantsCard() {
     t = t || { name: '', description: '', collection_id: null, repo_folder: '', admin_group: '', allow_packages: 0 };
     const name = h('input', { value: t.name });
     const desc = h('input', { value: t.description || '' });
-    const col = sel([['', '— alle Computer —'], ...collectionOptions(cols, false).filter((x) => x[0])], t.collection_id || '');
+    // 2.29.9: mehrere Sammlungen je Mandant (z. B. mehrere OUs oder Gruppen) – zusammen ergeben sie seinen Bereich
+    const colSet = new Set((t.collection_ids && t.collection_ids.length ? t.collection_ids : (t.collection_id ? [t.collection_id] : [])).map(Number));
+    const col = await collPicker(colSet, { allowAll: false });
     const folder = h('input', { value: t.repo_folder || '', placeholder: 'leer = automatisch „Mandanten\\<Name>“' });
     const quota = h('input', { type: 'number', min: 0, value: t.quota_mb ?? '', placeholder: 'leer = Standard aus den Einstellungen', style: { width: '260px' } });
     const grp = h('input', { value: t.admin_group || '', placeholder: 'z. B. PK-OU-Hamburg (leer = keine OU-Admins)', style: { flex: 1 } });
@@ -3825,14 +3830,14 @@ function tenantsCard() {
       if (chosen && chosen.length) { grp.value = chosen[0].sam || chosen[0].name; syncAllow(); }
     }, { cls: 'small' });
     modal(t.id ? `Mandant: ${t.name}` : 'Neuer Mandant', h('div.form', field('Name', name), field('Beschreibung', desc),
-      field('Computer', col, 'Pakete dieses Mandanten werden nur auf Computer dieser Sammlung verteilt (andere werden ignoriert). Für eine OU: dynamische Sammlung mit Filter „Distinguished Name / OU“ – oder die automatisch angelegte Sammlung der OU.'),
+      field('Computer', col, 'Eine oder mehrere Sammlungen – zusammen ergeben sie den Bereich des Mandanten (z. B. mehrere OUs oder AD-Gruppen). Pakete dieses Mandanten werden nur auf diese Computer verteilt, OU-Admins sehen nur diese Computer und nur die dazu passenden Sammlungen. Keine Auswahl: alle Computer (nur ohne OU-Admins möglich).'),
       field('Repository-Ordner', folder, 'Pakete dieses Mandanten dürfen nur Dateien aus diesem Ordner verwenden (wird beim Speichern geprüft). OU-Admins sehen und bearbeiten im Repository nur diesen Ordner. Leer lassen: bei „eigene Pakete“ legt POCKET KNIFE „Mandanten\\<Name>“ selbst an.'),
       field('Speicherkontingent (MB)', quota, 'Wie viel die OU-Admins dieses Mandanten im Repository hochladen dürfen. 0 = unbegrenzt.'),
       field('OU-Admins', h('div', h('div.row', grp, pick), h('div', { style: { marginTop: '8px' } }, allowRow), h('div', { style: { marginTop: '4px', marginLeft: '22px' } }, scriptsRow, scriptsHint)),
         'AD-Gruppe, deren Mitglieder sich anmelden dürfen – aber nur für die Computer dieses Mandanten. Sie gehören NICHT in die Gruppe der Hauptadmins. Sie sehen nur ihre Computer, deren Software, Bereitstellungen und Protokoll; zentrale Pakete können sie verteilen, aber nicht ändern. Einstellungen, Scanprofile, Kiosk-Verwaltung und Berichte bleiben den Hauptadmins vorbehalten.')), [
       { label: 'Abbrechen' },
       { label: 'Speichern', cls: 'primary', onClick: async () => {
-        const b = { name: name.value, description: desc.value, collection_id: col.value || null, repo_folder: folder.value,
+        const b = { name: name.value, description: desc.value, collection_ids: [...colSet], repo_folder: folder.value,
           admin_group: grp.value.trim(), allow_packages: allow.checked && !!grp.value.trim(),
           allow_scripts: scripts.checked && allow.checked && !!grp.value.trim(), quota_mb: quota.value === '' ? null : Number(quota.value) };
         if (t.id) await PUT(`/api/tenants/${t.id}`, b); else await POST('/api/tenants', b);
