@@ -212,6 +212,21 @@ def _winget_body(p):
     if extra:
         argline += " " + extra
     retry = ""
+    noscope = ""
+    if p["winget_action"] in ("install", "upgrade") and "--scope" in args:
+        # 2.30.1: Pakete ohne angegebenen Bereich im winget-Manifest (z. B. MobaXterm, als ZIP mit MSI): ist schon eine
+        # ältere Version installiert, lehnt winget die Aktualisierung mit --scope machine ab („A newer package version is
+        # available … but it does not apply“, Code -1978335189) – „winget upgrade“ von Hand ohne --scope klappt. Dann
+        # einmal ohne --scope wiederholen; ist das Paket wirklich aktuell, kommt derselbe Code zurück.
+        i = args.index("--scope")
+        plain = args[:i] + args[i + 2:]
+        pline = " ".join(a if " " not in a else f'"{a}"' for a in plain) + (" " + extra if extra else "")
+        noscope = f"""
+if ($global:PKExit -eq -1978335189) {{
+  Write-Output 'Hinweis: keine passende Aktualisierung mit festgelegtem Bereich (--scope) – neuer Versuch ohne, so wie „winget upgrade“ von Hand (das Paket gibt im winget-Katalog keinen Bereich an).'
+  PK-Run $wg {util.psq(pline)}
+}}
+"""
     if p["winget_action"] in ("install", "upgrade"):
         retry = f"""
 if ($global:PKExit -eq -1978335140 -and [Security.Principal.WindowsIdentity]::GetCurrent().IsSystem) {{
@@ -237,7 +252,7 @@ if ($global:PKExit -eq -1978335140 -and [Security.Principal.WindowsIdentity]::Ge
     return _winget_find() + f"""
 Set-Location (Split-Path $wg)
 PK-Run $wg {util.psq(argline)}
-""" + retry
+""" + retry + noscope
 
 
 def _detect(p):

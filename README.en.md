@@ -2,7 +2,7 @@ Deutsche Fassung: [README.md](README.md)
 
 # POCKET KNIFE
 
-Current version: **pocketknife-2.30** – see `CHANGELOG.md` (German).
+Current version: **pocketknife-2.30.1** – see `CHANGELOG.md` (German).
 
 Website: [helfi.space](https://helfi.space)
 
@@ -596,6 +596,7 @@ Backup: stop the container briefly and copy `data/` – or, while running, `sqli
 | Files & Folders scanner finds nothing with `%SYSTEMDRIVE%` or similar | From 2.5.15, environment variables (`%VAR%`, `$env:VAR`) are resolved on the client. `%USERPROFILE%`/`%APPDATA%` are those of the service account – for all users use `%SYSTEMDRIVE%\Users\*\…`. `**` = any number of levels (slower), `*` = one level |
 | Custom scanner shows bytes instead of GB | Edit the scanner → **Sizes**: "detect automatically" applies to column names such as Size/Length/FreeSpace with plain numbers; otherwise choose "only these columns" and enter the columns. The byte value is still what is stored |
 | PowerShell scanner returns nothing | Click "Test" in the scanner dialog – errors are in the "fehler" column. The scanner runs in the built-in "PowerShell" profile (set a trigger there) or in custom profiles, not in the default profile |
+| winget `-1978335189` "No applicable update" although `winget upgrade` by hand works | Package without a scope in the winget catalogue (e.g. MobaXterm): from 2.30.1 repeated once without `--scope`; otherwise installation scope "Package default" |
 | winget exit code `-1978335216` | No matching installer (scope/architecture) – in the package, set the installation scope to "Package default" |
 
 ## Technology

@@ -1586,7 +1586,7 @@ def _():
     # winget: Archiv-Fehler als Lokales System einmal mit tar.exe wiederholen; nur bei Installation/Aktualisierung
     body = deploy._winget_body({"winget_action": "install", "winget_id": "TeamViewer.TeamViewer", "winget_scope": "machine"})
     assert "-1978335140" in body and "archiveExtractionMethod" in body and ".IsSystem" in body
-    assert body.count("PK-Run $wg") == 2
+    assert body.count("PK-Run $wg") == 3, "Aufruf, Wiederholung mit tar.exe, Wiederholung ohne --scope (2.30.1)"
     assert "\\WinGet\\Settings\\defaultState" in body, "Einstellungsdatei, die winget als Lokales System wirklich liest"
     assert "archiveExtractionMethod" not in deploy._winget_body({"winget_action": "uninstall", "winget_id": "X.Y"})
     for code in (-1978335140, -1978335215, -1978334974):
@@ -4983,6 +4983,35 @@ def _():
             assert w in md and "PK_UID=1027" in md and "PK_DATA_PATH=/volume1/" in md, lang
     finally:
         shutil.rmtree(d, ignore_errors=True)
+
+
+@test("2.30.1 winget: „keine passende Aktualisierung“ mit --scope (Paket ohne Bereich im Katalog, z. B. MobaXterm) – einmal ohne --scope wiederholen, wie „winget upgrade“ von Hand; nie bei Deinstallation oder ohne Bereich")
+def _():
+    from app import deploy
+    find = deploy._winget_find()
+    for scope in ("machine", "user"):
+        body = deploy._winget_body({"winget_action": "install", "winget_id": "Mobatek.MobaXterm", "winget_scope": scope,
+                                    "extra_args": "--force"})
+        rest = body[len(find):]
+        assert rest.count("PK-Run $wg") == 3 and "-1978335189" in rest
+        tail = [x for x in rest[rest.index("if ($global:PKExit -eq -1978335189)"):].splitlines() if "PK-Run" in x][0]
+        assert "--scope" not in tail and "--force" in tail and "Mobatek.MobaXterm" in tail, "ohne --scope, sonst gleich"
+    plain = deploy._winget_body({"winget_action": "install", "winget_id": "Mobatek.MobaXterm", "winget_scope": ""})
+    assert "-1978335189" not in plain[len(find):], "ohne festgelegten Bereich nichts zu wiederholen"
+    assert "-1978335189" not in deploy._winget_body({"winget_action": "uninstall", "winget_id": "X.Y", "winget_scope": "machine"})
+    pw = os.environ.get("PK_PWSH")
+    if pw and os.path.exists(pw):
+        import subprocess
+        rest = deploy._winget_body({"winget_action": "install", "winget_id": "Mobatek.MobaXterm", "winget_scope": "machine"})[len(find):]
+        for current, want_runs, want_exit in ((False, 2, "0"), (True, 2, "-1978335189")):
+            stub = ("$ErrorActionPreference='Stop'; $wg = Join-Path ([IO.Path]::GetTempPath()) 'winget.exe'\n"
+                    "function PK-Run([string]$File, [string]$Arguments) { Write-Output ('RUN ' + $Arguments); "
+                    f"if ($Arguments -match '--scope' -or ${str(current).lower()}) {{ $global:PKExit = -1978335189 }} else {{ $global:PKExit = 0 }} }}\n")
+            out = subprocess.run([pw, "-NoProfile", "-NonInteractive", "-Command", stub + rest + "\nWrite-Output ('EXIT ' + $global:PKExit)"],
+                                 capture_output=True, text=True, timeout=60)
+            runs = [x for x in out.stdout.splitlines() if x.startswith("RUN ")]
+            assert len(runs) == want_runs and "--scope" in runs[0] and "--scope" not in runs[1], (out.stdout, out.stderr)
+            assert out.stdout.strip().endswith("EXIT " + want_exit), out.stdout
 
 
 def main():

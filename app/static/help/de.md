@@ -1400,6 +1400,7 @@ Die Zuordnung bleibt **nur in Ihrer Datenbank**. Nennt Ihnen jemand einen Platzh
 | Zugriff verweigert | Dienstkonto ist nicht lokaler Administrator |
 | Kopieren schlägt fehl | Port 445 / ADMIN$ auf dem Client, Leserecht auf der Repository-Freigabe |
 | winget nicht gefunden | Automatische Nachinstallation einschalten oder Tool „winget prüfen / nachinstallieren“ |
+| winget: „Keine passende Aktualisierung“ (`-1978335189`), obwohl eine neuere Version installierbar ist („A newer package version is available … but it does not apply“) | Das Paket gibt im winget-Katalog keinen Installationsbereich an (z. B. MobaXterm); mit festgelegtem Bereich lehnt winget die Aktualisierung ab. Ab 2.30.1 wiederholt POCKET KNIFE den Schritt dann einmal ohne `--scope`. Dauerhaft: im Paket den Installationsbereich auf „Standard des Pakets“ stellen |
 | Schritt als Dienstkonto startet nicht („Prozess als Dienstkonto konnte nicht gestartet werden“) | WMI-Dienst (Winmgmt) auf dem Client prüfen, Dienstkonto muss lokaler Administrator sein – oder Schritt auf „Lokales System“ stellen |
 | Eigener Befehl als Dienstkonto erreicht keine Freigabe | Auf dem Client liegt kein Kennwort (ab 2.14). Datei per „Datei aus dem Repository“ kopieren lassen oder als „Lokales System“ ausführen |
 | Warnung „/repo ist nicht lesbar“ | Der Dienst läuft als UID 10001: auf dem Docker-Host `chmod -R o+rX` oder `chown -R 10001` auf den Repository-Ordner |
