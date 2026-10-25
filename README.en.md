@@ -2,7 +2,7 @@ Deutsche Fassung: [README.md](README.md)
 
 # POCKET KNIFE
 
-Current version: **pocketknife-2.29.9** – see `CHANGELOG.md` (German).
+Current version: **pocketknife-2.30** – see `CHANGELOG.md` (German).
 
 Website: [helfi.space](https://helfi.space)
 
@@ -35,7 +35,7 @@ For developers: the manual texts are in `app/static/help/de.md` and `en.md`; `py
 | Schedules | **Everything automatic in one place** – kind "Deploy packages" (several packages in sequence) or "winget updates" (all or specific IDs, exclusions); triggers incl. **Heartbeat**, optional time window (weekdays, also across midnight), targets, queue offline computers, wait time after failure, re-serve after X hours, preview, target history |
 | News | discreetly in the sidebar: what is new (security, new, improved, fixed) and – for main admins – whether a new version is available (the server checks GitHub once a day) |
 | Repository | Manage installation files directly in the web interface: **upload** (files and whole folders, also by dragging from the desktop, in pieces with resume), create folders, rename, **move with automatic adjustment of the paths in all packages** (preview, backup first, rollback on error), delete only what no package uses; wizard "Restructure repository"; **duplicate block** (same winget ID, MSI product code or file by SHA-256 only once – central or with one tenant); **find file** by fingerprint when something was moved outside |
-| Tenants | Packages and schedules per customer/site, optionally restricted to a collection; **OU admins**: members of a tenant's AD group sign in and manage only that tenant's computers (deploy all packages, change only their own, own ones only with approval; repository folder `Mandanten\<Name>` is created automatically, upload with quota) – checked server-side at every interface |
+| Tenants | Packages and schedules per customer/site, optionally restricted to a collection; **OU admins**: members of a tenant's AD group sign in and manage only that tenant's computers (deploy all packages, change only their own – what the main admin created is read-only and can be copied as a template; own packages, schedules and collections only with approval, collections never larger than the tenant; reports and central schedules read-only with own computers; repository folder `Mandanten\<Name>` is created automatically, upload with quota) – checked server-side at every interface |
 | Reports | 19 reports (including software, outdated software, operating systems, disk space, Windows updates, security status, local admins, software changes, deployment history) – table, CSV export (Excel-compatible), print view |
 | Custom reports | Build your own reports: data source (computers, applications, drives, printers, services, custom scanners …), columns, row and computer filters as with collections, grouping/counting, sorting, templates, preview – usable in report e-mails and as a notification ("e-mail as soon as the report returns rows") |
 | Software kiosk | Users install approved software themselves under `/kiosk` – only on the computer they are signed in to (checked live); access via AD groups and/or OUs, approval per package (with e-mail), per package only for specific AD groups, uninstall, status, plan restart; optional **sign-in with Windows (Kerberos SSO)**, off by default; no access to the administration |
@@ -371,7 +371,7 @@ Navigation → **Schedules** – this is where everything that is deployed or up
 
 ## Tenants
 
-Under **Settings → Tenants** (e.g. customers or sites). Packages and schedules can be assigned to a tenant, and the package list can be filtered by it. If a collection is assigned to the tenant, its packages are only deployed to that collection's computers (other targets are skipped and reported). If a tenant may build its own packages, it automatically gets the repository folder `Mandanten\<Name>` (or one of your choice); its OU admins see and edit only this folder in the repository, optionally with a storage quota. Everyone may deploy all packages, change only their own; the same software exists only once (duplicate block by winget ID, MSI product code, SHA-256).
+Under **Settings → Tenants** (e.g. customers or sites). Packages and schedules can be assigned to a tenant, and the package list can be filtered by it. If a collection is assigned to the tenant, its packages are only deployed to that collection's computers (other targets are skipped and reported). If a tenant may build its own packages, it automatically gets the repository folder `Mandanten\<Name>` (or one of your choice); its OU admins see and edit only this folder in the repository, optionally with a storage quota. Everyone may deploy all packages, change only their own (what a main admin creates for the tenant is read-only for OU admins unless "OU admins may change" is enabled); the same software exists only once (duplicate block by winget ID, MSI product code, SHA-256).
 
 ## Actions on the clients
 

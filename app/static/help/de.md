@@ -1058,11 +1058,14 @@ Danach melden sich die Mitglieder der Gruppe ganz normal an. Unten links steht �
 |---|---|---|
 | Computer, Inventar, Software, Protokoll | alle | nur die Computer des Mandanten |
 | Aktionen auf Computern (Dienste, Dateien, Fernsitzung, LAPS/BitLocker, Tools ausführen) | alle | nur eigene Computer |
-| Pakete (zentrale und die anderer Mandanten) | ändern und verteilen | **alle** ansehen und auf eigene Computer verteilen; ändern nur die eigenen (Kopie: nur, wenn es die Software nicht schon gibt – Duplikatsperre) |
+| Pakete (zentrale, die anderer Mandanten und die ein Hauptadmin für den Mandanten angelegt hat) | ändern und verteilen | **alle** ansehen und auf eigene Computer verteilen; ändern nur die eigenen (siehe [Was gehört wem](#tenant-ownership); Kopie: nur, wenn es die Software nicht schon gibt – Duplikatsperre) |
 | Repository | alles | nur der Ordner des Mandanten: hochladen, Ordner, umbenennen, verschieben, löschen (siehe [Repository](#repository)) |
 | Eigene Pakete und Zeitpläne | – | nur mit Freigabe beim Mandanten; Dateien nur aus dessen Repository-Ordner; Befehls-/PowerShell-Schritte nur mit eigener Freigabe (siehe [Mandanten absichern](#tenant-security)) |
+| Sammlungen | alle | die ihres Bereichs ansehen; eigene anlegen (mit Freigabe beim Mandanten) – enthalten nie mehr als die Computer des Mandanten |
+| Zeitpläne | alle | eigene ändern; die des Hauptadmins für den Mandanten ansehen und ausführen; zentrale nur ansehen, nur mit eigenen Computern |
 | Bereitstellungen | alle | nur mit eigenen Computern; abbrechen/wiederholen nur, wenn alle Ziele eigene sind |
-| Einstellungen, Scanprofile, Kiosk-Verwaltung, Berichte, E-Mail, Tools anlegen | ja | nein |
+| Berichte | alle, anlegen und ändern, per E-Mail | nur ansehen und als CSV, nur mit eigenen Computern |
+| Einstellungen, Scanprofile, Kiosk-Verwaltung, E-Mail-Versand, Benachrichtigungen, Tools anlegen | ja | nein |
 
 **Sicherheit:** Die Grenzen prüft der Server bei **jeder** Anfrage, nicht nur die Oberfläche. Für OU-Admins ist jede Funktion gesperrt, die nicht ausdrücklich freigegeben ist; fremde Computer werden wie nicht vorhanden behandelt. Ist jemand in beiden Gruppen, gilt Hauptadmin. Der Notfallzugang ist immer Hauptadmin. Mitgliedschaften werden bei der Anmeldung und danach automatisch alle 2 Minuten im Hintergrund neu geprüft – wer im AD aus der Gruppe entfernt wird, verliert den Zugang ohne weiteres Zutun; eine Änderung am Mandanten in POCKET KNIFE wirkt sofort. Welche Computer zur OU gehören, erfährt POCKET KNIFE beim AD-Abgleich (Einstellungen → Active Directory, Standard stündlich; „AD-Abgleich jetzt“ unter Wartung). Ein Mandant mit OU-Admins braucht immer mindestens eine Sammlung (ohne Sammlung gäbe es keine Computer – nie „alle“). **Mehrere Sammlungen** sind möglich (z. B. mehrere OUs, Standorte oder AD-Gruppen): Zusammen ergeben sie den Bereich des Mandanten. **Sammlungen sehen OU-Admins nur aus ihrem Bereich:** die ihres Mandanten samt Unterordnern, andere nur, wenn sie mindestens einen ihrer Computer enthalten (z. B. eine Ausnahme-Gruppe für Paket-Bedingungen), dazu die Standardsammlungen – nie die übrige Domäne und nie die Sammlungen anderer Mandanten.
 
@@ -1070,10 +1073,27 @@ Weitere Schutzregeln:
 
 - Die Gruppe wird beim Speichern **eindeutig** im AD aufgelöst (erst über den Gruppennamen „sAMAccountName“, der im ganzen AD eindeutig ist) und mit ihrer **SID** gespeichert – das AD muss dafür erreichbar sein. Bei der Anmeldung zählt nur diese Gruppe: eine gleichnamige in einer anderen OU oder eine gelöschte und neu angelegte gibt nie Zugang; Umbenennen oder Verschieben schadet nicht. Ist ein Name mehrdeutig, bitte den vollständigen DN eintragen.
 - Mandantenpakete (auch von Hauptadmins gespeicherte) und eigene Befehle von OU-Admins laufen nie als Dienstkonto, sondern als „Lokales System“ (bzw. angemeldeter Benutzer). Deinstallationen mit dem Befehl aus der Registry des Computers laufen für alle – auch für Hauptadmins – nie als Dienstkonto, denn diesen Befehl bestimmt, wer auf dem Computer Administrator ist. Dateien aus dem Repository nur mit Repository-Ordner des Mandanten.
-- Zeitpläne von OU-Admins: als Sammlung nur die des eigenen Mandanten. Ein Mandant, der einmal OU-Admins hatte, erreicht ohne Sammlung keinen Computer; Mandanten mit Zeitplänen lassen sich erst löschen, wenn diese umgehängt sind. Jede Änderung an Gruppe, Sammlung oder Rechten eines Mandanten beendet die Sitzungen seiner OU-Admins (sie melden sich neu an).
+- Zeitpläne von OU-Admins: als Sammlung nur die des eigenen Mandanten und eigene Sammlungen. Ein Mandant, der einmal OU-Admins hatte, erreicht ohne Sammlung keinen Computer; Mandanten mit Zeitplänen lassen sich erst löschen, wenn diese umgehängt sind. Jede Änderung an Gruppe, Sammlung oder Rechten eines Mandanten beendet die Sitzungen seiner OU-Admins (sie melden sich neu an).
 - Deinstallationsbefehle „für alle merken“, das zentrale VNC-Kennwort und der Kiosk über die OU-Admin-Anmeldung bleiben Hauptadmins bzw. Kiosk-Benutzern vorbehalten.
 
 > **Empfehlung:** OU-Admins sind auf ihren Computern Administratoren. POCKET KNIFE meldet sich dort mit dem domänenweiten Dienstkonto an. Daher: Kerberos statt NTLM verwenden (Einstellungen → Verbindung), das Dienstkonto in die Gruppe „Protected Users“ aufnehmen (dann „Nur Kerberos“ – siehe [WinRM per Gruppenrichtlinie](#winrm-gpo)) und SMB-Signierung per GPO erzwingen. Wer noch strenger trennen will, nimmt je Standort eine eigene POCKET-KNIFE-Instanz mit eigenem Dienstkonto.
+
+### Was gehört wem {#tenant-ownership}
+
+Ein OU-Admin ändert nur, was ihm gehört – alles andere sieht er, damit er Bescheid weiß, kann es aber nicht verändern. So bleibt die Arbeit des Hauptadmins geschützt.
+
+| | OU-Admin darf … |
+|---|---|
+| **Eigenes** (vom OU-Admin angelegt, kopiert oder importiert) | ändern, löschen, ausführen |
+| **Vom Hauptadmin für den Mandanten** angelegte Pakete und Zeitpläne | ansehen, verteilen bzw. ausführen, **als Vorlage kopieren** – ändern nur, wenn der Hauptadmin beim Paket bzw. Zeitplan **„OU-Admins dürfen ändern“** einschaltet |
+| **Zentrale** Pakete | ansehen, auf eigene Computer verteilen, als Vorlage kopieren |
+| **Zentrale** Zeitpläne | nur ansehen (Badge „zentral“), nur mit den eigenen Computern; zu sehen nur, wenn sie mindestens einen davon erreichen. Starten und ändern nur Hauptadmins |
+| **Sammlungen** des Hauptadmins (auch die des Mandanten selbst) | ansehen, als Kopie für den eigenen Bereich anlegen |
+| **Berichte** | ansehen, ausführen, als CSV – nur mit eigenen Computern. Eigene Berichte anlegen, Mailversand und Benachrichtigungen nur Hauptadmins |
+
+**Eigene Sammlungen** (nur, wenn beim Mandanten „eigene Pakete“ erlaubt ist): Ein OU-Admin legt dynamische und statische Sammlungen und Ordner auf der obersten Ebene oder in seinen eigenen Ordnern an. Egal, was die Regel sagt: Eine solche Sammlung enthält **nie mehr als die Computer seines Mandanten**. „Ist Mitglied von“ geht nur mit Sammlungen, die er sieht; statische Mitglieder nur aus seinen Computern. Andere Mandanten sehen sie nicht. Als Bereich eines Mandanten (Einstellungen → Mandanten) lässt sie sich nicht wählen – das bleibt eine Sammlung des Hauptadmins. Eine Sammlung, die einem Mandanten als Bereich zugeordnet ist, lässt sich nicht löschen.
+
+**Nach dem Update auf 2.30:** Pakete und Zeitpläne, die ein OU-Admin bereits angelegt oder geändert hatte, erkennt POCKET KNIFE einmalig am Protokoll und lässt sie ihm. Alles andere gilt als vom Hauptadmin angelegt und ist für OU-Admins nur lesbar – bei Bedarf beim Paket bzw. Zeitplan „OU-Admins dürfen ändern“ einschalten.
 
 ### Mandanten absichern {#tenant-security}
 

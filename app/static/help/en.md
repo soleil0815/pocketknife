@@ -1058,11 +1058,14 @@ Members of the group then sign in as usual. "OU admin: Hamburg" is shown at the 
 |---|---|---|
 | Computers, inventory, software, log | all | only the tenant's computers |
 | Actions on computers (services, files, remote session, LAPS/BitLocker, run tools) | all | own computers only |
-| Packages (central and those of other tenants) | change and deploy | view **all** and deploy to own computers; change only their own (copy: only if the software does not exist yet – duplicate block) |
+| Packages (central, those of other tenants and those a main admin created for the tenant) | change and deploy | view **all** and deploy to own computers; change only their own (see [What belongs to whom](#tenant-ownership); copy: only if the software does not exist yet – duplicate block) |
 | Repository | everything | only the tenant's folder: upload, folders, rename, move, delete (see [Repository](#repository)) |
 | Own packages and schedules | – | only if enabled for the tenant; files only from its repository folder; command/PowerShell steps only with a separate approval (see [Securing tenants](#tenant-security)) |
+| Collections | all | view those of their scope; create their own (if enabled for the tenant) – never contain more than the tenant's computers |
+| Schedules | all | change their own; view and run those the main admin created for the tenant; central ones view only, with own computers only |
 | Deployments | all | only with own computers; cancel/retry only if all targets are their own |
-| Settings, scan profiles, kiosk administration, reports, e-mail, creating tools | yes | no |
+| Reports | all, create and change, by e-mail | view and CSV only, with own computers only |
+| Settings, scan profiles, kiosk administration, report e-mails, alerts, creating tools | yes | no |
 
 **Security:** The server checks the limits on **every** request, not just the user interface. For OU admins every function is blocked unless explicitly enabled; foreign computers are treated as non-existent. Anyone in both groups is a main admin. The emergency access is always a main admin. Memberships are checked at sign-in and then automatically every 2 minutes in the background – anyone removed from the group in AD loses access without further action; a change to the tenant in POCKET KNIFE takes effect immediately. POCKET KNIFE learns which computers belong to the OU during the AD sync (Settings → Active Directory, hourly by default; "AD sync now" under Maintenance). A tenant with OU admins always needs at least one collection (without one there would be no computers – never "all"). **Several collections** are possible (e.g. several OUs, sites or AD groups): together they form the tenant's scope. **OU admins only see collections from their scope:** those of their tenant including subfolders, others only if they contain at least one of their computers (e.g. an exception group for package conditions), plus the standard collections – never the rest of the domain and never other tenants' collections.
 
@@ -1070,10 +1073,27 @@ Further safeguards:
 
 - The group is resolved **unambiguously** in AD when saving (first via the group name "sAMAccountName", which is unique across AD) and stored with its **SID** – AD must be reachable for this. At sign-in only this group counts: a group with the same name in another OU, or one deleted and recreated, never grants access; renaming or moving does no harm. If a name is ambiguous, enter the full DN.
 - Tenant packages (also those saved by main admins) and custom commands of OU admins never run as the service account but as "Local System" (or the signed-in user). Uninstalls using the command from the computer's registry never run as the service account for anyone – main admins included – because whoever is administrator on the computer determines that command. Repository files only with a repository folder for the tenant.
-- Schedules of OU admins: only their own tenant's collection as a collection target. A tenant that once had OU admins reaches no computers without a collection; tenants with schedules can only be deleted once these are reassigned. Any change to a tenant's group, collection or permissions ends its OU admins' sessions (they sign in again).
+- Schedules of OU admins: only their own tenant's collection and their own collections as collection targets. A tenant that once had OU admins reaches no computers without a collection; tenants with schedules can only be deleted once these are reassigned. Any change to a tenant's group, collection or permissions ends its OU admins' sessions (they sign in again).
 - Remembering uninstall commands "for all", the central VNC password and the kiosk via the OU admin sign-in remain reserved for main admins or kiosk users.
 
 > **Recommendation:** OU admins are administrators on their computers. POCKET KNIFE signs in there with the domain-wide service account. Therefore: use Kerberos instead of NTLM (Settings → Connection), add the service account to the "Protected Users" group (then "Kerberos only" – see [WinRM by Group Policy](#winrm-gpo)) and enforce SMB signing via GPO. For even stricter separation, use a separate POCKET KNIFE instance with its own service account per site.
+
+### What belongs to whom {#tenant-ownership}
+
+An OU admin only changes what belongs to them – everything else they can see, so they know what is going on, but cannot change it. This protects the main admin's work.
+
+| | An OU admin may … |
+|---|---|
+| **Their own** (created, copied or imported by the OU admin) | change, delete, run |
+| Packages and schedules **a main admin created for the tenant** | view, deploy or run, **copy as a template** – change only if the main admin enables **"OU admins may change"** on the package or schedule |
+| **Central** packages | view, deploy to own computers, copy as a template |
+| **Central** schedules | view only (badge "central"), with their own computers only; visible only if they reach at least one of them. Only main admins start and change them |
+| The main admin's **collections** (including the tenant's own) | view, create a copy for their own scope |
+| **Reports** | view, run, CSV – with own computers only. Creating custom reports, report e-mails and alerts: main admins only |
+
+**Own collections** (only if "own packages" is enabled for the tenant): an OU admin creates dynamic and static collections and folders at the top level or in their own folders. Whatever the rule says, such a collection **never contains more than the tenant's computers**. "Is member of" only works with collections they can see; static members only from their computers. Other tenants do not see them. They cannot be chosen as a tenant's scope (Settings → Tenants) – that remains a main admin's collection. A collection assigned to a tenant as its scope cannot be deleted.
+
+**After updating to 2.30:** packages and schedules an OU admin had already created or changed are recognised once from the log and stay theirs. Everything else counts as created by the main admin and is read-only for OU admins – enable "OU admins may change" on the package or schedule if needed.
 
 ### Securing tenants {#tenant-security}
 

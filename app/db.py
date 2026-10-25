@@ -471,7 +471,10 @@ MIGRATIONS = [
     ("packages", "integrity", "TEXT"),  # 2.26: Ergebnis der Bruchprüfung (JSON: state, issues, at)
     ("packages", "ident_at", "TEXT"),   # 2.27: Kennzeichen für die Duplikatsperre zuletzt berechnet
     ("tenants", "allow_scripts", "INTEGER DEFAULT 0"),  # 2.29.1
-    ("tenants", "collection_ids", "TEXT"),  # 2.29.9: mehrere Sammlungen je Mandant (JSON-Liste); collection_id = erste  # 2.29.1: OU-Admins dürfen Befehls-/PowerShell-Schritte schreiben
+    ("tenants", "collection_ids", "TEXT"),
+    ("packages", "ou_edit", "INTEGER"),     # 2.30: 1 = OU-Admins des Mandanten dürfen ändern (von ihnen angelegt)
+    ("schedules", "ou_edit", "INTEGER"),    # 2.30: wie bei Paketen
+    ("collections", "tenant_id", "INTEGER"),  # 2.30: von einem OU-Admin angelegt – gehört diesem Mandanten  # 2.29.9: mehrere Sammlungen je Mandant (JSON-Liste); collection_id = erste  # 2.29.1: OU-Admins dürfen Befehls-/PowerShell-Schritte schreiben
     ("tenants", "quota_mb", "INTEGER"), # 2.27: Speicherkontingent im Repository (leer = Standard aus den Einstellungen)
 ]
 
@@ -577,6 +580,36 @@ def init():
     from . import schedules
     schedules.migrate_rules()
     schedules.ensure_baselines()
+    _migrate_ownership()
+
+
+def _migrate_ownership():
+    """2.30 (einmalig): Wer darf vorhandene Mandanten-Pakete und -Zeitpläne ändern? Bisher jeder OU-Admin des Mandanten.
+    Jetzt nur, was ein OU-Admin selbst angelegt oder geändert hat – erkannt am Protokoll (Anmeldung „(OU-Admin: …)“,
+    „Paket 'X' angelegt/geändert.“) bzw. am Ersteller des Zeitplans. Alles andere gilt als vom Hauptadmin angelegt
+    (nur lesbar für OU-Admins); der Hauptadmin kann es je Paket/Zeitplan mit „OU-Admins dürfen ändern“ freigeben."""
+    if val("SELECT value FROM settings WHERE key='ou_owner_migrated'"):
+        return
+    ou = {r["username"].lower() for r in q("SELECT DISTINCT username FROM logs WHERE category='auth' AND message LIKE '%(OU-Admin:%' "
+                                           "AND username IS NOT NULL")}
+    ou |= {r["username"].lower() for r in q("SELECT DISTINCT username FROM sessions WHERE scope IS NOT NULL AND username IS NOT NULL")}
+    with tx():
+        if ou:
+            for r in q("SELECT id, created_by FROM schedules WHERE tenant_id IS NOT NULL AND ou_edit IS NULL"):
+                if (r["created_by"] or "").lower() in ou:
+                    ex("UPDATE schedules SET ou_edit=1 WHERE id=?", (r["id"],))
+            touched = {}
+            for r in q("SELECT username, message FROM logs WHERE category='deploy' AND (message LIKE 'Paket ''%'' angelegt.' "
+                       "OR message LIKE 'Paket ''%'' geändert.') AND username IS NOT NULL"):
+                if r["username"].lower() in ou:
+                    m = r["message"]
+                    touched[m[len("Paket '"):m.rfind("'")].lower()] = True
+            for r in q("SELECT id, name FROM packages WHERE tenant_id IS NOT NULL AND ou_edit IS NULL"):
+                if (r["name"] or "").lower() in touched:
+                    ex("UPDATE packages SET ou_edit=1 WHERE id=?", (r["id"],))
+        ex("UPDATE schedules SET ou_edit=0 WHERE ou_edit IS NULL")
+        ex("UPDATE packages SET ou_edit=0 WHERE ou_edit IS NULL")
+        ex("INSERT OR REPLACE INTO settings(key, value) VALUES('ou_owner_migrated', '1')")
 
 
 # --- Einstellungen --------------------------------------------------------

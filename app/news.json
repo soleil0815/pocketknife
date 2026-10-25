@@ -2,6 +2,36 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.30",
+   "date": "2026-10-25",
+   "items": [
+    {
+     "kind": "security",
+     "audience": "all",
+     "de": "Mandanten sauber getrennt: OU-Admins ändern nur ihr Eigenes. Was der Hauptadmin angelegt hat, sehen sie, verwenden es und können es als Vorlage kopieren.",
+     "en": "Tenants cleanly separated: OU admins only change their own items. What the main admin created they can view, use and copy as a template."
+    },
+    {
+     "kind": "new",
+     "audience": "all",
+     "de": "Eigene Sammlungen für OU-Admins (mit Freigabe „eigene Pakete“) – immer nur mit den Computern des eigenen Mandanten.",
+     "en": "Own collections for OU admins (with \"own packages\" enabled) – always limited to the tenant's computers."
+    },
+    {
+     "kind": "new",
+     "audience": "all",
+     "de": "OU-Admins sehen Berichte und zentrale Zeitpläne zum Nachsehen – nur mit ihren Computern.",
+     "en": "OU admins can view reports and central schedules – with their own computers only."
+    },
+    {
+     "kind": "new",
+     "audience": "admin",
+     "de": "Beim Paket und Zeitplan eines Mandanten: „OU-Admins dürfen ändern“ (Standard aus).",
+     "en": "On a tenant's package and schedule: \"OU admins may change\" (off by default)."
+    }
+   ]
+  },
+  {
    "version": "2.29.9",
    "date": "2026-10-25",
    "items": [

@@ -1434,7 +1434,8 @@ def _():
     src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "deploy.py"), encoding="utf-8").read()
     assert "presence.probe(c)" in src and "presence.probe(c, now)" in open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "inventory.py"), encoding="utf-8").read()
     js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
-    assert "draggable: c.builtin ? 'false' : 'true'" in js and "if (!c.builtin) it.addEventListener('dragstart'" in js, "Standard- und AD-Baum nicht verschiebbar"
+    assert "draggable: locked(c) ? 'false' : 'true'" in js and "if (!locked(c)) it.addEventListener('dragstart'" in js \
+        and "const locked = (c) => !!(c && (c.builtin || c.editable === false));" in js, "Standard- und AD-Baum nicht verschiebbar"
 
 
 @test("2.20.1 Kiosk: nach einer Deinstallation wieder „Installieren“; englische Oberfläche vollständig übersetzt")
@@ -2378,7 +2379,8 @@ def _():
     assert not missing, f"Freigabeliste nennt unbekannte Routen: {missing}"
     for k in [("PUT", "/api/settings"), ("GET", "/api/settings"), ("POST", "/api/tenants"), ("PUT", "/api/tenants/{tid}"),
               ("DELETE", "/api/tenants/{tid}"), ("GET", "/api/system"), ("PUT", "/api/system/accounts"), ("GET", "/api/backups"),
-              ("POST", "/api/tools"), ("PUT", "/api/tools/{tid}"), ("POST", "/api/collections"), ("PUT", "/api/collections/{cid}"),
+              ("POST", "/api/tools"), ("PUT", "/api/tools/{tid}"), ("POST", "/api/customreports"), ("PUT", "/api/customreports/{rid}"),
+              ("DELETE", "/api/customreports/{rid}"), ("POST", "/api/mail/reports"),
               ("GET", "/api/ad/browse"), ("PUT", "/api/kiosk/admin/items/{pid}"), ("GET", "/api/mail/settings"),
               ("DELETE", "/api/computers/{cid}"), ("POST", "/api/computers"), ("GET", "/api/system/diagnostics"),
               ("PUT", "/api/remote/vnc_password"), ("POST", "/api/winget/refresh"), ("POST", "/api/software/exclusions")]:
@@ -4392,8 +4394,8 @@ def _():
             {"type": "uninstall", "match_name": "Alt*"}]}})
         assert st == 200, (st, r)
         created.append(r["id"])
-        # Schritt eines Hauptadmins: unverändert speicherbar, geändert nicht
-        pid = db.ex("INSERT INTO packages(name, version, steps, conditions, run_as, tenant_id, created_at) VALUES('SK von Haupt','1',?,'{}','system',?,?)",
+        # Schritt eines Hauptadmins (Paket für OU-Admins freigegeben, 2.30): unverändert speicherbar, geändert nicht
+        pid = db.ex("INSERT INTO packages(name, version, steps, conditions, run_as, tenant_id, created_at, ou_edit) VALUES('SK von Haupt','1',?,'{}','system',?,?,1)",
                     (json.dumps({"main": [{"id": "h1", "type": "command", "command": "hostname"}]}), tid, util.now()))
         created.append(pid)
         pkg = _asgi("GET", f"/api/packages/{pid}", tok)[1]
@@ -4728,6 +4730,179 @@ def _():
             db.ex("DELETE FROM collections WHERE id=?", (c,))
         db.ex("DELETE FROM collections WHERE id=?", (folder,))
         for c in (a1, a2, b1, x1):
+            db.ex("DELETE FROM computers WHERE id=?", (c,))
+        collections_.invalidate()
+        access.flush()
+
+
+@test("2.30 Mandanten sauber getrennt: OU-Admins ändern nur ihr Eigenes – Hauptadmin-Pakete/-Zeitpläne/-Sammlungen nur lesen (kopieren geht), zentrale Zeitpläne und Berichte nur mit eigenen Computern, eigene Sammlungen nie größer als der Mandant")
+def _():
+    import hashlib
+    import secrets
+    import time as _t
+    from fastapi import HTTPException as _HE
+    from app import access, auth, customreports, pklog, schedules
+    from app import main as _m
+    mk = lambda n: db.ex("INSERT INTO computers(name, dns_name, created_at) VALUES(?,?,?)", (n, n.lower() + ".firma.local", util.now()))  # noqa: E731
+    a1, b1 = mk("TR-A1"), mk("TR-B1")
+    def scol(name, members):
+        c = db.ex("INSERT INTO collections(name, type) VALUES(?, 'static')", (name,))
+        for x in members:
+            db.ex("INSERT INTO collection_members VALUES(?,?)", (c, x))
+        return c
+    ca, cb = scol("TR Bereich A", [a1]), scol("TR Bereich B", [b1])
+    ta = db.ex("INSERT INTO tenants(name, collection_id, repo_folder, admin_group, allow_packages, created_at) VALUES('TR A', ?, 'TRA', 'PK-OU-TRA', 1, ?)", (ca, util.now()))
+    db.ex("UPDATE tenants SET allow_scripts=1 WHERE id=?", (ta,))
+    tb = db.ex("INSERT INTO tenants(name, collection_id, repo_folder, admin_group, allow_packages, created_at) VALUES('TR B', ?, 'TRB', 'PK-OU-TRB', 1, ?)", (cb, util.now()))
+    collections_.invalidate()
+    access.flush()
+    toks = []
+    def session(scope, name):
+        tok = secrets.token_urlsafe(16)
+        th = hashlib.sha256(tok.encode()).hexdigest()
+        db.ex("INSERT INTO sessions(token_hash, username, display_name, created, expires, ip, last_active, role, scope) VALUES(?,?,?,?,?,?,?,?,?)",
+              (th, name, "Test", util.now(), "2099-01-01 00:00:00", "127.0.0.1", util.now(), "admin", json.dumps(scope) if scope is not None else None))
+        auth._checked[th] = _t.time() + 10 ** 6
+        toks.append(th)
+        return tok
+    ou, ou_b, haupt = session([ta], "tr-ou"), session([tb], "tr-oub"), session(None, "tr-haupt")
+    made_c, made_p, made_s, made_r = [], [], [], []
+    stp = json.dumps({"main": [{"id": "x", "type": "command", "command": "hostname"}]})
+    try:
+        # --- Pakete: vom Hauptadmin für den Mandanten = nur lesen; freigegeben oder selbst angelegt = ändern
+        p_main = db.ex("INSERT INTO packages(name, version, steps, conditions, run_as, tenant_id, created_at, ou_edit) VALUES('TR Haupt','1',?,'{}','system',?,?,0)", (stp, ta, util.now()))
+        p_frei = db.ex("INSERT INTO packages(name, version, steps, conditions, run_as, tenant_id, created_at, ou_edit) VALUES('TR Frei','1',?,'{}','system',?,?,1)", (stp, ta, util.now()))
+        made_p += [p_main, p_frei]
+        ed = {p["id"]: p["editable"] for p in _asgi("GET", "/api/packages", ou)[1]}
+        assert ed.get(p_main) is False and ed.get(p_frei) is True, ed
+        pk = _asgi("GET", f"/api/packages/{p_main}", ou)[1]
+        assert _asgi("PUT", f"/api/packages/{p_main}", ou, pk)[0] == 403
+        assert _asgi("DELETE", f"/api/packages/{p_main}", ou)[0] == 403
+        st, r = _asgi("POST", f"/api/packages/{p_main}/duplicate", ou)
+        assert st == 200, (st, r)
+        made_p.append(r["id"])
+        assert db.q1("SELECT tenant_id, ou_edit FROM packages WHERE id=?", (r["id"],)) == {"tenant_id": ta, "ou_edit": 1}, "Kopie gehört dem OU-Admin"
+        assert _m._ou_edit_flag({"username": "tr-ou", "scope": [ta]}, {"ou_edit": False}) == 1, "OU-Admin: immer seins"
+        # Hauptadmin-Häkchen „OU-Admins dürfen ändern“
+        u_h = {"username": "tr-haupt", "scope": None, "role": "admin"}
+        assert _m._ou_edit_flag(u_h, {"ou_edit": True}) == 1 and _m._ou_edit_flag(u_h, {"ou_edit": False}, {"ou_edit": 1}) == 0
+        assert _m._ou_edit_flag(u_h, {}, {"ou_edit": 1}) == 1 and _m._ou_edit_flag(u_h, {}) == 0, "Standard: nur lesbar"
+
+        # --- Zeitpläne: zentral = nur lesen, nur eigene Computer, nicht starten; Hauptadmin-Mandantenzeitplan = lesen + starten
+        base = {"kind": "packages", "packages": [p_frei], "triggers": []}
+        s_zen = schedules.save(None, {**base, "name": "TR zentral", "targets": {"computers": [a1, b1], "collections": [cb]}}, "tr-haupt")
+        s_main = schedules.save(None, {**base, "name": "TR Haupt für A", "tenant_id": ta, "targets": {"computers": [a1], "collections": []}}, "tr-haupt")
+        s_own = schedules.save(None, {**base, "name": "TR eigen", "tenant_id": ta, "targets": {"computers": [a1], "collections": []}}, "tr-ou")
+        made_s += [s_zen, s_main, s_own]
+        db.ex("UPDATE schedules SET ou_edit=0 WHERE id IN (?,?)", (s_zen, s_main))
+        db.ex("UPDATE schedules SET ou_edit=1 WHERE id=?", (s_own,))
+        lst = {s["id"]: s for s in _asgi("GET", "/api/schedules", ou)[1]}
+        assert s_zen in lst and s_main in lst and s_own in lst, sorted(lst)
+        z = lst[s_zen]
+        assert z["editable"] is False and z["runnable"] is False and z["members"] == 1, z
+        assert z["targets"] == {"computers": [a1], "collections": []}, ("fremde Ziele verborgen", z["targets"])
+        assert lst[s_main]["editable"] is False and lst[s_main]["runnable"] is True and lst[s_own]["editable"] is True
+        zb = {s["id"]: s for s in _asgi("GET", "/api/schedules", ou_b)[1]}
+        assert zb[s_zen]["targets"]["computers"] == [b1] and zb[s_zen]["members"] == 1, "zentral: jeder sieht nur seine Computer"
+        assert s_main not in {s["id"] for s in _asgi("GET", "/api/schedules", ou_b)[1]}, "Zeitplan eines anderen Mandanten"
+        sd = _asgi("GET", f"/api/schedules/{s_zen}", ou)[1]
+        assert sd["members"] == 1 and sd["targets"]["computers"] == [a1]
+        assert _asgi("GET", f"/api/schedules/{s_zen}/preview", ou)[1]["members"] == 1
+        body = {**base, "name": "geändert", "targets": {"computers": [a1], "collections": []}}
+        for sid in (s_zen, s_main):
+            assert _asgi("PUT", f"/api/schedules/{sid}", ou, body)[0] == 403, sid
+            assert _asgi("DELETE", f"/api/schedules/{sid}", ou)[0] == 403, sid
+        assert _asgi("POST", f"/api/schedules/{s_zen}/run", ou, {})[0] == 403, "zentral starten nur Hauptadmins"
+        assert _asgi("POST", f"/api/schedules/{s_zen}/reset", ou, {})[0] == 403
+        access.need_schedule({"username": "tr-ou", "scope": [ta]}, s_main, run=True)  # Hauptadmin-Zeitplan des Mandanten: starten erlaubt
+        assert _asgi("PUT", f"/api/schedules/{s_own}", ou, {**body, "tenant_id": ta})[0] == 200
+        st, r = _asgi("POST", f"/api/schedules/{s_zen}/duplicate", ou)
+        assert st == 200, (st, r)
+        made_s.append(r["id"])
+        cp = schedules.get(r["id"])
+        assert cp["tenant_id"] == ta and cp["ou_edit"] == 1 and cp["targets"]["computers"] == [a1] and not cp["enabled"], cp
+
+        # --- Sammlungen: Hauptadmin-Sammlung nur lesen; eigene anlegen, nie größer als der Mandant
+        assert _asgi("PUT", f"/api/collections/{ca}", ou, {"name": "x", "type": "static"})[0] == 403
+        assert _asgi("DELETE", f"/api/collections/{ca}", ou)[0] == 403
+        assert _asgi("POST", f"/api/collections/{ca}/rename", ou, {"name": "x"})[0] == 403
+        st, r = _asgi("POST", "/api/collections", ou, {"name": "TR alles", "type": "dynamic", "filters": [], "match": "all"})
+        assert st == 200, (st, r)
+        dyn = r["id"]; made_c.append(dyn)
+        assert db.val("SELECT tenant_id FROM collections WHERE id=?", (dyn,)) == ta
+        assert set(collections_.member_ids(dyn, fresh=True)) == {a1}, "Regel „alle“ – trotzdem nur Computer des Mandanten"
+        st, r = _asgi("POST", "/api/collections", ou, {"name": "TR statisch", "type": "static"})
+        stat = r["id"]; made_c.append(stat)
+        assert _asgi("POST", f"/api/collections/{stat}/members", ou, {"add": [b1]})[0] == 403, "fremder Computer"
+        assert _asgi("POST", f"/api/collections/{stat}/members", ou, {"add": [a1]})[0] == 200
+        assert _asgi("POST", "/api/collections", ou, {"name": "TR unter fremd", "type": "static", "parent_id": ca})[0] == 403
+        flt = {"type": "group", "match": "all", "items": [{"type": "cond", "table": "computer", "column": "collection", "op": "in", "value": str(cb)}]}
+        assert _asgi("POST", "/api/collections", ou, {"name": "TR Verweis", "type": "dynamic", "filters": flt})[0] == 403, "Verweis auf unsichtbare Sammlung"
+        cl = {c["id"]: c for c in _asgi("GET", "/api/collections", ou)[1]}
+        assert cl[dyn]["editable"] is True and cl[ca]["editable"] is False and cb not in cl
+        assert dyn not in {c["id"] for c in _asgi("GET", "/api/collections", ou_b)[1]}, "eigene Sammlung bleibt beim eigenen Mandanten"
+        pv = _asgi("POST", "/api/collections/preview", ou, {"filters": [], "match": "all"})[1]
+        assert pv["count"] == 1 and [x["id"] for x in pv["sample"]] == [a1], pv
+        vals = _asgi("GET", "/api/collections/values?table=computer&column=name&q=TR-", ou)[1]
+        assert "TR-A1" in vals and "TR-B1" not in vals, vals
+        st, r = _asgi("POST", f"/api/collections/{ca}/duplicate", ou, {})
+        assert st == 200, (st, r)
+        made_c.append(r["id"])
+        assert db.val("SELECT tenant_id FROM collections WHERE id=?", (r["id"],)) == ta
+        assert _asgi("POST", f"/api/collections/{cb}/duplicate", ou, {})[0] == 404
+        try:
+            _m._tenant_cols_in({"collection_ids": [dyn]})
+            raise AssertionError("OU-Sammlung als Mandantenbereich angenommen")
+        except _HE:
+            pass
+        st, r = _asgi("DELETE", f"/api/collections/{ca}", haupt)
+        assert st == 400 and "Mandanten" in str(r), ("Bereich eines Mandanten nie löschbar", st, r)
+        assert _asgi("DELETE", f"/api/collections/{stat}", ou)[0] == 200
+        made_c.remove(stat)
+
+        # --- Berichte: lesen ja, nur eigene Computer; internen Parameter nicht von außen setzbar
+        st, r = _asgi("GET", f"/api/reports/computers?_scope=%5B{b1}%5D", ou)
+        names = {x["name"] for x in r["rows"]}
+        assert st == 200 and "TR-A1" in names and "TR-B1" not in names, names
+        assert _asgi("GET", f"/api/reports/computers?collection={cb}", ou)[0] == 404
+        cr = customreports.save(None, {"name": "TR Namen", "definition": {"source": "computer", "columns": [{"t": "computer", "c": "name"}], "limit": 5000}})
+        made_r.append(cr["id"])
+        rows = _asgi("GET", f"/api/reports/{customreports.PREFIX}{cr['id']}", ou)[1]["rows"]
+        assert "TR-A1" in {x["c0"] for x in rows} and "TR-B1" not in {x["c0"] for x in rows}
+        assert _asgi("GET", f"/api/customreports/{cr['id']}", ou)[0] == 200
+        assert _asgi("PUT", f"/api/customreports/{cr['id']}", ou, {"name": "x"})[0] == 403
+        assert _asgi("GET", "/api/mail/reports", ou)[0] == 403, "Mailversand nur Hauptadmins"
+        h_names = {x["name"] for x in _asgi("GET", "/api/reports/computers", haupt)[1]["rows"]}
+        assert {"TR-A1", "TR-B1"} <= h_names
+
+        # --- einmalige Übernahme: was ein OU-Admin angelegt hat, darf er weiter ändern
+        db.ex("UPDATE packages SET ou_edit=NULL WHERE id IN (?,?)", (p_main, p_frei))
+        db.ex("UPDATE schedules SET ou_edit=NULL WHERE id IN (?,?)", (s_main, s_own))
+        db.ex("DELETE FROM settings WHERE key='ou_owner_migrated'")
+        pklog.info("deploy", "Paket 'TR Frei' angelegt.", user="tr-ou")
+        db._migrate_ownership()
+        assert db.val("SELECT ou_edit FROM packages WHERE id=?", (p_frei,)) == 1 and db.val("SELECT ou_edit FROM packages WHERE id=?", (p_main,)) == 0
+        assert db.val("SELECT ou_edit FROM schedules WHERE id=?", (s_own,)) == 1 and db.val("SELECT ou_edit FROM schedules WHERE id=?", (s_main,)) == 0
+        assert db.val("SELECT value FROM settings WHERE key='ou_owner_migrated'") == "1"
+        js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
+        assert "const OU_HIDDEN = new Set(['scanners', 'kiosk', 'settings']);" in js and "'Als Vorlage kopieren'" in js and "fieldset.ro" in js
+    finally:
+        for th in toks:
+            db.ex("DELETE FROM sessions WHERE token_hash=?", (th,))
+        for r_ in made_r:
+            customreports.delete(r_)
+        for s_ in made_s:
+            db.ex("DELETE FROM schedule_targets WHERE schedule_id=?", (s_,))
+            db.ex("DELETE FROM schedules WHERE id=?", (s_,))
+        for p_ in made_p:
+            db.ex("DELETE FROM packages WHERE id=?", (p_,))
+        for t in (ta, tb):
+            db.ex("DELETE FROM tenants WHERE id=?", (t,))
+        for c in made_c + [ca, cb]:
+            for k in [c] + _m._descendants(c):
+                db.ex("DELETE FROM collection_members WHERE collection_id=?", (k,))
+                db.ex("DELETE FROM collections WHERE id=?", (k,))
+        for c in (a1, b1):
             db.ex("DELETE FROM computers WHERE id=?", (c,))
         collections_.invalidate()
         access.flush()

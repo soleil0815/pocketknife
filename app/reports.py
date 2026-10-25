@@ -8,11 +8,21 @@ from . import collections_, db, util
 COLL = {"name": "collection", "label": "Sammlung", "type": "collection", "default": ""}
 
 
+def _scope(params, col="c.id"):
+    """2.30: OU-Admin – nur seine Computer (vom Server gesetzt, nie aus der Anfrage: main entfernt Parameter mit „_“)."""
+    sc = params.get("_scope")
+    if sc is None:
+        return "1=1", []
+    return f"{col} IN (SELECT value FROM json_each(?))", [sc]
+
+
 def _cw(params):
     cid = params.get("collection")
+    sw, sp = _scope(params)
     if cid:
-        return collections_.where_for(int(cid))
-    return "1=1", []
+        w, a = collections_.where_for(int(cid))
+        return f"({w}) AND {sw}", list(a) + sp
+    return sw, sp
 
 
 def _computers(p):
@@ -89,9 +99,10 @@ def _not_scanned(p):
 
 def _deployments(p):
     days = int(float(p.get("days") or 30))
-    return ("""SELECT d.id, d.name, d.source, d.created_by, t.computer_name, t.status, t.exit_code, t.message,
+    sw, sp = _scope(p, "t.computer_id")
+    return (f"""SELECT d.id, d.name, d.source, d.created_by, t.computer_name, t.status, t.exit_code, t.message,
               t.finished_at FROM deployment_targets t JOIN deployments d ON d.id=t.deployment_id
-              WHERE d.created_at >= ? ORDER BY d.id DESC, t.computer_name""", [util.ago(days=days)],
+              WHERE d.created_at >= ? AND {sw} ORDER BY d.id DESC, t.computer_name""", [util.ago(days=days)] + sp,
             [("id", "#"), ("name", "Bereitstellung"), ("source", "Quelle"), ("created_by", "Von"),
              ("computer_name", "Computer"), ("status", "Status"), ("exit_code", "Exitcode"), ("message", "Meldung"),
              ("finished_at", "Beendet")])
