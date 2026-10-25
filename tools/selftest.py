@@ -4945,6 +4945,46 @@ def _():
             assert w in md, (lang, w)
 
 
+@test("2.30 Start ohne Schreibrecht auf /data (z. B. Synology): klare Meldung mit Ordner, Benutzer-ID und Abhilfe statt Traceback; Anleitung für NAS")
+def _():
+    from app import privileges
+    d = tempfile.mkdtemp(prefix="pk-wr-")
+    try:
+        assert privileges.unwritable([d, os.path.join(d, "tls")]) == [] and os.path.isdir(os.path.join(d, "tls")), "fehlende Unterordner anlegen"
+        def deny(p):
+            if p.endswith("tls"):
+                raise PermissionError(13, "Permission denied")
+        bad = privileges.unwritable([d, os.path.join(d, "tls")], probe=deny)
+        assert bad == [(os.path.join(d, "tls"), "Permission denied")], bad
+        msg = privileges.write_hint(bad, d)
+        for w in ("Start abgebrochen", f"{os.getuid()}:{os.getgid()}", "tls: Permission denied", "PK_UID und PK_GID", "Synology", "chown -R",
+                  "nicht von Hand"):
+            assert w in msg, (w, msg)
+        if os.geteuid() == 0:  # echt prüfen: als Benutzer ohne Rechte auf einem fremden Ordner
+            os.chmod(d, 0o700)
+            pid = os.fork()
+            if pid == 0:
+                try:
+                    os.setgid(65534)
+                    os.setuid(65534)
+                    os._exit(3 if privileges.unwritable([d]) else 0)
+                except BaseException:
+                    os._exit(4)
+            st = os.waitpid(pid, 0)[1]
+            assert st >> 8 == 3, ("fremder Ordner muss als nicht beschreibbar erkannt werden", st, d)
+        base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+        rp = os.path.join(base, "run.py")
+        if os.path.exists(rp):
+            src = open(rp, encoding="utf-8").read()
+            assert src.index("privileges.unwritable(") < src.index("config.ensure_dirs()") < src.index("tls.ensure()")
+            assert "raise SystemExit(privileges.write_hint(" in src
+        for lang, w in (("de", "### Auf einem NAS (z. B. Synology) {#setup-nas}"), ("en", "### On a NAS (e.g. Synology) {#setup-nas}")):
+            md = open(os.path.join(base, "app", "static", "help", f"{lang}.md"), encoding="utf-8").read()
+            assert w in md and "PK_UID=1027" in md and "PK_DATA_PATH=/volume1/" in md, lang
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
 def main():
     ok = 0
     for name, fn in RESULTS:

@@ -317,10 +317,34 @@ Container-Verwaltungen arbeiten mit derselben `docker-compose.yml`. Darauf kommt
 
 - **Projekt aus dem Ordner anlegen:** Legen Sie zuerst den Ordner aus Schritt 2 mit `docker-compose.yml` und ausgefüllter `.env` an und wählen Sie ihn als Projekt- bzw. Stack-Ordner („vorhandene docker-compose.yml verwenden“). Wird die Compose-Datei nur in ein Eingabefeld kopiert, legt das Werkzeug sie oft in einem eigenen Ordner ab – dann fehlt dort die `.env` (Fehler `env file … not found`): die `.env` in genau diesen Ordner legen.
 - **Pfade absolut angeben**, z. B. `PK_DATA_PATH=/volume1/docker/pocketknife/data` – so ist eindeutig, wo die Daten liegen.
-- **Rechte:** Der Dienst läuft im Container als Benutzer mit der ID 10001. Daten- und Sicherungsordner übergibt er sich beim Start selbst. Ein eingebundener Repository-Ordner (`PK_REPO_MOUNT`) muss für ihn **lesbar** sein: Leserecht für alle vergeben oder mit `PK_UID`/`PK_GID` die IDs eines vorhandenen Benutzers eintragen (`id <benutzer>` auf dem Host zeigt sie).
+- **Rechte:** Der Dienst läuft im Container als Benutzer mit der ID 10001. Auf einem normalen Linux-Server übergibt er sich Daten- und Sicherungsordner beim Start selbst. Ein eingebundener Repository-Ordner (`PK_REPO_MOUNT`) muss für ihn **lesbar** sein. Auf einem NAS mit eigenen Freigabe-Rechten (z. B. Synology) reicht das nicht – siehe den nächsten Abschnitt.
 - **Port:** Ist 8443 belegt (z. B. durch eine andere Anwendung auf dem NAS), `PK_PORT` ändern.
 - **Updates:** Mit `:latest` kann die Container-Verwaltung das neue Image selbst laden und den Container neu starten; die Daten bleiben. Vor dem Start sichert POCKET KNIFE die Datenbank.
 - **Ältere Compose-Versionen** (wie sie manche NAS-Pakete mitbringen) melden doppelte DNS-Einträge als Fehler. Seit 2.30 ist der zweite DNS-Server echt optional; mit einer älteren `docker-compose.yml` die neue aus der Programm-ZIP nehmen.
+
+### Auf einem NAS (z. B. Synology) {#setup-nas}
+
+Ein NAS prüft auf seinen Freigaben **eigene Zugriffsrechte** (Synology: Berechtigungen in der File Station). Einen Benutzer mit der ID 10001 kennt es nicht – POCKET KNIFE darf dann nicht in seinen Datenordner schreiben und bricht beim Start mit „Start abgebrochen – Benutzer 10001:10001 darf hier nicht schreiben“ ab. Abhilfe: POCKET KNIFE läuft als **eigener Benutzer des NAS**.
+
+1. **Ordner anlegen**, z. B. in der Freigabe `docker`: `pocketknife` mit den Unterordnern `data`, `data-backup` und – nur wenn die Installationsdateien auf dem NAS liegen – `repo`. Die Unterordner **in** `data` (`tls`, `logs` …) legt POCKET KNIFE selbst an; bitte nicht von Hand.
+2. **Benutzer anlegen** (Synology: Systemsteuerung → Benutzer und Gruppe → Erstellen), z. B. `pocketknife`: kein Administrator, langes zufälliges Kennwort, alle Anwendungen verweigern, Lesen/Schreiben auf die Freigabe `docker`.
+3. **Ordnerrechte** (File Station → Rechtsklick → Eigenschaften → Berechtigung → Erstellen, jeweils „auf diesen Ordner, Unterordner und Dateien anwenden“): Benutzer `pocketknife` mit **Lesen und Schreiben** auf `data` und `data-backup`, mit **Lesen** auf `repo`.
+4. **IDs herausfinden:** per SSH `id pocketknife` → z. B. `uid=1027(pocketknife) gid=100(users)`.
+5. **In die `.env`** (Pfade absolut, auf das Volume des NAS – sonst landen die Daten auf der Systempartition):
+
+```
+PK_DATA_PATH=/volume1/docker/pocketknife/data
+PK_BACKUP_PATH=/volume1/docker/pocketknife/data-backup
+PK_REPO_MOUNT=/volume1/docker/pocketknife/repo
+PK_UID=1027
+PK_GID=100
+```
+
+`PK_REPO_MOUNT` nur, wenn die Installationsdateien auf dem NAS liegen (in der Oberfläche dann Repository-Pfad `/repo`); liegen sie auf einem Windows-Dateiserver, die Zeile weglassen und dort den UNC-Pfad eintragen.
+
+6. **Projekt anlegen** (Synology: Container Manager → Projekt → Erstellen, Pfad `/volume1/docker/pocketknife`, vorhandene `docker-compose.yml` verwenden) und starten.
+
+> **Tipp:** Der Gruppe „Jeder“ Schreibrecht auf `data` zu geben, funktioniert auch, ist aber nicht zu empfehlen – dort liegen die Datenbank und der Schlüssel für die gespeicherten Kennwörter.
 
 ### Häufige Fehler bei der Installation {#setup-errors}
 
@@ -331,7 +355,7 @@ Container-Verwaltungen arbeiten mit derselben `docker-compose.yml`. Darauf kommt
 | `services.guacd.dns array items[0,1] must be unique` | Ältere Compose-Version und `docker-compose.yml` vor 2.30 mit nur einem DNS-Server: die neue `docker-compose.yml` verwenden (oder `PK_DNS_2` auf einen zweiten, anderen DNS-Server setzen). |
 | `port is already allocated` / `address already in use` | Der Port ist auf dem Host belegt: `PK_PORT` ändern. |
 | `denied`, `unauthorized` oder `not found` beim Laden des Images | Bei einer privaten Registry vorher `docker login ghcr.io`; sonst Internetzugang bzw. Proxy des Docker-Hosts prüfen. |
-| Container startet immer wieder neu, im Protokoll `Permission denied` für `/data` | Das Datenverzeichnis liegt auf einer Netzfreigabe, auf der der Container keine Rechte setzen darf: ein lokales Laufwerk verwenden oder mit `PK_UID`/`PK_GID` den Besitzer des Ordners eintragen. |
+| Container startet immer wieder neu, im Protokoll „Start abgebrochen – Benutzer … darf hier nicht schreiben“ (ältere Versionen: `PermissionError … /data/…`) | Der Dienst darf nicht in den Datenordner schreiben. NAS (z. B. Synology): siehe [Auf einem NAS](#setup-nas). Linux-Server: `chown -R 10001:10001` auf `PK_DATA_PATH` und `PK_BACKUP_PATH` oder einen lokalen Ordner statt einer Netzfreigabe verwenden. Unterordner in `data` nicht von Hand anlegen. |
 | Seite nicht erreichbar | Port in der Firewall des Hosts freigeben; `https://` verwenden (nicht `http://`). |
 | Anmeldung schlägt fehl, obwohl das Kennwort stimmt | Konto nicht in `PK_ACCESS_GROUP`; anderer UPN-Suffix als `PK_DOMAIN` (dann `FIRMA\benutzer` verwenden); LDAPS (636) auf den DCs nicht aktiv oder gesperrt; `PK_DNS_1` zeigt nicht auf das DNS der Domäne. Den genauen Grund zeigt `docker compose logs pocketknife`. |
 | Computer „nicht auflösbar“ | `PK_DNS_1`/`PK_DNS_2` sind keine DNS-Server der Domäne. Nach einer Änderung in der `.env`: `docker compose up -d` (übernimmt die neuen Werte). |

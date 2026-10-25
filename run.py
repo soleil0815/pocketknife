@@ -14,6 +14,15 @@ if __name__ == "__main__":
     privileges.drop([config.DATA_DIR] + ([backup_dir] if os.path.isdir(backup_dir) else []))
     if os.environ.get("HOME", "/nonexistent") == "/nonexistent":
         os.environ["HOME"] = "/tmp"  # ohne Start als root (privileges.drop setzt es sonst)
+    # 2.30: Schreibrecht in /data (samt Unterordnern) und /backup vorher prüfen – sonst nur ein Traceback im Protokoll
+    _bad = privileges.unwritable([config.DATA_DIR, config.LOG_DIR, config.WINGET_DIR, config.TLS_DIR, config.REPORT_DIR,
+                                  config.TMP_DIR])
+    _bad_backup = privileges.unwritable([backup_dir]) if os.path.isdir(backup_dir) else []
+    if _bad:
+        raise SystemExit(privileges.write_hint(_bad + _bad_backup, config.DATA_DIR))
+    if _bad_backup:
+        print(privileges.write_hint(_bad_backup, config.DATA_DIR).replace("Start abgebrochen", "Warnung – Sicherungen werden "
+              "nicht gespeichert"), flush=True)
     config.ensure_dirs()
     if os.path.isdir("/repo"):
         try:

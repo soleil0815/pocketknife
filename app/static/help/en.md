@@ -317,10 +317,34 @@ Container managers use the same `docker-compose.yml`. What matters:
 
 - **Create the project from the folder:** first create the folder from step 2 with `docker-compose.yml` and a filled-in `.env`, and select it as the project or stack folder ("use existing docker-compose.yml"). If the compose file is only pasted into an input field, the tool often stores it in a folder of its own – then the `.env` is missing there (error `env file … not found`): put the `.env` into exactly that folder.
 - **Use absolute paths**, e.g. `PK_DATA_PATH=/volume1/docker/pocketknife/data` – then it is clear where the data lives.
-- **Permissions:** in the container the service runs as the user with ID 10001. It takes over the data and backup folders itself at start. A mounted repository folder (`PK_REPO_MOUNT`) must be **readable** for it: grant read access to everyone, or enter the IDs of an existing user with `PK_UID`/`PK_GID` (`id <user>` on the host shows them).
+- **Permissions:** in the container the service runs as the user with ID 10001. On a normal Linux server it takes over the data and backup folders itself at start. A mounted repository folder (`PK_REPO_MOUNT`) must be **readable** for it. On a NAS with share permissions of its own (e.g. Synology) that is not enough – see the next section.
 - **Port:** if 8443 is taken (e.g. by another application on the NAS), change `PK_PORT`.
 - **Updates:** with `:latest` the container manager can pull the new image and restart the container itself; the data stays. POCKET KNIFE backs up the database before starting.
 - **Older Compose versions** (as shipped with some NAS packages) report duplicate DNS entries as an error. Since 2.30 the second DNS server is truly optional; with an older `docker-compose.yml` use the new one from the program ZIP.
+
+### On a NAS (e.g. Synology) {#setup-nas}
+
+A NAS checks **its own access rights** on its shares (Synology: permissions in File Station). It does not know a user with ID 10001 – POCKET KNIFE may then not write to its data folder and stops at start with "Start abgebrochen – Benutzer 10001:10001 darf hier nicht schreiben" (start aborted – user may not write here). The remedy: POCKET KNIFE runs as **a user of its own on the NAS**.
+
+1. **Create the folders**, e.g. in the share `docker`: `pocketknife` with the subfolders `data`, `data-backup` and – only if the installation files are on the NAS – `repo`. POCKET KNIFE creates the subfolders **inside** `data` (`tls`, `logs` …) itself; please do not create them by hand.
+2. **Create a user** (Synology: Control Panel → User & Group → Create), e.g. `pocketknife`: no administrator, long random password, deny all applications, read/write on the share `docker`.
+3. **Folder permissions** (File Station → right-click → Properties → Permission → Create, each time "apply to this folder, sub-folders and files"): user `pocketknife` with **read and write** on `data` and `data-backup`, with **read** on `repo`.
+4. **Find the IDs:** via SSH `id pocketknife` → e.g. `uid=1027(pocketknife) gid=100(users)`.
+5. **In the `.env`** (absolute paths on the NAS volume – otherwise the data ends up on the system partition):
+
+```
+PK_DATA_PATH=/volume1/docker/pocketknife/data
+PK_BACKUP_PATH=/volume1/docker/pocketknife/data-backup
+PK_REPO_MOUNT=/volume1/docker/pocketknife/repo
+PK_UID=1027
+PK_GID=100
+```
+
+`PK_REPO_MOUNT` only if the installation files are on the NAS (then repository path `/repo` in the interface); if they are on a Windows file server, leave the line out and enter the UNC path there.
+
+6. **Create the project** (Synology: Container Manager → Project → Create, path `/volume1/docker/pocketknife`, use the existing `docker-compose.yml`) and start it.
+
+> **Tip:** giving the group "Everyone" write access to `data` works too, but is not recommended – the database and the key for stored passwords are in there.
 
 ### Common installation errors {#setup-errors}
 
@@ -331,7 +355,7 @@ Container managers use the same `docker-compose.yml`. What matters:
 | `services.guacd.dns array items[0,1] must be unique` | Older Compose version and a `docker-compose.yml` before 2.30 with only one DNS server: use the new `docker-compose.yml` (or set `PK_DNS_2` to a second, different DNS server). |
 | `port is already allocated` / `address already in use` | The port is in use on the host: change `PK_PORT`. |
 | `denied`, `unauthorized` or `not found` when pulling the image | For a private registry run `docker login ghcr.io` first; otherwise check the Docker host's internet access or proxy. |
-| Container keeps restarting, log shows `Permission denied` for `/data` | The data directory is on a network share where the container may not set permissions: use a local drive or enter the folder's owner with `PK_UID`/`PK_GID`. |
+| Container keeps restarting, log shows "Start abgebrochen – Benutzer … darf hier nicht schreiben" (older versions: `PermissionError … /data/…`) | The service may not write to the data folder. NAS (e.g. Synology): see [On a NAS](#setup-nas). Linux server: `chown -R 10001:10001` on `PK_DATA_PATH` and `PK_BACKUP_PATH`, or use a local folder instead of a network share. Do not create subfolders in `data` by hand. |
 | Page not reachable | Open the port in the host's firewall; use `https://` (not `http://`). |
 | Sign-in fails although the password is right | Account not in `PK_ACCESS_GROUP`; UPN suffix different from `PK_DOMAIN` (then use `FIRMA\user`); LDAPS (636) not active on the DCs or blocked; `PK_DNS_1` does not point to the domain's DNS. `docker compose logs pocketknife` shows the exact reason. |
 | Computer "cannot be resolved" | `PK_DNS_1`/`PK_DNS_2` are not DNS servers of the domain. After changing the `.env`: `docker compose up -d` (applies the new values). |

@@ -40,6 +40,12 @@
      "audience": "admin",
      "de": "Neue Installationsanleitung im Handbuch: Schritt für Schritt vom Docker-Host bis zur ersten Anmeldung, mit allen Einstellungen der .env und häufigen Fehlern.",
      "en": "New installation guide in the manual: step by step from the Docker host to the first sign-in, with all .env settings and common errors."
+    },
+    {
+     "kind": "improved",
+     "audience": "admin",
+     "de": "Fehlt das Schreibrecht auf den Datenordner (z. B. auf einer Synology), erklärt POCKET KNIFE beim Start, was zu tun ist – statt eines Tracebacks.",
+     "en": "If write access to the data folder is missing (e.g. on a Synology), POCKET KNIFE explains at start what to do – instead of a traceback."
     }
    ]
   },

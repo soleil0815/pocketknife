@@ -45,6 +45,48 @@ def chown_tree(path, uid, gid):
     return changed, errors
 
 
+def _probe(d):
+    """Darf der laufende Benutzer in d anlegen und löschen? Wirft OSError, wenn nicht."""
+    import tempfile
+    fd, p = tempfile.mkstemp(prefix=".pk-probe-", dir=d)
+    os.close(fd)
+    os.remove(p)
+
+
+def unwritable(dirs, probe=None):
+    """2.30: Ordner, in die der Dienst nicht schreiben darf – [(Ordner, Fehlertext)]. Fehlende Ordner werden angelegt."""
+    probe = probe or _probe
+    out = []
+    for d in dirs:
+        if not d:
+            continue
+        try:
+            os.makedirs(d, exist_ok=True)
+            probe(d)
+        except OSError as e:
+            out.append((d, e.strerror or str(e)))
+    return out
+
+
+def write_hint(problems, data_dir):
+    """Verständliche Meldung statt eines Tracebacks, wenn der Dienst nicht schreiben darf (typisch: NAS mit eigenen
+    Freigabe-Rechten wie Synology, oder ein Ordner, den jemand von Hand als anderer Benutzer angelegt hat)."""
+    uid, gid = os.getuid(), os.getgid()
+    lines = [f"POCKET KNIFE: Start abgebrochen – Benutzer {uid}:{gid} darf hier nicht schreiben:"]
+    lines += [f"  - {d}: {err}" for d, err in problems]
+    lines += [
+        "  So beheben Sie es:",
+        "  - NAS mit eigenen Freigabe-Rechten (z. B. Synology): einen Benutzer für POCKET KNIFE anlegen, ihm Lesen/Schreiben",
+        "    auf den Daten- und Sicherungsordner geben (auf Unterordner und Dateien anwenden), seine IDs (id <benutzer>)",
+        "    als PK_UID und PK_GID in die .env eintragen und den Container neu starten.",
+        f"  - Linux-Server: chown -R {uid}:{gid} auf den Datenordner (PK_DATA_PATH) und den Sicherungsordner (PK_BACKUP_PATH),",
+        "    oder einen lokalen Ordner statt einer Netzfreigabe verwenden.",
+        f"  Unterordner in {data_dir} legt POCKET KNIFE selbst an – bitte nicht von Hand als anderer Benutzer anlegen.",
+        "  Siehe Handbuch → Installation → Auf einem NAS.",
+    ]
+    return "\n".join(lines)
+
+
 def drop(dirs):
     """Als root gestartet: dirs übergeben, dann dauerhaft zum Dienstbenutzer wechseln. Sonst nichts tun."""
     if os.name != "posix" or os.geteuid() != 0:
