@@ -1,5 +1,8 @@
 # Änderungen
 
+## pocketknife-2.29.7-s1 (25.10.2026)
+- **Wöchentliches Sicherheitsupdate** (automatisch gebaut): Basis-Image, Debian- und Python-Pakete auf den neuesten Stand gebracht, ohne Cache neu gebaut, Selbsttest und Schwachstellen-Prüfung (Trivy) bestanden. Am Programm selbst hat sich nichts geändert (Programmstand 2.29.7)
+
 ## pocketknife-2.29.7 (25.10.2026)
 - **Sicherheitsupdates erkennbar benannt:** Das wöchentliche Sicherheitsupdate zählt nicht mehr die Programmversion hoch, sondern hängt `-s<n>` an – 2.29.7 → 2.29.7-s1 → 2.29.7-s2 heißt „gleiches Programm, nur neue Pakete“. Eine neue Programmversion fängt wieder ohne `-s` an. App (Neuigkeiten, Hinweis auf neue Versionen), `update.sh` und Release-Workflow sortieren richtig (2.29.7 < 2.29.7-s1 < 2.29.7-s2 < 2.29.8); Image-Tags z. B. `ghcr.io/…/pocketknife:2.29.7-s1`
 - **Behoben:** Beim automatischen Update blieb guacd ohne Prüfsumme (Digest) – `docker compose config` scheitert auf GitHub ohne `.env`. Jetzt wird die Zeile direkt gelesen; lässt sich der Digest nicht ermitteln, bricht das Update ab (nie still ungepinnt)
