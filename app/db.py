@@ -470,7 +470,8 @@ MIGRATIONS = [
     ("deployments", "target_label", "TEXT"),
     ("packages", "integrity", "TEXT"),  # 2.26: Ergebnis der Bruchprüfung (JSON: state, issues, at)
     ("packages", "ident_at", "TEXT"),   # 2.27: Kennzeichen für die Duplikatsperre zuletzt berechnet
-    ("tenants", "allow_scripts", "INTEGER DEFAULT 0"),  # 2.29.1: OU-Admins dürfen Befehls-/PowerShell-Schritte schreiben
+    ("tenants", "allow_scripts", "INTEGER DEFAULT 0"),  # 2.29.1
+    ("tenants", "collection_ids", "TEXT"),  # 2.29.9: mehrere Sammlungen je Mandant (JSON-Liste); collection_id = erste  # 2.29.1: OU-Admins dürfen Befehls-/PowerShell-Schritte schreiben
     ("tenants", "quota_mb", "INTEGER"), # 2.27: Speicherkontingent im Repository (leer = Standard aus den Einstellungen)
 ]
 

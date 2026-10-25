@@ -1,5 +1,10 @@
 # Änderungen
 
+## pocketknife-2.29.9 (25.10.2026)
+- **Neu – mehrere Sammlungen je Mandant:** Beim Mandanten lassen sich jetzt beliebig viele Sammlungen wählen (z. B. mehrere OUs, Standorte oder AD-Gruppen) – zusammen ergeben sie seinen Bereich: Pakete und Zeitpläne des Mandanten erreichen genau diese Computer, OU-Admins sehen genau diese. Auswahl wie bei den Zeitplänen (Baum mit Suche). Bestehende Mandanten behalten ihre eine Sammlung
+- **Sicherheit – OU-Admins sehen nicht mehr die ganze Domäne:** Bei den Sammlungen (Computerbaum, Auswahl in Paket-Bedingungen) erscheinen nur noch die Sammlungen ihres Bereichs samt Unterordnern, andere nur, wenn sie mindestens einen ihrer Computer enthalten (z. B. eine Ausnahme-Gruppe), und die Standardsammlungen. Die übrige Domäne und die Sammlungen anderer Mandanten bleiben verborgen. Eine gewählte, nicht sichtbare Sammlung in einer Bedingung bleibt erhalten („Sammlung #… (nicht sichtbar)“) statt still ersetzt zu werden
+- **Selbsttest:** Bereich aus mehreren Sammlungen (Bereitstellung, Computerliste), ältere Mandanten mit einer Sammlung, sichtbare Sammlungen eines OU-Admins (eigene, Ausnahme-Gruppe, Standard, Ordner – nicht fremd, nicht unbeteiligt), Auswahl in Paket-Bedingungen, Schutz vor dem Löschen
+
 ## pocketknife-2.29.8 (25.10.2026)
 - **Behoben – Übersicht:** Bei „Letzte Bereitstellungen“ schoben lange Namen (z. B. „Deinstallation: Microsoft Visual C++ 2008 Redistributable …“) die Zeilen über den Rand der Kachel hinaus. Lange Namen werden jetzt umgebrochen; allgemein kann kein Tabelleninhalt eine Kachel der Übersicht mehr breiter machen als ihren Platz
 - **Selbsttest:** Umbruch und Begrenzung geprüft

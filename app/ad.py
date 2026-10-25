@@ -1163,7 +1163,9 @@ def _referenced_collections():
                 v = v.get("collections") or []
             ids.update(int(x) for x in (v or []) if str(x).lstrip("-").isdigit())
     try:
-        ids.update(r["collection_id"] for r in db.q("SELECT collection_id FROM tenants WHERE collection_id IS NOT NULL"))
+        from . import access
+        for r in db.q("SELECT collection_id, collection_ids FROM tenants"):
+            ids.update(access.tenant_cols(r))
     except Exception:
         pass
     try:

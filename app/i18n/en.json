@@ -4917,5 +4917,11 @@
  "Eigene Befehle sind für Ihren Mandanten nicht freigegeben.": "Custom commands are not enabled for your tenant.",
  "Hinweis: Zugriff auf Freigaben oder Internet": "Notice: access to shares or internet",
  "Skripte": "scripts",
- "dürfen dabei Befehls- und PowerShell-Schritte schreiben (eigener Code)": "may write command and PowerShell steps (own code)"
+ "dürfen dabei Befehls- und PowerShell-Schritte schreiben (eigener Code)": "may write command and PowerShell steps (own code)",
+ "Alle Computer Ihres Bereichs": "All computers in your scope",
+ "Höchstens 50 Sammlungen je Mandant.": "At most 50 collections per tenant.",
+ "Sammlungen als Liste angeben.": "Specify collections as a list.",
+ "Ungültige Sammlung.": "Invalid collection.",
+ "Eine oder mehrere Sammlungen – zusammen ergeben sie den Bereich des Mandanten (z. B. mehrere OUs oder AD-Gruppen). Pakete dieses Mandanten werden nur auf diese Computer verteilt, OU-Admins sehen nur diese Computer und nur die dazu passenden Sammlungen. Keine Auswahl: alle Computer (nur ohne OU-Admins möglich).": "One or more collections – together they form the tenant's scope (e.g. several OUs or AD groups). Packages of this tenant are only deployed to these computers; OU admins only see these computers and only the matching collections. No selection: all computers (only possible without OU admins).",
+ "Sammlung #{0} (nicht sichtbar)": "Collection #{0} (not visible)"
 }

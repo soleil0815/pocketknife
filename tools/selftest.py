@@ -4667,6 +4667,72 @@ def _():
     assert ".grid > * { min-width: 0; }" in css and ".card > .card-b.flush { overflow-x: auto; }" in css
 
 
+@test("2.29.9 Mandanten: mehrere Sammlungen je Mandant (Bereich = alle zusammen); OU-Admins sehen nur die Sammlungen ihres Bereichs, nicht die ganze Domäne")
+def _():
+    import hashlib
+    import secrets
+    import time as _t
+    from app import access, auth, deploy
+    from app import main as _m
+    mk = lambda n: db.ex("INSERT INTO computers(name, dns_name, created_at) VALUES(?,?,?)", (n, n.lower() + ".firma.local", util.now()))  # noqa: E731
+    a1, a2, b1, x1 = mk("MB-A1"), mk("MB-A2"), mk("MB-B1"), mk("MB-X1")
+    folder = db.ex("INSERT INTO collections(name, type) VALUES('Domäne MB (Test)', 'folder')")
+    def col(name, members, parent=folder):
+        c = db.ex("INSERT INTO collections(name, parent_id, type) VALUES(?, ?, 'static')", (name, parent))
+        for m in members:
+            db.ex("INSERT INTO collection_members VALUES(?,?)", (c, m))
+        return c
+    ou_a, ou_b = col("OU Standort A", [a1]), col("OU Standort B", [a2])
+    ou_fremd, ou_leer = col("OU Fremdkunde", [b1]), col("OU Unbeteiligt", [x1])
+    ausn = col("GG Ausnahme", [a2, x1])
+    tid = db.ex("INSERT INTO tenants(name, collection_id, collection_ids, admin_group, created_at) VALUES('MB', ?, ?, 'PK-OU-MB', ?)",
+                (ou_a, json.dumps([ou_a, ou_b]), util.now()))
+    tf = db.ex("INSERT INTO tenants(name, collection_id, admin_group, created_at) VALUES('MB fremd', ?, 'PK-OU-MBF', ?)", (ou_fremd, util.now()))
+    collections_.invalidate()
+    access.flush()
+    tok = secrets.token_urlsafe(16)
+    th = hashlib.sha256(tok.encode()).hexdigest()
+    db.ex("INSERT INTO sessions(token_hash, username, display_name, created, expires, ip, last_active, role, scope) VALUES(?,?,?,?,?,?,?,?,?)",
+          (th, "ou-mb", "Test", util.now(), "2099-01-01 00:00:00", "127.0.0.1", util.now(), "admin", json.dumps([tid])))
+    auth._checked[th] = _t.time() + 10 ** 6
+    try:
+        # Bereich = beide Sammlungen zusammen
+        assert access.tenant_cols(db.q1("SELECT * FROM tenants WHERE id=?", (tid,))) == [ou_a, ou_b]
+        assert access.tenant_cols({"collection_id": 7, "collection_ids": None}) == [7], "ältere Mandanten: eine Sammlung"
+        assert deploy.tenant_members(tid) == {a1, a2}
+        assert {c["id"] for c in _asgi("GET", "/api/computers", tok)[1]} == {a1, a2}
+        # Sichtbare Sammlungen: eigene, solche mit eigenen Computern (Ausnahme-Gruppe), Standardsammlungen, Ordner darüber
+        vis = {c["id"]: c for c in _asgi("GET", "/api/collections", tok)[1]}
+        assert ou_a in vis and ou_b in vis and ausn in vis and folder in vis, sorted(vis)
+        assert ou_fremd not in vis, "Sammlung eines anderen Mandanten"
+        assert ou_leer not in vis, "Sammlung ohne eigene Computer (Rest der Domäne)"
+        assert vis[ausn]["count"] == 1, "zählt nur eigene Computer"
+        assert any(c["builtin"] == 1 for c in vis.values()), "Standardsammlungen bleiben"
+        meta = _asgi("GET", "/api/packages/meta", tok)[1]
+        ch = {c["id"] for c in meta["collections"]}
+        assert ausn in ch and ou_leer not in ch and ou_fremd not in ch, "auch die Auswahl in Paket-Bedingungen"
+        # Mandant speichern mit mehreren Sammlungen (Hauptadmin-Weg)
+        assert _m._tenant_cols_in({"collection_ids": [ou_a, str(ou_b), ou_a]}) == [ou_a, ou_b]
+        assert _m._tenant_cols_in({"collection_id": ou_a}) == [ou_a], "alter Aufruf mit einer Sammlung"
+        assert _m._tenant_cols_in({"collection_ids": [0, ou_a]}) == [ou_a], "„Alle Computer“ (0) zählt nicht als Sammlung"
+        assert _m._tenant_cols_in({"collection_ids": []}) == []
+        assert ou_b in collections_.referenced_ids(), "zweite Sammlung eines Mandanten ist vor dem Löschen geschützt"
+        js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
+        assert "collection_ids: [...colSet]" in js and "collChoiceOptions(meta.collections, x.id)" in js
+    finally:
+        db.ex("DELETE FROM sessions WHERE token_hash=?", (th,))
+        for t in (tid, tf):
+            db.ex("DELETE FROM tenants WHERE id=?", (t,))
+        for c in (ou_a, ou_b, ou_fremd, ou_leer, ausn):
+            db.ex("DELETE FROM collection_members WHERE collection_id=?", (c,))
+            db.ex("DELETE FROM collections WHERE id=?", (c,))
+        db.ex("DELETE FROM collections WHERE id=?", (folder,))
+        for c in (a1, a2, b1, x1):
+            db.ex("DELETE FROM computers WHERE id=?", (c,))
+        collections_.invalidate()
+        access.flush()
+
+
 def main():
     ok = 0
     for name, fn in RESULTS:

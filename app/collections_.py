@@ -776,8 +776,10 @@ def usages():
         for x in _jl(r["collections"], []):
             if str(x).isdigit() and int(x) > 0:
                 out.append((int(x), f"Scanprofil „{r['name']}“"))
-    for r in db.q("SELECT name, collection_id FROM tenants WHERE collection_id IS NOT NULL"):
-        out.append((int(r["collection_id"]), f"Mandant „{r['name']}“"))
+    from . import access
+    for r in db.q("SELECT name, collection_id, collection_ids FROM tenants"):
+        for col in access.tenant_cols(r):
+            out.append((int(col), f"Mandant „{r['name']}“"))
     # Audit 2.29: Bedingungen in Paketen (Paket und einzelne Schritte) – sonst ließe sich eine Ausnahme-Sammlung löschen
     for r in db.q("SELECT name, conditions, steps FROM packages"):
         for x in _cond_refs(r["conditions"], r["steps"]):
