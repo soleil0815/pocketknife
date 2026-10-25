@@ -586,7 +586,7 @@ def where_for(cid, hops=0):
         raise ValueError(f"Zu viele Sammlungen bauen aufeinander auf (mehr als {HOPS_MAX} Verweise „ist Mitglied von“ "
                          "bzw. übergeordnete Sammlungen hintereinander).")
     if col["type"] == "static":
-        return "c.id IN (SELECT computer_id FROM collection_members WHERE collection_id = ?)", [cid]
+        return _tenant_limit(col, "c.id IN (SELECT computer_id FROM collection_members WHERE collection_id = ?)", [cid], hops)
     if col["type"] == "folder":
         return "1=0", []
     w, p = build(col["filters"], col["match"], 0, hops)  # Untergruppen zählen je Sammlung neu
@@ -596,7 +596,24 @@ def where_for(cid, hops=0):
     if par and par["type"] in ("dynamic", "static") and not col.get("ad_kind"):
         pw, pp = where_for(par["id"], hops + 1)
         w, p = f"({w}) AND ({pw})", p + pp
-    return w, p
+    return _tenant_limit(col, w, p, hops)
+
+
+def _tenant_limit(col, w, p, hops):
+    """2.30: Sammlung eines OU-Admins enthält nie mehr als die Computer seines Mandanten – egal, was der Filter sagt."""
+    if not col.get("tenant_id"):
+        return w, p
+    from . import access
+    t = db.q1("SELECT collection_id, collection_ids FROM tenants WHERE id=?", (col["tenant_id"],))
+    cols = [c for c in access.tenant_cols(t) if c != col["id"]] if t else []
+    if not cols:
+        return "1=0", []
+    parts, pp = [], []
+    for c in cols:
+        cw, cp = where_for(c, hops + 1)
+        parts.append(f"({cw})")
+        pp += cp
+    return f"({w}) AND ({' OR '.join(parts)})", p + pp
 
 
 _member_cache = {}
@@ -685,8 +702,9 @@ def _bytes_values(tdef, expr, eparams):
     return out
 
 
-def values(table, column, q="", limit=40):
-    """Vorhandene Werte einer Spalte (Vorschläge im Editor)."""
+def values(table, column, q="", limit=40, scope=("1=1", [])):
+    """Vorhandene Werte einer Spalte (Vorschläge im Editor). scope: (SQL, Parameter) auf c.id – OU-Admin nur eigene."""
+    sw, sp = scope
     tdef = _table(table)
     typ, expr, eparams = _col(table, tdef, column)
     if typ in ("bool", "collection"):
@@ -696,11 +714,11 @@ def values(table, column, q="", limit=40):
     kind, _l, frm, link, _c, cat = tdef
     like = util.like_pattern(q or "", "contains")
     if kind == "computer":
-        sql = f"SELECT DISTINCT ({expr}) v FROM computers c WHERE ({expr}) IS NOT NULL AND ({expr}) LIKE ? ESCAPE '\\' ORDER BY 1 LIMIT ?"
-        return [r["v"] for r in db.q(sql, eparams + eparams + eparams + [like, limit])]
+        sql = f"SELECT DISTINCT ({expr}) v FROM computers c WHERE ({expr}) IS NOT NULL AND ({expr}) LIKE ? ESCAPE '\\' AND {sw} ORDER BY 1 LIMIT ?"
+        return [r["v"] for r in db.q(sql, eparams + eparams + eparams + [like] + list(sp) + [limit])]
     sql = (f"SELECT DISTINCT ({expr}) v FROM {frm} JOIN computers c ON {link} "
-           f"WHERE ({expr}) IS NOT NULL AND ({expr}) LIKE ? ESCAPE '\\' ORDER BY 1 LIMIT ?")
-    params = eparams + ([cat] if kind == "json" else []) + eparams + eparams + [like, limit]
+           f"WHERE ({expr}) IS NOT NULL AND ({expr}) LIKE ? ESCAPE '\\' AND {sw} ORDER BY 1 LIMIT ?")
+    params = eparams + ([cat] if kind == "json" else []) + eparams + eparams + [like] + list(sp) + [limit]
     return [r["v"] for r in db.q(sql, params)]
 
 

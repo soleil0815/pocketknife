@@ -311,6 +311,8 @@ def run_import(user, data, tenant_id=None, conflict="skip", dry_run=True, pkg_va
                     pid = db.ex(f"INSERT INTO packages({', '.join(cols)}) VALUES({', '.join('?' * len(cols))})",
                                 tuple(vals[k] for k in deploy.PKG_FIELDS) + (util.now(), util.now()))
                     repofiles.store_idents(pid, ids, pending)
+                    if access.scoped(user):  # 2.30: vom OU-Admin importiert – er darf es ändern
+                        db.ex("UPDATE packages SET ou_edit=1 WHERE id=?", (pid,))
                     new_ids[p["key"]] = pid
                     if not dry_run:
                         res["id"] = pid

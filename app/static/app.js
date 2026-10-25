@@ -921,7 +921,8 @@ const NAV = [
 
 // OU-Admins (Mitglieder der Gruppe eines Mandanten): sehen nur ihre Computer; diese Bereiche gibt es für sie nicht
 // (der Server sperrt sie ohnehin – app/access.py)
-const OU_HIDDEN = new Set(['scanners', 'kiosk', 'reports', 'settings']);
+// 2.30: Berichte sehen OU-Admins – nur lesend und nur mit ihren Computern (Mailversand und Benachrichtigungen nicht)
+const OU_HIDDEN = new Set(['scanners', 'kiosk', 'settings']);
 const isOU = () => !!(S.me && S.me.scoped);
 // 2.29.1: Befehls-/PowerShell-Schritte für OU-Admins nur, wenn beim Mandanten erlaubt (der Server prüft es ohnehin)
 const mayScript = (tid) => !isOU() || !!((S.me.tenants || []).find((t) => t.id === Number(tid)) || {}).allow_scripts;
@@ -1454,26 +1455,31 @@ async function viewComputers(_parts, params) {
   let cid = params.get('c') ? Number(params.get('c')) : (cols.find((c) => c.builtin === 1 && c.name === 'Alle Computer') || {}).id;
   const current = cols.find((c) => c.id === cid);
   const isAd = (c) => c && c.builtin === 2;
+  // 2.30: fest = Standard-/AD-Sammlung oder (OU-Admin) eine Sammlung, die nur ein Hauptadmin ändern darf
+  const locked = (c) => !!(c && (c.builtin || c.editable === false));
+  const canNew = !isOU() || mayBuild();
+  const lockMsg = (c) => (c.builtin ? 'Standard- und AD-Sammlungen können nicht geändert werden.' : 'Diese Sammlung kann nur ein Hauptadmin ändern – Sie können sie als Kopie für Ihren Bereich anlegen.');
   setTop('Computer', current ? `Sammlung: ${collPath(cols, current.id)}${isAd(current) ? ' (aus dem AD)' : ''}` : '',
     btn('Computer hinzufügen', addComputerDlg, { icon: 'plus' }),
-    btn('Neue Sammlung', () => collectionDlg(null), { icon: 'coll' }));
+    canNew ? btn('Neue Sammlung', () => collectionDlg(null), { icon: 'coll' }) : null);
 
   // Sammlungsbaum ---------------------------------------------------------------------------
   const filterIn = h('input', { type: 'search', placeholder: 'Sammlung suchen …' });
   const treeBody = h('div.tree-body', { tabindex: '0' });
   const tree = h('div.tree', h('div.head', h('h3', 'Sammlungen'),
-    h('button.ghost.small', { title: 'Neue Sammlung', onclick: () => collectionDlg(null) }, icon('plus'))), h('div.tree-filter', filterIn), treeBody);
+    canNew ? h('button.ghost.small', { title: 'Neue Sammlung', onclick: () => collectionDlg(null) }, icon('plus')) : null), h('div.tree-filter', filterIn), treeBody);
   const byParent = {};
   cols.forEach((c) => (byParent[c.parent_id || 0] = byParent[c.parent_id || 0] || []).push(c));
   const openState = (() => { try { return JSON.parse(localStorage.getItem('pk-tree-open') || '{}'); } catch (e) { return {}; } })();
   const saveOpen = () => { try { localStorage.setItem('pk-tree-open', JSON.stringify(openState)); } catch (e) { /* egal */ } };
   let selId = cid;
 
-  const newIn = (c) => (c && !c.builtin ? c.id : null);
+  const newIn = (c) => (c && !locked(c) ? c.id : null);
   const paste = async (target) => {
     const clip = S.collClip;
     if (!clip) { toast('Nichts zum Einfügen – zuerst kopieren oder ausschneiden.'); return; }
-    const parentId = target && !target.builtin ? target.id : null;
+    if (!canNew) { toast('Eigene Sammlungen sind für Ihren Mandanten nicht freigegeben.', 'err'); return; }
+    const parentId = target && !locked(target) ? target.id : null;
     if (clip.mode === 'cut') {
       if (await run(() => POST(`/api/collections/${clip.id}/move`, { parent_id: parentId }), 'Verschoben') !== undefined) { S.collClip = null; route(); }
     } else {
@@ -1482,14 +1488,14 @@ async function viewComputers(_parts, params) {
     }
   };
   const rename = async (c) => {
-    if (c.builtin) { toast('Standard- und AD-Sammlungen können nicht umbenannt werden.', 'err'); return; }
+    if (locked(c)) { toast(lockMsg(c), 'err'); return; }
     const inp = h('input', { value: c.name });
     modal('Umbenennen', h('div.form', field('Name', inp)), [{ label: 'Abbrechen' },
       { label: 'Speichern', cls: 'primary', onClick: async () => { await POST(`/api/collections/${c.id}/rename`, { name: inp.value }); S.collections = null; route(); } }]);
     setTimeout(() => inp.select(), 40);
   };
   const remove = async (c) => {
-    if (c.builtin) { toast('Standard- und AD-Sammlungen können nicht gelöscht werden.', 'err'); return; }
+    if (locked(c)) { toast(lockMsg(c), 'err'); return; }
     const n = collDescendants(cols, c.id).length;
     if (!(await confirmDlg(`„${c.name}“${n ? ` und ${n} untergeordnete Sammlung(en)` : ''} löschen? Die Computer selbst bleiben erhalten.`, 'Löschen', true))) return;
     if (await run(() => DEL(`/api/collections/${c.id}`), 'Gelöscht') !== undefined) { S.collections = null; go(c.id === cid ? '#/computers' : location.hash); route(); }
@@ -1498,18 +1504,25 @@ async function viewComputers(_parts, params) {
     const r = await run(() => POST(`/api/collections/${c.id}/duplicate`, {}), 'Dupliziert');
     if (r) go(`#/computers?c=${r.id}`);
   };
+  // Bearbeiten: eigene direkt; Standard-/AD-Sammlungen als Kopie im Dialog; OU-Admin: fremde als Kopie für seinen Bereich
+  const openEdit = (c) => {
+    if (!locked(c)) return collectionDlg(c);
+    if (c.builtin && !isOU()) return collectionDlg(c, { copy: true });
+    if (canNew) return duplicate(c);
+    return toast(lockMsg(c), 'err');
+  };
   const treeMenu = (c, e) => {
     selId = c ? c.id : null; drawTree();
     const membersT = async () => (c ? (await GET(`/api/computers?collection=${c.id}`)).map((x) => ({ id: x.id, name: x.name, online: x.online })) : []);
     const clip = S.collClip;
     contextMenu(e.clientX, e.clientY, [
       c && c.type !== 'folder' ? { label: 'Öffnen', icon: 'coll', onClick: () => go(`#/computers?c=${c.id}`) } : null,
-      c ? { label: c.builtin ? 'Als Kopie bearbeiten' : 'Bearbeiten', icon: 'edit', hint: 'Doppelklick', onClick: () => (c.builtin ? collectionDlg(c, { copy: true }) : collectionDlg(c)) } : null,
-      { label: 'Neu', icon: 'plus', sub: [
+      c && (!locked(c) || canNew) ? { label: !locked(c) ? 'Bearbeiten' : (isOU() ? 'Als Kopie für Ihren Bereich' : 'Als Kopie bearbeiten'), icon: 'edit', hint: 'Doppelklick', onClick: () => openEdit(c) } : null,
+      !canNew ? null : { label: 'Neu', icon: 'plus', sub: [
         { label: 'Dynamische Sammlung …', icon: 'coll', onClick: () => collectionDlg(null, { parentId: newIn(c), type: 'dynamic' }) },
         { label: 'Statische Sammlung …', icon: 'stat', onClick: () => collectionDlg(null, { parentId: newIn(c), type: 'static' }) },
         { label: 'Ordner …', icon: 'folder', onClick: () => collectionDlg(null, { parentId: newIn(c), type: 'folder' }) }] },
-      c ? { label: 'Duplizieren', icon: 'coll', onClick: () => duplicate(c) } : null,
+      c && canNew ? { label: 'Duplizieren', icon: 'coll', onClick: () => duplicate(c) } : null,
       '-',
       c && c.type !== 'folder' ? { label: 'Sammlung scannen', icon: 'refresh', sub: () => scanSubItems(() => memberIdsOf(c.id)) } : null,
       c && c.type !== 'folder' ? { label: 'Heartbeat', icon: 'net', onClick: async () => heartbeatIds(await memberIdsOf(c.id)) } : null,
@@ -1517,12 +1530,12 @@ async function viewComputers(_parts, params) {
       c && c.type !== 'folder' ? { label: 'Tools', icon: 'terminal', sub: () => toolSubItems(membersT) } : null,
       c && c.type !== 'folder' ? { label: 'Bericht ausführen', icon: 'report', sub: () => reportSubItems(c.id) } : null,
       '-',
-      c ? { label: 'Ausschneiden', icon: 'x', hint: 'Strg+X', disabled: !!c.builtin, onClick: () => { S.collClip = { mode: 'cut', id: c.id, name: c.name }; toast(`„${c.name}“ ausgeschnitten – Ziel wählen und einfügen`); drawTree(); } } : null,
+      c ? { label: 'Ausschneiden', icon: 'x', hint: 'Strg+X', disabled: locked(c), onClick: () => { S.collClip = { mode: 'cut', id: c.id, name: c.name }; toast(`„${c.name}“ ausgeschnitten – Ziel wählen und einfügen`); drawTree(); } } : null,
       c ? { label: 'Kopieren', icon: 'coll', hint: 'Strg+C', onClick: () => { S.collClip = { mode: 'copy', id: c.id, name: c.name }; toast(`„${c.name}“ kopiert`); } } : null,
-      { label: clip ? `Einfügen („${clip.name}“)` : 'Einfügen', icon: 'plus', hint: 'Strg+V', disabled: !clip, onClick: () => paste(c) },
+      { label: clip ? `Einfügen („${clip.name}“)` : 'Einfügen', icon: 'plus', hint: 'Strg+V', disabled: !clip || !canNew, onClick: () => paste(c) },
       '-',
-      c ? { label: 'Umbenennen', icon: 'edit', hint: 'F2', disabled: !!c.builtin, onClick: () => rename(c) } : null,
-      c ? { label: 'Löschen', icon: 'trash', hint: 'Entf', disabled: !!c.builtin, onClick: () => remove(c) } : null,
+      c ? { label: 'Umbenennen', icon: 'edit', hint: 'F2', disabled: locked(c), onClick: () => rename(c) } : null,
+      c ? { label: 'Löschen', icon: 'trash', hint: 'Entf', disabled: locked(c), onClick: () => remove(c) } : null,
     ]);
   };
 
@@ -1532,21 +1545,23 @@ async function viewComputers(_parts, params) {
     if (raw || S.dragComputers) {
       const ids = raw ? JSON.parse(raw) : S.dragComputers;
       if (!target || target.type !== 'static') { toast('Computer lassen sich nur auf statische Sammlungen ziehen.', 'err'); return; }
+      if (locked(target)) { toast(lockMsg(target), 'err'); return; }
       if (await run(() => POST(`/api/collections/${target.id}/members`, { add: ids }), `${ids.length} Computer zu „${target.name}“ hinzugefügt`) !== undefined) { S.collections = null; route(); }
       return;
     }
     const src = Number(e.dataTransfer.getData('application/x-pk-collection') || S.dragColl || 0);
     if (!src || (target && src === target.id)) return;
     const srcC = cols.find((x) => x.id === src);
-    const copy = e.ctrlKey || e.altKey || (srcC && srcC.builtin);
-    if (target && target.builtin) { toast('In Standard- und AD-Sammlungen kann nichts abgelegt werden.', 'err'); return; }
+    const copy = e.ctrlKey || e.altKey || locked(srcC);
+    if (target && locked(target)) { toast(target.builtin ? 'In Standard- und AD-Sammlungen kann nichts abgelegt werden.' : lockMsg(target), 'err'); return; }
+    if (copy && !canNew) { toast('Eigene Sammlungen sind für Ihren Mandanten nicht freigegeben.', 'err'); return; }
     if (copy) { const r = await run(() => POST(`/api/collections/${src}/duplicate`, { parent_id: target ? target.id : null }), 'Kopiert'); if (r) route(); }
     else if (await run(() => POST(`/api/collections/${src}/move`, { parent_id: target ? target.id : null }), 'Verschoben') !== undefined) route();
   };
   const dragTarget = (el, target) => {
     el.addEventListener('dragover', (e) => {
       const comps = S.dragComputers || [...(e.dataTransfer.types || [])].includes('application/x-pk-computers');
-      if (comps ? (target && target.type === 'static') : (!target || !target.builtin)) {
+      if (comps ? (target && target.type === 'static' && !locked(target)) : (!target || !locked(target))) {
         e.preventDefault(); e.dataTransfer.dropEffect = comps || e.ctrlKey ? 'copy' : 'move'; el.classList.add('dropto');
       }
     });
@@ -1562,13 +1577,13 @@ async function viewComputers(_parts, params) {
       class: (c.id === cid ? 'active ' : '') + (c.id === selId && c.id !== cid ? 'focus ' : '') + (S.collClip && S.collClip.mode === 'cut' && S.collClip.id === c.id ? 'cut ' : '')
         + (c.builtin === 2 ? 'ad ' : ''),
       // Standard- und AD-Bereich sind fest: nur auf- und zuklappen, nicht ziehen (Kopie über Rechtsklick → Kopieren)
-      style: { paddingLeft: `${8 + depth * 14}px` }, draggable: c.builtin ? 'false' : 'true', title: c.description || '',
+      style: { paddingLeft: `${8 + depth * 14}px` }, draggable: locked(c) ? 'false' : 'true', title: c.description || '',
       onclick: () => { selId = c.id; if (c.type !== 'folder') go(`#/computers?c=${c.id}`); else { openState[c.id] = !isOpen; saveOpen(); drawTree(); } },
     }, tw, h('span.ic-s', icon(COLL_ICON(c))), h('span.lbl', { class: c.builtin === 1 ? '' : 'raw' }, c.name),
     c.count !== null && c.count !== undefined ? h('span.cnt', num(c.count)) : null);
-    it.addEventListener('dblclick', () => (c.builtin ? collectionDlg(c, { copy: true }) : collectionDlg(c)));
+    it.addEventListener('dblclick', () => openEdit(c));
     it.addEventListener('contextmenu', (e) => { e.preventDefault(); e.stopPropagation(); treeMenu(c, e); });
-    if (!c.builtin) it.addEventListener('dragstart', (e) => { S.dragColl = c.id; try { e.dataTransfer.setData('application/x-pk-collection', String(c.id)); } catch (x) { /* egal */ } e.dataTransfer.effectAllowed = 'copyMove'; });
+    if (!locked(c)) it.addEventListener('dragstart', (e) => { S.dragColl = c.id; try { e.dataTransfer.setData('application/x-pk-collection', String(c.id)); } catch (x) { /* egal */ } e.dataTransfer.effectAllowed = 'copyMove'; });
     it.addEventListener('dragend', () => { S.dragColl = null; });
     dragTarget(it, c);
     return [it, kids.length && isOpen ? kids.map((k) => renderNode(k, depth + 1)) : null];
@@ -1591,7 +1606,7 @@ async function viewComputers(_parts, params) {
     const c = cols.find((x) => x.id === selId);
     const k = e.key.toLowerCase();
     if ((e.ctrlKey || e.metaKey) && k === 'c' && c) { S.collClip = { mode: 'copy', id: c.id, name: c.name }; toast(`„${c.name}“ kopiert`); }
-    else if ((e.ctrlKey || e.metaKey) && k === 'x' && c && !c.builtin) { S.collClip = { mode: 'cut', id: c.id, name: c.name }; toast(`„${c.name}“ ausgeschnitten`); drawTree(); }
+    else if ((e.ctrlKey || e.metaKey) && k === 'x' && c && !locked(c)) { S.collClip = { mode: 'cut', id: c.id, name: c.name }; toast(`„${c.name}“ ausgeschnitten`); drawTree(); }
     else if ((e.ctrlKey || e.metaKey) && k === 'v') paste(c);
     else if (e.key === 'F2' && c) rename(c);
     else if (e.key === 'Delete' && c) remove(c);
@@ -1692,7 +1707,7 @@ async function viewComputers(_parts, params) {
   const bDeploy = btn('Bereitstellen …', () => deployDlg({ computerIds: t.selectedIds() }), { icon: 'send', cls: 'primary' });
   const bTools = btn('Tools ▾', (e) => toolsMenu(e.currentTarget, targetsOf(t.selected())), { icon: 'terminal' });
   const bCsv = btn('CSV', () => downloadText(`computer_${localDate()}.csv`, tableCsv(t, t.filtered())), { icon: 'download', cls: 'ghost', title: 'Gefilterte Liste als CSV speichern' });
-  const editColl = current && !current.builtin ? btn('Sammlung bearbeiten', () => collectionDlg(current), { icon: 'edit', cls: 'ghost' }) : null;
+  const editColl = current && !current.builtin && current.editable !== false ? btn('Sammlung bearbeiten', () => collectionDlg(current), { icon: 'edit', cls: 'ghost' }) : null;
   const addMembers = current && current.type === 'static' ? btn('Mitglieder …', () => collectionDlg(current), { icon: 'stat', cls: 'ghost', title: 'Computer zu dieser statischen Sammlung hinzufügen oder entfernen' }) : null;
   t.actions.append(bScan, bDeploy, bTools, addMembers || '', editColl || '', bCsv);
   function upd(sx) { [bScan, bDeploy, bTools].forEach((b) => (b.disabled = !sx.length)); }
@@ -1864,7 +1879,7 @@ async function collectionDlg(c, opt = {}) {
   const name = h('input', { value: c.name });
   const type = sel([['dynamic', 'Dynamisch (Filter)'], ['static', 'Statisch (manuell)'], ['folder', 'Ordner']], c.type);
   const banned = new Set(c.id && !opt.copy ? [c.id, ...collDescendants(cols, c.id)] : []);
-  const parent = sel([['', '— oberste Ebene —'], ...cols.filter((x) => !x.builtin && !banned.has(x.id)).map((x) => [x.id, collPath(cols, x.id)])],
+  const parent = sel([['', '— oberste Ebene —'], ...cols.filter((x) => !x.builtin && x.editable !== false && !banned.has(x.id)).map((x) => [x.id, collPath(cols, x.id)])],
     opt.copy && c.builtin ? '' : c.parent_id);
   const desc = h('input', { value: c.description || '' });
   const count = h('b');
@@ -3546,6 +3561,8 @@ async function packageDlg(pidOrPkg, preset = {}) {
       panel.replaceChildren(igBad ? igBox : null, h('h3', igBad ? { style: { marginTop: '18px' } } : {}, 'Paket-Eigenschaften'), h('div.form',
         field('Name', inp(p, 'name')), field('Version', inp(p, 'version')), field('Beschreibung', h('textarea', { rows: 3, value: p.description || '', style: { fontFamily: 'inherit', fontSize: '13px', minHeight: '60px' }, oninput: (e) => { p.description = e.target.value; } })),
         meta.tenants.length ? field('Mandant', sl(p, 'tenant_id', [['', '— keiner (global) —'], ...meta.tenants.map((x) => [x.id, x.name])], true)) : null,
+        !isOU() && meta.tenants.length ? field('OU-Admins dürfen ändern', h('label.chk', h('input', { type: 'checkbox', checked: !!p.ou_edit, onchange: (e) => { p.ou_edit = e.target.checked ? 1 : 0; changed(); } }),
+          'OU-Admins des Mandanten dürfen dieses Paket ändern und löschen'), 'Nur bei Paketen eines Mandanten. Aus: Sie sehen es, verteilen es und können es als Vorlage kopieren. Von OU-Admins angelegte Pakete sind immer an.') : null,
         field('Ausführen als', sl(p, 'run_as', Object.entries(meta.run_as)), `Standard ist das Dienstkonto (${meta.service_login || 'nicht eingerichtet'}). „Lokales System“ und „Angemeldeter Benutzer“ bei Bedarf; einzelne Schritte können abweichen.`),
         field('Zeitlimit (Min.)', inp(p, 'timeout_min', { type: 'number', min: 1, style: { maxWidth: '120px' } }), 'Je Schritt.'),
         field('Neustart am Ende', sl(p, 'reboot', [['never', 'Nie'], ['if_required', 'Wenn erforderlich (3010/1641)'], ['always', 'Immer']])),
@@ -3627,7 +3644,8 @@ async function viewSchedules() {
   const rows = await GET('/api/schedules');
   const t = table([
     { key: 'name', label: 'Name', render: (r) => h('span', h('a', { href: '#', onclick: (e) => { e.preventDefault(); scheduleDlg(r.id); } }, r.name),
-      r.enabled ? null : h('span.badge', { style: { marginLeft: '6px' } }, 'deaktiviert')), value: (r) => r.name },
+      r.enabled ? null : h('span.badge', { style: { marginLeft: '6px' } }, 'deaktiviert'),
+      isOU() && r.editable === false ? h('span.badge.info', { style: { marginLeft: '6px' }, title: 'Vom Hauptadmin angelegt – Sie können ihn ansehen und als Vorlage kopieren.' }, r.tenant_id ? 'nur lesen' : 'zentral') : null), value: (r) => r.name },
     { key: 'kind', label: 'Art', value: (r) => (r.kind === 'winget' ? 'winget-Updates' : 'Pakete'),
       render: (r) => h('span.badge', { class: r.kind === 'winget' ? 'info' : 'accent' }, r.kind === 'winget' ? 'winget-Updates' : 'Pakete') },
     { key: 'package_names', label: 'Was', value: (r) => r.package_names.join(' → '), cls: 'trunc' },
@@ -3641,12 +3659,12 @@ async function viewSchedules() {
       r.ok ? h('span.badge.ok', `${r.ok} OK`) : null, r.failed ? h('span.badge.err', `${r.failed} Fehler`) : null, r.pending ? h('span.badge.info', `${r.pending} warten`) : null) },
   ], rows, { key: 'schedules', sort: 'name', noun: 'Zeitpläne', onRow: (r) => scheduleDlg(r.id), empty: 'Noch keine Zeitpläne.',
     onContext: (r, e) => contextMenu(e.clientX, e.clientY, [
-      { label: 'Bearbeiten', icon: 'edit', onClick: () => scheduleDlg(r.id) },
-      { label: 'Jetzt ausführen', icon: 'send', onClick: () => runSchedule(r) },
+      { label: r.editable === false ? 'Anzeigen' : 'Bearbeiten', icon: 'edit', onClick: () => scheduleDlg(r.id) },
+      r.runnable === false ? null : { label: 'Jetzt ausführen', icon: 'send', onClick: () => runSchedule(r) },
       { label: 'Vorschau', icon: 'list', onClick: () => schedulePreview(r) },
-      { label: 'Duplizieren', icon: 'coll', onClick: async () => { if (await run(() => POST(`/api/schedules/${r.id}/duplicate`), 'Kopie angelegt (deaktiviert)')) route(); } },
-      '-',
-      { label: 'Löschen', icon: 'trash', onClick: async () => { if (await confirmDlg(`Zeitplan „${r.name}“ löschen?`, 'Löschen', true)) { await run(() => DEL(`/api/schedules/${r.id}`), 'Gelöscht'); route(); } } },
+      mayBuild() ? { label: r.editable === false ? 'Als Vorlage kopieren' : 'Duplizieren', icon: 'coll', onClick: async () => { if (await run(() => POST(`/api/schedules/${r.id}/duplicate`), 'Kopie angelegt (deaktiviert)')) route(); } } : null,
+      r.editable === false ? null : '-',
+      r.editable === false ? null : { label: 'Löschen', icon: 'trash', onClick: async () => { if (await confirmDlg(`Zeitplan „${r.name}“ löschen?`, 'Löschen', true)) { await run(() => DEL(`/api/schedules/${r.id}`), 'Gelöscht'); route(); } } },
     ]) });
   setContent(h('div', { style: { height: '100%', display: 'flex' } }, h('div.pane.card', t.el)));
 }
@@ -3691,6 +3709,9 @@ async function scheduleDlg(id, preset = {}) {
   const desc = h('textarea', { rows: 2, value: s.description || '' });
   const en = h('input', { type: 'checkbox', checked: !!s.enabled });
   const tenant = meta.tenants.length ? sel([['', '— keiner —'], ...meta.tenants.map((x) => [x.id, x.name])], s.tenant_id || '') : null;
+  // 2.30: nur lesbar für OU-Admins (vom Hauptadmin angelegt bzw. zentral) – ansehen, ausführen (Mandant), als Vorlage kopieren
+  const ro = !isNew && s.editable === false;
+  const ouEd = !isOU() && tenant ? h('input', { type: 'checkbox', checked: !!s.ou_edit }) : null;
   const kindSeg = h('div.seg');
   // Pakete in Reihenfolge
   const pkBox = h('div');
@@ -3746,7 +3767,7 @@ async function scheduleDlg(id, preset = {}) {
       { key: 'message', label: 'Meldung', cls: 'wrap' },
       { key: 'dep', label: '', nosort: true, render: (r) => (r.deployment_id ? h('a', { href: `#/deployment/${r.deployment_id}` }, `#${r.deployment_id}`) : '') },
     ], s.history, { sort: 'name', noun: 'Ziele', selectable: true, fill: false, key: null, empty: 'Noch keine Läufe.' });
-    ht.actions.append(btn('Auswahl erneut versorgen', () => { const ids = ht.selectedIds(); if (!ids.length) { toast('Bitte Computer auswählen', 'err'); return; } runSchedule(s, ids, true); }, { cls: 'small', icon: 'send' }),
+    if (s.runnable !== false) ht.actions.append(btn('Auswahl erneut versorgen', () => { const ids = ht.selectedIds(); if (!ids.length) { toast('Bitte Computer auswählen', 'err'); return; } runSchedule(s, ids, true); }, { cls: 'small', icon: 'send' }),
       btn('Verlauf der Auswahl zurücksetzen', async () => { const ids = ht.selectedIds(); if (!ids.length) { toast('Bitte Computer auswählen', 'err'); return; } if (!(await confirmDlg(`Zielverlauf für ${ids.length} Computer zurücksetzen? Sie gelten danach als noch nicht versorgt.`, 'Zurücksetzen', true))) return; await run(() => POST(`/api/schedules/${s.id}/reset`, { ids }), 'Zurückgesetzt'); }, { cls: 'small ghost' }));
     histBox.append(ht.el);
   }
@@ -3772,31 +3793,41 @@ async function scheduleDlg(id, preset = {}) {
   let tabsEl = null;
   const tabs = [
     ['Allgemein', h('div.form', field('Art', kindSeg, 'Pakete verteilen = gespeicherte Pakete an die Ziele; winget-Updates = veraltete Software automatisch aktualisieren.'),
-      field('Name', name), field('Beschreibung', desc), tenant ? field('Mandant', tenant) : null, field('Aktiv', h('label.chk', en, 'Auslöser ausführen')))],
+      field('Name', name), field('Beschreibung', desc), tenant ? field('Mandant', tenant) : null,
+      ouEd ? field('OU-Admins dürfen ändern', h('label.chk', ouEd, 'OU-Admins des Mandanten dürfen diesen Zeitplan ändern und löschen'), 'Aus: Sie sehen ihn nur, können ihn ausführen und als Vorlage kopieren.') : null,
+      field('Aktiv', h('label.chk', en, 'Auslöser ausführen')))],
     ['Auslöser', h('div', h('p.muted.small', { style: { marginTop: 0 } }, 'Wann der Zeitplan läuft. „Heartbeat“ versorgt Ziele, sobald sie erreichbar sind und noch nicht versorgt wurden – also direkt nach dem Einschalten oder Wake-on-LAN, bei einem neuen Zeitplan oder neuen Mitgliedern einer Sammlung beim nächsten Heartbeat (Standard alle 5 Minuten, manuell sofort). Bereits versuchte Ziele wiederholt er nicht ständig. Ohne Heartbeat-Auslöser werden beim Einschalten nur vorgemerkte Computer versorgt.'), trig, winBox)],
     ['Pakete', whatTab],
     ['Ziele', h('div', h('h3', 'Sammlungen'), h('p.muted.small', 'Mitglieder werden bei jedem Lauf neu ermittelt – mit dynamischen Sammlungen pflegt sich der Zeitplan selbst.'), colBox,
       h('h3', { style: { marginTop: '12px' } }, 'Einzelne Computer'), picker.el)],
     ['Optionen', optTab],
   ];
+  if (ro) tabs.forEach((t) => { t[1] = h('fieldset.ro', { disabled: true }, t[1]); });
   if (!isNew) tabs.push(['Zielverlauf', histBox]);
-  const buttons = [{ label: 'Abbrechen' }];
+  const buttons = [{ label: ro ? 'Schließen' : 'Abbrechen' }];
   const body = () => ({ name: name.value, description: desc.value, enabled: en.checked, kind: s.kind, tenant_id: tenant ? tenant.value || null : null,
+    ...(ouEd ? { ou_edit: ouEd.checked } : {}),
     triggers: s.triggers.map((t) => ({ ...t, at: t.at && t.at.replace('T', ' '), start: t.start && t.start.replace('T', ' '), end: t.end ? t.end.replace('T', ' ') : null })),
     targets: { computers: picker.selected(), collections: [...colSet] }, packages: s.packages, winget: w, window: win, options: o });
-  if (!isNew) {
+  if (ro) {
+    if (s.runnable !== false) buttons.push({ label: 'Jetzt ausführen', icon: 'send', onClick: async () => { await runSchedule(s); } });
+    if (mayBuild()) buttons.push({ label: 'Als Vorlage kopieren', cls: 'primary', onClick: async () => { const r = await run(() => POST(`/api/schedules/${s.id}/duplicate`), 'Kopie für Ihren Mandanten angelegt (deaktiviert)'); if (r) { route(); scheduleDlg(r.id); } } });
+  } else if (!isNew) {
     buttons.unshift({ label: 'Löschen', cls: 'danger', onClick: async () => { if (!(await confirmDlg(`Zeitplan „${s.name}“ löschen?`, 'Löschen', true))) return false; await DEL(`/api/schedules/${s.id}`); toast('Gelöscht', 'ok'); route(); } });
     // Beide Knöpfe speichern vorher – deshalb so beschriftet, und die Liste wird danach aktualisiert
     buttons.splice(1, 0, { label: 'Speichern & Vorschau', icon: 'list', close: false, onClick: async () => { await PUT(`/api/schedules/${s.id}`, body()); S.dirtyList = true; await schedulePreview({ ...s, ...body() }); } },
       { label: 'Speichern & ausführen', icon: 'send', onClick: async () => { await PUT(`/api/schedules/${s.id}`, body()); await runSchedule({ ...s, kind: s.kind }); route(); } });
   }
-  buttons.push({ label: 'Speichern', cls: 'primary', onClick: async () => {
+  if (!ro) buttons.push({ label: 'Speichern', cls: 'primary', onClick: async () => {
     if (isNew) await POST('/api/schedules', body()); else await PUT(`/api/schedules/${s.id}`, body());
     toast('Zeitplan gespeichert', 'ok'); if (parseHash().parts[0] === 'schedules') route(); else go('#/schedules');
   } });
   tabsEl = tabsBox(tabs);
   drawKind();
-  modal(isNew ? (s.kind === 'winget' ? 'Neuer Zeitplan: winget-Updates' : 'Neuer Zeitplan') : `Zeitplan: ${s.name}`, tabsEl, buttons,
+  const roNote = ro ? h('div.note.info', { style: { marginBottom: '10px' } }, s.tenant_id
+    ? 'Diesen Zeitplan hat ein Hauptadmin für Ihren Mandanten angelegt – Sie können ihn ansehen und ausführen, aber nicht ändern. Mit „Als Vorlage kopieren“ entsteht eine eigene Kopie.'
+    : 'Zentraler Zeitplan des Hauptadmins – Sie sehen ihn nur mit Ihren Computern. Ändern und starten kann ihn nur ein Hauptadmin; mit „Als Vorlage kopieren“ entsteht eine eigene Kopie.') : null;
+  modal(isNew ? (s.kind === 'winget' ? 'Neuer Zeitplan: winget-Updates' : 'Neuer Zeitplan') : `Zeitplan: ${s.name}`, roNote ? h('div', roNote, tabsEl) : tabsEl, buttons,
     { wide: true, sticky: true, help: 'schedules', onClose: () => { if (S.dirtyList) { S.dirtyList = false; route(); } } });
 }
 
@@ -4269,15 +4300,16 @@ async function viewReports(parts, params) {
   const [defs, cols] = await Promise.all([GET('/api/reports'), collections()]);
   const std = defs.find((d) => !d.custom) || defs[0];
   const key = parts[0] || std.key;
-  const isMail = key === 'mail';
+  const ou = isOU();  // 2.30: nur lesen – kein Mailversand, keine eigenen Berichte anlegen/ändern
+  const isMail = key === 'mail' && !ou;
   const def = defs.find((d) => d.key === key) || std;
   setTop('Berichte', isMail ? 'E-Mail-Versand' : def.title);
   const own = defs.filter((d) => d.custom);
   const item = (d) => h('div.tree-item', { class: !isMail && d.key === def.key ? 'active' : '', onclick: () => go(`#/reports/${d.key}`) }, icon(d.custom ? 'edit' : 'report'), h('span.lbl', { class: d.custom ? 'raw' : '' }, d.title));
   const list = h('div.tree', h('div.head', h('h3', 'Berichte')),
-    h('div.tree-item', { class: isMail ? 'active' : '', onclick: () => go('#/reports/mail') }, icon('mail'), h('span.lbl', 'E-Mail-Versand')), h('div.tree-sep'),
+    ou ? null : h('div.tree-item', { class: isMail ? 'active' : '', onclick: () => go('#/reports/mail') }, icon('mail'), h('span.lbl', 'E-Mail-Versand')), ou ? null : h('div.tree-sep'),
     h('div.tree-cap', 'Eigene Berichte'), own.map(item),
-    h('div.tree-item.muted', { onclick: () => customReportDlg(null, cols) }, icon('plus'), h('span.lbl', 'Neuer Bericht …')), h('div.tree-sep'),
+    ou ? null : h('div.tree-item.muted', { onclick: () => customReportDlg(null, cols) }, icon('plus'), h('span.lbl', 'Neuer Bericht …')), h('div.tree-sep'),
     h('div.tree-cap', 'Vorgegeben'), defs.filter((d) => !d.custom).map(item));
   if (isMail) {
     const pane = await mailSubsPane(defs, cols);
@@ -4295,9 +4327,10 @@ async function viewReports(parts, params) {
   form.append(btn('Ausführen', () => go(`#/reports/${def.key}?${qs()}`), { cls: 'primary', icon: 'play' }),
     btn('CSV', () => downloadUrl(`/api/reports/${def.key}/csv?${qs()}`), { icon: 'download' }),
     btn('Drucken', () => window.print(), { icon: 'print' }),
-    btn('Per E-Mail …', () => mailSubDlg(null, defs, cols, { key: def.key, params: Object.fromEntries(Object.entries(inputs).map(([k, el]) => [k, el.value])) }),
+    ou ? '' : btn('Per E-Mail …', () => mailSubDlg(null, defs, cols, { key: def.key, params: Object.fromEntries(Object.entries(inputs).map(([k, el]) => [k, el.value])) }),
       { icon: 'mail', title: 'Diesen Bericht regelmäßig per E-Mail senden' }),
-    def.custom ? h('span.row', { style: { gap: '6px', marginLeft: '6px', paddingLeft: '10px', borderLeft: '1px solid var(--line)' } },
+    ou ? h('span.muted.small', { style: { marginLeft: '8px' } }, 'Nur Ihre Computer.') : '',
+    def.custom && !ou ? h('span.row', { style: { gap: '6px', marginLeft: '6px', paddingLeft: '10px', borderLeft: '1px solid var(--line)' } },
       btn('Bearbeiten', async () => customReportDlg(await GET(`/api/customreports/${def.id}`), cols), { icon: 'edit' }),
       btn('Duplizieren', async () => { const r = await POST(`/api/customreports/${def.id}/duplicate`); toast('Kopie angelegt', 'ok'); go(`#/reports/${r.key}`); }),
       btn('Benachrichtigung …', () => customReportAlert(def), { icon: 'bell', title: 'Mail, sobald der Bericht Zeilen liefert' })) : '');  // nie null: DOM-append schreibt sonst „null“

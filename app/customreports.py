@@ -162,6 +162,9 @@ def _sql(d, params):
             s, p = collections_.where_for(int(coll))
             where.append(f"({s})")
             wp += p
+    if params.get("_scope") is not None:  # 2.30: OU-Admin – nur seine Computer (vom Server gesetzt)
+        where.append("c.id IN (SELECT value FROM json_each(?))")
+        wp.append(params["_scope"])
     group = d.get("group")
     if group:
         cnt = "COUNT(DISTINCT c.id)" if src != "computer" else "COUNT(*)"

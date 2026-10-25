@@ -2,7 +2,7 @@ English version: [README.en.md](README.en.md)
 
 # POCKET KNIFE
 
-Aktuelle Version: **pocketknife-2.29.9** – siehe `CHANGELOG.md`.
+Aktuelle Version: **pocketknife-2.30** – siehe `CHANGELOG.md`.
 
 Webseite: [helfi.space](https://helfi.space)
 
@@ -35,7 +35,7 @@ Für Entwickler: Die Texte des Handbuchs stehen in `app/static/help/de.md` und `
 | Zeitpläne | **Alles Automatische an einer Stelle** – Art „Pakete verteilen“ (mehrere Pakete nacheinander) oder „winget-Updates“ (alle oder bestimmte IDs, Ausnahmen); Auslöser inkl. **Heartbeat**, optionales Zeitfenster (Wochentage, auch über Mitternacht), Ziele, offline Computer vormerken, Wartezeit nach Fehlschlag, erneut versorgen nach X Stunden, Vorschau, Zielverlauf |
 | Neuigkeiten | dezent in der Seitenleiste: was ist neu (Sicherheit, Neu, Verbessert, Behoben) und – für Hauptadmins – ob eine neue Version verfügbar ist (der Server fragt einmal täglich bei GitHub) |
 | Repository | Installationsdateien direkt in der Oberfläche verwalten: **hochladen** (Dateien und ganze Ordner, auch per Ziehen vom Desktop, in Stücken mit Fortsetzen), Ordner anlegen, umbenennen, **verschieben mit automatischer Anpassung der Pfade in allen Paketen** (Vorschau, Sicherung vorher, Zurückdrehen bei Fehler), löschen nur, was kein Paket benutzt; Assistent „Repository umstrukturieren“; **Duplikatsperre** (gleiche winget-ID, MSI-Produktcode oder Datei per SHA-256 nur einmal – zentral oder bei einem Mandanten); **Datei suchen** per Fingerabdruck, wenn außerhalb verschoben wurde |
-| Mandanten | Pakete und Zeitpläne je Kunde/Standort, optional auf eine Sammlung beschränkt; **OU-Admins**: Mitglieder der AD-Gruppe eines Mandanten melden sich an und betreuen nur dessen Computer (alle Pakete verteilen, ändern nur eigene, eigene nur mit Freigabe; Repository-Ordner `Mandanten\<Name>` wird automatisch angelegt, Upload mit Kontingent) – serverseitig an jeder Schnittstelle geprüft |
+| Mandanten | Pakete und Zeitpläne je Kunde/Standort, optional auf eine Sammlung beschränkt; **OU-Admins**: Mitglieder der AD-Gruppe eines Mandanten melden sich an und betreuen nur dessen Computer (alle Pakete verteilen, ändern nur eigene – was der Hauptadmin angelegt hat, nur lesen und als Vorlage kopieren; eigene Pakete, Zeitpläne und Sammlungen nur mit Freigabe, Sammlungen nie größer als der Mandant; Berichte und zentrale Zeitpläne nur lesend mit eigenen Computern; Repository-Ordner `Mandanten\<Name>` wird automatisch angelegt, Upload mit Kontingent) – serverseitig an jeder Schnittstelle geprüft |
 | Berichte | 19 Berichte (u. a. Software, veraltete Software, Betriebssysteme, Speicherplatz, Windows-Updates, Sicherheitsstatus, lokale Admins, Softwareänderungen, Bereitstellungsverlauf) – Tabelle, CSV-Export (Excel-kompatibel), Druckansicht |
 | Eigene Berichte | Berichte selbst zusammenstellen: Datenquelle (Computer, Anwendungen, Laufwerke, Drucker, Dienste, eigene Scanner …), Spalten, Zeilen- und Computerfilter wie bei Sammlungen, Zusammenfassen/Zählen, Sortierung, Vorlagen, Vorschau – nutzbar im Berichtsversand und als Benachrichtigung („Mail, sobald der Bericht Zeilen liefert“) |
 | Software-Kiosk | Nutzer installieren freigegebene Software selbst unter `/kiosk` – nur auf dem Rechner, an dem sie angemeldet sind (live geprüft); Zugang über AD-Gruppen und/oder OUs, Freigabe je Paket (mit Mail), je Paket nur für bestimmte AD-Gruppen, Deinstallieren, Status, Neustart planen; optional **Anmeldung mit Windows (Kerberos-SSO)**, Standard aus; kein Zugriff auf die Verwaltung |
@@ -369,7 +369,7 @@ Navigation → **Zeitpläne** – hier liegt alles, was automatisch verteilt ode
 
 ## Mandanten
 
-Unter **Einstellungen → Mandanten** (z. B. Kunden oder Standorte). Pakete und Zeitpläne lassen sich einem Mandanten zuordnen, die Paketliste danach filtern. Ist dem Mandanten eine Sammlung zugeordnet, werden seine Pakete nur auf deren Computer verteilt (andere Ziele werden ausgelassen und gemeldet). Darf ein Mandant eigene Pakete bauen, bekommt er automatisch den Repository-Ordner `Mandanten\<Name>` (oder einen eigenen); seine OU-Admins sehen und bearbeiten im Repository nur diesen Ordner, optional mit Speicherkontingent. Alle dürfen alle Pakete verteilen, ändern nur die eigenen; dieselbe Software gibt es nur einmal (Duplikatsperre über winget-ID, MSI-Produktcode, SHA-256).
+Unter **Einstellungen → Mandanten** (z. B. Kunden oder Standorte). Pakete und Zeitpläne lassen sich einem Mandanten zuordnen, die Paketliste danach filtern. Ist dem Mandanten eine Sammlung zugeordnet, werden seine Pakete nur auf deren Computer verteilt (andere Ziele werden ausgelassen und gemeldet). Darf ein Mandant eigene Pakete bauen, bekommt er automatisch den Repository-Ordner `Mandanten\<Name>` (oder einen eigenen); seine OU-Admins sehen und bearbeiten im Repository nur diesen Ordner, optional mit Speicherkontingent. Alle dürfen alle Pakete verteilen, ändern nur die eigenen (was ein Hauptadmin für den Mandanten anlegt, ist für OU-Admins nur lesbar, außer mit „OU-Admins dürfen ändern“); dieselbe Software gibt es nur einmal (Duplikatsperre über winget-ID, MSI-Produktcode, SHA-256).
 
 ## Aktionen auf den Clients
 

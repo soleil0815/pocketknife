@@ -296,9 +296,12 @@ def next_occurrence(t, now):
     return res
 
 
-def summary(s):
+def summary(s, only=None):
+    """only: Menge von Computer-IDs (OU-Admin) – Zahlen nur für diese Computer."""
     now = datetime.datetime.now()
     rows = db.q("SELECT * FROM schedule_targets WHERE schedule_id=?", (s["id"],))
+    if only is not None:
+        rows = [r for r in rows if r["computer_id"] in only]
     nxt = [n for n in (next_occurrence(t, now) for t in s["triggers"] if t.get("enabled", True)) if n]
     names = {r["id"]: r["name"] for r in db.q("SELECT id, name FROM packages")}
     w = s["winget"]
@@ -311,7 +314,7 @@ def summary(s):
             "window_text": window_text(s), "in_window": in_window(s), "deferred": bool(_deferred(s["id"])),
             "next_run": util.fmt(min(nxt)) if nxt and s["enabled"] else None,
             "package_names": what,
-            "members": len(members(s)),
+            "members": len(members(s) if only is None else members(s) & only),
             "ok": sum(1 for r in rows if r["status"] == "success"),
             "failed": sum(1 for r in rows if r["status"] == "failed"),
             "pending": sum(1 for r in rows if r["pending"]),
@@ -525,16 +528,19 @@ def _fire(s, cids=None, reason="Zeitplan", user=None, force=False):
 _blocked = {}  # Zeitplan-ID → zuletzt gemeldete Unterbrechung (Bruch im Repository)
 
 
-def preview(s):
-    """Was ein Lauf jetzt tun würde (ohne etwas zu starten)."""
+def preview(s, only=None):
+    """Was ein Lauf jetzt tun würde (ohne etwas zu starten). only: nur diese Computer (OU-Admin)."""
     names = {r["id"]: r["name"] for r in db.q("SELECT id, name FROM computers")}
     online = {r["id"] for r in db.q("SELECT id FROM computers WHERE online=1 AND winrm=1")}
     if s["kind"] == "winget":
         cand = winget_candidates(s, online_only=False)
+        if only is not None:
+            cand = {k: [i for i in v if i in only] for k, v in cand.items()}
+            cand = {k: v for k, v in cand.items() if v}
         return {"kind": "winget", "items": [{"winget_id": k, "computers": sorted(names.get(i, "?") for i in v),
                                              "offline": sorted(names.get(i, "?") for i in v if i not in online)}
                                             for k, v in sorted(cand.items())]}
-    mem = members(s)
+    mem = members(s) if only is None else members(s) & only
     return {"kind": "packages", "members": len(mem), "online": len(mem & online)}
 
 

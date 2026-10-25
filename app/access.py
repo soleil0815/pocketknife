@@ -163,11 +163,12 @@ def can_see_package(user, row):
 
 
 def can_edit_package(user, row):
-    """Ändern/Löschen: nur Pakete eines eigenen Mandanten mit „eigene Pakete erlaubt“ – nie zentrale."""
+    """Ändern/Löschen: nur Pakete eines eigenen Mandanten mit „eigene Pakete erlaubt“ – nie zentrale.
+    2.30: und nur, wenn OU-Admins sie ändern dürfen (von ihnen angelegt bzw. vom Hauptadmin freigegeben)."""
     if not scoped(user):
         return True
     t = row.get("tenant_id") if row else None
-    return bool(t) and int(t) in [x["id"] for x in build_tenants(user)]
+    return bool(t) and int(t) in [x["id"] for x in build_tenants(user)] and bool(row.get("ou_edit"))
 
 
 def need_package(user, pid):
@@ -234,16 +235,34 @@ def need_deployment(user, did, write=False):
 
 
 def can_see_schedule(user, s):
-    return not scoped(user) or (s and s.get("tenant_id") and int(s["tenant_id"]) in tenant_ids(user))
+    """2.30: OU-Admins sehen die Zeitpläne ihres Mandanten und – nur lesend, nur mit ihren Computern – die zentralen,
+    die mindestens einen ihrer Computer erreichen (andere gehen sie nichts an)."""
+    if not scoped(user):
+        return True
+    if not s:
+        return False
+    if s.get("tenant_id"):
+        return int(s["tenant_id"]) in tenant_ids(user)
+    from . import schedules
+    return bool(schedules.members(s) & computer_ids(user))
 
 
-def need_schedule(user, sid, write=False):
+def can_edit_schedule(user, s):
+    """Ändern/Löschen: Hauptadmins alles; OU-Admins nur Zeitpläne ihres Mandanten, die sie ändern dürfen (2.30)."""
+    if not scoped(user):
+        return True
+    return bool(s and s.get("tenant_id") and int(s["tenant_id"]) in [t["id"] for t in build_tenants(user)] and s.get("ou_edit"))
+
+
+def need_schedule(user, sid, write=False, run=False):
     from . import schedules
     s = schedules.get(int(sid or 0))
     if not s or not can_see_schedule(user, s):
         raise HTTPException(404, "Zeitplan nicht gefunden")
-    if write and scoped(user) and int(s["tenant_id"]) not in [t["id"] for t in build_tenants(user)]:
-        raise HTTPException(403, "Eigene Zeitpläne sind für Ihren Mandanten nicht freigegeben.")
+    if write and not can_edit_schedule(user, s):
+        raise HTTPException(403, "Diesen Zeitplan darf nur ein Hauptadmin ändern – als Vorlage kopieren geht.")
+    if run and scoped(user) and not s.get("tenant_id"):
+        raise HTTPException(403, "Zentrale Zeitpläne startet nur ein Hauptadmin.")
     return s
 
 
@@ -306,6 +325,38 @@ def _p_sched(user, pp):
 
 def _p_sched_w(user, pp):
     need_schedule(user, pp.get("sid"), write=True)
+
+
+def _p_sched_run(user, pp):
+    need_schedule(user, pp.get("sid"), run=True)
+
+
+def can_edit_collection(user, row):
+    """2.30: Hauptadmins alles (außer Standard-/AD-Sammlungen, das prüft der Handler); OU-Admins nur Sammlungen, die
+    ihr Mandant angelegt hat – und nur mit „eigene Pakete erlaubt“."""
+    if not scoped(user):
+        return True
+    t = (row or {}).get("tenant_id")
+    return bool(t) and int(t) in [x["id"] for x in build_tenants(user)]
+
+
+def _p_coll_w(user, pp):
+    row = db.q1("SELECT * FROM collections WHERE id=?", (int(pp.get("cid") or 0),))
+    if not row:
+        raise HTTPException(404, "Sammlung nicht gefunden")
+    if not can_edit_collection(user, row):
+        raise HTTPException(403, "Diese Sammlung darf nur ein Hauptadmin ändern – als Kopie für Ihren Mandanten geht.")
+
+
+def _p_coll_r(user, pp):
+    from . import main as _main
+    vis = _main._visible_collections(user)
+    if vis is not None and int(pp.get("cid") or 0) not in vis:
+        raise HTTPException(404, "Sammlung nicht gefunden")
+
+
+def _p_creport(user, pp):
+    pass  # eigene Berichte: lesen erlaubt, Ergebnisse auf eigene Computer beschränkt (Handler)
 
 
 def _p_repo(user, pp):
@@ -373,6 +424,22 @@ ROUTES = {
     ("GET", "/api/scanprofiles"): OPEN,
     ("GET", "/api/fields"): OPEN,
     ("GET", "/api/collections"): OPEN,                 # Handler zählt nur eigene Computer
+    # 2.30: eigene Sammlungen (nur mit „eigene Pakete erlaubt“) – enthalten nie mehr als die Computer des Mandanten
+    ("GET", "/api/collections/schema"): OPEN,
+    ("GET", "/api/collections/values"): OPEN,
+    ("POST", "/api/collections"): _p_build,
+    ("POST", "/api/collections/preview"): OPEN,       # Handler: nur eigene Computer
+    ("PUT", "/api/collections/{cid}"): _p_coll_w,
+    ("DELETE", "/api/collections/{cid}"): _p_coll_w,
+    ("POST", "/api/collections/{cid}/move"): _p_coll_w,
+    ("POST", "/api/collections/{cid}/rename"): _p_coll_w,
+    ("POST", "/api/collections/{cid}/members"): _p_coll_w,
+    ("POST", "/api/collections/{cid}/duplicate"): _p_coll_r,  # Handler: Kopie gehört dem eigenen Mandanten
+    # 2.30: Berichte lesen – Ergebnisse nur mit eigenen Computern; anlegen/ändern und Mailversand nur Hauptadmins
+    ("GET", "/api/reports"): OPEN,
+    ("GET", "/api/reports/{key}"): OPEN,
+    ("GET", "/api/reports/{key}/csv"): OPEN,
+    ("GET", "/api/customreports/{rid}"): _p_creport,
     # Software (Handler filtern)
     ("GET", "/api/software"): OPEN,
     ("GET", "/api/software/detail"): OPEN,
@@ -426,9 +493,9 @@ ROUTES = {
     ("POST", "/api/schedules"): _p_build,
     ("PUT", "/api/schedules/{sid}"): _p_sched_w,
     ("DELETE", "/api/schedules/{sid}"): _p_sched_w,
-    ("POST", "/api/schedules/{sid}/run"): _p_sched,
-    ("POST", "/api/schedules/{sid}/duplicate"): _p_sched_w,
-    ("POST", "/api/schedules/{sid}/reset"): _p_sched_w,
+    ("POST", "/api/schedules/{sid}/run"): _p_sched_run,     # zentrale: nur Hauptadmins
+    ("POST", "/api/schedules/{sid}/duplicate"): _p_sched,    # Handler: Kopie gehört dem eigenen Mandanten
+    ("POST", "/api/schedules/{sid}/reset"): _p_sched_run,  # nur eigene Computer (Handler), zentrale: nur Hauptadmins
     # Mandanten: nur die eigenen sehen
     ("GET", "/api/tenants"): OPEN,
     # Protokoll der eigenen Computer

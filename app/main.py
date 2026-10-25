@@ -1088,7 +1088,7 @@ def _visible_collections(user, rows=None, counts=None):
     mine = access.computer_ids(user)
     if mine is None:
         return None
-    rows = rows if rows is not None else db.q("SELECT id, parent_id, type, builtin FROM collections")
+    rows = rows if rows is not None else db.q("SELECT id, parent_id, type, builtin, tenant_id FROM collections")
     kids, par = {}, {}
     for r in rows:
         kids.setdefault(r["parent_id"], []).append(r["id"])
@@ -1104,8 +1104,13 @@ def _visible_collections(user, rows=None, counts=None):
             todo.extend(kids.get(x, []))
         return out
     own_ids = {c for t in access.tenants(user) for c in access.tenant_cols(t)}
+    # 2.30: von OU-Admins angelegte Sammlungen – die des eigenen Mandanten gehören dazu, fremde bleiben verborgen
+    tids = access.tenant_ids(user)
+    own_ids |= {r["id"] for r in rows if r.get("tenant_id") and r["tenant_id"] in tids}
+    other = {r["id"] for r in rows if r.get("tenant_id") and r["tenant_id"] not in tids}
     own = tree(own_ids)
-    foreign = tree({c for t in db.q("SELECT collection_id, collection_ids FROM tenants") for c in access.tenant_cols(t)} - own_ids) - own
+    foreign = tree(({c for t in db.q("SELECT collection_id, collection_ids FROM tenants") for c in access.tenant_cols(t)}
+                    | other) - own_ids) - own
     keep = set(own)
     for r in rows:
         if r["id"] in foreign or r["type"] == "folder":
@@ -1332,7 +1337,9 @@ def api_collections(user=U):
     rows = db.q("SELECT * FROM collections ORDER BY builtin DESC, sort, name COLLATE NOCASE")
     mine = access.computer_ids(user)  # OU-Admin: Anzahl nur seiner Computer
     for r in rows:
-        r["filters"] = collections_.normalize(r["filters"], r["match"]) if mine is None else []  # OU-Admin: keine Regeln
+        r["editable"] = not r["builtin"] and access.can_edit_collection(user, r)
+        # OU-Admin: Regeln nur der eigenen Sammlungen (fremde verraten sonst Namen/OUs anderer Bereiche)
+        r["filters"] = collections_.normalize(r["filters"], r["match"]) if mine is None or r["editable"] else []
         if r["type"] == "folder":
             r["count"] = None
         elif mine is None:
@@ -1356,7 +1363,7 @@ def api_collection_schema(user=U):
 @app.get("/api/collections/values")
 def api_collection_values(table: str, column: str, q: str = "", limit: int = 40, user=U):
     try:
-        return collections_.values(table, column, q, max(1, min(int(limit), 500)))
+        return collections_.values(table, column, q, max(1, min(int(limit), 500)), scope=access.sql_in(user, "c.id"))
     except ValueError as e:
         _err(e)
 
@@ -1381,10 +1388,42 @@ def _coll_data(data):
             json.dumps(flt, ensure_ascii=False), data.get("description") or "")
 
 
+def _coll_scope(user, data, cid=None):
+    """2.30: OU-Admin – übergeordneter Ordner nur eine eigene Sammlung (oder oberste Ebene), „ist Mitglied von“ nur
+    Sammlungen, die er sieht. Der Inhalt bleibt ohnehin auf die Computer seines Mandanten begrenzt (where_for)."""
+    if not access.scoped(user):
+        return
+    par = data.get("parent_id")
+    if par not in (None, "", 0, "0"):
+        prow = db.q1("SELECT * FROM collections WHERE id=?", (int(par),))
+        if not prow or not access.can_edit_collection(user, prow):
+            raise HTTPException(403, "Ablegen nur in Ihren eigenen Ordnern oder auf der obersten Ebene.")
+    refs = collections_._tree_refs(collections_.normalize(data.get("filters") or [], data.get("match", "all")), set())
+    vis = _visible_collections(user) or set()
+    if refs - vis:
+        raise HTTPException(403, "„Ist Mitglied von“ ist nur mit Sammlungen möglich, die Sie sehen.")
+
+
+def _own_tenant_col(user, data):
+    """Mandant, dem eine neue Sammlung eines OU-Admins gehört (None = Hauptadmin, zentral)."""
+    if not access.scoped(user):
+        return None
+    par = data.get("parent_id")
+    if par not in (None, "", 0, "0"):
+        t = db.val("SELECT tenant_id FROM collections WHERE id=?", (int(par),))
+        if t:
+            return access.own_tenant_for(user, t)
+    return access.own_tenant_for(user, data.get("tenant_id"))
+
+
 @app.post("/api/collections")
 def api_collection_create(data: dict = Body(...), user=U):
-    cid = db.ex("INSERT INTO collections(name, parent_id, type, match, filters, description) VALUES(?,?,?,?,?,?)",
-                _coll_data(data))
+    _coll_scope(user, data)
+    tid = _own_tenant_col(user, data)
+    cid = db.ex("INSERT INTO collections(name, parent_id, type, match, filters, description, tenant_id) VALUES(?,?,?,?,?,?,?)",
+                _coll_data(data) + (tid,))
+    if tid:
+        pklog.info("system", f"Sammlung '{data.get('name')}' angelegt (Mandant #{tid}).", user=user["username"])
     return {"id": cid}
 
 
@@ -1394,6 +1433,7 @@ def api_collection_update(cid: int, data: dict = Body(...), user=U):
         _err("Standardsammlungen können nicht geändert werden.")
     if data.get("parent_id") and (int(data["parent_id"]) == cid or int(data["parent_id"]) in _descendants(cid)):
         _err("Ungültiger übergeordneter Ordner")
+    _coll_scope(user, data, cid)
     try:
         collections_.check_cycle(cid, collections_.normalize(data.get("filters") or [], data.get("match", "all")),
                                  data.get("parent_id"))
@@ -1418,6 +1458,11 @@ def api_collection_delete(cid: int, user=U):
     ids = [cid] + _descendants(cid)
     if any(db.val("SELECT builtin FROM collections WHERE id=?", (i,)) for i in ids):
         _err("Enthält Standard- oder AD-Sammlungen und kann nicht gelöscht werden.")
+    if access.scoped(user) and not all(access.can_edit_collection(user, db.q1("SELECT * FROM collections WHERE id=?", (i,)))
+                                       for i in ids):
+        raise HTTPException(403, "Enthält Sammlungen, die nur ein Hauptadmin löschen darf.")
+    if any(i in access.tenant_cols(t) for t in db.q("SELECT collection_id, collection_ids FROM tenants") for i in ids):
+        _err("Ist einem Mandanten zugeordnet und kann deshalb nicht gelöscht werden – bitte zuerst beim Mandanten entfernen.")
     used = collections_.used_by(ids, exclude_self=True)
     if used:
         _err("Wird noch verwendet und kann deshalb nicht gelöscht werden: " + ", ".join(used[:6])
@@ -1456,6 +1501,7 @@ def api_collection_move(cid: int, data: dict = Body(...), user=U):
             _err("Eine Sammlung kann nicht in sich selbst verschoben werden.")
         if prow["builtin"]:
             _err("In Standard- und AD-Sammlungen kann nichts verschoben werden.")
+    _coll_scope(user, {"parent_id": parent})
     before = collections_.broken(collections_.dependents(cid))
     with db.tx():
         db.ex("UPDATE collections SET parent_id=? WHERE id=?", (parent, cid))
@@ -1477,22 +1523,29 @@ def api_collection_move(cid: int, data: dict = Body(...), user=U):
     return {"ok": True}
 
 
-def _copy_collection(cid, parent, depth=0, rename=True):
+def _copy_collection(cid, parent, depth=0, rename=True, tenant=None, vis=None, only=None):
+    """tenant/vis/only (2.30, OU-Admin): Kopie gehört dem Mandanten, nur sichtbare Unterelemente, statische Mitglieder nur
+    eigene Computer."""
     col = db.q1("SELECT * FROM collections WHERE id=?", (cid,))
-    if not col or depth > 20:
+    if not col or depth > 20 or (vis is not None and cid not in vis):
         return None
     name = col["name"] + (" (Kopie)" if rename else "")
     filters = col["filters"]
     if col.get("ad_kind") and col["type"] == "dynamic":
         filters = json.dumps(collections_.normalize(filters, col["match"]), ensure_ascii=False)
-    new = db.ex("INSERT INTO collections(name, parent_id, type, match, filters, description, builtin, sort) "
-                "VALUES(?,?,?,?,?,?,0,?)", (name, parent, col["type"], col["match"], filters, col.get("description"),
-                                            (col.get("sort") or 100) + 1))
+    if vis is not None and col["type"] == "dynamic":
+        # Regeln mit Verweisen auf Sammlungen, die der OU-Admin nicht sieht, nicht mitnehmen
+        if collections_._tree_refs(collections_.normalize(filters, col["match"]), set()) - vis:
+            filters = json.dumps(collections_.normalize([], "all"), ensure_ascii=False)
+    new = db.ex("INSERT INTO collections(name, parent_id, type, match, filters, description, builtin, sort, tenant_id) "
+                "VALUES(?,?,?,?,?,?,0,?,?)", (name, parent, col["type"], col["match"], filters, col.get("description"),
+                                              (col.get("sort") or 100) + 1, tenant if tenant else col.get("tenant_id")))
     if col["type"] == "static":
-        db.ex("INSERT INTO collection_members(collection_id, computer_id) SELECT ?, computer_id FROM collection_members "
-              "WHERE collection_id=?", (new, cid))
+        for r in db.q("SELECT computer_id FROM collection_members WHERE collection_id=?", (cid,)):
+            if only is None or r["computer_id"] in only:
+                db.ex("INSERT INTO collection_members(collection_id, computer_id) VALUES(?,?)", (new, r["computer_id"]))
     for ch in db.q("SELECT id FROM collections WHERE parent_id=? ORDER BY sort, name", (cid,)):
-        _copy_collection(ch["id"], new, depth + 1, rename=False)
+        _copy_collection(ch["id"], new, depth + 1, rename=False, tenant=tenant, vis=vis, only=only)
     return new
 
 
@@ -1514,8 +1567,18 @@ def api_collection_duplicate(cid: int, data: dict = Body(default={}), user=U):
             parent = None
         if parent == cid or parent in _descendants(cid):
             _err("Eine Sammlung kann nicht in sich selbst eingefügt werden.")
+    tenant = vis = only = None
+    if access.scoped(user):
+        # 2.30: OU-Admin – Kopie (auch einer Hauptadmin-Sammlung, als Vorlage) gehört seinem Mandanten
+        if not access.may_build(user):
+            raise HTTPException(403, "Eigene Sammlungen sind für Ihren Mandanten nicht freigegeben.")
+        prow = db.q1("SELECT * FROM collections WHERE id=?", (parent,)) if parent else None
+        if prow and not access.can_edit_collection(user, prow):
+            parent = None
+        tenant = _own_tenant_col(user, {"parent_id": parent, "tenant_id": col.get("tenant_id")})
+        vis, only = _visible_collections(user) or set(), access.computer_ids(user)
     with db.tx():
-        new = _copy_collection(cid, parent)
+        new = _copy_collection(cid, parent, tenant=tenant, vis=vis, only=only)
     pklog.info("system", f"Sammlung '{col['name']}' kopiert.", user=user["username"])
     return {"id": new}
 
@@ -1535,6 +1598,7 @@ def api_collection_rename(cid: int, data: dict = Body(...), user=U):
 def api_collection_members(cid: int, data: dict = Body(...), user=U):
     if db.val("SELECT type FROM collections WHERE id=?", (cid,)) != "static":
         _err("Mitglieder können nur zu statischen Sammlungen hinzugefügt werden.")
+    access.check_ids(user, data.get("add"))  # 2.30: OU-Admin – nur eigene Computer
     with db.tx():
         for i in data.get("add") or []:
             db.ex("INSERT OR IGNORE INTO collection_members(collection_id, computer_id) VALUES(?,?)", (cid, int(i)))
@@ -1548,7 +1612,10 @@ def api_collection_members(cid: int, data: dict = Body(...), user=U):
 @app.post("/api/collections/preview")
 def api_collection_preview(data: dict = Body(...), user=U):
     try:
+        _coll_scope(user, {"filters": data.get("filters"), "match": data.get("match", "all")})
         w, p = collections_.build(data.get("filters") or [], data.get("match", "all"))
+        sw, sp = access.sql_in(user, "c.id")  # 2.30: OU-Admin – nur eigene Computer
+        w, p = f"({w}) AND {sw}", list(p) + list(sp)
         rows = db.q(f"""SELECT c.id, c.name, COALESCE(c.os_name, c.ad_os) os, c.online FROM computers c
                         WHERE {w} ORDER BY c.name LIMIT 200""", p)
         return {"count": db.val(f"SELECT COUNT(*) FROM computers c WHERE {w}", p, 0), "sample": rows}
@@ -1854,6 +1921,7 @@ def _pkg_out(r, stats=None, names=None):
     p["conditions_text"] = steps.describe_conditions(steps.clean_conditions(p["conditions"]))
     p["run_as_label"] = steps.RUN_AS.get(p["run_as"], p["run_as"])
     p["tenant_name"] = (names or {}).get(p.get("tenant_id"))
+    p["ou_edit"] = 1 if r.get("ou_edit") else 0  # 2.30: OU-Admins des Mandanten dürfen ändern
     # Windows-Benachrichtigung am Client: dieselbe Regel wie toast.classify (Häkchen in der Paketliste)
     from . import toast
     mode = p.get("notify_user") or ""
@@ -1956,6 +2024,7 @@ def api_package_create(data: dict = Body(...), user=U):
     cols = deploy.PKG_FIELDS + ["created_at", "updated_at"]
     pid = db.ex(f"INSERT INTO packages({', '.join(cols)}) VALUES({', '.join('?' * len(cols))})",
                 tuple(p[k] for k in deploy.PKG_FIELDS) + (util.now(), util.now()))
+    db.ex("UPDATE packages SET ou_edit=? WHERE id=?", (_ou_edit_flag(user, data), pid))
     repofiles.store_idents(pid, ids, pending)
     pklog.info("deploy", f"Paket '{p['name']}' angelegt.", user=user["username"])
     integrity.after_save(pid)  # Stand der Repository-Dateien festhalten
@@ -1972,10 +2041,22 @@ def api_package_update(pid: int, data: dict = Body(...), user=U):
     ids, pending = _dup_guard(p, pid, user, data)
     db.ex(f"UPDATE packages SET {', '.join(k + '=?' for k in deploy.PKG_FIELDS)}, updated_at=? WHERE id=?",
           tuple(p[k] for k in deploy.PKG_FIELDS) + (util.now(), pid))
+    db.ex("UPDATE packages SET ou_edit=? WHERE id=?",
+          (_ou_edit_flag(user, data, db.q1("SELECT ou_edit FROM packages WHERE id=?", (pid,))), pid))
     repofiles.store_idents(pid, ids, pending)
     pklog.info("deploy", f"Paket '{p['name']}' geändert.", user=user["username"])
     integrity.after_save(pid)  # neue Dateien festhalten – geänderte bleiben Bruch, bis jemand bestätigt
     return {"ok": True, "warnings": _net_warn(p, user)}
+
+
+def _ou_edit_flag(user, data, old=None):
+    """2.30: Darf ein OU-Admin das Paket/den Zeitplan ändern? Selbst angelegt: ja. Vom Hauptadmin: nur mit Häkchen
+    „OU-Admins dürfen ändern“ (Standard: nein – sonst ändert ein Mandant, was der Hauptadmin für ihn gebaut hat)."""
+    if access.scoped(user):
+        return 1
+    if "ou_edit" in data:
+        return 1 if data.get("ou_edit") else 0
+    return 1 if (old or {}).get("ou_edit") else 0
 
 
 def _net_warn(p, user):
@@ -2045,6 +2126,7 @@ def api_package_duplicate(pid: int, user=U):
         vals = [p[k] for k in deploy.PKG_FIELDS]
     ids, pending = _dup_guard(dict(zip(deploy.PKG_FIELDS, vals)), None, user, {})
     nid = db.ex(f"INSERT INTO packages({', '.join(cols)}) VALUES({', '.join('?' * len(cols))})", tuple(vals) + (util.now(), util.now()))
+    db.ex("UPDATE packages SET ou_edit=? WHERE id=?", (_ou_edit_flag(user, {}, r), nid))
     repofiles.store_idents(nid, ids, pending)
     integrity.after_save(nid)
     return {"id": nid}
@@ -2478,10 +2560,24 @@ def api_deployment_delete(did: int, user=U):
 @app.get("/api/schedules")
 def api_schedules(user=U):
     out = []
+    mine = access.computer_ids(user)
     for s in [x for x in schedules.all_schedules() if access.can_see_schedule(user, x)]:
-        s.update(schedules.summary(s))
+        s.update(schedules.summary(s, mine))
+        _sched_view(user, s, mine)
         out.append(s)
     return out
+
+
+def _sched_view(user, s, mine):
+    """2.30: editable/runnable für die Oberfläche; OU-Admin sieht bei zentralen Zeitplänen nur seine Ziele."""
+    s["editable"] = access.can_edit_schedule(user, s)
+    s["runnable"] = not access.scoped(user) or bool(s.get("tenant_id"))
+    s["ou_edit"] = 1 if s.get("ou_edit") else 0
+    if mine is not None and not s.get("tenant_id"):
+        vis = _visible_collections(user) or set()
+        s["targets"] = {"computers": [i for i in s["targets"]["computers"] if i in mine],
+                        "collections": [c for c in s["targets"]["collections"] if c in vis or c == profiles.ALL_COMPUTERS]}
+    return s
 
 
 @app.get("/api/schedules/{sid}")
@@ -2489,13 +2585,16 @@ def api_schedule(sid: int, user=U):
     s = schedules.get(sid)
     if not s:
         raise HTTPException(404, "Zeitplan nicht gefunden")
-    s.update(schedules.summary(s))
-    s["history"] = schedules.history(sid)
     mine = access.computer_ids(user)
+    s.update(schedules.summary(s, mine))
+    _sched_view(user, s, mine)
+    s["history"] = schedules.history(sid)
     if mine is not None:
         s["history"] = [h for h in s["history"] if h["id"] in mine]
     s["deployments"] = db.q("SELECT id, status, created_at, finished_at FROM deployments WHERE schedule_id=? "
                             "ORDER BY id DESC LIMIT 50", (sid,))
+    if mine is not None:  # nur Bereitstellungen mit eigenen Computern
+        s["deployments"] = [d for d in s["deployments"] if access.deployment_targets_in_scope(user, d["id"])[1]]
     return s
 
 
@@ -2509,13 +2608,15 @@ def _sched_scope(user, data):
     tg = data.get("targets") or {}
     access.check_ids(user, tg.get("computers"))
     own_cols = {c for t in access.tenants(user) for c in access.tenant_cols(t)}
+    tids = access.tenant_ids(user)
+    own_cols |= {r["id"] for r in db.q("SELECT id, tenant_id FROM collections WHERE tenant_id IS NOT NULL") if r["tenant_id"] in tids}
     for c in tg.get("collections") or []:
         try:
             c = int(c)
         except (TypeError, ValueError):
             c = -1
         if c not in own_cols:
-            raise HTTPException(403, "Als Sammlung ist nur die Ihres Mandanten möglich – einzelne Computer wählen Sie unter „Computer“.")
+            raise HTTPException(403, "Als Sammlung sind nur die Ihres Mandanten und Ihre eigenen möglich – einzelne Computer wählen Sie unter „Computer“.")
     return data
 
 
@@ -2526,19 +2627,22 @@ def api_schedule_create(data: dict = Body(...), user=U):
         sid = schedules.save(None, data, user["username"])
     except ValueError as e:
         _err(e)
+    db.ex("UPDATE schedules SET ou_edit=? WHERE id=?", (_ou_edit_flag(user, data), sid))
     pklog.info("deploy", f"Zeitplan '{data.get('name')}' angelegt.", user=user["username"])
     return {"id": sid}
 
 
 @app.put("/api/schedules/{sid}")
 def api_schedule_update(sid: int, data: dict = Body(...), user=U):
-    if not schedules.get(sid):
+    old = schedules.get(sid)
+    if not old:
         raise HTTPException(404)
     data = _sched_scope(user, data)
     try:
         schedules.save(sid, data, user["username"])
     except ValueError as e:
         _err(e)
+    db.ex("UPDATE schedules SET ou_edit=? WHERE id=?", (_ou_edit_flag(user, data, old), sid))
     pklog.info("deploy", f"Zeitplan '{data.get('name')}' geändert.", user=user["username"])
     return {"ok": True}
 
@@ -2567,7 +2671,7 @@ def api_schedule_preview(sid: int, user=U):
     s = schedules.get(sid)
     if not s:
         raise HTTPException(404)
-    return schedules.preview(s)
+    return schedules.preview(s, access.computer_ids(user))
 
 
 @app.post("/api/schedules/{sid}/duplicate")
@@ -2579,7 +2683,29 @@ def api_schedule_dup(sid: int, user=U):
     s["enabled"] = 0
     for t in s["triggers"]:
         t.pop("id", None)
-    return {"id": schedules.save(None, s, user["username"])}
+    if access.scoped(user):
+        # 2.30: OU-Admin kopiert als Vorlage – die Kopie gehört seinem Mandanten, nur mit seinen Paketen und Computern
+        if not access.may_build(user):
+            raise HTTPException(403, "Eigene Pakete und Zeitpläne sind für Ihren Mandanten nicht freigegeben.")
+        mine = access.computer_ids(user)
+        _sched_view(user, s, mine)
+        s["tenant_id"] = access.own_tenant_for(user, s.get("tenant_id") if s.get("tenant_id") in
+                                               [t["id"] for t in access.build_tenants(user)] else None)
+        s["packages"] = [p for p in s["packages"] if (r := db.q1("SELECT * FROM packages WHERE id=?", (p,))) and access.can_see_package(user, r)]
+        s["targets"]["collections"] = [c for c in s["targets"]["collections"] if c != profiles.ALL_COMPUTERS]
+        try:
+            s = _sched_scope(user, s)
+        except HTTPException:
+            s["targets"]["collections"] = []
+        if not s["targets"]["computers"] and not s["targets"]["collections"]:
+            t = db.q1("SELECT collection_id, collection_ids FROM tenants WHERE id=?", (s["tenant_id"],))
+            s["targets"]["collections"] = access.tenant_cols(t)[:1] if t else []
+    try:
+        nid = schedules.save(None, s, user["username"])
+    except ValueError as e:
+        _err(e)
+    db.ex("UPDATE schedules SET ou_edit=? WHERE id=?", (_ou_edit_flag(user, {}, s), nid))
+    return {"id": nid}
 
 
 @app.post("/api/schedules/{sid}/reset")
@@ -2614,6 +2740,8 @@ def _tenant_cols_in(data):
             _err("Ungültige Sammlung.")
         if not db.val("SELECT 1 FROM collections WHERE id=? AND type != 'folder'", (c,)):
             _err("Sammlung nicht gefunden.")
+        if db.val("SELECT tenant_id FROM collections WHERE id=?", (c,)):
+            _err("Diese Sammlung hat ein OU-Admin angelegt – als Bereich eines Mandanten bitte eine Sammlung des Hauptadmins wählen.")
         if c not in cols:
             cols.append(c)
     if len(cols) > 50:
@@ -2785,12 +2913,27 @@ def api_reports(user=U):
     return reports.definitions()
 
 
+def _report_params(user, request):
+    """2.30: Berichtsparameter – interne (mit „_“) nie aus der Anfrage; OU-Admin: nur eigene Computer und nur
+    Sammlungen, die er sieht."""
+    params = {k: v for k, v in request.query_params.items() if not k.startswith("_")}
+    mine = access.computer_ids(user)
+    if mine is not None:
+        params["_scope"] = json.dumps(sorted(mine))
+        c = str(params.get("collection") or "")
+        if c and (not c.isdigit() or int(c) not in (_visible_collections(user) or set())):
+            raise HTTPException(404, "Sammlung nicht gefunden")
+    return params
+
+
 # --- Eigene Berichte ---------------------------------------------------------------------------
 @app.get("/api/customreports/{rid}")
 def api_customreport(rid: int, user=U):
     r = customreports.get(rid)
     if not r:
         raise HTTPException(404, "Bericht nicht gefunden")
+    if access.scoped(user):
+        return {**r, "usage": []}  # OU-Admin: nur lesen – wo der Bericht verwendet wird, ist Sache des Hauptadmins
     return {**r, "usage": customreports.usage(rid)}
 
 
@@ -2835,16 +2978,18 @@ def api_customreport_preview(data: dict = Body(...), user=U):
 
 @app.get("/api/reports/{key}")
 def api_report(key: str, request: Request, user=U):
+    params = _report_params(user, request)
     try:
-        return reports.run(key, dict(request.query_params))
+        return reports.run(key, params)
     except ValueError as e:
         _err(e)
 
 
 @app.get("/api/reports/{key}/csv")
 def api_report_csv(key: str, request: Request, user=U):
+    params = _report_params(user, request)
     try:
-        res = reports.run(key, dict(request.query_params))
+        res = reports.run(key, params)
     except ValueError as e:
         _err(e)
     pklog.info("report", f"Bericht '{res['title']}' exportiert.", user=user["username"])
