@@ -41,10 +41,11 @@ services:
       - ${PK_REPO_MOUNT:-./repo}:/repo:ro
       # Automatic backups (default: folder next to the data directory, e.g. /opt/pocketknife/data-backup)
       - ${PK_BACKUP_PATH:-${PK_DATA_PATH:-./data}-backup}:/backup
-    # DNS servers of the domain, so computer names can be resolved
+    # DNS servers of the domain, so computer names can be resolved. PK_DNS_2 is optional: empty is dropped by Compose
+    # (never the same address twice – older Compose versions, e.g. on a NAS, reject duplicate entries)
     dns:
       - ${PK_DNS_1:?set PK_DNS_1 in the .env (DNS server of the domain)}
-      - ${PK_DNS_2:-${PK_DNS_1}}
+      - ${PK_DNS_2:-}
     dns_search:
       - ${PK_DNS_SEARCH:-${PK_DOMAIN}}
     depends_on:
@@ -66,6 +67,6 @@ services:
       TZ: ${PK_TIMEZONE:-Europe/Berlin}
     dns:
       - ${PK_DNS_1:?set PK_DNS_1 in the .env (DNS server of the domain)}
-      - ${PK_DNS_2:-${PK_DNS_1}}
+      - ${PK_DNS_2:-}
     dns_search:
       - ${PK_DNS_SEARCH:-${PK_DOMAIN}}

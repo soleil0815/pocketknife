@@ -82,7 +82,7 @@ The container only downloads the winget **catalog** (index for version compariso
 
 **Docker host**
 
-- Linux (e.g. Debian 12/13 or Ubuntu 22.04/24.04), 64-bit (x86_64), as a VM or physical
+- Linux (e.g. Debian 12/13 or Ubuntu 22.04/24.04), 64-bit (amd64 or arm64), as a VM, physical or a NAS with Docker
 - Docker Engine 24 or newer
 - **SSD storage** for the data directory (`PK_DATA_PATH`) – the SQLite database writes many small changes during scans
 - DNS of the domain (`PK_DNS_1`), network access to the clients (WinRM 5985/5986, SMB 445, for remote sessions 3389/5900), the domain controllers (LDAPS 636) and the repository share
@@ -140,30 +140,28 @@ POCKET KNIFE backs itself up – under **Settings → Backup**:
 
 ## Installation
 
-Recommended folder structure on the Docker host – the data is stored outside the version folders:
-
-```
-/opt/pocketknife/
-├── data/                 database, logs, certificate (PK_DATA_PATH)
-├── pocketknife-1.0/
-└── pocketknife-1.1/      current version, contains the .env
-```
+The detailed step-by-step guide – Docker host, ports, every line of the `.env`, start, first sign-in, container managers (NAS, Portainer, Dockhand) and common errors – is in the manual under **Installation** (in the app: Help → Installation and Update). In short:
 
 ```bash
-cd /opt/pocketknife/pocketknife-1.1
+cd /opt
+unzip pocketknife-<version>.zip   # creates /opt/pocketknife (docker-compose.yml, .env.example, update.sh …)
+cd /opt/pocketknife
 cp .env.example .env
-nano .env                 # domain, DCs, DNS servers, service account, group, data path
+nano .env                 # required: PK_DOMAIN, PK_NETBIOS, PK_DNS_1, PK_LDAP_SERVERS, PK_ACCESS_GROUP, PK_PUBLIC_HOSTNAME
 docker login ghcr.io -u <GitHub user>       # only for a private registry; password = token with read:packages
 docker compose up -d      # pulls the ready-made image ghcr.io/soleil0815/pocketknife:latest (amd64/arm64)
+docker compose ps         # "healthy" after about a minute → https://<PK_PUBLIC_HOSTNAME>:8443
 ```
+
+`docker-compose.yml` and `.env` are in the same folder; the data (`data/`, `data-backup/`) is created next to them on first start. Enter the service account in the interface after the first sign-in (stored encrypted) – not in the `.env`.
 
 **Image (from 2.28.2):** the default is the ready-made image from the GitHub Container Registry, `ghcr.io/soleil0815/pocketknife:latest` – the container shows that like other containers. **Automatic updates:** with `:latest` a container manager such as Dockhand or Watchtower can pull the new image itself and restart the container (or by hand: `docker compose pull && docker compose up -d`). Before starting, POCKET KNIFE backs up the database ("before update") and extends it if necessary. **Stay on a version:** in the `.env` `PK_IMAGE=ghcr.io/soleil0815/pocketknife:2.28.2` – or set the tag in the container manager. **Without internet / build yourself:** `docker build -t pocketknife:local .` and `PK_IMAGE=pocketknife:local` in the `.env` (`update.sh` does that itself with the ZIP file).
 
 **Reproducible build:** the base image (Python version and digest), Debian packages (via a fixed point in time on snapshot.debian.org) and all Python packages including dependencies are pinned exactly (`Dockerfile`, `requirements.lock`, `build-requirements.txt`, `docker/apt-*.txt`). Pin or deliberately update with `./tools/pin-versions.sh` (current state) or `./tools/pin-versions.sh --update` (newest versions) – the tool then rebuilds as a check and runs the self-test. If `requirements.lock` is empty, the image is built from `requirements.txt` with a notice.
 
-**Without root (from 2.14):** The service runs as user `pocketknife` (UID/GID 10001, changeable with `PK_UID`/`PK_GID`), with a read-only program file system, without capabilities and with `no-new-privileges`. On start, it hands `/data` and `/backup` over to this user once and then drops its root privileges. A mounted repository folder (`PK_REPO_MOUNT`) must be readable for UID 10001.
+**Without root (from 2.14):** The service runs as user `pocketknife` (UID/GID 10001, changeable with `PK_UID`/`PK_GID`), with a read-only program file system, without capabilities and with `no-new-privileges`. On start, it hands `/data` and `/backup` over to this user once and then drops its root privileges. A mounted repository folder (`PK_REPO_MOUNT`) must be readable for UID 10001. **NAS with share permissions of its own (e.g. Synology):** create a user of its own there, give it read/write on the data and backup folders and enter its IDs as `PK_UID`/`PK_GID` – step by step in the manual under Installation → On a NAS.
 
-All configurable values – including DNS servers (`PK_DNS_1`, `PK_DNS_2`, `PK_DNS_SEARCH`), port, time zone, data path (`PK_DATA_PATH`) and repository folder (`PK_REPO_MOUNT`) – are in the `.env`. The `docker-compose.yml` is not edited. Without `PK_DNS_1`, `docker compose` aborts with a clear message.
+All configurable values – including DNS servers (`PK_DNS_1`, `PK_DNS_2`, `PK_DNS_SEARCH`), port, time zone, data path (`PK_DATA_PATH`) and repository folder (`PK_REPO_MOUNT`) – are in the `.env`. The `docker-compose.yml` is not edited. Without `PK_DNS_1`, `docker compose` aborts with a clear message; `PK_DNS_2` is optional (leave it empty if there is only one DNS server).
 
 ## Updating to a new version
 
@@ -286,7 +284,7 @@ Trivy is downloaded in exactly one version and verified by SHA-256 – no GitHub
 | `PK_PUBLIC_HOSTNAME` | Name in the self-signed certificate and default for the certificate signing request | `pocketknife` |
 | `PK_SESSION_HOURS` | Maximum duration of a session (additionally sign-out when idle, configurable in the interface) | `10` |
 | `PK_UID` / `PK_GID` | User/group ID under which the service runs in the container (owner of `/data` and `/backup`) | `10001` |
-| `PK_DNS_1` / `PK_DNS_2` / `PK_DNS_SEARCH` | DNS servers and search domain for the container | – / `PK_DNS_1` / `PK_DOMAIN` |
+| `PK_DNS_1` / `PK_DNS_2` / `PK_DNS_SEARCH` | DNS servers and search domain for the container (`PK_DNS_2` optional: a second, different server) | – / empty / `PK_DOMAIN` |
 | `PK_DATA_PATH` | Data directory on the host | `./data` |
 | `PK_REPO_MOUNT` | Host folder mounted as `/repo` | `./repo` |
 | `PK_BACKUP_PATH` | Host folder for the automatic backups (`/backup` in the container) | `<PK_DATA_PATH>-backup` |

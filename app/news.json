@@ -28,6 +28,24 @@
      "audience": "admin",
      "de": "Beim Paket und Zeitplan eines Mandanten: „OU-Admins dürfen ändern“ (Standard aus).",
      "en": "On a tenant's package and schedule: \"OU admins may change\" (off by default)."
+    },
+    {
+     "kind": "fixed",
+     "audience": "admin",
+     "de": "Installation mit nur einem DNS-Server: ältere Docker-Compose-Versionen (z. B. auf einem NAS) brechen nicht mehr mit „dns … must be unique“ ab – PK_DNS_2 ist echt optional.",
+     "en": "Installation with only one DNS server: older Docker Compose versions (e.g. on a NAS) no longer abort with \"dns … must be unique\" – PK_DNS_2 is truly optional."
+    },
+    {
+     "kind": "new",
+     "audience": "admin",
+     "de": "Neue Installationsanleitung im Handbuch: Schritt für Schritt vom Docker-Host bis zur ersten Anmeldung, mit allen Einstellungen der .env und häufigen Fehlern.",
+     "en": "New installation guide in the manual: step by step from the Docker host to the first sign-in, with all .env settings and common errors."
+    },
+    {
+     "kind": "improved",
+     "audience": "admin",
+     "de": "Fehlt das Schreibrecht auf den Datenordner (z. B. auf einer Synology), erklärt POCKET KNIFE beim Start, was zu tun ist – statt eines Tracebacks.",
+     "en": "If write access to the data folder is missing (e.g. on a Synology), POCKET KNIFE explains at start what to do – instead of a traceback."
     }
    ]
   },

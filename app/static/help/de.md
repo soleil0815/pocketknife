@@ -155,7 +155,7 @@ In POCKET KNIFE unter **Einstellungen → Verbindung & Konten → Anmeldeverfahr
 
 **Docker-Host**
 
-- Linux (z. B. Debian 12/13 oder Ubuntu 22.04/24.04), 64 Bit (x86_64), als VM oder physisch
+- Linux (z. B. Debian 12/13 oder Ubuntu 22.04/24.04), 64 Bit (amd64 oder arm64), als VM, physisch oder als NAS mit Docker
 - Docker Engine 24 oder neuer
 - **SSD-Speicher** für das Datenverzeichnis (`PK_DATA_PATH`) – die SQLite-Datenbank schreibt bei Scans viele kleine Änderungen
 - DNS der Domäne (`PK_DNS_1`), Netzwerkzugriff auf die Clients (WinRM 5985/5986, SMB 445, für Fernsitzungen 3389/5900), die Domänencontroller (LDAPS 636) und die Repository-Freigabe
@@ -200,27 +200,165 @@ Die Zahl der parallelen Scans und Installationen sowie das Heartbeat-Intervall s
 
 ## Installation {#setup}
 
-Empfohlene Ordnerstruktur auf dem Docker-Host – die Daten liegen außerhalb der Versionsordner:
+Diese Anleitung führt Schritt für Schritt von einem leeren Docker-Host bis zur ersten Anmeldung. Sie gilt für jeden Docker-Host unter Linux: eine VM, einen Server oder ein NAS mit Docker. Die [Voraussetzungen in der Domäne](#prereq) sollten erfüllt sein; WinRM auf den Clients ([per Gruppenrichtlinie](#winrm-gpo)) können Sie auch danach einrichten – für die Installation und die erste Anmeldung braucht es das noch nicht.
+
+POCKET KNIFE besteht aus zwei Containern: **pocketknife** (Programm und Weboberfläche) und **pocketknife-guacd** (Fernsitzungen im Browser). Beide startet eine Datei `docker-compose.yml`; alles, was Sie einstellen, steht in der Datei `.env` daneben.
+
+### Schritt 1: Docker-Host vorbereiten
+
+- **Docker Engine 24 oder neuer mit Docker Compose v2** – prüfen mit `docker version` und `docker compose version`. Prozessor amd64 (x86_64) oder arm64; Docker lädt das passende Image.
+- **Feste IP-Adresse und ein DNS-Name** für den Host, z. B. `pocketknife.firma.local` (A-Eintrag im DNS der Domäne). Unter diesem Namen öffnen Sie später die Oberfläche; der Kiosk mit Windows-Anmeldung braucht genau diesen Namen.
+- **Uhrzeit synchron** mit der Domäne (NTP) – sonst scheitern Kerberos und die Prüfung von Zertifikaten.
+- **Speicher:** das Datenverzeichnis auf einer SSD (Größe siehe [Systemanforderungen](#sizing)), die Sicherungen möglichst auf einem anderen Laufwerk.
+- **Netzwerk:** Der Docker-Host muss Folgendes erreichen (eingehend nur Port 8443 von den Arbeitsplätzen der Bediener):
+
+| Ziel | Port | Wofür |
+|---|---|---|
+| DNS-Server der Domäne | 53 TCP/UDP | Namen der Computer und Domänencontroller auflösen |
+| Domänencontroller | 636 TCP (LDAPS); 88 TCP/UDP bei Kerberos | Anmeldung, AD-Abgleich |
+| Clients | 5985 TCP (5986 bei HTTPS), 445 TCP | Inventar, Bereitstellungen, Dateien |
+| Clients (optional) | 3389 TCP (RDP), 5900 TCP (VNC) | Fernsitzungen |
+| Dateiserver mit dem Repository | 445 TCP | Installationsdateien |
+| Internet (optional) | 443 TCP | fertiges Image (`ghcr.io`), winget-Index (`cdn.winget.microsoft.com`), Hinweis auf neue Versionen (`api.github.com`) |
+
+Ohne Internet geht es auch: Image selbst bauen (siehe unten) und den winget-Index offline hochladen.
+
+### Schritt 2: Ordner und Dateien anlegen
+
+Alles liegt in **einem** Ordner, z. B. `/opt/pocketknife` (auf einem NAS z. B. `/volume1/docker/pocketknife`). Die Programm-ZIP `pocketknife-<Version>.zip` gehört zu jedem Release (mit Prüfsumme in `pocketknife-<Version>.zip.sha256`); sie entpackt in einen Ordner `pocketknife`:
+
+```bash
+cd /opt
+unzip pocketknife-2.30.zip        # ergibt /opt/pocketknife
+cd /opt/pocketknife
+cp .env.example .env
+```
+
+Danach sieht der Ordner so aus – `data/` und `data-backup/` entstehen beim ersten Start von selbst:
 
 ```
 /opt/pocketknife/
-├── data/                  Datenbank, Logs, Zertifikat, Schlüssel
-└── pocketknife-2.4/       aktuelle Version mit der .env
+├── docker-compose.yml     startet beide Container – wird nie bearbeitet
+├── .env.example           Vorlage
+├── .env                   Ihre Einstellungen
+├── update.sh              für spätere Updates
+├── …                      Programmdateien (das Programm selbst steckt im Image)
+├── data/                  Datenbank, Protokolle, Zertifikat, Schlüssel
+└── data-backup/           automatische Sicherungen
 ```
+
+> **Wichtig:** `docker-compose.yml` und `.env` müssen im **selben Ordner** liegen – die Compose-Datei liest die `.env` von dort. Die `docker-compose.yml` bitte nicht ändern: Updates ersetzen sie, Ihre Werte gehören in die `.env`.
+
+### Schritt 3: Die .env ausfüllen
+
+Öffnen Sie die `.env` (z. B. `nano .env`). Jede Zeile hat die Form `NAME=Wert`, ohne Leerzeichen um das `=`; Zeilen mit `#` am Anfang sind Kommentare. **Diese Werte müssen stimmen:**
+
+| Variable | Beispiel | Bedeutung |
+|---|---|---|
+| `PK_DOMAIN` | `firma.local` | DNS-Name der Domäne. Daraus entstehen die Such-Basis im AD und der Anmeldename (`benutzer@firma.local`). |
+| `PK_NETBIOS` | `FIRMA` | NetBIOS-Name der Domäne (für `FIRMA\konto`). |
+| `PK_DNS_1` | `10.0.10.5` | IP-Adresse eines **DNS-Servers der Domäne** (meist ein Domänencontroller) – nicht der Router und kein öffentlicher DNS, sonst findet POCKET KNIFE die Computer nicht. |
+| `PK_DNS_2` | `10.0.10.6` | Optional: ein **zweiter, anderer** DNS-Server. Gibt es nur einen, leer lassen oder die Zeile löschen. |
+| `PK_LDAP_SERVERS` | `dc1.firma.local,dc2.firma.local` | Domänencontroller mit LDAPS, kommagetrennt. Leer = `PK_DOMAIN`. |
+| `PK_ACCESS_GROUP` | `POCKETKNIFE-Admins` | AD-Gruppe, deren Mitglieder POCKET KNIFE bedienen dürfen (verschachtelte Gruppen zählen mit). |
+| `PK_PUBLIC_HOSTNAME` | `pocketknife.firma.local` | DNS-Name des Docker-Hosts aus Schritt 1 – steht im Zertifikat. |
+
+**Diese Werte sind meist richtig, lassen sich aber anpassen:**
+
+| Variable | Standard | Wann ändern? |
+|---|---|---|
+| `PK_DATA_PATH` | `/opt/pocketknife/data` | anderer Ordner, z. B. auf einem NAS `/volume1/docker/pocketknife/data`. Ein relativer Pfad (`./data`) gilt ab dem Ordner der `docker-compose.yml`. |
+| `PK_BACKUP_PATH` | `<PK_DATA_PATH>-backup` | Sicherungen besser auf ein anderes Laufwerk oder eine eingebundene Freigabe. |
+| `PK_PORT` | `8443` | wenn der Port auf dem Host schon belegt ist. |
+| `PK_TIMEZONE` | `Europe/Berlin` | andere Zeitzone. |
+| `PK_WINRM_AUTH` | `ntlm` | lässt sich später in der Oberfläche umstellen und testen (Kerberos wird empfohlen, siehe [Kerberos statt NTLM](#kerberos)). |
+| `PK_REPO_MOUNT` | leer | nur, wenn das Software-Repository als Ordner auf dem Host eingebunden ist (im Container `/repo`). Sonst tragen Sie später in der Oberfläche einen UNC-Pfad ein, z. B. `\\fileserver.firma.local\software$`. |
+| `PK_UID` / `PK_GID` | `10001` | nur, wenn eingebundene Ordner einem bestimmten Benutzer gehören müssen (z. B. auf einem NAS mit Freigabe-Rechten). |
+| `PK_BREAKGLASS_USER` / `PK_BREAKGLASS_PASSWORD` | leer | Notfallzugang ohne AD – nur bei Bedarf, mit langem, zufälligem Kennwort. |
+
+**Das Dienstkonto** (`PK_SERVICE_USER`, `PK_SERVICE_PASSWORD`) gehört **nicht** in die `.env`: Löschen Sie die beiden Zeilen und tragen Sie das Konto nach der ersten Anmeldung unter **Einstellungen → Verbindung & Konten** ein – dort wird es geprüft und verschlüsselt gespeichert. Für die erste Anmeldung wird es nicht gebraucht.
+
+Alle weiteren Variablen stehen in der `.env.example` mit Erklärung; Zeitpläne, Parallelität, Aufbewahrung, Repository und winget stellen Sie in der Oberfläche ein.
+
+### Schritt 4: Starten
 
 ```bash
-cd /opt/pocketknife/pocketknife-2.4
-cp .env.example .env
-nano .env                  # Domäne, DCs, DNS-Server, Zugriffsgruppe, Datenpfad
-docker login ghcr.io -u <GitHub-Benutzer>   # nur bei privater Registry (Token mit read:packages)
-docker compose up -d       # lädt ghcr.io/soleil0815/pocketknife:latest (amd64/arm64)
+cd /opt/pocketknife
+docker compose up -d      # lädt das Image, startet beide Container
+docker compose ps         # nach etwa 1 Minute „healthy“
 ```
 
-Standard ist das fertige Image aus der Registry (`ghcr.io/soleil0815/pocketknife:latest`). Mit `:latest` kann eine Container-Verwaltung wie Dockhand oder Watchtower POCKET KNIFE **automatisch** aktualisieren (oder von Hand `docker compose pull && docker compose up -d`); bei einer Version bleiben Sie mit `PK_IMAGE=ghcr.io/soleil0815/pocketknife:<Version>` in der `.env`. Ohne Internet: `docker build -t pocketknife:local .` und `PK_IMAGE=pocketknife:local`.
+Nach etwa einer Minute zeigt `docker compose ps` bei **pocketknife** „healthy“ und bei **pocketknife-guacd** „Up“. Liegt das Image in einer privaten Registry, vorher einmal `docker login ghcr.io -u <GitHub-Benutzer>` (Kennwort = Token mit `read:packages`).
 
-Danach `https://<docker-host>:8443` öffnen und mit einem Konto aus der Zugriffsgruppe anmelden. Beim ersten Start wird ein selbstsigniertes Zertifikat in `data/tls/` erzeugt; ein eigenes Zertifikat wird unter **Einstellungen → Zertifikat (HTTPS)** hochgeladen (siehe [Eigenes Zertifikat](#certificate)).
+Beim ersten Start legt POCKET KNIFE `data/` und `data-backup/` an, erzeugt die Datenbank, den Schlüssel für gespeicherte Kennwörter und ein selbstsigniertes Zertifikat (`data/tls/`). Zeigt `docker compose ps` nicht „healthy“, steht der Grund im Protokoll:
 
-> **Tipp:** Das Dienstkonto muss nicht in der `.env` stehen. Hinterlegen Sie es nach der ersten Anmeldung unter **Einstellungen → Verbindung & Konten** – dort wird es vor dem Speichern geprüft und verschlüsselt abgelegt. Für die erste Anmeldung ohne AD-Zugriff gibt es optional einen Notfallzugang (`PK_BREAKGLASS_USER`/`PK_BREAKGLASS_PASSWORD`). Er unterliegt keiner AD-Kontosperre: ein langes, zufälliges Kennwort (mindestens 16 Zeichen) wählen und die Benachrichtigung **„Notfallzugang benutzt“** einschalten. Fehlversuche sind je Adresse begrenzt; jeder wird gemeldet.
+```bash
+docker compose logs -f pocketknife   # Strg+C beendet die Anzeige
+```
+
+Optional können Sie den eingebauten Selbsttest laufen lassen (dauert einige Minuten, ändert nichts an Ihren Daten):
+
+```bash
+docker compose exec -T -e HOME=/nonexistent pocketknife \
+  python3 -I /opt/pocketknife/tools/selftest.py | tail -n 1
+```
+
+**Image:** Standard ist das fertige Image `ghcr.io/soleil0815/pocketknife:latest`. Bei einer Version bleiben: `PK_IMAGE=ghcr.io/soleil0815/pocketknife:<Version>` in der `.env`. Ohne Internet oder mit eigenem Code: im Programmordner `docker build -t pocketknife:local .` und `PK_IMAGE=pocketknife:local`.
+
+### Schritt 5: Erste Anmeldung
+
+1. Im Browser `https://pocketknife.firma.local:8443` öffnen (Ihr `PK_PUBLIC_HOSTNAME` und `PK_PORT`). Beim ersten Mal warnt der Browser vor dem selbstsignierten Zertifikat – bestätigen; ein eigenes Zertifikat laden Sie später unter **Einstellungen → Zertifikat (HTTPS)** hoch (siehe [Eigenes Zertifikat](#certificate)).
+2. Mit einem AD-Konto aus der Zugriffsgruppe anmelden – als `benutzer`, `FIRMA\benutzer` oder `benutzer@firma.local`. Dafür reichen DNS und LDAPS; das Dienstkonto ist noch nicht nötig.
+3. Weiter mit den [ersten Schritten](#firststeps): Dienstkonto eintragen, AD abgleichen, Verbindung zu einem Computer testen, Repository einrichten.
+
+### Mit einer Container-Verwaltung (NAS, Portainer, Dockhand …)
+
+Container-Verwaltungen arbeiten mit derselben `docker-compose.yml`. Darauf kommt es an:
+
+- **Projekt aus dem Ordner anlegen:** Legen Sie zuerst den Ordner aus Schritt 2 mit `docker-compose.yml` und ausgefüllter `.env` an und wählen Sie ihn als Projekt- bzw. Stack-Ordner („vorhandene docker-compose.yml verwenden“). Wird die Compose-Datei nur in ein Eingabefeld kopiert, legt das Werkzeug sie oft in einem eigenen Ordner ab – dann fehlt dort die `.env` (Fehler `env file … not found`): die `.env` in genau diesen Ordner legen.
+- **Pfade absolut angeben**, z. B. `PK_DATA_PATH=/volume1/docker/pocketknife/data` – so ist eindeutig, wo die Daten liegen.
+- **Rechte:** Der Dienst läuft im Container als Benutzer mit der ID 10001. Auf einem normalen Linux-Server übergibt er sich Daten- und Sicherungsordner beim Start selbst. Ein eingebundener Repository-Ordner (`PK_REPO_MOUNT`) muss für ihn **lesbar** sein. Auf einem NAS mit eigenen Freigabe-Rechten (z. B. Synology) reicht das nicht – siehe den nächsten Abschnitt.
+- **Port:** Ist 8443 belegt (z. B. durch eine andere Anwendung auf dem NAS), `PK_PORT` ändern.
+- **Updates:** Mit `:latest` kann die Container-Verwaltung das neue Image selbst laden und den Container neu starten; die Daten bleiben. Vor dem Start sichert POCKET KNIFE die Datenbank.
+- **Ältere Compose-Versionen** (wie sie manche NAS-Pakete mitbringen) melden doppelte DNS-Einträge als Fehler. Seit 2.30 ist der zweite DNS-Server echt optional; mit einer älteren `docker-compose.yml` die neue aus der Programm-ZIP nehmen.
+
+### Auf einem NAS (z. B. Synology) {#setup-nas}
+
+Ein NAS prüft auf seinen Freigaben **eigene Zugriffsrechte** (Synology: Berechtigungen in der File Station). Einen Benutzer mit der ID 10001 kennt es nicht – POCKET KNIFE darf dann nicht in seinen Datenordner schreiben und bricht beim Start mit „Start abgebrochen – Benutzer 10001:10001 darf hier nicht schreiben“ ab. Abhilfe: POCKET KNIFE läuft als **eigener Benutzer des NAS**.
+
+1. **Ordner anlegen**, z. B. in der Freigabe `docker`: `pocketknife` mit den Unterordnern `data`, `data-backup` und – nur wenn die Installationsdateien auf dem NAS liegen – `repo`. Die Unterordner **in** `data` (`tls`, `logs` …) legt POCKET KNIFE selbst an; bitte nicht von Hand.
+2. **Benutzer anlegen** (Synology: Systemsteuerung → Benutzer und Gruppe → Erstellen), z. B. `pocketknife`: kein Administrator, langes zufälliges Kennwort, alle Anwendungen verweigern, Lesen/Schreiben auf die Freigabe `docker`.
+3. **Ordnerrechte** (File Station → Rechtsklick → Eigenschaften → Berechtigung → Erstellen, jeweils „auf diesen Ordner, Unterordner und Dateien anwenden“): Benutzer `pocketknife` mit **Lesen und Schreiben** auf `data` und `data-backup`, mit **Lesen** auf `repo`.
+4. **IDs herausfinden:** per SSH `id pocketknife` → z. B. `uid=1027(pocketknife) gid=100(users)`.
+5. **In die `.env`** (Pfade absolut, auf das Volume des NAS – sonst landen die Daten auf der Systempartition):
+
+```
+PK_DATA_PATH=/volume1/docker/pocketknife/data
+PK_BACKUP_PATH=/volume1/docker/pocketknife/data-backup
+PK_REPO_MOUNT=/volume1/docker/pocketknife/repo
+PK_UID=1027
+PK_GID=100
+```
+
+`PK_REPO_MOUNT` nur, wenn die Installationsdateien auf dem NAS liegen (in der Oberfläche dann Repository-Pfad `/repo`); liegen sie auf einem Windows-Dateiserver, die Zeile weglassen und dort den UNC-Pfad eintragen.
+
+6. **Projekt anlegen** (Synology: Container Manager → Projekt → Erstellen, Pfad `/volume1/docker/pocketknife`, vorhandene `docker-compose.yml` verwenden) und starten.
+
+> **Tipp:** Der Gruppe „Jeder“ Schreibrecht auf `data` zu geben, funktioniert auch, ist aber nicht zu empfehlen – dort liegen die Datenbank und der Schlüssel für die gespeicherten Kennwörter.
+
+### Häufige Fehler bei der Installation {#setup-errors}
+
+| Meldung oder Verhalten | Ursache und Lösung |
+|---|---|
+| `set PK_DNS_1 in the .env (DNS server of the domain)` | `PK_DNS_1` fehlt – oder die `.env` liegt nicht neben der `docker-compose.yml`. |
+| `env file …/.env not found` | Im Projektordner gibt es keine `.env` – siehe Container-Verwaltung oben. |
+| `services.guacd.dns array items[0,1] must be unique` | Ältere Compose-Version und `docker-compose.yml` vor 2.30 mit nur einem DNS-Server: die neue `docker-compose.yml` verwenden (oder `PK_DNS_2` auf einen zweiten, anderen DNS-Server setzen). |
+| `port is already allocated` / `address already in use` | Der Port ist auf dem Host belegt: `PK_PORT` ändern. |
+| `denied`, `unauthorized` oder `not found` beim Laden des Images | Bei einer privaten Registry vorher `docker login ghcr.io`; sonst Internetzugang bzw. Proxy des Docker-Hosts prüfen. |
+| Container startet immer wieder neu, im Protokoll „Start abgebrochen – Benutzer … darf hier nicht schreiben“ (ältere Versionen: `PermissionError … /data/…`) | Der Dienst darf nicht in den Datenordner schreiben. NAS (z. B. Synology): siehe [Auf einem NAS](#setup-nas). Linux-Server: `chown -R 10001:10001` auf `PK_DATA_PATH` und `PK_BACKUP_PATH` oder einen lokalen Ordner statt einer Netzfreigabe verwenden. Unterordner in `data` nicht von Hand anlegen. |
+| Seite nicht erreichbar | Port in der Firewall des Hosts freigeben; `https://` verwenden (nicht `http://`). |
+| Anmeldung schlägt fehl, obwohl das Kennwort stimmt | Konto nicht in `PK_ACCESS_GROUP`; anderer UPN-Suffix als `PK_DOMAIN` (dann `FIRMA\benutzer` verwenden); LDAPS (636) auf den DCs nicht aktiv oder gesperrt; `PK_DNS_1` zeigt nicht auf das DNS der Domäne. Den genauen Grund zeigt `docker compose logs pocketknife`. |
+| Computer „nicht auflösbar“ | `PK_DNS_1`/`PK_DNS_2` sind keine DNS-Server der Domäne. Nach einer Änderung in der `.env`: `docker compose up -d` (übernimmt die neuen Werte). |
 
 ## Update {#update}
 

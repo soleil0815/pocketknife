@@ -4908,6 +4908,83 @@ def _():
         access.flush()
 
 
+@test("2.30 docker-compose.yml: zweiter DNS-Server echt optional (nie dieselbe Adresse doppelt – ältere Compose-Versionen lehnen das ab); Installationsanleitung im Handbuch")
+def _():
+    import re as _re
+    base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+    src = os.path.join(base, "docker-compose.yml")
+    if not os.path.exists(src):
+        return  # im Image liegt die Compose-Datei nicht
+    y = open(src, encoding="utf-8").read()
+    assert "${PK_DNS_2:-${PK_DNS_1}}" not in y, "Ersatzwert für PK_DNS_2 darf nicht PK_DNS_1 sein (doppelter Eintrag)"
+
+    def interp(v, env):  # das Nötige von Compose: ${VAR}, ${VAR:-Standard}, ${VAR:?Meldung}
+        def one(m):
+            name, op, rest = m.group(1), m.group(2), m.group(3) or ""
+            val = env.get(name, "")
+            if op == ":?" and not val:
+                raise ValueError(rest)
+            return val if val else (interp(rest, env) if op == ":-" else "")
+        prev = None
+        while prev != v:
+            prev, v = v, _re.sub(r"\$\{(\w+)(?:(:-|:\?)((?:[^{}]|\$\{[^{}]*\})*))?\}", one, v)
+        return v
+    blocks = _re.findall(r"\n    dns:\n((?:      - .*\n)+)", y)
+    assert len(blocks) == 2, "dns bei pocketknife und guacd"
+    for env in ({"PK_DNS_1": "10.0.10.5"}, {"PK_DNS_1": "10.0.10.5", "PK_DNS_2": ""}, {"PK_DNS_1": "10.0.10.5", "PK_DNS_2": "10.0.10.6"}):
+        for b in blocks:
+            items = [interp(x.strip()[2:], env) for x in b.strip().splitlines()]
+            assert items[0] == "10.0.10.5" and len(items) == len(set(items)), (env, items)
+            assert [x for x in items if x] == [v for k, v in sorted(env.items()) if v], (env, items)
+    ex = open(os.path.join(base, ".env.example"), encoding="utf-8").read()
+    assert "PK_DNS_2 is optional" in ex and "leave empty" in ex
+    for lang, words in (("de", ("### Schritt 3: Die .env ausfüllen", "{#setup-errors}", "must be unique", "Container-Verwaltung")),
+                        ("en", ("### Step 3: Fill in the .env", "{#setup-errors}", "must be unique", "container manager"))):
+        md = open(os.path.join(base, "app", "static", "help", f"{lang}.md"), encoding="utf-8").read()
+        for w in words:
+            assert w in md, (lang, w)
+
+
+@test("2.30 Start ohne Schreibrecht auf /data (z. B. Synology): klare Meldung mit Ordner, Benutzer-ID und Abhilfe statt Traceback; Anleitung für NAS")
+def _():
+    from app import privileges
+    d = tempfile.mkdtemp(prefix="pk-wr-")
+    try:
+        assert privileges.unwritable([d, os.path.join(d, "tls")]) == [] and os.path.isdir(os.path.join(d, "tls")), "fehlende Unterordner anlegen"
+        def deny(p):
+            if p.endswith("tls"):
+                raise PermissionError(13, "Permission denied")
+        bad = privileges.unwritable([d, os.path.join(d, "tls")], probe=deny)
+        assert bad == [(os.path.join(d, "tls"), "Permission denied")], bad
+        msg = privileges.write_hint(bad, d)
+        for w in ("Start abgebrochen", f"{os.getuid()}:{os.getgid()}", "tls: Permission denied", "PK_UID und PK_GID", "Synology", "chown -R",
+                  "nicht von Hand"):
+            assert w in msg, (w, msg)
+        if os.geteuid() == 0:  # echt prüfen: als Benutzer ohne Rechte auf einem fremden Ordner
+            os.chmod(d, 0o700)
+            pid = os.fork()
+            if pid == 0:
+                try:
+                    os.setgid(65534)
+                    os.setuid(65534)
+                    os._exit(3 if privileges.unwritable([d]) else 0)
+                except BaseException:
+                    os._exit(4)
+            st = os.waitpid(pid, 0)[1]
+            assert st >> 8 == 3, ("fremder Ordner muss als nicht beschreibbar erkannt werden", st, d)
+        base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+        rp = os.path.join(base, "run.py")
+        if os.path.exists(rp):
+            src = open(rp, encoding="utf-8").read()
+            assert src.index("privileges.unwritable(") < src.index("config.ensure_dirs()") < src.index("tls.ensure()")
+            assert "raise SystemExit(privileges.write_hint(" in src
+        for lang, w in (("de", "### Auf einem NAS (z. B. Synology) {#setup-nas}"), ("en", "### On a NAS (e.g. Synology) {#setup-nas}")):
+            md = open(os.path.join(base, "app", "static", "help", f"{lang}.md"), encoding="utf-8").read()
+            assert w in md and "PK_UID=1027" in md and "PK_DATA_PATH=/volume1/" in md, lang
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
 def main():
     ok = 0
     for name, fn in RESULTS:

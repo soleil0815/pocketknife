@@ -82,7 +82,7 @@ Der Container lädt nur den winget-**Katalog** (Index für den Versionsvergleich
 
 **Docker-Host**
 
-- Linux (z. B. Debian 12/13 oder Ubuntu 22.04/24.04), 64 Bit (x86_64), als VM oder physisch
+- Linux (z. B. Debian 12/13 oder Ubuntu 22.04/24.04), 64 Bit (amd64 oder arm64), als VM, physisch oder als NAS mit Docker
 - Docker Engine 24 oder neuer
 - **SSD-Speicher** für das Datenverzeichnis (`PK_DATA_PATH`) – die SQLite-Datenbank schreibt bei Scans viele kleine Änderungen
 - DNS der Domäne (`PK_DNS_1`), Netzwerkzugriff auf die Clients (WinRM 5985/5986, SMB 445, für Fernsitzungen 3389/5900), die Domänencontroller (LDAPS 636) und die Repository-Freigabe
@@ -140,30 +140,28 @@ POCKET KNIFE sichert sich selbst – unter **Einstellungen → Sicherung**:
 
 ## Installation
 
-Empfohlene Ordnerstruktur auf dem Docker-Host – die Daten liegen außerhalb der Versionsordner:
-
-```
-/opt/pocketknife/
-├── data/                 Datenbank, Logs, Zertifikat (PK_DATA_PATH)
-├── pocketknife-1.0/
-└── pocketknife-1.1/      aktuelle Version, enthält die .env
-```
+Die ausführliche Anleitung Schritt für Schritt – Docker-Host, Ports, jede Zeile der `.env`, Start, erste Anmeldung, Container-Verwaltungen (NAS, Portainer, Dockhand) und häufige Fehler – steht im Handbuch unter **Installation** (in der App: Hilfe → Installation und Update). Kurz:
 
 ```bash
-cd /opt/pocketknife/pocketknife-1.1
+cd /opt
+unzip pocketknife-<Version>.zip   # ergibt /opt/pocketknife (docker-compose.yml, .env.example, update.sh …)
+cd /opt/pocketknife
 cp .env.example .env
-nano .env                 # Domäne, DCs, DNS-Server, Dienstkonto, Gruppe, Datenpfad
+nano .env                 # Pflicht: PK_DOMAIN, PK_NETBIOS, PK_DNS_1, PK_LDAP_SERVERS, PK_ACCESS_GROUP, PK_PUBLIC_HOSTNAME
 docker login ghcr.io -u <GitHub-Benutzer>   # nur bei privater Registry; Kennwort = Token mit read:packages
 docker compose up -d      # lädt das fertige Image ghcr.io/soleil0815/pocketknife:latest (amd64/arm64)
+docker compose ps         # nach etwa einer Minute „healthy“ → https://<PK_PUBLIC_HOSTNAME>:8443
 ```
+
+`docker-compose.yml` und `.env` liegen im selben Ordner; die Daten (`data/`, `data-backup/`) entstehen beim ersten Start daneben. Das Dienstkonto tragen Sie nach der ersten Anmeldung in der Oberfläche ein (verschlüsselt gespeichert) – nicht in der `.env`.
 
 **Image (ab 2.28.2):** Standard ist das fertige Image aus der GitHub Container Registry, `ghcr.io/soleil0815/pocketknife:latest` – der Container zeigt das wie andere Container auch. **Automatisch aktualisieren:** Mit `:latest` kann eine Container-Verwaltung wie Dockhand oder Watchtower das neue Image selbst ziehen und den Container neu starten (oder von Hand: `docker compose pull && docker compose up -d`). Vor dem Start sichert POCKET KNIFE die Datenbank („vor Update“) und erweitert sie bei Bedarf. **Bei einer Version bleiben:** in der `.env` `PK_IMAGE=ghcr.io/soleil0815/pocketknife:2.28.2` – bzw. in der Container-Verwaltung den Tag festlegen. **Ohne Internet / selbst bauen:** `docker build -t pocketknife:local .` und `PK_IMAGE=pocketknife:local` in der `.env` (das macht `update.sh` mit der ZIP-Datei selbst).
 
 **Reproduzierbarer Build:** Basis-Image (Python-Version und Digest), Debian-Pakete (über einen festen Stand von snapshot.debian.org) und alle Python-Pakete samt Abhängigkeiten werden exakt festgeschrieben (`Dockerfile`, `requirements.lock`, `build-requirements.txt`, `docker/apt-*.txt`). Festschreiben bzw. bewusst aktualisieren mit `./tools/pin-versions.sh` (aktueller Stand) oder `./tools/pin-versions.sh --update` (neueste Versionen) – das Werkzeug baut danach zur Kontrolle neu und führt den Selbsttest aus. Ist `requirements.lock` leer, baut das Image nach `requirements.txt` und weist darauf hin.
 
-**Ohne root (ab 2.14):** Der Dienst läuft als Benutzer `pocketknife` (UID/GID 10001, änderbar mit `PK_UID`/`PK_GID`), mit schreibgeschütztem Programmdateisystem, ohne Capabilities und mit `no-new-privileges`. Beim Start übergibt er `/data` und `/backup` einmalig an diesen Benutzer und gibt die root-Rechte dann ab. Ein eingebundener Repository-Ordner (`PK_REPO_MOUNT`) muss für UID 10001 lesbar sein.
+**Ohne root (ab 2.14):** Der Dienst läuft als Benutzer `pocketknife` (UID/GID 10001, änderbar mit `PK_UID`/`PK_GID`), mit schreibgeschütztem Programmdateisystem, ohne Capabilities und mit `no-new-privileges`. Beim Start übergibt er `/data` und `/backup` einmalig an diesen Benutzer und gibt die root-Rechte dann ab. Ein eingebundener Repository-Ordner (`PK_REPO_MOUNT`) muss für UID 10001 lesbar sein. **NAS mit eigenen Freigabe-Rechten (z. B. Synology):** dort einen eigenen Benutzer anlegen, ihm Lesen/Schreiben auf Daten- und Sicherungsordner geben und seine IDs als `PK_UID`/`PK_GID` eintragen – Schritt für Schritt im Handbuch unter Installation → Auf einem NAS.
 
-Alle anpassbaren Werte – auch DNS-Server (`PK_DNS_1`, `PK_DNS_2`, `PK_DNS_SEARCH`), Port, Zeitzone, Datenpfad (`PK_DATA_PATH`) und Repository-Ordner (`PK_REPO_MOUNT`) – stehen in der `.env`. Die `docker-compose.yml` wird nicht bearbeitet. Ohne `PK_DNS_1` bricht `docker compose` mit einer klaren Meldung ab.
+Alle anpassbaren Werte – auch DNS-Server (`PK_DNS_1`, `PK_DNS_2`, `PK_DNS_SEARCH`), Port, Zeitzone, Datenpfad (`PK_DATA_PATH`) und Repository-Ordner (`PK_REPO_MOUNT`) – stehen in der `.env`. Die `docker-compose.yml` wird nicht bearbeitet. Ohne `PK_DNS_1` bricht `docker compose` mit einer klaren Meldung ab; `PK_DNS_2` ist optional (leer lassen, wenn es nur einen DNS-Server gibt).
 
 ## Update auf eine neue Version
 
@@ -286,7 +284,7 @@ Trivy wird in genau einer Version geladen und per SHA-256 geprüft – keine Git
 | `PK_PUBLIC_HOSTNAME` | Name im selbstsignierten Zertifikat und Vorgabe für die Zertifikatsanforderung | `pocketknife` |
 | `PK_SESSION_HOURS` | Höchstdauer einer Sitzung (zusätzlich Abmeldung bei Inaktivität, in der Oberfläche einstellbar) | `10` |
 | `PK_UID` / `PK_GID` | Benutzer-/Gruppen-ID, unter der der Dienst im Container läuft (Besitzer von `/data` und `/backup`) | `10001` |
-| `PK_DNS_1` / `PK_DNS_2` / `PK_DNS_SEARCH` | DNS-Server und Suchdomäne für den Container | – / `PK_DNS_1` / `PK_DOMAIN` |
+| `PK_DNS_1` / `PK_DNS_2` / `PK_DNS_SEARCH` | DNS-Server und Suchdomäne für den Container (`PK_DNS_2` optional: ein zweiter, anderer Server) | – / leer / `PK_DOMAIN` |
 | `PK_DATA_PATH` | Datenverzeichnis auf dem Host | `./data` |
 | `PK_REPO_MOUNT` | Host-Ordner, der als `/repo` eingebunden wird | `./repo` |
 | `PK_BACKUP_PATH` | Host-Ordner für die automatischen Sicherungen (`/backup` im Container) | `<PK_DATA_PATH>-backup` |
