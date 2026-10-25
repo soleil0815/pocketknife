@@ -2,7 +2,7 @@ Deutsche Fassung: [README.md](README.md)
 
 # POCKET KNIFE
 
-Current version: **pocketknife-2.29.6** – see `CHANGELOG.md` (German).
+Current version: **pocketknife-2.29.7** – see `CHANGELOG.md` (German).
 
 Website: [helfi.space](https://helfi.space)
 
@@ -250,7 +250,7 @@ An image with known vulnerabilities is not published. `tools/trivy-scan.sh` chec
 |---|---|---|
 | `Release` | before uploading, amd64 and arm64 | finding → **nothing is published**; table in the run summary |
 | `Test` | every push | finding → run red (early warning before a release fails) |
-| `Wöchentliches Sicherheitsupdate` | Mondays 03:23 UTC and manually | update base image, Debian and Python packages and guacd, build without cache, self-test, Trivy – **only if everything passes**: new version number (e.g. 2.29.3 → 2.29.4) with an entry in CHANGELOG and news, then `Release` (amd64/arm64, self-test and Trivy once more) as `<version>` and `:latest`. If nothing changed, nothing happens; if something fails, nothing is published (e-mail from GitHub) |
+| `Wöchentliches Sicherheitsupdate` | Mondays 03:23 UTC and manually | update base image, Debian and Python packages and guacd, build without cache, self-test, Trivy – **only if everything passes**: security update number **`<version>-s<n>`** (e.g. 2.29.7 → 2.29.7-s1 → 2.29.7-s2: same program, only new packages; a new program version starts again without `-s`) with an entry in CHANGELOG and news, then `Release` (amd64/arm64, self-test and Trivy once more) as `<version>` and `:latest`. If nothing changed, nothing happens; if something fails, nothing is published (e-mail from GitHub) |
 | `Sicherheits-Scan` | daily 05:17 UTC and manually | checks the published `:latest` – vulnerabilities often become known after a release; a red run makes GitHub send an e-mail |
 | `Versionen aktualisieren` | manually | `tools/pin-versions.sh --update`: re-pin base image, Debian packages, Python packages and guacd, build without cache, self-test, Trivy – result as a pull request |
 

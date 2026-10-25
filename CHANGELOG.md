@@ -1,5 +1,11 @@
 # Änderungen
 
+## pocketknife-2.29.7 (25.10.2026)
+- **Sicherheitsupdates erkennbar benannt:** Das wöchentliche Sicherheitsupdate zählt nicht mehr die Programmversion hoch, sondern hängt `-s<n>` an – 2.29.7 → 2.29.7-s1 → 2.29.7-s2 heißt „gleiches Programm, nur neue Pakete“. Eine neue Programmversion fängt wieder ohne `-s` an. App (Neuigkeiten, Hinweis auf neue Versionen), `update.sh` und Release-Workflow sortieren richtig (2.29.7 < 2.29.7-s1 < 2.29.7-s2 < 2.29.8); Image-Tags z. B. `ghcr.io/…/pocketknife:2.29.7-s1`
+- **Behoben:** Beim automatischen Update blieb guacd ohne Prüfsumme (Digest) – `docker compose config` scheitert auf GitHub ohne `.env`. Jetzt wird die Zeile direkt gelesen; lässt sich der Digest nicht ermitteln, bricht das Update ab (nie still ungepinnt)
+- Wöchentliches Update und „Versionen aktualisieren“: keine Git-Anmeldedaten mehr im Arbeitsordner während Bau und Tests – das Token wird nur beim Speichern verwendet
+- **Selbsttest:** Sortierung der `-s`-Versionen in App, `update.sh` und Workflow, Zählweise, keine gespeicherten Git-Anmeldedaten in allen Workflows, guacd immer mit Digest
+
 ## pocketknife-2.29.6 (24.10.2026)
 - **Wöchentliches Sicherheitsupdate** (automatisch gebaut): Basis-Image, Debian- und Python-Pakete auf den neuesten Stand gebracht, ohne Cache neu gebaut, Selbsttest und Schwachstellen-Prüfung (Trivy) bestanden. Am Programm selbst hat sich nichts geändert
 - Geändert (7): `Basis-Image` bisheriger Stand → neuer Stand (Sicherheitsupdates von Debian/Python), `certifi` 2026.10.19 → 2026.10.23, `gcc` – → 4:14.2.0-1, `libc6-dev` – → 2.41-12+deb13u4, `pycparser` 3.11 → 3.12, `starlette` 1.9.0 → 1.10.0, `tzdata` 2026c-0+deb13u1 → 2026e-0+deb13u1

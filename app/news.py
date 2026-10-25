@@ -10,6 +10,7 @@
    Privates Repository: Lese-Token verschlüsselt im Tresor (Einstellung „update_token“, nie an die Oberfläche, nie im
    Diagnosepaket). Ohne Internet/Token: aus bzw. „nicht erreichbar“ – nie ein Fehler in der Oberfläche.
 """
+import functools
 import json
 import os
 import re
@@ -26,6 +27,7 @@ AUDIENCES = ("all", "admin")
 TOKEN_KEY = "update_token"          # verschlüsselt, nicht in DEFAULT_SETTINGS (→ nie über /api/settings sichtbar)
 STATUS_KEY = "update_status"        # JSON des letzten Abgleichs
 CHECK_HOURS = 24
+VER_RX = re.compile(r"^\d+(\.\d+){1,3}(-s\d+)?$")  # 2.29.6 oder 2.29.6-s3 (Sicherheitsupdate)
 REPO_RX = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9._-]{1,100}$")
 API = "https://api.github.com"
 _lock = threading.Lock()
@@ -39,7 +41,7 @@ def validate(data):
     out = []
     for v in (data or {}).get("versions") or []:
         ver = str(v.get("version") or "").strip()
-        if not re.match(r"^\d+(\.\d+){1,3}$", ver):
+        if not VER_RX.match(ver):
             raise ValueError(f"news.json: ungültige Version „{ver}“")
         items = []
         for it in v.get("items") or []:
@@ -51,7 +53,7 @@ def validate(data):
                 raise ValueError(f"news.json {ver}: Text auf Deutsch und Englisch nötig")
             items.append({"kind": kind, "audience": aud, "de": de[:1000], "en": en[:1000]})
         out.append({"version": ver, "date": str(v.get("date") or "")[:10], "items": items})
-    out.sort(key=lambda x: [int(p) for p in x["version"].split(".")], reverse=True)
+    out.sort(key=functools.cmp_to_key(lambda a, b: util.vcmp(a["version"], b["version"])), reverse=True)
     return out
 
 
@@ -112,7 +114,7 @@ def for_user(user):
 
 def mark_seen(user, version=None):
     v = str(version or config.VERSION)
-    if not re.match(r"^\d+(\.\d+){1,3}$", v) or util.vcmp(v, config.VERSION) > 0:
+    if not VER_RX.match(v) or util.vcmp(v, config.VERSION) > 0:
         v = config.VERSION
     db.ex("INSERT INTO news_seen(username, version, at) VALUES(?,?,?) ON CONFLICT(username) DO UPDATE SET "
           "version=excluded.version, at=excluded.at", (user["username"], v, util.now()))
@@ -191,7 +193,7 @@ def check(force=False, who=None):
     try:
         r = _fetch(s["repo"], token)
         ver = r["tag"].lstrip("vV")
-        if not re.match(r"^\d+(\.\d+){1,3}$", ver):
+        if not VER_RX.match(ver):
             raise ValueError(f"Release-Tag „{r['tag']}“ ist keine Versionsnummer")
         newer = []
         if r.get("news"):

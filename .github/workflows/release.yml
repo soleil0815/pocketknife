@@ -41,7 +41,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VER=$(tr -d ' \r\n' < VERSION)
-          case "$VER" in ''|*[!0-9.]*) echo "::error::Ungültige VERSION: '$VER'"; exit 1 ;; esac
+          # 2.29.6 (Programmversion) oder 2.29.6-s3 (drittes Sicherheitsupdate davon – gleiches Programm, neue Pakete)
+          printf '%s' "$VER" | grep -Eq '^[0-9]+(\.[0-9]+){1,3}(-s[0-9]+)?$' || { echo "::error::Ungültige VERSION: '$VER'"; exit 1; }
           if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "v$VER" ]; then
             echo "::error::Tag $GITHUB_REF_NAME passt nicht zu VERSION $VER (erwartet v$VER)"; exit 1
           fi

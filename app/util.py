@@ -43,9 +43,15 @@ def _vparts(v):
     v = re.sub(r"\s*[\(\[].*?[\)\]]", "", v)
     v = v.split("+", 1)[0].strip()
     v = re.sub(r"\s+(x64|x86|amd64|arm64|64-bit|32-bit|64bit|32bit)$", "", v)
+    # „2.29.6-s3“: drittes Sicherheitsupdate von 2.29.6 – höher als 2.29.6, niedriger als 2.29.7
+    sec = re.match(r"^(.*\d)-s(\d+)$", v)
+    if sec:
+        v = sec.group(1)
     out = []
     for t in re.findall(r"\d+|[a-z]+", v):
         out.append((0, int(t)) if t.isdigit() else (-1, t))
+    if sec:
+        out += [(0, 0)] * max(0, 4 - len(out)) + [(1, int(sec.group(2)))]
     return out
 
 

@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.29.7",
+   "date": "2026-10-25",
+   "items": [
+    {
+     "kind": "improved",
+     "audience": "admin",
+     "de": "Wöchentliche Sicherheitsupdates heißen jetzt <Version>-s<n> (z. B. 2.29.7-s1): gleiches Programm, nur neue Pakete.",
+     "en": "Weekly security updates are now named <version>-s<n> (e.g. 2.29.7-s1): same program, only new packages."
+    }
+   ]
+  },
+  {
    "version": "2.29.6",
    "date": "2026-10-24",
    "items": [

@@ -25,6 +25,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false   # keine Git-Anmeldedaten im Arbeitsordner – nur beim Speichern
 
       - name: Versionen neu ermitteln, festlegen und prüfen (Bau ohne Cache + Selbsttest)
         run: |
@@ -60,7 +62,7 @@ jobs:
           git add -A Dockerfile requirements.lock requirements.caps build-requirements.txt docker/apt-build.txt docker/apt-runtime.txt docker-compose.yml
           git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
             commit -qm "Versionen aktualisiert (tools/pin-versions.sh --update)"
-          git push -q origin "$BR"
+          git push -q "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$BR"
           {
             echo "Versionen neu festgelegt mit \`tools/pin-versions.sh --update\`: Bau ohne Cache und Selbsttest erfolgreich."
             echo

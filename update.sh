@@ -109,10 +109,12 @@ resolve() {
   esac
 }
 # Compare versions: 0 if $1 < $2
-ver_lt() {
+ver_lt() {  # „2.29.6-s3“ = Sicherheitsupdate von 2.29.6 (höher als 2.29.6, niedriger als 2.29.7)
   [ "$1" = "$2" ] && return 1
-  first=$(printf '%s\n%s\n' "$1" "$2" | sort -t. -k1,1n -k2,2n -k3,3n -k4,4n | head -n 1)
-  [ "$first" = "$1" ]
+  a=$(printf '%s' "$1" | awk -F'-s' '{n=split($1,p,"."); while(n<3){n++; p[n]=0}; printf "%s.%s.%s.%s", p[1],p[2],p[3],($2==""?0:$2+1)}')
+  b=$(printf '%s' "$2" | awk -F'-s' '{n=split($1,p,"."); while(n<3){n++; p[n]=0}; printf "%s.%s.%s.%s", p[1],p[2],p[3],($2==""?0:$2+1)}')
+  first=$(printf '%s\n%s\n' "$a" "$b" | sort -t. -k1,1n -k2,2n -k3,3n -k4,4n | head -n 1)
+  [ "$first" = "$a" ]
 }
 
 # Going back without a saved image: build the previous version again (old compose files with or without „build:“)
@@ -299,7 +301,7 @@ from_zip() {
   done
   [ -n "$SRC" ] || die "The ZIP does not contain a POCKET KNIFE version (VERSION, docker-compose.yml and app/ are missing)."
   NEWVER=$(tr -d ' \r\n' < "$SRC/VERSION")
-  case "$NEWVER" in ''|*[!0-9.]*) die "Invalid version number in the ZIP: \"$NEWVER\"" ;; esac
+  printf '%s' "$NEWVER" | grep -Eq '^[0-9]+(\.[0-9]+){1,3}(-s[0-9]+)?$' || die "Invalid version number in the ZIP: \"$NEWVER\""
 
   # Where does the current configuration come from? The running version (also from an old version folder), otherwise
   # the program folder itself

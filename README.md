@@ -2,7 +2,7 @@ English version: [README.en.md](README.en.md)
 
 # POCKET KNIFE
 
-Aktuelle Version: **pocketknife-2.29.6** – siehe `CHANGELOG.md`.
+Aktuelle Version: **pocketknife-2.29.7** – siehe `CHANGELOG.md`.
 
 Webseite: [helfi.space](https://helfi.space)
 
@@ -250,7 +250,7 @@ Ein Image mit bekannten Schwachstellen wird nicht veröffentlicht. `tools/trivy-
 |---|---|---|
 | `Release` | vor dem Hochladen, amd64 und arm64 | Befund → **nichts wird veröffentlicht**; Tabelle in der Zusammenfassung des Laufs |
 | `Test` | jeder Push | Befund → Lauf rot (frühe Warnung, bevor ein Release scheitert) |
-| `Wöchentliches Sicherheitsupdate` | montags 03:23 UTC und von Hand | Basis-Image, Debian- und Python-Pakete und guacd auf den neuesten Stand, ohne Cache bauen, Selbsttest, Trivy – **nur wenn alles bestanden ist**: neue Versionsnummer (z. B. 2.29.3 → 2.29.4) mit Eintrag in CHANGELOG und Neuigkeiten, dann `Release` (amd64/arm64, Selbsttest und Trivy noch einmal) unter `<Version>` und `:latest`. Ohne Änderung passiert nichts; schlägt etwas fehl, wird nichts veröffentlicht (Mail von GitHub) |
+| `Wöchentliches Sicherheitsupdate` | montags 03:23 UTC und von Hand | Basis-Image, Debian- und Python-Pakete und guacd auf den neuesten Stand, ohne Cache bauen, Selbsttest, Trivy – **nur wenn alles bestanden ist**: Sicherheitsupdate-Nummer **`<Version>-s<n>`** (z. B. 2.29.7 → 2.29.7-s1 → 2.29.7-s2: gleiches Programm, nur neue Pakete; eine neue Programmversion fängt wieder ohne `-s` an) mit Eintrag in CHANGELOG und Neuigkeiten, dann `Release` (amd64/arm64, Selbsttest und Trivy noch einmal) unter `<Version>` und `:latest`. Ohne Änderung passiert nichts; schlägt etwas fehl, wird nichts veröffentlicht (Mail von GitHub) |
 | `Sicherheits-Scan` | täglich 05:17 UTC und von Hand | prüft das veröffentlichte `:latest` – Schwachstellen werden oft erst nach einem Release bekannt; ein roter Lauf schickt GitHub als Mail |
 | `Versionen aktualisieren` | von Hand | `tools/pin-versions.sh --update`: Basis-Image, Debian-Pakete, Python-Pakete und guacd neu festlegen, ohne Cache bauen, Selbsttest, Trivy – Ergebnis als Pull Request |
 

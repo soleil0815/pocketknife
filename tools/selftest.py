@@ -4521,7 +4521,7 @@ def _():
     spec = _iu.spec_from_file_location("pk_secrel", tool)
     m = _iu.module_from_spec(spec)
     spec.loader.exec_module(m)
-    assert m.bump("2.29.2") == "2.29.3" and m.bump("2.30") == "2.30.1" and m.bump("3.0.9") == "3.0.10"
+    assert m.bump("2.29.2") == "2.29.2-s1" and m.bump("2.29.2-s1") == "2.29.2-s2" and m.bump("2.30-s9") == "2.30-s10", "gleiches Programm, nur neue Pakete"
     d = tempfile.mkdtemp(prefix="pk-secrel-", dir=TMP)
     for side in ("alt", "neu"):
         os.makedirs(os.path.join(d, side, "tools")); os.makedirs(os.path.join(d, side, "app")); os.makedirs(os.path.join(d, side, "docker"))
@@ -4535,13 +4535,13 @@ def _():
         open(os.path.join(d, side, "Dockerfile"), "w").write("ARG PYTHON_IMAGE=python:3.12.15-slim-trixie@sha256:" + ("a" if side == "alt" else "b") * 64 + "\n")
     r = _sp.run([sys.executable, "-I", os.path.join(d, "neu", "tools", "security-release.py"), os.path.join(d, "alt")],
                 capture_output=True, text=True, timeout=60)
-    assert r.returncode == 0 and r.stdout.strip() == "2.29.3", r.stdout + r.stderr
+    assert r.returncode == 0 and r.stdout.strip() == "2.29.2-s1", r.stdout + r.stderr
     rd = lambda *p: open(os.path.join(d, "neu", *p), encoding="utf-8").read()  # noqa: E731
-    assert rd("VERSION").strip() == "2.29.3" and "pocketknife-2.29.3**" in rd("README.md")
+    assert rd("VERSION").strip() == "2.29.2-s1" and "pocketknife-2.29.2-s1**" in rd("README.md")
     ch = rd("CHANGELOG.md")
-    assert ch.index("## pocketknife-2.29.3 (") < ch.index("## pocketknife-2.29.2") and "libssl3t64` 3.5.1-1 → 3.5.1-2" in ch and "Basis-Image" in ch, ch
+    assert ch.index("## pocketknife-2.29.2-s1 (") < ch.index("## pocketknife-2.29.2 ") and "libssl3t64` 3.5.1-1 → 3.5.1-2" in ch and "Basis-Image" in ch, ch
     nv = json.loads(rd("app", "news.json"))["versions"][0]
-    assert nv["version"] == "2.29.3" and nv["items"][0]["kind"] == "security" and nv["items"][0]["de"] and nv["items"][0]["en"]
+    assert nv["version"] == "2.29.2-s1" and nv["items"][0]["kind"] == "security" and nv["items"][0]["de"] and nv["items"][0]["en"]
     from app import news
     news.validate(json.loads(rd("app", "news.json")))  # Aufbau passt
 
@@ -4620,11 +4620,41 @@ def _():
     pv = open(os.path.join(root, "tools", "pin-versions.sh"), encoding="utf-8").read()
     assert pv.index("tools/caps.py lock requirements.lock") < pv.index("' > requirements.lock"), "Grenzen VOR dem Leeren der Datei"
     assert "PK_ALLOW_MAJOR" in pv
+    assert "docker compose config --images" not in pv, "guacd aus der Datei lesen (compose config scheitert ohne .env → ohne Digest)"
     assert pv.index('docker pull -q "$BASE"') < pv.index("DIGEST=$(docker image inspect"), "BuildKit: Basis-Image vor dem Lesen der Prüfsumme holen"
     for f in ("weekly.yml", "update-pins.yml"):
         w = open(os.path.join(root, ".github", "workflows", f), encoding="utf-8").read()
         assert "requirements.caps" in w and "::error title=Versionen aktualisieren::" in w, f
     assert "requirements.caps" in open(os.path.join(root, "update.sh"), encoding="utf-8").read()
+
+
+@test("2.29.7 Sicherheitsupdates als <Version>-s<n> (gleiches Programm, nur neue Pakete): richtig sortiert in App, update.sh und Release; keine Git-Anmeldedaten im Arbeitsordner der Workflows")
+def _():
+    import subprocess as _sp
+    import re as _re
+    from app import news
+    assert util.vcmp("2.29.6-s1", "2.29.6") > 0 and util.vcmp("2.29.6-s1", "2.29.7") < 0 and util.vcmp("2.29.6-s10", "2.29.6-s2") > 0
+    assert util.vcmp("2.30", "2.29.6-s9") > 0 and util.vcmp("2.29.6-s3", "2.29.6-s3") == 0
+    assert news.VER_RX.match("2.29.6-s3") and news.VER_RX.match("2.29.6") and not news.VER_RX.match("2.29.6-x1")
+    news.validate({"versions": [{"version": "2.29.6-s1", "items": [{"kind": "security", "de": "a", "en": "b"}]}]})
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+    up = os.path.join(root, "update.sh")
+    if os.path.exists(up):
+        src = open(up, encoding="utf-8").read()
+        fn = src[src.index("ver_lt() {"):src.index("\n}\n", src.index("ver_lt() {")) + 3]
+        for a, b, lt in (("2.29.6", "2.29.6-s1", True), ("2.29.6-s2", "2.29.6-s10", True), ("2.29.6-s3", "2.29.7", True),
+                         ("2.30", "2.29.6-s9", False), ("2.29.6-s1", "2.29.6", False)):
+            r = _sp.run(["sh", "-c", fn + f'\nver_lt "{a}" "{b}"'], capture_output=True, text=True)
+            assert (r.returncode == 0) == lt, (a, b, r.returncode)
+        assert "(-s[0-9]+)?$" in src, "ZIP mit -s-Version wird angenommen"
+    wfd = os.path.join(root, ".github", "workflows")
+    if os.path.isdir(wfd):
+        rel = open(os.path.join(wfd, "release.yml"), encoding="utf-8").read()
+        assert "(-s[0-9]+)?$" in rel
+        for f in os.listdir(wfd):
+            t = open(os.path.join(wfd, f), encoding="utf-8").read()
+            n_co = len(_re.findall(r"uses: actions/checkout@", t))
+            assert t.count("persist-credentials: false") == n_co, f"{f}: Git-Anmeldedaten im Arbeitsordner"
 
 
 def main():

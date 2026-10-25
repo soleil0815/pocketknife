@@ -151,11 +151,13 @@ if [ -z "$SNAP" ]; then
 fi
 
 say "guacd image"
-GUAC=$(docker compose config --images 2>/dev/null | grep guacd | head -n1 || true)
+# direkt aus der Datei (docker compose config scheitert ohne .env – dann bliebe guacd still ohne Digest)
+GUAC=$(sed -n 's/^    image: \(guacamole\/guacd:[^ ]*\)$/\1/p' docker-compose.yml | head -n1)
 case "$GUAC" in
   ""|*@sha256:*) PIN_GUAC="$GUAC" ;;
   *) docker pull -q "$GUAC" >/dev/null
      GD=$(docker image inspect "$GUAC" --format '{{range .RepoDigests}}{{println .}}{{end}}' | sed -n 's/.*@//p' | head -n1)
+     [ -n "$GD" ] || { echo "Digest von $GUAC nicht ermittelbar" >&2; exit 1; }
      PIN_GUAC="${GUAC}@${GD}" ;;
 esac
 echo "${PIN_GUAC:-–}"

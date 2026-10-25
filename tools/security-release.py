@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """POCKET KNIFE – Sicherheitsupdate vorbereiten (vom wöchentlichen Workflow aufgerufen, nach tools/pin-versions.sh --update).
 
-Erhöht VERSION um eine Stelle (2.29.2 → 2.29.3, 2.30 → 2.30.1) und trägt die Version in CHANGELOG.md und app/news.json
+Zählt das Sicherheitsupdate hoch – die Programmversion bleibt: 2.29.6 → 2.29.6-s1 → 2.29.6-s2 („gleiches Programm,
+nur neue Pakete“; eine neue Programmversion fängt wieder ohne -s an) und trägt die Version in CHANGELOG.md und app/news.json
 ein – beides verlangt der Release-Workflow. Was sich geändert hat, liest das Skript aus den festgelegten Versionen
 (Basis-Image, Debian- und Python-Pakete) vor und nach dem Update.
 
@@ -43,12 +44,11 @@ def _pins(base):
 
 
 def bump(v):
-    parts = [int(x) for x in v.strip().split(".")]
-    if len(parts) == 2:
-        parts.append(1)
-    else:
-        parts[-1] += 1
-    return ".".join(str(x) for x in parts)
+    v = v.strip()
+    m = re.match(r"^(\d+(?:\.\d+){1,3})(?:-s(\d+))?$", v)
+    if not m:
+        raise ValueError(f"VERSION „{v}“ ist keine gültige Versionsnummer")
+    return f"{m.group(1)}-s{int(m.group(2) or 0) + 1}"
 
 
 def changes(old_dir, new_dir=ROOT):
@@ -73,7 +73,7 @@ def main(old_dir):
     lines = [f"## pocketknife-{new} ({today.strftime('%d.%m.%Y')})",
              "- **Wöchentliches Sicherheitsupdate** (automatisch gebaut): Basis-Image, Debian- und Python-Pakete auf den "
              "neuesten Stand gebracht, ohne Cache neu gebaut, Selbsttest und Schwachstellen-Prüfung (Trivy) bestanden. "
-             "Am Programm selbst hat sich nichts geändert"]
+             f"Am Programm selbst hat sich nichts geändert (Programmstand {new.split('-s')[0]})"]
     if ch:
         shown = ", ".join(f"`{k}` {o} → {n}" for k, o, n in ch[:25])
         lines.append(f"- Geändert ({len(ch)}): {shown}" + (f" … (+{len(ch) - 25} weitere)" if len(ch) > 25 else ""))
