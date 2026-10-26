@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.30.1-s1",
+   "date": "2026-10-26",
+   "items": [
+    {
+     "kind": "security",
+     "audience": "admin",
+     "de": "Wöchentliches Sicherheitsupdate: Basis-Image und Pakete aktualisiert (0 Änderungen), geprüft mit Selbsttest und Trivy. Keine Änderung am Programm.",
+     "en": "Weekly security update: base image and packages updated (0 changes), checked with self-test and Trivy. No change to the program."
+    }
+   ]
+  },
+  {
    "version": "2.30.1",
    "date": "2026-10-25",
    "items": [

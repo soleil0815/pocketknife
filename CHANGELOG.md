@@ -1,5 +1,8 @@
 # Änderungen
 
+## pocketknife-2.30.1-s1 (26.10.2026)
+- **Wöchentliches Sicherheitsupdate** (automatisch gebaut): Basis-Image, Debian- und Python-Pakete auf den neuesten Stand gebracht, ohne Cache neu gebaut, Selbsttest und Schwachstellen-Prüfung (Trivy) bestanden. Am Programm selbst hat sich nichts geändert (Programmstand 2.30.1)
+
 ## pocketknife-2.30.1 (25.10.2026)
 - **Behoben – winget meldete „bereits aktuell“, obwohl eine neuere Version da war:** Bei Paketen, die im winget-Katalog keinen Installationsbereich angeben (z. B. MobaXterm, kommt als ZIP mit MSI), lehnt winget die Aktualisierung einer installierten älteren Version mit `--scope machine` ab („A newer package version is available in a configured source, but it does not apply to your system or requirements“, Code -1978335189). POCKET KNIFE wertete das als „Keine passende Aktualisierung (bereits aktuell)“ – das Programm blieb alt. Jetzt wird der Schritt in diesem Fall einmal ohne `--scope` wiederholt, genau wie `winget upgrade` von Hand; ist das Paket wirklich aktuell, bleibt es bei „bereits aktuell“. Gilt für Pakete, Zeitpläne und den Kiosk
 - **Selbsttest:** Wiederholung ohne `--scope` (nur bei festgelegtem Bereich, nie bei Deinstallation), in echter PowerShell nachgespielt: wird aktualisiert bzw. ist wirklich aktuell
