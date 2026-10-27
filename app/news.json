@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.32.1",
+   "date": "2026-10-27",
+   "items": [
+    {
+     "kind": "fixed",
+     "audience": "admin",
+     "de": "„Prozess ohne Ergebnis beendet“: Eine Defender-ASR-Regel auf „Überwachen“ wird nicht mehr fälschlich als Sperre gemeldet; der wirkliche Grund (PowerShell-Fehler, Virenschutz, Absturz) steht dabei.",
+     "en": "\"Process ended without a result\": a Defender ASR rule set to \"audit\" is no longer wrongly reported as a block; the real reason (PowerShell error, antivirus, crash) is shown."
+    }
+   ]
+  },
+  {
    "version": "2.32",
    "date": "2026-10-27",
    "items": [

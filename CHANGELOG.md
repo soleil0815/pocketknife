@@ -1,5 +1,9 @@
 # Änderungen
 
+## pocketknife-2.32.1 (27.10.2026)
+- **Behoben – „Prozess ohne Ergebnis beendet“ nannte einen falschen Grund:** POCKET KNIFE wertete jeden Defender-ASR-Eintrag als Sperre – auch „Vorgang überwacht“ (Ereignis 1122). Steht eine Regel auf „Überwachen“, entsteht so ein Eintrag bei jedem Start über WMI; er blockiert nichts und ist nie der Grund. Jetzt zählt nur „blockiert“ (1121), die Regel steht mit Namen statt des langen Ereignistexts dabei, nur Ereignisse seit dem Start dieses Laufs. Die Fehlerausgabe von PowerShell steht immer in der Meldung; neu erkannt werden auch Virenschutz-Funde (AMSI, Ereignis 1116) und Abstürze von PowerShell
+- **Selbsttest:** blockiert/überwacht unterschieden, Regelnamen, Fehlerausgabe, Virenschutz; Abfrage auf dem Client in PowerShell geparst
+
 ## pocketknife-2.32 (27.10.2026)
 - **Neu – Pakete zusammenfassen:** mehrere Pakete markieren → Rechtsklick → „Zu neuem Paket zusammenfassen …“. Reihenfolge, Name, „Bei Fehler weitermachen“; **verschachtelt** (bleibt mit den Originalen verbunden, deren Bedingungen, „Ausführen als“ und Neustart gelten weiter) oder **Schritte kopieren** (unabhängig; „Ausführen als“ bleibt je Schritt; Pakete mit eigenen Bedingungen nur verschachtelt). Nie über Mandanten hinweg – zentrale Pakete gehen mit jedem
 - **Geändert – Tool „gpupdate /force“:** jetzt das normale `gpupdate /force` (Computer- und Benutzerrichtlinien) statt nur `/target:computer`. Fragt gpupdate nach Abmelden oder Neustart, antwortet POCKET KNIFE „N“ – der Aufruf hängt nicht. Die Benutzerrichtlinien sind die des ausführenden Kontos (Dienstkonto), nicht die des angemeldeten Benutzers

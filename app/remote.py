@@ -1391,14 +1391,23 @@ if ($st -eq 'PK_PROC:gone') {
   if (Test-Path $ef) { $t = ((Get-Content $ef -Raw) -replace '\s+', ' ').Trim(); if ($t) { 'PK_ERR:' + ($t -replace '^(.{0,600}).*$', '$1') } }
   $l = Join-Path $dir 'pk_output.log'
   if (Test-Path $l) { $t = ((Get-Content $l -Tail 5 -Encoding UTF8) -join ' | ').Trim(); if ($t) { 'PK_LAST:' + ($t -replace '^(.{0,600}).*$', '$1') } }
-  foreach ($q in @(@{ LogName = 'Microsoft-Windows-Windows Defender/Operational'; Id = 1121, 1122 },
-                   @{ LogName = 'Microsoft-Windows-AppLocker/EXE and DLL'; Id = 8004 },
-                   @{ LogName = 'Microsoft-Windows-AppLocker/MSI and Script'; Id = 8007 })) {
-    try {
-      $q.StartTime = (Get-Date).AddMinutes(-30)
-      Get-WinEvent -FilterHashtable $q -MaxEvents 2 -ErrorAction Stop | ForEach-Object { 'PK_BLOCK:' + ((($_.Message -replace '\s+', ' ').Trim()) -replace '^(.{0,400}).*$', '$1') }
-    } catch {}
+  # 2.32.1: nur Ereignisse seit dem Start dieses Laufs. Defender 1121 = blockiert, 1122 = nur überwacht (blockiert NICHT –
+  # bei „Überwachen“ entsteht so ein Eintrag bei jedem Start über WMI, er ist nie der Grund)
+  $since = (Get-Date).AddMinutes(-30)
+  if (Test-Path $pf) { $since = (Get-Item $pf).LastWriteTime.AddMinutes(-1) }
+  $rx = 'ID:\s*([0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12})'
+  try { Get-WinEvent -FilterHashtable @{ LogName = 'Microsoft-Windows-Windows Defender/Operational'; Id = 1121, 1122; StartTime = $since } -MaxEvents 6 -ErrorAction Stop | ForEach-Object {
+    $m = [string]$_.Message; $rid = $(if ($m -match $rx) { $matches[1] } else { '?' })
+    $(if ($_.Id -eq 1121) { 'PK_ASRBLOCK:' } else { 'PK_ASRAUDIT:' }) + $rid } } catch {}
+  # Virenschutz hat das Skript als Bedrohung erkannt (AMSI) – 1116 erkannt, 1117 Aktion ausgeführt
+  try { Get-WinEvent -FilterHashtable @{ LogName = 'Microsoft-Windows-Windows Defender/Operational'; Id = 1116; StartTime = $since } -MaxEvents 1 -ErrorAction Stop |
+    ForEach-Object { 'PK_AV:' + ((($_.Message -replace '\s+', ' ').Trim()) -replace '^(.{0,400}).*$', '$1') } } catch {}
+  foreach ($q in @(@{ LogName = 'Microsoft-Windows-AppLocker/EXE and DLL'; Id = 8004 }, @{ LogName = 'Microsoft-Windows-AppLocker/MSI and Script'; Id = 8007 })) {
+    try { $q.StartTime = $since; Get-WinEvent -FilterHashtable $q -MaxEvents 2 -ErrorAction Stop | ForEach-Object { 'PK_BLOCK:AppLocker: ' + ((($_.Message -replace '\s+', ' ').Trim()) -replace '^(.{0,300}).*$', '$1') } } catch {}
   }
+  # abgestürzt? (Anwendungsfehler 1000 für powershell.exe/cmd.exe)
+  try { Get-WinEvent -FilterHashtable @{ LogName = 'Application'; Id = 1000; StartTime = $since } -MaxEvents 5 -ErrorAction Stop |
+    Where-Object { $_.Message -match 'powershell\.exe|cmd\.exe' } | Select-Object -First 1 | ForEach-Object { 'PK_CRASH:' + ((($_.Message -replace '\s+', ' ').Trim()) -replace '^(.{0,300}).*$', '$1') } } catch {}
 }
 elseif ($st) { $st }
 elseif (Test-Path $f) {
@@ -1485,27 +1494,57 @@ def cleanup_run(host, prefix, max_minutes):
             "codes": [c for c in m.group(4).split(",") if c]}
 
 
+ASR_WMI = "d1e49aac-8f56-4280-b9ba-993a6d77406c"
+ASR_RULES = {  # die üblichen Regeln – Name wie in der Gruppenrichtlinie
+    ASR_WMI: "Prozesserstellungen durch PSExec- und WMI-Befehle blockieren",
+    "5beb7efe-fd9a-4556-801d-275e5ffc04cc": "Ausführung potenziell verborgener Skripts blockieren",
+    "01443614-cd74-433a-b99e-2ecdc07bfc25": "Ausführung von ausführbaren Dateien blockieren, wenn sie nicht ein Verbreitungs-, Alters- oder vertrauenswürdige Listenkriterium erfüllen",
+    "c1db55ab-c21a-4637-bb3f-a12568109d35": "Erweiterten Schutz vor Ransomware verwenden",
+    "d3e037e1-3eb8-44c8-a917-57927947596d": "JavaScript und VBScript am Starten heruntergeladener ausführbarer Inhalte hindern",
+    "e6db77e5-3df2-4cf1-b95a-636979351e5b": "Persistenz über WMI-Ereignisabonnement blockieren",
+    "9e6c4e1f-7d60-472f-ba1a-a39ef669e4b2": "Diebstahl von Anmeldeinformationen aus dem Subsystem für die lokale Sicherheitsautorität (lsass.exe) blockieren",
+    "b2b3f03d-6a65-4f7b-a9c7-1c7ef74a9ba4": "Nicht vertrauenswürdige und nicht signierte Prozesse blockieren, die von USB ausgeführt werden",
+    "56a863a9-875e-4185-98a7-b882c64b5ce5": "Missbrauch von ausgenutzten anfälligen signierten Treibern blockieren",
+    "33ddedf1-c6e0-47cb-833e-de6133960387": "Neustart des Computers im abgesicherten Modus blockieren",
+    "c0033c00-d16d-4114-a5a0-dc9b3a7d2ceb": "Verwendung kopierter oder imitierter Systemtools blockieren",
+}
+
+
 def gone_message(out, direct):
-    """2.31: „ohne Ergebnis beendet“ – mit dem, was der Client über den Grund weiß."""
+    """2.31: „ohne Ergebnis beendet“ – mit dem, was der Client über den Grund weiß.
+    2.32.1: Defender unterscheidet „blockiert“ (1121) und „nur überwacht“ (1122) – nur ein Block ist ein Grund; die Regel
+    wird mit Namen genannt statt des langen Ereignistexts; die Fehlerausgabe von PowerShell steht immer dabei."""
     det = {}
     for line in (out or "").splitlines():
-        for k in ("PK_ERR:", "PK_LAST:", "PK_BLOCK:"):
+        for k in ("PK_ERR:", "PK_LAST:", "PK_BLOCK:", "PK_ASRBLOCK:", "PK_ASRAUDIT:", "PK_CRASH:", "PK_AV:"):
             if line.startswith(k):
-                det.setdefault(k, []).append(line[len(k):].strip())
+                v = line[len(k):].strip()
+                if v not in det.setdefault(k, []):
+                    det[k].append(v)
+    name = lambda r: f"„{ASR_RULES.get(r.lower(), r)}“"  # noqa: E731
     msg = "Der Prozess wurde ohne Ergebnis beendet"
-    if det.get("PK_BLOCK:"):
-        msg += " – gesperrt durch Defender (ASR-Regel) oder AppLocker: " + " / ".join(det["PK_BLOCK:"][:2])
-        if direct:
-            msg += (" Als Dienstkonto startet POCKET KNIFE einen eigenen Prozess über WMI; die ASR-Regel „Prozesserstellungen "
-                    "durch PSExec- und WMI-Befehle blockieren“ verhindert das. Abhilfe: Schritt auf „Lokales System“ stellen "
-                    "oder eine Ausnahme für die Regel.")
-    elif det.get("PK_ERR:"):
-        msg += " – Fehlermeldung von PowerShell: " + det["PK_ERR:"][0]
-    else:
+    blocks = det.get("PK_ASRBLOCK:") or []
+    if blocks:
+        msg += " – blockiert durch die Defender-ASR-Regel " + ", ".join(name(r) for r in blocks[:3]) + "."
+        if direct and any(r.lower() == ASR_WMI for r in blocks):
+            msg += (" Als Dienstkonto startet POCKET KNIFE einen eigenen Prozess über WMI, genau das verhindert diese Regel. "
+                    "Abhilfe: Schritt auf „Lokales System“ stellen oder die Regel auf „Überwachen“.")
+    elif det.get("PK_AV:"):
+        msg += " – der Virenschutz hat das Skript als Bedrohung eingestuft: " + det["PK_AV:"][0]
+    elif det.get("PK_BLOCK:"):
+        msg += " – gesperrt durch " + " / ".join(det["PK_BLOCK:"][:2])
+    elif det.get("PK_CRASH:"):
+        msg += " – PowerShell ist abgestürzt: " + det["PK_CRASH:"][0]
+    if det.get("PK_ERR:"):
+        msg += " Fehlermeldung von PowerShell: " + det["PK_ERR:"][0]
+    if not (blocks or det.get("PK_BLOCK:") or det.get("PK_CRASH:") or det.get("PK_ERR:") or det.get("PK_AV:")):
         msg += " (z. B. auf dem Client abgebrochen, Neustart oder von einer Schutzsoftware beendet)."
         if direct:
             msg += (" Als Dienstkonto startet POCKET KNIFE einen eigenen Prozess über WMI – blockiert eine Schutzsoftware das, "
                     "den Schritt auf „Lokales System“ stellen.")
+        if det.get("PK_ASRAUDIT:"):
+            msg += (" Defender-ASR hat den Start nur protokolliert (Regel " + ", ".join(name(r) for r in det["PK_ASRAUDIT:"][:2])
+                    + " auf „Überwachen“) – das blockiert nicht und ist nicht der Grund.")
     if det.get("PK_LAST:"):
         msg += " Letzte Ausgabe: " + det["PK_LAST:"][0]
     return msg

@@ -5168,9 +5168,17 @@ def _():
     from app import loadstats
     import app.remote as _r
     assert "2>\"' + (Join-Path $dir 'pk_err.txt')" in _r.START_DIRECT and "cmd.exe /d /c" in _r.START_DIRECT
-    assert "PK_BLOCK:" in _r.POLL and "Microsoft-Windows-Windows Defender/Operational" in _r.POLL and "8007" in _r.POLL
-    m = _r.gone_message("PK_PROC:gone\nPK_BLOCK:Microsoft Defender Exploit Guard hat einen Vorgang blockiert … WMI\nPK_LAST:OK gesetzt", True)
-    assert "ASR" in m and "Lokales System" in m and "Letzte Ausgabe: OK gesetzt" in m, m
+    assert "PK_ASRBLOCK:" in _r.POLL and "Microsoft-Windows-Windows Defender/Operational" in _r.POLL and "8007" in _r.POLL
+    m = _r.gone_message("PK_PROC:gone\nPK_ASRBLOCK:D1E49AAC-8F56-4280-B9BA-993A6D77406C\nPK_LAST:OK gesetzt", True)
+    assert "Prozesserstellungen durch PSExec- und WMI-Befehle blockieren" in m and "Lokales System" in m and "Letzte Ausgabe: OK gesetzt" in m, m
+    # 2.32.1: „nur überwacht“ (1122) ist nie der Grund – dann zählt die Fehlerausgabe von PowerShell
+    m = _r.gone_message("PK_PROC:gone\nPK_ASRAUDIT:d1e49aac-8f56-4280-b9ba-993a6d77406c\nPK_ASRAUDIT:d1e49aac-8f56-4280-b9ba-993a6d77406c\n"
+                        "PK_ERR:Dieses Skript enthält schädliche Inhalte und wurde von Ihrer Antivirensoftware blockiert.", True)
+    assert "blockiert durch" not in m and "schädliche Inhalte" in m, m
+    m = _r.gone_message("PK_PROC:gone\nPK_ASRAUDIT:d1e49aac-8f56-4280-b9ba-993a6d77406c", True)
+    assert "nur protokolliert" in m and "nicht der Grund" in m and "blockiert durch" not in m, m
+    assert "Bedrohung" in _r.gone_message("PK_PROC:gone\nPK_AV:Trojan:PowerShell/xyz", True)
+    assert "Id = 1121, 1122; StartTime = $since" in _r.POLL and "PK_ASRAUDIT:" in _r.POLL
     m = _r.gone_message("PK_PROC:gone\nPK_ERR:Die Datei kann nicht geladen werden.", False)
     assert "Fehlermeldung von PowerShell: Die Datei kann nicht geladen werden." in m and "WMI" not in m, m
     assert "Lokales System" in _r.gone_message("PK_PROC:gone", True)
