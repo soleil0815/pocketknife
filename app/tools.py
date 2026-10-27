@@ -13,8 +13,9 @@ import secrets
 import socket
 import subprocess
 import time
+import threading
 
-from . import config, db, remote, util
+from . import config, db, pklog, remote, util
 
 TYPES = {"powershell": "PowerShell", "cmd": "Befehl (CMD)", "url": "URL öffnen"}
 RUN_AS = {"service": "Dienstkonto (schnell)", "system": "SYSTEM (geplante Aufgabe)"}
@@ -259,23 +260,50 @@ def _ipv4s(c):
             if re.match(r"^\d+\.\d+\.\d+\.\d+$", x.strip())]
 
 
-def wol_relays(c, limit=WOL_RELAYS):
-    """Online-Computer mit WinRM, bevorzugt im selben Subnetz wie das Ziel. → [(computer, same_subnet)]"""
+def _fixed_relays():
+    """2.31: feste Relays aus den Einstellungen (Computernamen) – z. B. ein Server, der immer läuft."""
+    names = [x.strip().lower() for x in (db.setting("wol_relays") or "").split(",") if x.strip()]
+    return names
+
+
+def wol_relays(c, limit=WOL_RELAYS, exclude=()):
+    """Online-Computer mit WinRM, bevorzugt im selben Subnetz wie das Ziel. → [(computer, same_subnet)]
+    2.31: feste Relays (Einstellungen → Wake-on-LAN) kommen zuerst, sofern online; exclude: schon benutzte Relays
+    (zweiter Versuch über andere Computer)."""
     nets = _ipv4_nets(c)
-    same, other = [], []
+    fixed = _fixed_relays()
+    same, other, pinned = [], [], []
     for r in db.q("SELECT * FROM computers WHERE online=1 AND winrm=1 AND id != ? ORDER BY last_seen DESC", (c["id"],)):
-        (same if any(ip in n for ip in _ipv4s(r) for n in nets) else other).append(r)
+        if r["name"] in exclude:
+            continue
+        sub = any(ip in n for ip in _ipv4s(r) for n in nets)
+        if r["name"].lower() in fixed or (r.get("dns_name") or "").lower() in fixed:
+            pinned.append((r, sub or not nets))
+        else:
+            (same if sub else other).append(r)
+    out = pinned[:len(fixed)]
     if same:
-        return [(r, True) for r in same[:limit]]
-    return [(r, False) for r in other[:1]]
+        return out + [(r, True) for r in same[:limit]]
+    return out + ([(r, False) for r in other[:1]] if not out else [])
 
 
 def _packets(c):
-    out = []
-    for mac in [m.strip() for m in (c.get("mac_addresses") or "").split(",") if m.strip()]:
-        raw = bytes.fromhex(re.sub(r"[^0-9A-Fa-f]", "", mac) or "00")
-        if len(raw) == 6:
-            out.append((mac, b"\xff" * 6 + raw * 16))
+    """Magic Packets für alle bekannten MAC-Adressen – 2.31 auch die kabelgebundener Netzwerkkarten aus dem Inventar,
+    die beim letzten Scan keine IP-Adresse hatten (z. B. Dockingstation oder USB-Netzwerkadapter)."""
+    macs = [m.strip() for m in (c.get("mac_addresses") or "").split(",") if m.strip()]
+    raw = db.val("SELECT json FROM inventory_data WHERE computer_id=? AND category='nics'", (c.get("id"),)) if c.get("id") else None
+    try:
+        for n in json.loads(raw or "[]") if raw else []:
+            if n.get("mac") and (n.get("wired") is not False):
+                macs.append(str(n["mac"]).strip())
+    except (ValueError, AttributeError, TypeError):
+        pass
+    out, seen = [], set()
+    for mac in macs:
+        b = bytes.fromhex(re.sub(r"[^0-9A-Fa-f]", "", mac) or "00")
+        if len(b) == 6 and b not in seen and b != b"\x00" * 6:
+            seen.add(b)
+            out.append((mac, b"\xff" * 6 + b * 16))
     return out
 
 
@@ -284,30 +312,54 @@ $ErrorActionPreference = 'Stop'
 $u = New-Object System.Net.Sockets.UdpClient
 $u.EnableBroadcast = $true
 try {
-  foreach ($h in @(%(packets)s)) {
-    $p = [byte[]]($h -split '(..)' | Where-Object { $_ } | ForEach-Object { [Convert]::ToByte($_, 16) })
-    foreach ($t in @(%(targets)s)) {
-      foreach ($port in 7, 9) {
-        try { [void]$u.Send($p, $p.Length, $t, $port); "OK $t`:$port" } catch { "FEHLER $t`:$port " + $_.Exception.Message }
+  for ($i = 1; $i -le %(repeat)s; $i++) {
+    foreach ($h in @(%(packets)s)) {
+      $p = [byte[]]($h -split '(..)' | Where-Object { $_ } | ForEach-Object { [Convert]::ToByte($_, 16) })
+      foreach ($t in @(%(targets)s)) {
+        foreach ($port in 7, 9) {
+          try { [void]$u.Send($p, $p.Length, $t, $port); "OK $t`:$port" } catch { "FEHLER $t`:$port " + $_.Exception.Message }
+        }
       }
     }
+    if ($i -lt %(repeat)s) { Start-Sleep -Milliseconds 700 }
   }
 } finally { $u.Close() }
 """
 
 
-def wake(c):
+def _readiness(c):
+    """Was der letzte Scan über die Wake-on-LAN-Bereitschaft weiß (2.31) – als Hinweiszeilen."""
+    try:
+        nics = json.loads(db.val("SELECT json FROM inventory_data WHERE computer_id=? AND category='nics'", (c.get("id"),)) or "[]")
+        fast = json.loads(db.val("SELECT extra FROM computers WHERE id=?", (c.get("id"),)) or "{}").get("fast_startup")
+    except (ValueError, TypeError, AttributeError):
+        return []
+    known = [n for n in nics if isinstance(n, dict) and n.get("wol_magic")]
+    if not known:
+        return []
+    parts = [f"{n.get('name')}: Magic Packet {n.get('wol_magic')}"
+             + ("" if n.get("wake_armed") is None else (", darf wecken" if n.get("wake_armed") else ", darf NICHT wecken"))
+             for n in known if n.get("wired") is not False]
+    out = ["Laut letztem Scan: " + ("; ".join(parts) or "keine kabelgebundene Karte")]
+    if fast:
+        out.append("Achtung: Windows-Schnellstart ist an – viele Karten wecken dann aus „Herunterfahren“ nicht auf.")
+    return out
+
+
+def wake(c, exclude=(), round_no=1):
     pk = _packets(c)
     if not pk:
         return {"exit": 1, "output": "Keine MAC-Adresse bekannt (Computer noch nie mit Netzwerkkarten gescannt).",
                 "seconds": 0}
     t0 = time.time()
+    repeat = max(1, min(10, int(db.setting("wol_repeat") or 3)))
     nets = _ipv4_nets(c)
     targets = ["255.255.255.255"] + [str(n.broadcast_address) for n in nets if n.prefixlen < 31]
-    lines = [f"Ziel: {c['name']} – MAC {', '.join(m for m, _ in pk)}",
-             "Subnetz: " + (", ".join(str(n) for n in nets) or "unbekannt"), ""]
+    lines = [f"Ziel: {c['name']} – MAC {', '.join(m for m, _ in pk)}", *_readiness(c),
+             "Subnetz: " + (", ".join(str(n) for n in nets) or "unbekannt"),
+             f"Jedes Paket {repeat}× (UDP kann verloren gehen)" + (f" – Versuch {round_no}" if round_no > 1 else ""), ""]
     ok_relay = False
-    relays = wol_relays(c)
+    relays = wol_relays(c, exclude=exclude)
     if not relays:
         lines.append("Kein anderer Computer ist gerade online – Versand nur aus dem Container.")
     for r, same in relays:
@@ -315,12 +367,13 @@ def wake(c):
         # Ein Relay im fremden Netz kann nur gerichtete Broadcasts senden
         tg = targets if same else targets[1:] or targets
         script = WOL_PS % {"packets": ",".join(util.psq(p.hex()) for _, p in pk),
-                           "targets": ",".join(util.psq(t) for t in tg)}
+                           "targets": ",".join(util.psq(t) for t in tg), "repeat": repeat}
         try:
             out, err, _ = remote.ps(host, script)
             sent = [x for x in out.splitlines() if x.startswith("OK ")]
             ok_relay = ok_relay or bool(sent)
-            lines.append(f"Relay {r['name']} ({'gleiches Subnetz' if same else 'anderes Subnetz, gerichteter Broadcast'}): "
+            pinned = r["name"].lower() in _fixed_relays()
+            lines.append(f"Relay {r['name']}{' (fest)' if pinned else ''} ({'gleiches Subnetz' if same else 'anderes Subnetz, gerichteter Broadcast'}): "
                          f"{len(sent)} Pakete gesendet" + (f" – {err.strip()[:300]}" if err.strip() else ""))
             lines += ["   " + x for x in out.splitlines() if x.startswith("FEHLER")]
         except Exception as e:
@@ -330,22 +383,100 @@ def wake(c):
     s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
     n_local = 0
     try:
-        for _, pkt in pk:
-            for t in targets:
-                for port in (7, 9):
-                    try:
-                        s.sendto(pkt, (t, port))
-                        n_local += 1
-                    except OSError:
-                        pass
+        for i in range(repeat):
+            for _, pkt in pk:
+                for t in targets:
+                    for port in (7, 9):
+                        try:
+                            s.sendto(pkt, (t, port))
+                            n_local += 1
+                        except OSError:
+                            pass
+            if i < repeat - 1:
+                time.sleep(0.3)
     finally:
         s.close()
     lines.append(f"Container: {n_local} Pakete an {', '.join(targets)} gesendet.")
     if not ok_relay:
         lines += ["", "Hinweis: Ohne Relay im Zielnetz erreicht das Paket den Computer nur, wenn der Router gerichtete "
-                      "Broadcasts weiterleitet oder der Container im selben Netz läuft."]
+                      "Broadcasts weiterleitet oder der Container im selben Netz läuft. Ein festes Relay (ein Computer, der "
+                      "immer läuft) lässt sich unter Einstellungen → Wake-on-LAN eintragen."]
     return {"exit": 0 if (ok_relay or n_local) else 1, "seconds": round(time.time() - t0, 1),
             "output": "\n".join(lines), "relay": [r["name"] for r, _ in relays]}
+
+
+# --- 2.31: Aufwachen abwarten ---------------------------------------------------------------------
+_wake = {}  # computer_id → {"state": "waiting"|"awake"|"timeout", "started", "seconds", "rounds", "detail"}
+_wake_lock = threading.Lock()
+WAKE_POLL = 10  # Sekunden zwischen zwei Prüfungen
+
+
+def wake_state(cid):
+    with _wake_lock:
+        st = _wake.get(int(cid))
+        if not st:
+            return None
+        out = dict(st)
+    if out["state"] == "waiting":
+        out["seconds"] = int(time.time() - out["started"])
+    out.pop("started", None)
+    return out
+
+
+def watch_wake(c, used_relays, user=None):
+    """Im Hintergrund prüfen, ob der Computer aufwacht (Heartbeat auf diesen einen Computer). Nach der Hälfte der Wartezeit
+    noch einmal senden – über andere Relays, falls es welche gibt. Ergebnis im Protokoll und über wake_state()."""
+    wait = int(db.setting("wol_wait_seconds") or 0)
+    if wait <= 0:
+        return False
+    cid = int(c["id"])
+    with _wake_lock:
+        cur = _wake.get(cid)
+        if cur and cur["state"] == "waiting":
+            return True  # läuft schon – der neue Versand zählt mit
+        _wake[cid] = {"state": "waiting", "started": time.time(), "seconds": 0, "rounds": 1, "detail": ""}
+
+    def run():
+        from . import presence
+        t0 = time.time()
+        resent = False
+        used = set(used_relays or [])
+        try:
+            while time.time() - t0 < wait:
+                time.sleep(WAKE_POLL)
+                row = db.q1(f"SELECT {presence.COLUMNS} FROM computers WHERE id=?", (cid,))
+                if not row:
+                    return
+                online, winrm = presence.probe(row, force=True)
+                if online:
+                    if presence.update(cid, online, winrm):
+                        presence.notify([cid], background=True)  # Heartbeat-Auslöser (Scans, Zeitpläne) wie sonst auch
+                    secs = int(time.time() - t0)
+                    with _wake_lock:
+                        _wake[cid].update(state="awake", seconds=secs,
+                                          detail=f"aufgewacht nach {secs} s" + ("" if winrm else " (WinRM noch nicht bereit)"))
+                    pklog.info("tool", f"Wake-on-LAN: {row['name']} ist nach {secs} s aufgewacht.", user=user, computer_id=cid)
+                    return
+                if not resent and time.time() - t0 >= wait / 2:
+                    resent = True
+                    try:
+                        full = db.q1("SELECT * FROM computers WHERE id=?", (cid,))
+                        res = wake(full, exclude=used, round_no=2)
+                        used |= set(res.get("relay") or [])
+                        with _wake_lock:
+                            _wake[cid]["rounds"] = 2
+                    except Exception as e:  # noqa: BLE001 – der zweite Versuch darf das Warten nicht beenden
+                        pklog.warn("tool", f"Wake-on-LAN: zweiter Versuch für {row['name']} fehlgeschlagen: {e}", computer_id=cid)
+            with _wake_lock:
+                _wake[cid].update(state="timeout", seconds=wait,
+                                  detail=f"nach {wait} s nicht aufgewacht (2 Versuche)")
+            pklog.warn("tool", f"Wake-on-LAN: {c['name']} ist nach {wait} s nicht aufgewacht (2 Versuche). Im Inventar "
+                               "unter Netzwerkkarten steht, ob die Karte das Wecken erlaubt.", user=user, computer_id=cid)
+        except Exception as e:  # noqa: BLE001
+            with _wake_lock:
+                _wake[cid].update(state="timeout", detail=f"Prüfung fehlgeschlagen: {e}")
+    threading.Thread(target=run, name=f"wol-{cid}", daemon=True).start()
+    return True
 
 
 # --- Tool-Ausführungen als Server-Jobs (laufen weiter, auch wenn der Browser geschlossen wird) ---

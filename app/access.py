@@ -417,6 +417,7 @@ ROUTES = {
     ("GET", "/api/tools"): OPEN,
     ("POST", "/api/tools/{tid}/run"): OPEN,            # Handler prüft den Computer
     ("POST", "/api/tools/builtin/{what}"): OPEN,       # Handler prüft den Computer
+    ("GET", "/api/computers/{cid}/wake"): _p_cid,      # 2.31: Ergebnis von Wake-on-LAN
     ("POST", "/api/tools/{tid}/jobs"): OPEN,           # Handler prüft die IDs
     ("GET", "/api/tooljobs/{jid}"): _p_tooljob,
     # Nur lesen (für die Oberfläche)

@@ -2203,7 +2203,10 @@ const PC_COLS = {
     ['password_expires', 'Passwort läuft ab', R.date('password_expires')], ['description', 'Beschreibung', null, 'trunc']],
   nics: [['name', 'Adapter'], ['connection', 'Verbindung'], ['status', 'Status', (r) => h('span.badge', { class: r.status === 'Verbunden' ? 'ok' : '' }, r.status || '')],
     ['ip', 'IP-Adresse'], ['subnet', 'Subnetz'], ['gateway', 'Gateway'], ['dns', 'DNS'], ['dhcp', 'DHCP', R.bool('dhcp')],
-    ['dhcp_server', 'DHCP-Server'], ['mac', 'MAC', null, 'mono'], ['speed', 'Geschwindigkeit', (r) => (r.speed ? `${Math.round(r.speed / 1e6)} Mbit/s` : '')]],
+    ['dhcp_server', 'DHCP-Server'], ['mac', 'MAC', null, 'mono'], ['speed', 'Geschwindigkeit', (r) => (r.speed ? `${Math.round(r.speed / 1e6)} Mbit/s` : '')],
+    // 2.31: Wake-on-LAN-Bereitschaft (ab Scan mit 2.31)
+    ['wol_magic', 'Wake-on-LAN', (r) => (r.wol_magic ? h('span.badge', { class: r.wol_magic === 'an' ? 'ok' : 'warn' }, r.wol_magic) : '')],
+    ['wake_armed', 'Darf wecken', R.bool('wake_armed')], ['wol_driver', 'WoL-Treiber-Einstellungen', null, 'wrap']],
   printers: [['name', 'Drucker'], ['driver', 'Treiber'], ['port', 'Anschluss'], ['default', 'Standard', R.bool('default')],
     ['network', 'Netzwerk', R.bool('network')], ['shared', 'Freigegeben', R.bool('shared')], ['share_name', 'Freigabename'], ['location', 'Standort']],
   processes: [['name', 'Prozess'], ['pid', 'PID'], ['user', 'Benutzer'], ['memory', 'Arbeitsspeicher', R.bytes('memory')],
@@ -3754,6 +3757,9 @@ async function scheduleDlg(id, preset = {}) {
   const oc = (k, label) => h('label.chk', { style: { display: 'flex' } }, h('input', { type: 'checkbox', checked: !!o[k], onchange: (e) => { o[k] = e.target.checked; } }), label);
   const num = (k, max = 8760) => h('input', { type: 'number', min: 0, max, value: o[k] || 0, style: { maxWidth: '90px' }, onchange: (e) => { o[k] = Number(e.target.value); } });
   const offSel = sel([['wait', 'vormerken und versorgen, sobald sie online sind (Heartbeat)'], ['skip', 'überspringen']], o.offline, { onchange: (e) => { o.offline = e.target.value; } });
+  // 2.31: optional ausgeschaltete Ziele wecken (Standard aus – Computer, die aus sind, bleiben aus)
+  const wakeChk = h('input', { type: 'checkbox', checked: !!o.wake_offline, onchange: (e) => { o.wake_offline = e.target.checked; if (o.wake_offline) { o.offline = 'wait'; offSel.value = 'wait'; } offSel.disabled = o.wake_offline; } });
+  offSel.disabled = !!o.wake_offline;
   const trig = triggerEditor(s.triggers, { noCatchUp: true, only: ['once', 'interval', 'daily', 'weekly', 'monthly', 'heartbeat'], empty: 'Keine Auslöser – der Zeitplan läuft nur, wenn er manuell gestartet wird.' });
   const histBox = h('div');
   if (!isNew) {
@@ -3783,6 +3789,7 @@ async function scheduleDlg(id, preset = {}) {
     whatTab.replaceChildren(s.kind === 'winget' ? wingetBox : h('div', h('p.muted.small', { style: { marginTop: 0 } }, 'Werden je Computer nacheinander in dieser Reihenfolge bereitgestellt.'), pkBox));
     optTab.replaceChildren(h('div.form',
       field('Offline Computer', offSel),
+      field('Wake-on-LAN', h('label.chk', wakeChk, 'ausgeschaltete Ziele beim Lauf wecken'), 'Optional, Standard aus. Bei einem Termin, im Zeitfenster oder bei „Jetzt ausführen“ – nicht bei jedem Heartbeat. Geweckte Computer werden versorgt, sobald sie hochgefahren sind; ausgeschaltet werden sie danach nicht.'),
       field('Wartezeit nach Fehlschlag (Std.)', num('retry_wait_hours'), s.kind === 'winget' ? 'Ein fehlgeschlagenes Update desselben Programms wird auf diesem Computer frühestens nach dieser Zeit erneut versucht.' : '0 = beim nächsten Lauf erneut versuchen.'),
       field('Fehlgeschlagene nachholen', oc('retry_failed', 'fehlgeschlagene Computer automatisch erneut versorgen, ohne auf den nächsten Termin zu warten'),
         s.kind === 'winget' ? 'Sobald der Computer erreichbar ist und die Wartezeit nach Fehlschlag (mindestens 1 Stunde) um ist, höchstens 3 Mal, im Zeitfenster. Konnte ein Lauf gar nicht starten, wird er alle 15 Minuten wiederholt.'
@@ -5444,6 +5451,14 @@ async function viewSettings() {
     field('Grenze „wenig Speicher“ (GB)', n('low_disk_gb')),
     field('Speicherplatz-Scanner: Tiefe', n('du_scan_depth', { min: 1, max: 8 }), 'Wie tief der optionale Scanner „Speicherplatz“ die Ordner aufschlüsselt (1–8). Tiefer = mehr Details, aber langsamer und größer. Nachträglich lässt sich in der Ansicht gezielt tiefer analysieren.'))));
 
+  // 2.31: Wake-on-LAN
+  const wolCard = h('div.card', h('div.card-h', h('h2', 'Wake-on-LAN')), h('div.card-b',
+    h('p.muted.small', { style: { marginTop: 0 } }, 'Das Magic Packet sendet ein Computer, der gerade läuft und im selben Subnetz liegt (Broadcasts verlassen ihr Subnetz nicht), zusätzlich der Container. Danach prüft POCKET KNIFE, ob der Computer aufwacht, und sendet nach der halben Wartezeit noch einmal – über andere Computer, wenn es welche gibt.'),
+    h('div.form',
+      field('Pakete je Versuch', n('wol_repeat', { min: 1, max: 10 }), 'UDP-Pakete können verloren gehen – deshalb mehrmals im Abstand von knapp einer Sekunde. Standard 3.'),
+      field('Auf Aufwachen warten (Sek.)', n('wol_wait_seconds', { min: 0, max: 900 }), '0 = nur senden, nicht prüfen. Standard 240 – ein Desktop braucht bis zum Netzwerk meist 30 bis 90 Sekunden.'),
+      field('Feste Relays', t('wol_relays', { placeholder: 'z. B. SRV-DRUCK01, SRV-FILE01', style: { width: '100%' } }), 'Optional: Computer, die immer laufen (z. B. Server) und das Paket zuerst senden – so klappt es auch, wenn im Subnetz sonst niemand online ist. Computernamen, durch Komma getrennt.'))));
+
   // Windows-Benachrichtigung („Toast“) für angemeldete Benutzer nach erfolgreicher Installation/Aktualisierung
   const toastHost = h('input', { placeholder: 'Computername, z. B. PC001', style: { maxWidth: '220px' } });
   const toastOut = h('div.small');
@@ -5589,6 +5604,7 @@ async function viewSettings() {
       }, { cls: 'small', icon: 'refresh' })),
       sys.db_maintenance_last ? `Letzte Wartung: ${sys.db_maintenance_last}` : 'Noch keine Wartung gelaufen – sie läuft täglich automatisch (siehe Zeitpläne & Leistung).'),
     field('Hintergrundaufgaben', h('span', sys.background.join(', ') || '—')),
+    sys.load ? field('Rechenlast', loadBox(sys.load), `Durchschnitt seit dem Start (${String(sys.load.uptime_h).replace('.', ',')} Std.), in % eines Prozessorkerns. Spitzen ab ${sys.load.peak_pct} % werden mit dem festgehalten, was gerade lief – das hilft bei der Suche nach der Ursache. Laufen mehrere Aufgaben gleichzeitig, zählt die Rechenzeit bei jeder.`) : null,
     field('Jetzt ausführen', h('div.row',
       btn('AD abgleichen', () => run(() => POST('/api/system/run/ad'), 'AD-Abgleich gestartet'), { cls: 'small', icon: 'refresh' }),
       btn('Heartbeat', () => run(() => POST('/api/system/run/heartbeat'), 'Heartbeat gestartet'), { cls: 'small', icon: 'net' }))),
@@ -5717,6 +5733,7 @@ async function viewSettings() {
     ['ad', 'Active Directory', 'ad', [adCard()], false],
     ['sched', 'Zeitpläne & Leistung', 'clock', [sched, toastCard, rebootCard], true],
     ['dns', 'Namensauflösung', 'net', [dnsCard], true],
+    ['wol', 'Wake-on-LAN', 'play', [wolCard], true],
     ['software', 'Repository & winget', 'box', [repo, upCard, integCard, wg, proxyCard(), exclCard], true],
     ['remote', 'Fernsitzungen', 'monitor', [rdCard], true],
     ['tls', 'Zertifikat (HTTPS)', 'shield', [tlsCard()], false],
@@ -5881,6 +5898,19 @@ function setTheme(v) {
   document.querySelectorAll('.theme-btn').forEach((b) => b._upd && b._upd());
 }
 
+// 2.31: Rechenlast – Durchschnitt, Aufgaben mit der meisten Rechenzeit, letzte Spitzen mit Kontext
+function loadBox(l) {
+  const sec = (v) => `${String(v).replace('.', ',')} s`;
+  const tasks = l.tasks.length ? h('table.tbl.small', h('thead', h('tr', h('th', 'Aufgabe'), h('th.right', 'Läufe'), h('th.right', 'Rechenzeit'), h('th.right', 'zuletzt'))),
+    h('tbody', l.tasks.slice(0, 8).map((t) => h('tr', h('td.mono', t.key), h('td.right', num(t.runs)), h('td.right', sec(t.cpu)), h('td.right', sec(t.last_cpu)))))) : null;
+  const peaks = l.peaks.length ? h('table.tbl.small', { style: { marginTop: '6px' } },
+    h('thead', h('tr', h('th', 'Spitze'), h('th.right', 'Last'), h('th', 'lief gerade'))),
+    h('tbody', l.peaks.map((p) => h('tr', h('td', fmtDate(p.at)), h('td.right', `${p.pct} %`),
+      h('td.wrap.small', [p.tasks.join(', '), p.scans ? `${p.scans} Scan(s)` : '', p.deployments ? `${p.deployments} Bereitstellung(en)` : '',
+        p.requests.length ? `Anfragen: ${p.requests.join(', ')}` : ''].filter((x) => x).join(' · ') || '—'))))) : h('div.muted.small', 'Noch keine Spitzen.');
+  return h('div', h('div', `Durchschnitt ${l.avg_pct} %`), tasks, peaks);
+}
+
 // ---------------------------------------------------------------------------
 // Tools
 // ---------------------------------------------------------------------------
@@ -5979,6 +6009,7 @@ async function runBuiltin(b, targets) {
     if (r) go(`#/deployment/${r.id}`);
     return;
   }
+  if (b.key === 'wake') { wakeDialog(targets); return; }
   if (b.confirm && !(await confirmDlg(`„${b.name}“ auf ${targets.length === 1 ? targets[0].name : targets.length + ' Computern'} ausführen?`, 'Ausführen', true))) return;
   const exec = b.action
     ? (t) => POST(`/api/computers/${t.id}/action`, { action: b.key }).then((r) => ({ exit: 0, output: r.output || 'Ausgeführt.' }))
@@ -5998,6 +6029,51 @@ async function runTool(t, targets) {
   // Läuft als Job auf dem Server weiter, auch wenn dieses Fenster geschlossen wird
   const r = await run(() => POST(`/api/tools/${t.id}/jobs`, { ids: targets.map((x) => x.id) }));
   if (r) jobDialog(t.name + (t.run_as === 'system' ? ' (als SYSTEM)' : ''), r.job);
+}
+
+// 2.31: Wake-on-LAN – senden und abwarten, ob der Computer aufwacht (zweiter Versuch über andere Relays automatisch)
+function wakeDialog(targets) {
+  const rows = targets.slice(0, 200).map((c) => ({ c, res: null, st: null }));
+  const body = h('div');
+  let closed = false;
+  const final = (r) => r.res && (r.res.exit || !r.res.watch || (r.st && (r.st.state === 'awake' || r.st.state === 'timeout')));
+  const badge = (r) => {
+    const st = r.st && r.st.state;
+    if (!r.res) return h('span.badge.info', 'sendet …');
+    if (r.res.exit) return h('span.badge.err', 'nicht gesendet');
+    if (st === 'awake') return h('span.badge.ok', `aufgewacht nach ${r.st.seconds} s`);
+    if (st === 'timeout') return h('span.badge.err', 'nicht aufgewacht');
+    if (st === 'waiting') return h('span.badge.info', `wartet … ${r.st.seconds} s${r.st.rounds > 1 ? ' · 2. Versuch gesendet' : ''}`);
+    return h('span.badge.ok', 'gesendet');
+  };
+  const out = (r) => [r.res ? r.res.output : 'Wird gesendet …', r.st && r.st.detail ? `\nErgebnis: ${r.st.detail}` : ''].join('');
+  function draw() {
+    if (rows.length === 1) {
+      const r = rows[0];
+      body.replaceChildren(h('div.row', { style: { marginBottom: '8px' } }, h('b.raw', r.c.name), badge(r)), h('pre.out', out(r)));
+      return;
+    }
+    const awake = rows.filter((r) => r.st && r.st.state === 'awake').length;
+    body.replaceChildren(h('div.row', { style: { marginBottom: '8px' } }, h('span', `${awake} von ${rows.length} aufgewacht`),
+      h('span.muted.small', 'Die Prüfung läuft auf dem Server weiter, auch wenn Sie dieses Fenster schließen; das Ergebnis steht im Protokoll.')),
+    h('div.run-list', rows.map((r) => h('details', h('summary', h('b.raw', r.c.name), badge(r)), h('pre.out', out(r))))));
+  }
+  modal('Wake-on-LAN', body, [{ label: 'Schließen' }], { wide: true, onClose: () => { closed = true; } });
+  draw();
+  (async () => {
+    for (const r of rows) {
+      if (closed) break;
+      try { r.res = await POST('/api/tools/builtin/wake', { computer_id: r.c.id }); } catch (e) { r.res = { exit: 1, output: e.message }; }
+      draw();
+    }
+    const poll = async () => {
+      if (closed) return;
+      await Promise.all(rows.filter((r) => !final(r)).map(async (r) => { try { r.st = await GET(`/api/computers/${r.c.id}/wake`); } catch (e) { /* nächster Versuch */ } }));
+      draw();
+      if (rows.some((r) => !final(r))) setTimeout(poll, 4000);
+    };
+    setTimeout(poll, 3000);
+  })();
 }
 
 function jobDialog(title, jid) {

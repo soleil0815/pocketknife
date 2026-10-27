@@ -107,6 +107,25 @@ def report(msg, source):
     return None
 
 
+HOST_REJECT = ("Dieses Gerät lehnt die Anmeldung des Dienstkontos ab – das Konto selbst ist in Ordnung (Prüfung per LDAP). "
+               "Unter der Adresse antwortet vermutlich ein anderes Gerät (DNS-Eintrag veraltet) oder eines, das nicht zur "
+               "Domäne gehört.")
+
+
+def report_remote(msg, source):
+    """2.31: Anmeldefehler bei einem einzelnen Computer (WinRM, SMB). Ein Gerät, das nicht zur Domäne gehört – z. B. weil
+    der DNS-Eintrag auf ein anderes Gerät zeigt –, antwortet auf jede Anmeldung mit „Benutzername oder Kennwort falsch“.
+    Das sagt nichts über das Dienstkonto: erst per LDAP prüfen (höchstens alle 5 Minuten) und den Schutz nur auslösen,
+    wenn das Konto wirklich nicht geht. Sonst lähmte ein einziger falscher DNS-Eintrag alle Scans und Bereitstellungen."""
+    text, account = explain(msg)
+    if not text or not account:
+        return text
+    if verify_account():
+        return f"{HOST_REJECT} ({text})"
+    trip(text, source)  # verify_account hat den Schutz meist schon ausgelöst – trip ist dann ohne Wirkung
+    return text
+
+
 def verify_account():
     """Prüft das Dienstkonto per LDAP – höchstens alle 5 Minuten. True = Konto in Ordnung."""
     now = time.time()

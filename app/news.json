@@ -2,6 +2,42 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.31",
+   "date": "2026-10-27",
+   "items": [
+    {
+     "kind": "new",
+     "audience": "all",
+     "de": "Wake-on-LAN sendet mehrfach, prüft, ob der Computer aufwacht, und versucht es bei Bedarf noch einmal. Die WoL-Bereitschaft steht jetzt im Inventar.",
+     "en": "Wake-on-LAN sends several times, checks whether the computer wakes up and retries if needed. WoL readiness is now in the inventory."
+    },
+    {
+     "kind": "new",
+     "audience": "admin",
+     "de": "Feste Relays für Wake-on-LAN (Einstellungen) und optional „ausgeschaltete Ziele wecken“ im Zeitplan.",
+     "en": "Fixed relays for Wake-on-LAN (settings) and optional \"wake switched-off targets\" in schedules."
+    },
+    {
+     "kind": "fixed",
+     "audience": "all",
+     "de": "winget: MobaXterm und PowerShell 7 werden jetzt aktualisiert bzw. mit klarer Abhilfe gemeldet statt „bereits aktuell“.",
+     "en": "winget: MobaXterm and PowerShell 7 are now updated or reported with a clear remedy instead of \"already up to date\"."
+    },
+    {
+     "kind": "fixed",
+     "audience": "admin",
+     "de": "Ein einzelner Computer mit falschem DNS-Eintrag löst den Dienstkonto-Schutz nicht mehr aus.",
+     "en": "A single computer with a wrong DNS entry no longer triggers the service account protection."
+    },
+    {
+     "kind": "improved",
+     "audience": "admin",
+     "de": "„Prozess ohne Ergebnis beendet“ nennt den Grund; neue Anzeige der Rechenlast unter Wartung.",
+     "en": "\"Process ended without a result\" names the reason; new CPU load view under Maintenance."
+    }
+   ]
+  },
+  {
    "version": "2.30.1",
    "date": "2026-10-25",
    "items": [

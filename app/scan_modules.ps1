@@ -251,6 +251,14 @@ $r.network = @(Get-CimInstance Win32_NetworkAdapterConfiguration -Filter 'IPEnab
               gateway = (@($_.DefaultIPGateway) -join ', '); dns = (@($_.DNSServerSearchOrder) -join ', '); dhcp = [bool]$_.DHCPEnabled } })
 PKS 'nics' {
   $cfg = @{}; Get-CimInstance Win32_NetworkAdapterConfiguration | ForEach-Object { $cfg[[int]$_.Index] = $_ }
+  # 2.31: Wake-on-LAN-Bereitschaft je Karte – Magic Packet erlaubt, darf den Computer wecken, Treiber-Einstellungen,
+  # kabelgebunden (nur cmdlets und powercfg, Constrained-Language-tauglich)
+  $wolPm = @{}; try { Get-NetAdapterPowerManagement -ErrorAction Stop | ForEach-Object { $wolPm[[string]$_.InterfaceDescription] = [string]$_.WakeOnMagicPacket } } catch {}
+  $wolMedia = @{}; try { Get-NetAdapter -Physical -ErrorAction Stop | ForEach-Object { $wolMedia[[string]$_.InterfaceDescription] = [string]$_.PhysicalMediaType } } catch {}
+  $wolAdv = @{}; try { Get-NetAdapterAdvancedProperty -ErrorAction Stop | Where-Object { $_.RegistryKeyword -match 'Wake|WOL|PME|S5' } | ForEach-Object {
+    $k = [string]$_.InterfaceDescription; $wolAdv[$k] = @($wolAdv[$k]) + @(([string]$_.DisplayName) + ': ' + ([string]$_.DisplayValue)) } } catch {}
+  $wolArmed = @(); try { $wolArmed = @(& powercfg.exe /devicequery wake_armed 2>$null | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ }) } catch {}
+  $wolTxt = @{ Enabled = 'an'; Disabled = 'aus'; Unsupported = 'nicht unterstützt'; Inactive = 'inaktiv' }
   $states = @{ 0 = 'Getrennt'; 1 = 'Verbinde'; 2 = 'Verbunden'; 3 = 'Trenne'; 4 = 'Hardware fehlt'; 5 = 'Hardware deaktiviert'; 6 = 'Hardwarefehler'; 7 = 'Kein Kabel'; 8 = 'Authentifiziere'; 9 = 'Authentifiziert'; 10 = 'Fehlerhaft'; 11 = 'Ungültige Adresse'; 12 = 'Anmeldeinformationen erforderlich' }
   Get-CimInstance Win32_NetworkAdapter -Filter 'PhysicalAdapter=True' | ForEach-Object {
     $c = $cfg[[int]$_.Index]
@@ -258,7 +266,21 @@ PKS 'nics' {
       speed = $(if ($_.Speed -and $_.Speed -lt 1e12) { [int64]$_.Speed } else { $null }); manufacturer = $_.Manufacturer
       ip = (@($c.IPAddress) -join ', '); subnet = (@($c.IPSubnet) -join ', '); gateway = (@($c.DefaultIPGateway) -join ', ')
       dns = (@($c.DNSServerSearchOrder) -join ', '); dhcp = [bool]$c.DHCPEnabled; dhcp_server = $c.DHCPServer
-      dns_suffix = $c.DNSDomain; enabled = $_.NetEnabled } } }
+      dns_suffix = $c.DNSDomain; enabled = $_.NetEnabled
+      wired = $(if ($wolMedia.ContainsKey([string]$_.Name)) { $wolMedia[[string]$_.Name] -match '802\.3' } else { $_.Name -notmatch 'Wi-?Fi|Wireless|WLAN|802\.11|Bluetooth' })
+      wol_magic = $(if ($wolPm.ContainsKey([string]$_.Name)) { $v = $wolPm[[string]$_.Name]; if ($wolTxt.ContainsKey($v)) { $wolTxt[$v] } else { $v } } else { $null })
+      wake_armed = $(if ($wolArmed.Count) { $wolArmed -contains ([string]$_.Name) } else { $null })
+      wol_driver = $(if ($wolAdv.ContainsKey([string]$_.Name)) { (@($wolAdv[[string]$_.Name] | Where-Object { $_ }) -join '; ') } else { $null }) } } }
+PKX 'fast_startup' {
+  # Windows-Schnellstart (Hybrid-Herunterfahren): viele Netzwerkkarten wecken dann aus „Herunterfahren“ nicht auf
+  $pol = Get-ItemProperty 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\System' -ErrorAction SilentlyContinue
+  $pw = Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Power' -ErrorAction SilentlyContinue
+  $hb = Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Power' -ErrorAction SilentlyContinue
+  if ($hb -and $null -ne $hb.HibernateEnabled -and $hb.HibernateEnabled -eq 0) { $false }
+  elseif ($pol -and $null -ne $pol.HiberbootEnabled) { $pol.HiberbootEnabled -eq 1 }
+  elseif ($pw -and $null -ne $pw.HiberbootEnabled) { $pw.HiberbootEnabled -eq 1 }
+  else { $null }
+}
 } catch { $r.errors += ('nics: ' + $_.Exception.Message) }
 
 # @module printers | Drucker (lokal)

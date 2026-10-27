@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTex
 from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 
-from . import (access, backup, clientfiles, integrity, kiosk, news, pkgexport, repofiles, sso, customreports, mailer, notify, diskusage, kerberos, presence, tls, actions, ad, auth, guard, profiles, remote_desktop, scanners, tools, uninstall, collections_, config, db, deploy, inventory, pklog, remote, reports, scheduler,
+from . import (access, backup, clientfiles, loadstats, integrity, kiosk, news, pkgexport, repofiles, sso, customreports, mailer, notify, diskusage, kerberos, presence, tls, actions, ad, auth, guard, profiles, remote_desktop, scanners, tools, uninstall, collections_, config, db, deploy, inventory, pklog, remote, reports, scheduler,
                schedules, steps, util, winget)
 
 
@@ -128,6 +128,8 @@ app.add_middleware(BodyLimit)
 
 @app.middleware("http")
 async def security(request: Request, call_next):
+    if request.url.path.startswith("/api/"):
+        loadstats.request(request.url.path)  # 2.31: welche Anfragen in einer Lastspitze kamen
     if request.url.path.startswith("/api/") and request.method not in ("GET", "HEAD", "OPTIONS"):
         if request.headers.get("x-pk-request") != "1":
             return JSONResponse({"detail": "CSRF-Prüfung fehlgeschlagen"}, status_code=403)
@@ -929,8 +931,16 @@ def api_tool_builtin(what: str, data: dict = Body(...), user=U):
         res = tools.wake(c)
         via = ", ".join(res.get("relay") or []) or "nur Container"
         pklog.info("tool", f"Wake-on-LAN an {c['name']} gesendet (über {via}).", user=user["username"], computer_id=cid)
+        if res.get("exit") == 0:
+            res["watch"] = tools.watch_wake(c, res.get("relay") or [], user["username"])  # 2.31: Aufwachen abwarten
         return res
     _err("Unbekanntes Tool")
+
+
+@app.get("/api/computers/{cid}/wake")
+def api_wake_state(cid: int, user=U):
+    """2.31: Ist der Computer nach Wake-on-LAN aufgewacht? (wartet / aufgewacht nach … s / nicht aufgewacht)"""
+    return tools.wake_state(cid) or {"state": "none"}
 
 
 @app.post("/api/tools/{tid}/jobs")
@@ -3155,7 +3165,8 @@ SETTING_BOUNDS = {"repo_upload_max_mb": (1, 102400), "repo_tenant_quota_mb": (0,
                   "deploy_timeout_minutes": (1, 1440), "winget_refresh_hours": (1, 720), "backup_keep": (1, 365),
                   "backup_hour": (0, 23), "db_maintenance_hour": (0, 23), "scan_interval_hours": (1, 8760), "du_scan_depth": (1, 8),
                   "rule_retry_hours": (1, 8760), "session_idle_minutes": (5, 720), "kiosk_max_per_day": (1, 500),
-                  "dns_cache_minutes": (0, 1440), "identity_recheck_hours": (1, 168)}
+                  "dns_cache_minutes": (0, 1440), "identity_recheck_hours": (1, 168),
+                  "wol_repeat": (1, 10), "wol_wait_seconds": (0, 900)}
 
 
 # --- Fernsitzungen (RDP/VNC im Browser) -------------------------------------------------
@@ -3366,6 +3377,12 @@ def api_settings_save(data: dict = Body(...), user=U):
             v = rebootmsg_clean(v, 60)
         if k.startswith("reboot_msg_"):
             v = rebootmsg_clean(v, 400)
+        if k == "wol_relays":
+            # 2.31: feste Relays – Computernamen, durch Komma oder Zeilenumbruch getrennt
+            names = [x.strip() for x in re.split(r"[,;\s]+", str(v or "")) if x.strip()]
+            if any(not re.match(r"^[A-Za-z0-9._-]{1,253}$", x) for x in names) or len(names) > 50:
+                _err("Feste Relays: Computernamen, durch Komma getrennt (höchstens 50).")
+            v = ", ".join(dict.fromkeys(names))
         if k == "toast_sender":
             v = re.sub(r"[\x00-\x1f<>]", "", str(v or "")).strip()[:60]
         if k == "repo_upload_types":
@@ -3434,6 +3451,7 @@ def api_system(user=U):
         "scheduler": scheduler.state, "background": scheduler.running(), "winget": winget.status(),
         "scanning": len(inventory.scanning_ids()),
         "guard": guard.status(),
+        "load": loadstats.view(),
     }
 
 

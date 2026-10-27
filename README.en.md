@@ -2,7 +2,7 @@ Deutsche Fassung: [README.md](README.md)
 
 # POCKET KNIFE
 
-Current version: **pocketknife-2.30.1** – see `CHANGELOG.md` (German).
+Current version: **pocketknife-2.31** – see `CHANGELOG.md` (German).
 
 Website: [helfi.space](https://helfi.space)
 
@@ -421,7 +421,7 @@ Built in are Ping & Ports, Remote Desktop and VNC in the browser, Wake-on-LAN, r
 
 **Analyse disk space:** folder sizes of a drive or folder as a ring chart (center = current folder, inner ring = contents, outer ring = one level deeper) with a list next to it. A click zooms into the folder; levels below the selected depth are scanned on demand with a click. The client counts with a small C# helper via WinRM (no installation, junctions are not followed); the last 8 results per computer are stored. The folder icon or "Open in Explorer" takes you directly to **Files** to clean up there.
 
-**Wake-on-LAN via a relay computer**: Broadcasts do not leave their subnet. POCKET KNIFE therefore looks for a currently reachable computer (online + WinRM) in the same subnet as the target – determined from the IP and subnet mask of the network adapters from the last scan – and has it send the magic packet (up to 3 relays, ports 7 and 9, to 255.255.255.255 and the directed broadcast of the network). If none is online in the target network, any online client sends a directed broadcast (works if the router forwards it). In addition, the container sends itself. The output names the relay used. Prerequisite: the target has been scanned at least once with the "Network Adapters" scanner (MAC address).
+**Wake-on-LAN via a relay computer**: Broadcasts do not leave their subnet. POCKET KNIFE therefore looks for a currently reachable computer (online + WinRM) in the same subnet as the target – determined from the IP and subnet mask of the network adapters from the last scan – and has it send the magic packet (up to 3 relays, ports 7 and 9, to 255.255.255.255 and the directed broadcast of the network). If none is online in the target network, any online client sends a directed broadcast (works if the router forwards it). In addition, the container sends itself. The output names the relay used. Prerequisite: the target has been scanned at least once with the "Network Adapters" scanner (MAC address). **From 2.31:** every packet several times, then a check whether the computer wakes up (with an automatic second attempt via other relays), optional **fixed relays** (Settings → Wake-on-LAN), **WoL readiness** in the inventory (network adapters, report, collection filter) and optionally "wake switched-off targets when running" in the schedule (off by default).
 
 **Files (Explorer)** (Tools ▾ or on the computer under "Drives"): manages the client's files in the browser via the administrative shares (`\\PC\C$`) – browse, download and upload, copy, move, rename, delete, new folders, **search** (from the open folder in all subfolders – the search runs via WinRM on the client itself, also in Constrained Language Mode). No installation on the client, runs as the service account, everything is logged.
 

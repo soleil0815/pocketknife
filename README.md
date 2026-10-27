@@ -2,7 +2,7 @@ English version: [README.en.md](README.en.md)
 
 # POCKET KNIFE
 
-Aktuelle Version: **pocketknife-2.30.1** – siehe `CHANGELOG.md`.
+Aktuelle Version: **pocketknife-2.31** – siehe `CHANGELOG.md`.
 
 Webseite: [helfi.space](https://helfi.space)
 
@@ -419,7 +419,7 @@ Eingebaut sind Ping & Ports, Remotedesktop und VNC im Browser, Wake-on-LAN, Neus
 
 **Speicherplatz analysieren:** Ordnergrößen eines Laufwerks oder Ordners als Ringdiagramm (Mitte = aktueller Ordner, innerer Ring = Inhalt, äußerer Ring = eine Ebene tiefer) mit Liste daneben. Klick zoomt in den Ordner, Ebenen unterhalb der gewählten Tiefe werden per Klick nachgescannt. Der Client zählt mit einem kleinen C#-Helfer über WinRM (keine Installation, Junctions werden nicht verfolgt); die letzten 8 Ergebnisse je Computer werden gespeichert. Über das Ordnersymbol bzw. „Im Explorer öffnen“ geht es direkt in **Dateien**, um dort aufzuräumen.
 
-**Wake-on-LAN über einen Relay-Computer**: Broadcasts verlassen ihr Subnetz nicht. POCKET KNIFE sucht deshalb einen gerade erreichbaren Computer (online + WinRM) im selben Subnetz wie das Ziel – ermittelt aus IP und Subnetzmaske der Netzwerkkarten des letzten Scans – und lässt ihn das Magic Packet senden (bis zu 3 Relays, Ports 7 und 9, an 255.255.255.255 und den gerichteten Broadcast des Netzes). Ist im Zielnetz keiner online, sendet ein beliebiger Online-Client einen gerichteten Broadcast (klappt, wenn der Router ihn weiterleitet). Zusätzlich sendet der Container selbst. Die Ausgabe nennt den verwendeten Relay. Voraussetzung: Ziel wurde mindestens einmal mit dem Scanner „Netzwerkkarten“ gescannt (MAC-Adresse).
+**Wake-on-LAN über einen Relay-Computer**: Broadcasts verlassen ihr Subnetz nicht. POCKET KNIFE sucht deshalb einen gerade erreichbaren Computer (online + WinRM) im selben Subnetz wie das Ziel – ermittelt aus IP und Subnetzmaske der Netzwerkkarten des letzten Scans – und lässt ihn das Magic Packet senden (bis zu 3 Relays, Ports 7 und 9, an 255.255.255.255 und den gerichteten Broadcast des Netzes). Ist im Zielnetz keiner online, sendet ein beliebiger Online-Client einen gerichteten Broadcast (klappt, wenn der Router ihn weiterleitet). Zusätzlich sendet der Container selbst. Die Ausgabe nennt den verwendeten Relay. Voraussetzung: Ziel wurde mindestens einmal mit dem Scanner „Netzwerkkarten“ gescannt (MAC-Adresse). **Ab 2.31:** jedes Paket mehrfach, danach Prüfung, ob der Computer aufwacht (mit automatischem zweitem Versuch über andere Relays), optional **feste Relays** (Einstellungen → Wake-on-LAN), **WoL-Bereitschaft** im Inventar (Netzwerkkarten, Bericht, Sammlungsfilter) und optional „ausgeschaltete Ziele beim Lauf wecken“ im Zeitplan (Standard aus).
 
 **Dateien (Explorer)** (Tools ▾ bzw. beim Computer unter „Laufwerke“): verwaltet die Dateien des Clients im Browser über die administrativen Freigaben (`\\PC\C$`) – durchsuchen, herunter- und hochladen, kopieren, verschieben, umbenennen, löschen, neue Ordner, **suchen** (ab dem geöffneten Ordner in allen Unterordnern – die Suche läuft per WinRM auf dem Client selbst, auch im Constrained Language Mode). Keine Installation auf dem Client, läuft als Dienstkonto, alles wird protokolliert.
 

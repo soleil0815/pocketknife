@@ -100,6 +100,13 @@ COMPUTER_COLS = [
     ("signature_age", "Defender-Signaturalter (Tage)", "number", _x("defender.signature_age")),
     ("last_wu_install", "Letztes Windows-Update", "date", _x("last_wu_install")),
     ("pending_reboot", "Neustart erforderlich", "bool", f"COALESCE({_x('pending_reboot')}, 0)"),
+    ("fast_startup", "Windows-Schnellstart aktiv", "bool", _x("fast_startup")),
+    # 2.31: mindestens eine kabelgebundene Karte mit Magic Packet „an“, die den Computer wecken darf, und kein Schnellstart
+    ("wol_ready", "Wake-on-LAN bereit", "bool",
+     "(SELECT CASE WHEN COUNT(json_extract(j.value, '$.wol_magic')) = 0 THEN NULL WHEN SUM(CASE WHEN json_extract(j.value, '$.wol_magic') = 'an' "
+     "AND COALESCE(json_extract(j.value, '$.wake_armed'), 1) = 1 AND COALESCE(json_extract(j.value, '$.wired'), 1) = 1 THEN 1 ELSE 0 END) > 0 "
+     f"AND COALESCE({_x('fast_startup')}, 0) = 0 THEN 1 ELSE 0 END FROM inventory_data d, json_each(d.json) j "
+     "WHERE d.computer_id = c.id AND d.category = 'nics')"),
     ("current_user", "Angemeldeter Benutzer", "text", "c.current_user"),
     ("ip", "IP-Adresse", "text", "c.ip_addresses"),
     ("mac", "MAC-Adresse", "text", "c.mac_addresses"),
@@ -190,7 +197,10 @@ JSON_TABLES = {
     "nics": ("Netzwerkkarten", [("name", "Adapter", "text"), ("connection", "Verbindung", "text"), ("status", "Status", "text"),
                                 ("ip", "IP-Adresse", "text"), ("mac", "MAC", "text"), ("dhcp", "DHCP", "bool"),
                                 ("dns", "DNS-Server", "text"), ("gateway", "Gateway", "text"),
-                                ("speed_mbit", "Geschwindigkeit (Mbit/s)", "number", f"ROUND(CAST(json_extract({J}, '$.speed') AS REAL) / 1000000)")]),
+                                ("speed_mbit", "Geschwindigkeit (Mbit/s)", "number", f"ROUND(CAST(json_extract({J}, '$.speed') AS REAL) / 1000000)"),
+                                # 2.31: Wake-on-LAN-Bereitschaft
+                                ("wired", "Kabelgebunden", "bool"), ("wol_magic", "Wake-on-LAN: Magic Packet (an/aus)", "text"),
+                                ("wake_armed", "Darf den Computer aufwecken", "bool"), ("wol_driver", "WoL-Einstellungen des Treibers", "text")]),
     "printers": ("Drucker (lokal)", [("name", "Drucker", "text"), ("driver", "Treiber", "text"), ("port", "Anschluss", "text"),
                                      ("default", "Standarddrucker", "bool"), ("network", "Netzwerkdrucker", "bool"), ("shared", "Freigegeben", "bool")]),
     "processes": ("Prozesse", [("name", "Prozess", "text"), ("user", "Benutzer", "text"), ("path", "Pfad", "text"),

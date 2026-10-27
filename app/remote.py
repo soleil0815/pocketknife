@@ -93,9 +93,13 @@ def identify(host):
             kind = "krb_modified"  # Ticket für einen anderen Rechner: falsches Gerät oder defekte Vertrauensstellung
         elif any(k in low for k in ("cannot contact any kdc", "cannot find kdc", "clock skew", "cannot resolve network address")):
             kind = "other"  # Problem auf Seite von POCKET KNIFE (KDC, Uhrzeit, DNS) – sagt nichts über das Gerät
-        elif guard.explain(str(e))[1] or kerberos._account_problem(e):
-            guard.report(str(e), "WinRM/Kerberos") or guard.trip(kerberos.explain(e) or str(e)[:200], "WinRM/Kerberos")
-            kind = "paused"  # Kennwort falsch/Konto gesperrt: Schutz auslösen statt weiter Geräte zu „verdächtigen“
+        elif kerberos._account_problem(e):
+            guard.trip(kerberos.explain(e) or str(e)[:200], "WinRM/Kerberos")
+            kind = "paused"  # der KDC sagt: Kennwort falsch/Konto gesperrt – Schutz auslösen statt Geräte zu „verdächtigen“
+        elif guard.explain(str(e))[1]:
+            # 2.31: „Kennwort falsch“ von einem Gerät heißt nicht, dass das Konto falsch ist (fremdes Gerät, falscher
+            # DNS-Eintrag) – per LDAP prüfen; nur wenn das Konto wirklich nicht geht, ist der Schutz aktiv
+            kind = "auth" if guard.verify_account() else "paused"
         elif kind == "auth" and not guard.verify_account():
             kind = "paused"  # das Dienstkonto selbst ist das Problem (Prüfung per LDAP, höchstens alle 5 Minuten)
         return {"error": kind, "detail": str(e)[:200]}
@@ -199,7 +203,7 @@ def ps_params(host, script, params, timeout=300):
 def _winrm_error(msg):
     """Übersetzt WinRM-Anmeldefehler. Ein 401 kann „falsches Passwort/gesperrt“ ODER
     „auf diesem Computer kein Admin“ bedeuten – das wird über eine LDAP-Prüfung unterschieden."""
-    text = guard.report(msg, "WinRM")
+    text = guard.report_remote(msg, "WinRM")
     if text:
         return text
     kt = kerberos.explain(msg) if kerberos.uses_kerberos() else None
@@ -268,7 +272,7 @@ def _smb_session(server, user, password):
         if not text and proto != "ntlm":
             text = kerberos.explain(str(e))
         if text or "auth" in type(e).__name__.lower():
-            msg = (guard.report(str(e), "SMB") if is_svc else None) or text or str(e)
+            msg = (guard.report_remote(str(e), "SMB") if is_svc else None) or text or str(e)
             if is_svc and proto != "ntlm" and kerberos._account_problem(str(e)):
                 guard.trip(text or str(e), "SMB/Kerberos")
             raise RemoteError(f"SMB-Anmeldung an {server} als {user}: {msg}")
@@ -1283,6 +1287,7 @@ $PKDir = '__DIR__'
 $PKLog = Join-Path $PKDir 'pk_output.log'
 $global:PKExit = 0
 function PK-Run([string]$File, [string]$Arguments) {
+  $global:PKOut = @()  # Ausgabe des letzten Aufrufs – für Auswertungen danach (z. B. winget „keine passende Aktualisierung“)
   $so = Join-Path $PKDir ('pk_so_' + [guid]::NewGuid().ToString('N') + '.txt')
   $se = $so + '.err'
   $sp = @{ FilePath = $File; Wait = $true; PassThru = $true; NoNewWindow = $true; WorkingDirectory = $PKDir;
@@ -1292,7 +1297,9 @@ function PK-Run([string]$File, [string]$Arguments) {
   $p = Start-Process @sp
   foreach ($f in @($so, $se)) {
     if (Test-Path $f) {
-      Get-Content -Path $f -Encoding UTF8 | Where-Object { $_ -notmatch '^\s*[-\\|/]?\s*$' -and $_ -notmatch '[\u2580-\u259F]' }
+      $pkL = @(Get-Content -Path $f -Encoding UTF8 | Where-Object { $_ -notmatch '^\s*[-\\|/]?\s*$' -and $_ -notmatch '[\u2580-\u259F]' })
+      $global:PKOut += $pkL
+      $pkL
       Remove-Item $f -Force -ErrorAction SilentlyContinue
     }
   }
@@ -1357,7 +1364,9 @@ Remove-Item (Join-Path $dir 'pk_exit.txt') -ErrorAction SilentlyContinue
 $w = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('__B64__'))
 [System.IO.File]::WriteAllText((Join-Path $dir 'pk_run.ps1'), $w, (New-Object System.Text.UTF8Encoding $true))
 __EXTRA__
-$cmd = '"' + $env:SystemRoot + '\System32\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NonInteractive -NoProfile -ExecutionPolicy Bypass -File "' + (Join-Path $dir 'pk_run.ps1') + '"'
+# 2.31: über cmd.exe, damit Fehlermeldungen von PowerShell selbst (Skript nicht ladbar, Richtlinie) in pk_err.txt landen –
+# sonst endet der Prozess „ohne Ergebnis“, und niemand sieht warum
+$cmd = $env:SystemRoot + '\System32\cmd.exe /d /c ""' + $env:SystemRoot + '\System32\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NonInteractive -NoProfile -ExecutionPolicy Bypass -File "' + (Join-Path $dir 'pk_run.ps1') + '" 2>"' + (Join-Path $dir 'pk_err.txt') + '""'
 $r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = $cmd; CurrentDirectory = $dir }
 if ($r.ReturnValue -ne 0) { 'PK_STARTFAIL:' + $r.ReturnValue; return }
 Set-Content -Path (Join-Path $dir 'pk_pid.txt') -Value ([string]$r.ProcessId) -Encoding Ascii
@@ -1375,7 +1384,23 @@ if (-not (Test-Path $f) -and (Test-Path $pf)) {
   if ($p -and $p.CommandLine -and $p.CommandLine.Contains($dir)) { $st = 'PK_PROC:running' }
   elseif (-not (Test-Path $f)) { $st = 'PK_PROC:gone' }
 }
-if ($st) { $st }
+if ($st -eq 'PK_PROC:gone') {
+  # 2.31: Warum? Fehlerausgabe von PowerShell, letzte Zeilen der Ausgabe, Sperren durch Defender (ASR) oder AppLocker
+  $st
+  $ef = Join-Path $dir 'pk_err.txt'
+  if (Test-Path $ef) { $t = ((Get-Content $ef -Raw) -replace '\s+', ' ').Trim(); if ($t) { 'PK_ERR:' + ($t -replace '^(.{0,600}).*$', '$1') } }
+  $l = Join-Path $dir 'pk_output.log'
+  if (Test-Path $l) { $t = ((Get-Content $l -Tail 5 -Encoding UTF8) -join ' | ').Trim(); if ($t) { 'PK_LAST:' + ($t -replace '^(.{0,600}).*$', '$1') } }
+  foreach ($q in @(@{ LogName = 'Microsoft-Windows-Windows Defender/Operational'; Id = 1121, 1122 },
+                   @{ LogName = 'Microsoft-Windows-AppLocker/EXE and DLL'; Id = 8004 },
+                   @{ LogName = 'Microsoft-Windows-AppLocker/MSI and Script'; Id = 8007 })) {
+    try {
+      $q.StartTime = (Get-Date).AddMinutes(-30)
+      Get-WinEvent -FilterHashtable $q -MaxEvents 2 -ErrorAction Stop | ForEach-Object { 'PK_BLOCK:' + ((($_.Message -replace '\s+', ' ').Trim()) -replace '^(.{0,400}).*$', '$1') }
+    } catch {}
+  }
+}
+elseif ($st) { $st }
 elseif (Test-Path $f) {
   'PK_DONE:' + (Get-Content $f -Raw).Trim()
   '---PKLOG---'
@@ -1460,6 +1485,32 @@ def cleanup_run(host, prefix, max_minutes):
             "codes": [c for c in m.group(4).split(",") if c]}
 
 
+def gone_message(out, direct):
+    """2.31: „ohne Ergebnis beendet“ – mit dem, was der Client über den Grund weiß."""
+    det = {}
+    for line in (out or "").splitlines():
+        for k in ("PK_ERR:", "PK_LAST:", "PK_BLOCK:"):
+            if line.startswith(k):
+                det.setdefault(k, []).append(line[len(k):].strip())
+    msg = "Der Prozess wurde ohne Ergebnis beendet"
+    if det.get("PK_BLOCK:"):
+        msg += " – gesperrt durch Defender (ASR-Regel) oder AppLocker: " + " / ".join(det["PK_BLOCK:"][:2])
+        if direct:
+            msg += (" Als Dienstkonto startet POCKET KNIFE einen eigenen Prozess über WMI; die ASR-Regel „Prozesserstellungen "
+                    "durch PSExec- und WMI-Befehle blockieren“ verhindert das. Abhilfe: Schritt auf „Lokales System“ stellen "
+                    "oder eine Ausnahme für die Regel.")
+    elif det.get("PK_ERR:"):
+        msg += " – Fehlermeldung von PowerShell: " + det["PK_ERR:"][0]
+    else:
+        msg += " (z. B. auf dem Client abgebrochen, Neustart oder von einer Schutzsoftware beendet)."
+        if direct:
+            msg += (" Als Dienstkonto startet POCKET KNIFE einen eigenen Prozess über WMI – blockiert eine Schutzsoftware das, "
+                    "den Schritt auf „Lokales System“ stellen.")
+    if det.get("PK_LAST:"):
+        msg += " Letzte Ausgabe: " + det["PK_LAST:"][0]
+    return msg
+
+
 def run_as_system(host, body, name, timeout_s=3600, cancel=None, extra_ps="", run_as="system", run_user_sid=None):
     """Startet body (PowerShell) auf dem Client – als Dienstkonto (run_as="deploy": direkt als Prozess, ohne
     geplante Aufgabe), als SYSTEM (Standard) oder als angemeldeter Benutzer (run_as="user", optional nur der
@@ -1526,7 +1577,7 @@ def run_as_system(host, body, name, timeout_s=3600, cancel=None, extra_ps="", ru
             if out.startswith("PK_PROC:gone"):
                 gone_hits += 1
                 if gone_hits >= 2:
-                    raise RemoteError("Der Prozess wurde ohne Ergebnis beendet (z. B. auf dem Client abgebrochen oder Neustart).")
+                    raise RemoteError(gone_message(out, direct))
                 continue
             gone_hits = 0
             if out.startswith("PK_MISSING"):
