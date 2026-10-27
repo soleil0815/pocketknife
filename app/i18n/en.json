@@ -5088,5 +5088,22 @@
  "('{0} {1}' + $sf + '{2}')": null,
  "PK-Run {0} ('{1} {2}' + $pkF + '{3}')\n": null,
  "$sf = Join-Path $PKDir 'pk_tool.ps1'\n[System.IO.File]::WriteAllText($sf, [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{0}')), (New-Object System.Text.UTF8Encoding $true))\nPK-Run {1} ('{2} {3}' + $sf + '{4}')": null,
- "' -Raw -Encoding UTF8)); exit 0\"": null
+ "' -Raw -Encoding UTF8)); exit 0\"": null,
+ "\n$sf = Join-Path $PKDir 'pk_script.ps1'\n[System.IO.File]::WriteAllText($sf, [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{0}')), (New-Object System.Text.UTF8Encoding $true))\nPK-RunPs1 $sf {1}\n": null,
+ "PK-RunPs1 $f {0}\n": null,
+ "Vom Virenschutz blockiert (AMSI: „schädlicher Inhalt“). Skript und Meldung im Virenschutz prüfen": "Blocked by antivirus (AMSI: \"malicious content\"). Check the script and the antivirus message",
+ "Windows führt PowerShell hier im eingeschränkten Sprachmodus aus (AppLocker/WDAC); dort sind die benötigten Funktionen gesperrt. Den Arbeitsordner C:\\Windows\\Temp\\PocketKnife in der Richtlinie zulassen oder den Computer von dieser Härtung ausnehmen": "Windows runs PowerShell in Constrained Language Mode here (AppLocker/WDAC); the required functions are blocked there. Allow the working folder C:\\Windows\\Temp\\PocketKnife in the policy or exempt the computer from this hardening",
+ "Windows hat ein Programm gesperrt (AppLocker oder Softwareeinschränkung). Programm bzw. Ordner in der Richtlinie zulassen – welches, steht im Protokoll": "Windows blocked a program (AppLocker or Software Restriction). Allow the program or folder in the policy – which one is in the log",
+ "Windows lässt das PowerShell-Skript nicht zu (Ausführungsrichtlinie/Signatur), auch das Laden des Inhalts wurde verweigert. Ausführungsrichtlinie der GPO für diesen Computer prüfen oder das Skript signieren": "Windows does not allow the PowerShell script (execution policy/signature); loading its content was refused as well. Check the GPO execution policy for this computer or sign the script",
+ " Windows ist auf diesem Computer so eingestellt, dass es POCKET KNIFE blockiert: ": " Windows on this computer is configured to block POCKET KNIFE: ",
+ "FullyQualifiedErrorId\\s*:\\s*UnauthorizedAccess\\b(?!Exception)|PSSecurityException": null,
+ "blocked by group policy|durch eine Gruppenrichtlinie blockiert|Softwareeinschr\\S{1,2}nkungsrichtlinie|software restriction polic": null,
+ "language mode|diesem Sprachmodus": null,
+ "malicious content|sch\\S{1,2}dliche Inhalte|ScriptContainedMaliciousContent": null,
+ "PK-RunPs1 $pkF ''\n": null,
+ "Verweigert Windows die Skriptdatei (Ausführungsrichtlinie per GPO, Signatur, Sicherheitszone), lädt POCKET KNIFE ihren Inhalt und führt ihn aus – Parameter, $PSScriptRoot und Exitcode bleiben gleich.": "If Windows refuses the script file (execution policy via GPO, signature, security zone), POCKET KNIFE loads its content and runs it – parameters, $PSScriptRoot and exit code stay the same.",
+ "$sf = Join-Path $PKDir 'pk_tool.ps1'\n[System.IO.File]::WriteAllText($sf, [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{0}')), (New-Object System.Text.UTF8Encoding $true))\nPK-RunPs1 $sf ''": null,
+ "' -Raw -Encoding UTF8)) } else { throw } }\"": null,
+ "-Command \"try { & '": null,
+ "{0} -File \"{1}\" {2}": null
 }

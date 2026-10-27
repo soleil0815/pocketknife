@@ -647,7 +647,8 @@ def preview(st, pkg):
         elif it == "cmd":
             lines.append(f'cmd.exe /c ""{path}" {args}"')
         elif it == "ps1":
-            lines.append(f'{util.PS_EXE} {util.PS_FLAGS} -File "{path}" {args}'.rstrip())
+            lines.append(f'{util.PS_EXE} {util.ps_file_arg(path, args)}')
+            notes.append(PS_NOTE)
         elif it == "reg":
             lines.append(f'reg.exe import "{path}" {args}'.rstrip())
             notes.append("Wie „regedit.exe /s“, meldet aber Fehler über den Exitcode. Es wird das 64-Bit-reg.exe verwendet; "
@@ -679,7 +680,8 @@ def preview(st, pkg):
         lines.append(f'cmd.exe /c "{RUN_DIR}\\pk_command.cmd"')
         lines += ["  " + x for x in st["command"].splitlines()[:30]]
     elif t == "powershell":
-        lines.append(f'{util.PS_EXE} {util.ps_load_arg(RUN_DIR + chr(92) + "pk_script.ps1")}')
+        lines.append(f'{util.PS_EXE} {util.ps_file_arg(RUN_DIR + chr(92) + "pk_script.ps1")}')
+        notes.append(PS_NOTE)
         lines += ["  " + x for x in st["script"].splitlines()[:30]]
     elif t == "filecopy":
         tgt = st["target"]
@@ -723,6 +725,10 @@ def preview(st, pkg):
 
 
 # --- Skripte je Schritt ----------------------------------------------------------------------
+PS_NOTE = ("Verweigert Windows die Skriptdatei (Ausführungsrichtlinie per GPO, Signatur, Sicherheitszone), lädt POCKET KNIFE "
+           "ihren Inhalt und führt ihn aus – Parameter, $PSScriptRoot und Exitcode bleiben gleich.")
+
+
 def _write_file(name, text, encoding="UTF8"):
     b64 = base64.b64encode(text.encode("utf-8")).decode()
     if encoding == "OEM":
@@ -748,7 +754,7 @@ def body_for(st, pkg):
             "PK-Run 'cmd.exe' ('/c \"' + $pkF + '\"')\n"
     if t == "powershell":
         return _write_file("pk_script.ps1", st["script"]) + \
-            f"PK-Run {util.PS_EXE_PS} ('{util.PS_FLAGS} {util.PS_LOAD_PRE_Q}' + $pkF + '{util.PS_LOAD_POST_Q}')\n"
+            "PK-RunPs1 $pkF ''\n"
     if t == "filecopy":
         tgt = util.psq(st["target"])
         extra = " /XC /XN /XO" if not st.get("overwrite", True) else ""
@@ -1037,6 +1043,7 @@ class Runner:
         if reboot:
             self.reboot_needed = True
         msg = deploy.WINGET_MESSAGES.get(code, "") if st["type"] == "install" and st.get("source") == "winget" else ""
+        msg = msg or deploy.HARD_MESSAGES.get(code, "")
         if msg and not ok:
             msg = f"Fehlgeschlagen – {msg} (Exitcode {code})"  # Klartext und Code: beides wird für die Fehlersuche gebraucht
         if not msg:

@@ -8,8 +8,14 @@
     {
      "kind": "fixed",
      "audience": "admin",
-     "de": "Schritte starten jetzt auch, wenn eine GPO die Ausführungsrichtlinie festlegt und Windows die Skriptdatei für „nicht digital signiert“ hält – POCKET KNIFE lädt seine eigenen Skripte, statt sie als Datei zu starten.",
-     "en": "Steps now also start when a GPO sets the execution policy and Windows reports the script file as \"not digitally signed\" – POCKET KNIFE loads its own scripts instead of starting them as a file."
+     "de": "Schritte starten jetzt auch, wenn eine GPO die Ausführungsrichtlinie festlegt und Windows ein Skript für „nicht digital signiert“ hält: POCKET KNIFE lädt dann seinen Inhalt. Ohne GPO ändert sich nichts.",
+     "en": "Steps now also start when a GPO sets the execution policy and Windows reports a script as \"not digitally signed\": POCKET KNIFE then loads its content. Without a GPO nothing changes."
+    },
+    {
+     "kind": "new",
+     "audience": "admin",
+     "de": "Verhindert ein gehärtetes Windows die Ausführung (Virenschutz, eingeschränkter Sprachmodus, AppLocker), zeigt das Ergebnis den Grund im Klartext (Codes 9013–9016).",
+     "en": "If a hardened Windows prevents execution (antivirus, Constrained Language Mode, AppLocker), the result shows the reason in plain text (codes 9013–9016)."
     }
    ]
   },
