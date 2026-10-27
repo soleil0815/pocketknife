@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.32.2",
+   "date": "2026-10-27",
+   "items": [
+    {
+     "kind": "fixed",
+     "audience": "admin",
+     "de": "Schritte starten jetzt auch, wenn eine GPO die Ausführungsrichtlinie festlegt und Windows die Skriptdatei für „nicht digital signiert“ hält – POCKET KNIFE lädt seine eigenen Skripte, statt sie als Datei zu starten.",
+     "en": "Steps now also start when a GPO sets the execution policy and Windows reports the script file as \"not digitally signed\" – POCKET KNIFE loads its own scripts instead of starting them as a file."
+    }
+   ]
+  },
+  {
    "version": "2.32.1",
    "date": "2026-10-27",
    "items": [

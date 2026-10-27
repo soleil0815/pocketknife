@@ -1880,7 +1880,7 @@ def _():
         for bad in ("'powershell.exe'", "powershell.exe -No", "--headless powershell.exe"):
             assert bad not in src, f"{os.path.basename(f)}: PowerShell ohne vollen Pfad ({bad})"
     b = steps.body_for({"type": "powershell", "script": "Write-Output 1", "id": "x"}, {})
-    assert '"$env:SystemRoot\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" (\'-NoLogo -NonInteractive -NoProfile -ExecutionPolicy Bypass -File' in b
+    assert '"$env:SystemRoot\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" (\'-NoLogo -NonInteractive -NoProfile -ExecutionPolicy Bypass -Command' in b
 
 
 @test("2.24.4 update.sh: Abbruch mitten im Tausch legt automatisch zurück; .pk-vorher bleibt bei Wiederholung; Ordner mit Sicherungen/Datenbank werden nie gelöscht; nur bekannte Programmdateien")
@@ -5315,6 +5315,39 @@ def _():
         for x in made:
             db.ex("DELETE FROM packages WHERE id=?", (x,))
 
+
+
+@test("2.32.2 Eigene Skripte von POCKET KNIFE (Rahmen, PowerShell-Schritte, Tools als SYSTEM) werden geladen statt als Datei gestartet – eine Ausführungsrichtlinie per GPO oder Sicherheitszonen blockieren sie nicht; Exitcode wie bei -File; Dateien aus dem Repository weiter per -File (Parameter, $PSScriptRoot)")
+def _():
+    from app import deploy, remote, steps, util
+    for src in (remote.REGISTER, remote.START_DIRECT):
+        assert "Invoke-Expression ((Get-Content -LiteralPath" in src and "pk_run.ps1" in src, src[:200]
+        assert "-File \"' + (Join-Path $dir 'pk_run.ps1')" not in src
+    b = steps.body_for({"type": "powershell", "script": "Write-Output 1", "id": "x"}, {})
+    assert util.PS_LOAD_PRE_Q in b and "-File" not in b.split("PK-Run", 1)[1]
+    assert "-File" in deploy._custom_body({"install_type": "ps1", "install_file": "setup.ps1", "arguments": "-Silent"}), "Repository-Datei: -File"
+    assert util.PS_LOAD_PRE_Q in deploy._custom_body({"install_type": "script", "script": "x", "arguments": ""})
+    tsrc = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "tools.py"), encoding="utf-8").read()
+    assert "PS_LOAD_PRE_Q" in tsrc
+    pw = os.environ.get("PK_PWSH")
+    if pw and os.path.exists(pw):
+        import subprocess
+        d = tempfile.mkdtemp(prefix="pk-load-")
+        try:
+            sf = os.path.join(d, "pk_script.ps1")
+            line = b.split("PK-Run ", 1)[1].strip().splitlines()[0]
+            expr = line[line.index("("):]
+            ps = (f"$pkF = '{sf}'; $a = {expr}; "
+                  f"$p = Start-Process -FilePath '{pw}' -ArgumentList $a -Wait -PassThru -WorkingDirectory '{d}' -NoNewWindow; 'RC=' + $p.ExitCode")
+            for body, rc in (("param($x)\n'läuft' | Out-File -LiteralPath (Join-Path (Get-Location) 'out.txt') -Encoding utf8\nexit 5\n", "RC=5"),
+                             ("'ohne exit'\n", "RC=0"), ("throw 'kaputt'\n", "RC=1")):
+                with open(sf, "w", encoding="utf-8-sig") as fh:
+                    fh.write(body)
+                r = subprocess.run([pw, "-NoProfile", "-NonInteractive", "-Command", ps], capture_output=True, text=True, timeout=120)
+                assert rc in r.stdout, (body, r.stdout, r.stderr)
+            assert open(os.path.join(d, "out.txt"), encoding="utf-8-sig").read().strip() == "läuft"
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
 
 def main():
     ok = 0

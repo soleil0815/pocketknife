@@ -1325,7 +1325,7 @@ $w = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('__B64__
 [System.IO.File]::WriteAllText((Join-Path $dir 'pk_run.ps1'), $w, (New-Object System.Text.UTF8Encoding $true))
 __EXTRA__
 # Windows PowerShell mit vollem Pfad und festen Schaltern (siehe util.PS_FLAGS)
-$a = New-ScheduledTaskAction -Execute "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -Argument ('-NoLogo -NonInteractive -NoProfile -ExecutionPolicy Bypass -File "' + (Join-Path $dir 'pk_run.ps1') + '"') -WorkingDirectory $dir
+$a = New-ScheduledTaskAction -Execute "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -Argument ('-NoLogo -NonInteractive -NoProfile -ExecutionPolicy Bypass -Command "Invoke-Expression ((Get-Content -LiteralPath ''' + (Join-Path $dir 'pk_run.ps1') + ''' -Raw -Encoding UTF8)); exit 0"') -WorkingDirectory $dir
 $pkRunAs = '__RUNAS__'
 if ($pkRunAs -eq 'user') {
   # Als angemeldeter Benutzer (z. B. für Software, die nur im Benutzerprofil installiert ist)
@@ -1366,7 +1366,7 @@ $w = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('__B64__
 __EXTRA__
 # 2.31: über cmd.exe, damit Fehlermeldungen von PowerShell selbst (Skript nicht ladbar, Richtlinie) in pk_err.txt landen –
 # sonst endet der Prozess „ohne Ergebnis“, und niemand sieht warum
-$cmd = $env:SystemRoot + '\System32\cmd.exe /d /c ""' + $env:SystemRoot + '\System32\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NonInteractive -NoProfile -ExecutionPolicy Bypass -File "' + (Join-Path $dir 'pk_run.ps1') + '" 2>"' + (Join-Path $dir 'pk_err.txt') + '""'
+$cmd = $env:SystemRoot + '\System32\cmd.exe /d /c ""' + $env:SystemRoot + '\System32\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NonInteractive -NoProfile -ExecutionPolicy Bypass -Command "Invoke-Expression ((Get-Content -LiteralPath ''' + (Join-Path $dir 'pk_run.ps1') + ''' -Raw -Encoding UTF8)); exit 0" 2>"' + (Join-Path $dir 'pk_err.txt') + '""'
 $r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = $cmd; CurrentDirectory = $dir }
 if ($r.ReturnValue -ne 0) { 'PK_STARTFAIL:' + $r.ReturnValue; return }
 Set-Content -Path (Join-Path $dir 'pk_pid.txt') -Value ([string]$r.ProcessId) -Encoding Ascii
