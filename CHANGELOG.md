@@ -1,5 +1,9 @@
 # Änderungen
 
+## pocketknife-2.32.2 (27.10.2026)
+- **Behoben – „… ist nicht digital signiert“ trotz `-ExecutionPolicy Bypass`:** Legt eine GPO die Ausführungsrichtlinie fest (z. B. *MachinePolicy RemoteSigned*) und hält Windows die Datei für fremd (Sicherheitszonen), startete auf manchen Clients kein Schritt – auch Registry-Schritte und cmd-Befehle nicht, weil sie im PowerShell-Rahmen von POCKET KNIFE laufen. Eigene Skripte (Rahmen, PowerShell-Schritte, Tools als Lokales System) werden jetzt geladen statt mit `-File` gestartet; Ausführungsrichtlinie und Zonen spielen keine Rolle mehr, Virenschutz, AMSI und eingeschränkter Sprachmodus gelten weiter. Exitcodes wie bisher. In PowerShell-Schritten ist `$PSScriptRoot` jetzt leer (Arbeitsverzeichnis = Laufordner). .ps1-Dateien aus dem Repository laufen weiter mit `-File`
+- **Selbsttest:** Laden statt `-File` für Rahmen, Schritte und Tools; Ausführung in PowerShell mit Exitcode, ohne `exit` und mit Fehler
+
 ## pocketknife-2.32.1 (27.10.2026)
 - **Behoben – „Prozess ohne Ergebnis beendet“ nannte einen falschen Grund:** POCKET KNIFE wertete jeden Defender-ASR-Eintrag als Sperre – auch „Vorgang überwacht“ (Ereignis 1122). Steht eine Regel auf „Überwachen“, entsteht so ein Eintrag bei jedem Start über WMI; er blockiert nichts und ist nie der Grund. Jetzt zählt nur „blockiert“ (1121), die Regel steht mit Namen statt des langen Ereignistexts dabei, nur Ereignisse seit dem Start dieses Laufs. Die Fehlerausgabe von PowerShell steht immer in der Meldung; neu erkannt werden auch Virenschutz-Funde (AMSI, Ereignis 1116) und Abstürze von PowerShell
 - **Selbsttest:** blockiert/überwacht unterschieden, Regelnamen, Fehlerausgabe, Virenschutz; Abfrage auf dem Client in PowerShell geparst

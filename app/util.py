@@ -8,6 +8,22 @@ import socket
 PS_EXE = r"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"           # Anzeige (Vorschau)
 PS_EXE_PS = r'"$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"'     # als PowerShell-Ausdruck
 PS_FLAGS = "-NoLogo -NonInteractive -NoProfile -ExecutionPolicy Bypass"
+# 2.32.2: von POCKET KNIFE erzeugte Skripte nicht als Datei (-File) starten, sondern ihren Inhalt laden. Eine
+# Ausführungsrichtlinie aus der Gruppenrichtlinie (MachinePolicy/UserPolicy) lässt sich mit „-ExecutionPolicy Bypass“
+# nicht übersteuern; mit RemoteSigned hält Windows eine lokale Datei je nach Sicherheitszonen des Kontos (SYSTEM,
+# Dienstkonto) trotzdem für „fremd“ und verlangt eine Signatur. Geladener Inhalt unterliegt der Ausführungsrichtlinie
+# nicht (wie Befehle über WinRM); AMSI, Virenschutz und Constrained Language Mode gelten weiter. Invoke-Expression statt
+# [ScriptBlock]::Create – das ist im Constrained Language Mode erlaubt. „exit 0“ am Ende: gleicher Exitcode wie bei -File.
+PS_LOAD_PRE = "-Command \"Invoke-Expression ((Get-Content -LiteralPath '"
+PS_LOAD_POST = "' -Raw -Encoding UTF8)); exit 0\""
+# dieselben Teile zum Einbetten in einen PowerShell-String in einfachen Anführungszeichen ('…' + $pfad + '…')
+PS_LOAD_PRE_Q = PS_LOAD_PRE.replace("'", "''")
+PS_LOAD_POST_Q = PS_LOAD_POST.replace("'", "''")
+
+
+def ps_load_arg(path):
+    """Argumente für powershell.exe, die das Skript an path laden (path ohne einfaches Anführungszeichen)."""
+    return f"{PS_FLAGS} {PS_LOAD_PRE}{path}{PS_LOAD_POST}"
 
 WINGET_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.\-_+]{0,127}$")
 

@@ -5082,5 +5082,11 @@
  "Nicht vertrauenswürdige und nicht signierte Prozesse blockieren, die von USB ausgeführt werden": "Block untrusted and unsigned processes that run from USB",
  "Persistenz über WMI-Ereignisabonnement blockieren": "Block persistence through WMI event subscription",
  "Prozesserstellungen durch PSExec- und WMI-Befehle blockieren": "Block process creations originating from PSExec and WMI commands",
- "Verwendung kopierter oder imitierter Systemtools blockieren": "Block use of copied or impersonated system tools"
+ "Verwendung kopierter oder imitierter Systemtools blockieren": "Block use of copied or impersonated system tools",
+ "\n$sf = Join-Path $PKDir 'pk_script.ps1'\n[System.IO.File]::WriteAllText($sf, [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{0}')), (New-Object System.Text.UTF8Encoding $true))\nPK-Run {1} {2}\n": null,
+ "('{0} -File \"' + $sf + '\" ' + {1})": null,
+ "('{0} {1}' + $sf + '{2}')": null,
+ "PK-Run {0} ('{1} {2}' + $pkF + '{3}')\n": null,
+ "$sf = Join-Path $PKDir 'pk_tool.ps1'\n[System.IO.File]::WriteAllText($sf, [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{0}')), (New-Object System.Text.UTF8Encoding $true))\nPK-Run {1} ('{2} {3}' + $sf + '{4}')": null,
+ "' -Raw -Encoding UTF8)); exit 0\"": null
 }

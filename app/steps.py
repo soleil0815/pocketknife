@@ -679,7 +679,7 @@ def preview(st, pkg):
         lines.append(f'cmd.exe /c "{RUN_DIR}\\pk_command.cmd"')
         lines += ["  " + x for x in st["command"].splitlines()[:30]]
     elif t == "powershell":
-        lines.append(f'{util.PS_EXE} {util.PS_FLAGS} -File "{RUN_DIR}\\pk_script.ps1"')
+        lines.append(f'{util.PS_EXE} {util.ps_load_arg(RUN_DIR + chr(92) + "pk_script.ps1")}')
         lines += ["  " + x for x in st["script"].splitlines()[:30]]
     elif t == "filecopy":
         tgt = st["target"]
@@ -748,7 +748,7 @@ def body_for(st, pkg):
             "PK-Run 'cmd.exe' ('/c \"' + $pkF + '\"')\n"
     if t == "powershell":
         return _write_file("pk_script.ps1", st["script"]) + \
-            f"PK-Run {util.PS_EXE_PS} ('{util.PS_FLAGS} -File \"' + $pkF + '\"')\n"
+            f"PK-Run {util.PS_EXE_PS} ('{util.PS_FLAGS} {util.PS_LOAD_PRE_Q}' + $pkF + '{util.PS_LOAD_POST_Q}')\n"
     if t == "filecopy":
         tgt = util.psq(st["target"])
         extra = " /XC /XN /XO" if not st.get("overwrite", True) else ""

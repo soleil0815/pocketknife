@@ -291,7 +291,7 @@ def _custom_body(p):
         body += f"""
 $sf = Join-Path $PKDir 'pk_script.ps1'
 [System.IO.File]::WriteAllText($sf, [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{b64}')), (New-Object System.Text.UTF8Encoding $true))
-PK-Run {util.PS_EXE_PS} ('{util.PS_FLAGS} -File "' + $sf + '" ' + {util.psq(args)})
+PK-Run {util.PS_EXE_PS} {f"('{util.PS_FLAGS} {util.PS_LOAD_PRE_Q}' + $sf + '{util.PS_LOAD_POST_Q}')" if not args.strip() else f"('{util.PS_FLAGS} -File \"' + $sf + '\" ' + {util.psq(args)})"}
 """
         return body
     body += f"$f = Join-Path $PKDir {util.psq(p['install_file'])}\n"
