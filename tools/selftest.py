@@ -5184,6 +5184,65 @@ def _():
     assert "loadstats.task(" in src and "loadstats.sample(" in src
 
 
+@test("2.32 Pakete zusammenfassen: verschachtelt (Reihenfolge, Neustart, Bei Fehler) oder als Kopie der Schritte („Ausführen als“ bleibt, eigene Bedingungen verhindern das Kopieren); nie über Mandanten hinweg; gpupdate /force wie gewohnt")
+def _():
+    import hashlib
+    import secrets
+    import time as _t
+    from app import auth, deploy, steps
+    tok = secrets.token_urlsafe(16)
+    th = hashlib.sha256(tok.encode()).hexdigest()
+    db.ex("INSERT INTO sessions(token_hash, username, display_name, created, expires, ip, last_active, role, scope) VALUES(?,?,?,?,?,?,?,?,?)",
+          (th, "pm-haupt", "Test", util.now(), "2099-01-01 00:00:00", "127.0.0.1", util.now(), "admin", None))
+    auth._checked[th] = _t.time() + 10 ** 6
+    mk = lambda name, st, run_as="system", reboot="never", conds="{}", tenant=None: db.ex(  # noqa: E731
+        "INSERT INTO packages(name, version, steps, conditions, run_as, reboot, tenant_id, created_at) VALUES(?,?,?,?,?,?,?,?)",
+        (name, "1", json.dumps({"main": st}), conds, run_as, reboot, tenant, util.now()))
+    a = mk("PM A", [{"id": "a1", "type": "command", "command": "echo a"}], run_as="system", reboot="if_required")
+    b = mk("PM B", [{"id": "b1", "type": "command", "command": "echo b"}], run_as="deploy")
+    cnd = mk("PM Bedingung", [{"id": "c1", "type": "command", "command": "echo c"}],
+             conds=json.dumps({"os": ["win11"], "arch": ["x64"], "ps_min": "", "logged_on": "always", "files": [], "registry": [], "collections": []}))
+    tid = db.ex("INSERT INTO tenants(name, created_at) VALUES('PM Mandant', ?)", (util.now(),))
+    tid2 = db.ex("INSERT INTO tenants(name, created_at) VALUES('PM Mandant 2', ?)", (util.now(),))
+    t1, t2 = mk("PM T1", [{"id": "t1", "type": "command", "command": "echo t1"}], tenant=tid), mk("PM T2", [{"id": "t2", "type": "command", "command": "echo t2"}], tenant=tid2)
+    made = [a, b, cnd, t1, t2]
+    try:
+        st, r = _asgi("POST", "/api/packages/merge", tok, {"ids": [b, a], "name": "PM Zusammen", "mode": "nested"})
+        assert st == 200, (st, r)
+        made.append(r["id"])
+        p = steps.normalize(deploy.row_to_package(db.q1("SELECT * FROM packages WHERE id=?", (r["id"],))))
+        assert [x["package_id"] for x in p["steps"]["main"]] == [b, a] and all(x["type"] == "nested" for x in p["steps"]["main"])
+        assert p["reboot"] == "if_required" and all(x["on_error"] == "stop" for x in p["steps"]["main"]), p["reboot"]
+        st, r = _asgi("POST", "/api/packages/merge", tok, {"ids": [a, b], "mode": "copy", "continue_on_error": True})
+        assert st == 200, (st, r)
+        made.append(r["id"])
+        p = steps.normalize(deploy.row_to_package(db.q1("SELECT * FROM packages WHERE id=?", (r["id"],))))
+        cmds = [(x["command"], x["run_as"], x["on_error"]) for x in p["steps"]["main"]]
+        assert cmds == [("echo a", "system", "continue"), ("echo b", "deploy", "continue")], cmds
+        assert p["name"] == "PM A + PM B" and len({x["id"] for x in p["steps"]["main"]}) == 2
+        st, r = _asgi("POST", "/api/packages/merge", tok, {"ids": [a, cnd], "mode": "copy"})
+        assert st == 400 and "Bedingungen" in str(r), (st, r)
+        st, r = _asgi("POST", "/api/packages/merge", tok, {"ids": [a, cnd], "mode": "nested"})
+        assert st == 200, ("verschachtelt geht mit Bedingungen", st, r)
+        made.append(r["id"])
+        st, r = _asgi("POST", "/api/packages/merge", tok, {"ids": [t1, t2], "mode": "nested"})
+        assert st == 400 and "Mandanten" in str(r), (st, r)
+        st, r = _asgi("POST", "/api/packages/merge", tok, {"ids": [a, t1], "mode": "nested"})
+        assert st == 200 and db.val("SELECT tenant_id FROM packages WHERE id=?", (r["id"],)) == tid, ("zentral + Mandant → Mandant", st, r)
+        made.append(r["id"])
+        assert _asgi("POST", "/api/packages/merge", tok, {"ids": [a]})[0] == 400, "mindestens zwei"
+        src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "main.py"), encoding="utf-8").read()
+        assert "echo N| gpupdate.exe /force" in src and "/target:computer" not in src
+        js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
+        assert "function mergePackagesDlg(selRows)" in js and "Zu neuem Paket zusammenfassen" in js
+    finally:
+        db.ex("DELETE FROM sessions WHERE token_hash=?", (th,))
+        for x in made:
+            db.ex("DELETE FROM pkg_ident WHERE package_id=?", (x,))
+            db.ex("DELETE FROM packages WHERE id=?", (x,))
+        db.ex("DELETE FROM tenants WHERE id IN (?,?)", (tid, tid2))
+
+
 def main():
     ok = 0
     for name, fn in RESULTS:

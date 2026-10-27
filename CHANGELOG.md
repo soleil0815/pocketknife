@@ -1,5 +1,10 @@
 # Änderungen
 
+## pocketknife-2.32 (27.10.2026)
+- **Neu – Pakete zusammenfassen:** mehrere Pakete markieren → Rechtsklick → „Zu neuem Paket zusammenfassen …“. Reihenfolge, Name, „Bei Fehler weitermachen“; **verschachtelt** (bleibt mit den Originalen verbunden, deren Bedingungen, „Ausführen als“ und Neustart gelten weiter) oder **Schritte kopieren** (unabhängig; „Ausführen als“ bleibt je Schritt; Pakete mit eigenen Bedingungen nur verschachtelt). Nie über Mandanten hinweg – zentrale Pakete gehen mit jedem
+- **Geändert – Tool „gpupdate /force“:** jetzt das normale `gpupdate /force` (Computer- und Benutzerrichtlinien) statt nur `/target:computer`. Fragt gpupdate nach Abmelden oder Neustart, antwortet POCKET KNIFE „N“ – der Aufruf hängt nicht. Die Benutzerrichtlinien sind die des ausführenden Kontos (Dienstkonto), nicht die des angemeldeten Benutzers
+- **Selbsttest:** Zusammenfassen verschachtelt und als Kopie (Reihenfolge, Neustart, Bei Fehler, „Ausführen als“, Bedingungen, Mandanten), gpupdate
+
 ## pocketknife-2.31 (27.10.2026)
 - **Neu – Wake-on-LAN zuverlässiger:** jedes Magic Packet mehrfach (Standard 3×), auch an die MAC-Adresse kabelgebundener Karten ohne IP beim letzten Scan; danach prüft POCKET KNIFE, ob der Computer aufwacht („aufgewacht nach 70 s“ / „nicht aufgewacht“), und sendet nach der halben Wartezeit automatisch noch einmal – über andere Relays. Optional **feste Relays** (Einstellungen → Wake-on-LAN), dort auch Anzahl und Wartezeit
 - **Neu – Wake-on-LAN-Bereitschaft im Inventar:** je Netzwerkkarte Magic Packet erlaubt, darf den Computer wecken, WoL-Einstellungen des Treibers, kabelgebunden; dazu Windows-Schnellstart. Beim Computer, im Bericht „Wake-on-LAN-Bereitschaft“ und als Sammlungsfilter „Wake-on-LAN bereit“ (ab dem nächsten Scan)

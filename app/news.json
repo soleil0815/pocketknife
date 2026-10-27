@@ -2,6 +2,24 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.32",
+   "date": "2026-10-27",
+   "items": [
+    {
+     "kind": "new",
+     "audience": "admin",
+     "de": "Mehrere Pakete lassen sich zu einem neuen zusammenfassen – verschachtelt oder als Kopie der Schritte (Rechtsklick in der Paketliste).",
+     "en": "Several packages can be combined into a new one – nested or as a copy of the steps (right-click in the package list)."
+    },
+    {
+     "kind": "improved",
+     "audience": "admin",
+     "de": "Das Tool „gpupdate /force“ aktualisiert jetzt wie gewohnt Computer- und Benutzerrichtlinien.",
+     "en": "The \"gpupdate /force\" tool now refreshes computer and user policies as usual."
+    }
+   ]
+  },
+  {
    "version": "2.31",
    "date": "2026-10-27",
    "items": [
