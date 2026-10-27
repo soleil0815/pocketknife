@@ -247,6 +247,8 @@ DEFAULT_SETTINGS = {
     "ad_last_sync": "",
     "ad_last_status": "",
     "heartbeat_minutes": 5,
+    # 2.31: Wake-on-LAN – Pakete je Versuch, Wartezeit auf das Aufwachen (0 = nicht warten), feste Relays (Computernamen)
+    "wol_repeat": 3, "wol_wait_seconds": 240, "wol_relays": "",
     "scan_interval_hours": 12,
     "scan_concurrency": 6,
     "deploy_concurrency": 8,

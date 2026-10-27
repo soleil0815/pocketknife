@@ -1585,7 +1585,7 @@ def _():
     assert "GEHEIMGRUPPE" not in blob and "Team Nord" not in blob, "Kiosk-Gruppen anonymisiert"
     # winget: Archiv-Fehler als Lokales System einmal mit tar.exe wiederholen; nur bei Installation/Aktualisierung
     body = deploy._winget_body({"winget_action": "install", "winget_id": "TeamViewer.TeamViewer", "winget_scope": "machine"})
-    assert "-1978335140" in body and "archiveExtractionMethod" in body and ".IsSystem" in body
+    assert "-1978335140" in body and "archiveExtractionMethod" in body and "$pkSys" in body and ".IsSystem" not in body[len(deploy._winget_find()):], "CLM: ohne .NET-Methode"
     assert body.count("PK-Run $wg") == 3, "Aufruf, Wiederholung mit tar.exe, Wiederholung ohne --scope (2.30.1)"
     assert "\\WinGet\\Settings\\defaultState" in body, "Einstellungsdatei, die winget als Lokales System wirklich liest"
     assert "archiveExtractionMethod" not in deploy._winget_body({"winget_action": "uninstall", "winget_id": "X.Y"})
@@ -4985,7 +4985,7 @@ def _():
         shutil.rmtree(d, ignore_errors=True)
 
 
-@test("2.30.1 winget: „keine passende Aktualisierung“ mit --scope (Paket ohne Bereich im Katalog, z. B. MobaXterm) – einmal ohne --scope wiederholen, wie „winget upgrade“ von Hand; nie bei Deinstallation oder ohne Bereich")
+@test("2.30.1/2.31 winget: „keine passende Aktualisierung“/„kein installiertes Paket“ mit --scope – einmal ohne --scope wiederholen (MobaXterm, PowerShell 7); danach auch tar.exe ohne --scope; neuere, aber unpassende Version nicht als „aktuell“ werten")
 def _():
     from app import deploy
     find = deploy._winget_find()
@@ -4993,25 +4993,195 @@ def _():
         body = deploy._winget_body({"winget_action": "install", "winget_id": "Mobatek.MobaXterm", "winget_scope": scope,
                                     "extra_args": "--force"})
         rest = body[len(find):]
-        assert rest.count("PK-Run $wg") == 3 and "-1978335189" in rest
-        tail = [x for x in rest[rest.index("if ($global:PKExit -eq -1978335189)"):].splitlines() if "PK-Run" in x][0]
-        assert "--scope" not in tail and "--force" in tail and "Mobatek.MobaXterm" in tail, "ohne --scope, sonst gleich"
-    plain = deploy._winget_body({"winget_action": "install", "winget_id": "Mobatek.MobaXterm", "winget_scope": ""})
-    assert "-1978335189" not in plain[len(find):], "ohne festgelegten Bereich nichts zu wiederholen"
+        assert rest.count("PK-Run $wg $pkA") == 3 and "-1978335189 -or $global:PKExit -eq -1978335212" in rest
+        plain = [x for x in rest.splitlines() if x.strip().startswith("$pkA = ")][1]
+        assert "--scope" not in plain and "--force" in plain and "Mobatek.MobaXterm" in plain, "ohne --scope, sonst gleich"
+        assert rest.index("-1978335212") < rest.index("-1978335140"), "erst ohne --scope, dann tar.exe – mit den Argumenten ohne --scope"
+    nos = deploy._winget_body({"winget_action": "install", "winget_id": "Mobatek.MobaXterm", "winget_scope": ""})[len(find):]
+    assert "-1978335212" not in nos and nos.count("PK-Run $wg $pkA") == 2, "ohne festgelegten Bereich nichts ohne --scope zu wiederholen"
     assert "-1978335189" not in deploy._winget_body({"winget_action": "uninstall", "winget_id": "X.Y", "winget_scope": "machine"})
+    assert deploy.WINGET_MESSAGES[9011] and deploy.WINGET_MESSAGES[9012] and not deploy.evaluate({"type": "winget"}, 9011)[0]
+    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "remote.py"), encoding="utf-8").read()
+    assert "$global:PKOut += $pkL" in src, "PK-Run merkt sich die Ausgabe"
     pw = os.environ.get("PK_PWSH")
     if pw and os.path.exists(pw):
         import subprocess
-        rest = deploy._winget_body({"winget_action": "install", "winget_id": "Mobatek.MobaXterm", "winget_scope": "machine"})[len(find):]
-        for current, want_runs, want_exit in ((False, 2, "0"), (True, 2, "-1978335189")):
+        rest = deploy._winget_body({"winget_action": "upgrade", "winget_id": "X.Y", "winget_scope": "machine"})[len(find):]
+        rest = rest.replace("[IO.File]::WriteAllText", "$null = ")  # Datei schreiben wird hier nicht geprüft
+        NOT_APPLY = "A newer package version is available in a configured source, but it does not apply to your system or requirements."
+        TECH = "A newer version was found, but the install technology is different from the current version installed."
+        CUR = "No newer package versions are available from the configured sources."
+        cases = [  # (Antworten je Aufruf: (Exitcode, Text), erwartete Aufrufe, erwarteter Endcode)
+            ([(-1978335189, NOT_APPLY), (-1978335140, "Failed to extract the contents of the archive"), (0, "Successfully installed")], 3, "0"),
+            ([(-1978335212, "No installed package found matching input criteria."), (-1978335189, TECH)], 2, "9011"),
+            ([(-1978335189, NOT_APPLY), (-1978335189, NOT_APPLY)], 2, "9012"),
+            ([(-1978335189, CUR), (-1978335189, CUR)], 2, "-1978335189"),
+            ([(0, "Successfully installed")], 1, "0"),
+        ]
+        for answers, want_runs, want_exit in cases:
+            arr = ",".join(f"@({c}, '{t}')" for c, t in answers)
             stub = ("$ErrorActionPreference='Stop'; $wg = Join-Path ([IO.Path]::GetTempPath()) 'winget.exe'\n"
+                    "$env:COMPUTERNAME = 'PC1'; $env:USERNAME = 'PC1$'; $env:LOCALAPPDATA = [IO.Path]::GetTempPath()\n"
+                    f"$global:pkAns = @({arr}); $global:pkN = 0\n"
                     "function PK-Run([string]$File, [string]$Arguments) { Write-Output ('RUN ' + $Arguments); "
-                    f"if ($Arguments -match '--scope' -or ${str(current).lower()}) {{ $global:PKExit = -1978335189 }} else {{ $global:PKExit = 0 }} }}\n")
+                    "$a = $global:pkAns[$global:pkN]; $global:pkN++; $global:PKOut = @($a[1]); $global:PKExit = $a[0] }\n")
             out = subprocess.run([pw, "-NoProfile", "-NonInteractive", "-Command", stub + rest + "\nWrite-Output ('EXIT ' + $global:PKExit)"],
                                  capture_output=True, text=True, timeout=60)
             runs = [x for x in out.stdout.splitlines() if x.startswith("RUN ")]
-            assert len(runs) == want_runs and "--scope" in runs[0] and "--scope" not in runs[1], (out.stdout, out.stderr)
-            assert out.stdout.strip().endswith("EXIT " + want_exit), out.stdout
+            assert len(runs) == want_runs, (answers, out.stdout, out.stderr)
+            assert "--scope" in runs[0] and all("--scope" not in r for r in runs[1:]), runs
+            assert out.stdout.strip().endswith("EXIT " + want_exit), (answers, out.stdout[-400:], out.stderr[-400:])
+
+
+@test("2.31 Dienstkonto-Schutz: „Kennwort falsch“ von einem einzelnen Gerät (falscher DNS-Eintrag, kein Domänenmitglied) löst ihn nur aus, wenn das Konto per LDAP wirklich nicht geht")
+def _():
+    from app import guard
+    import app.remote as _r
+    orig = guard.verify_account
+    try:
+        guard.reset()
+        guard.verify_account = lambda: True
+        msg = "SMB-Anmeldung: STATUS_LOGON_FAILURE 0xc000006d"
+        t = guard.report_remote(msg, "SMB")
+        assert not guard.paused() and t.startswith(guard.HOST_REJECT), t
+        assert guard.report_remote("WinRM 401: Zugriff verweigert", "WinRM") is None, "kein Kontofehler – nichts zu tun"
+        assert not guard.paused()
+        guard.verify_account = lambda: False
+        guard.report_remote(msg, "SMB")
+        assert guard.paused(), "Konto geht wirklich nicht → Schutz"
+        guard.reset()
+        guard.verify_account = lambda: True
+        assert _r._winrm_error("the specified credentials were rejected by the server 0xc000006d").startswith(guard.HOST_REJECT)
+        assert not guard.paused()
+        src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "remote.py"), encoding="utf-8").read()
+        assert 'guard.report(' not in src, "WinRM/SMB zu Computern nur über report_remote"
+    finally:
+        guard.verify_account = orig
+        guard.reset()
+
+
+@test("2.31 Wake-on-LAN: mehrfach senden, feste Relays zuerst, MAC der Kabelkarte aus dem Inventar, Aufwachen abwarten mit zweitem Versuch, Bereitschaft im Inventar/Bericht; Zeitplan weckt nur auf Wunsch und nur bei echten Läufen")
+def _():
+    import time as _t
+    from app import inventory, presence, reports, schedules, tools
+    mk = lambda n, ip, mac: db.ex("INSERT INTO computers(name, dns_name, ip_addresses, mac_addresses, online, winrm, created_at) "  # noqa: E731
+                                 "VALUES(?,?,?,?,?,?,?)", (n, n.lower() + ".firma.local", ip, mac, 1 if n != "WL-ZIEL" else 0,
+                                                          1 if n != "WL-ZIEL" else 0, util.now()))
+    ziel, nachbar, server = mk("WL-ZIEL", "10.9.0.5", "00:11:22:33:44:55"), mk("WL-NACHBAR", "10.9.0.6", ""), mk("WL-SRV", "10.8.0.1", "")
+    db.ex("INSERT INTO inventory_data(computer_id, category, json, updated) VALUES(?, 'nics', ?, ?)", (ziel, json.dumps([
+        {"name": "Intel Ethernet", "mac": "00:11:22:33:44:66", "ip": "", "wired": True, "wol_magic": "an", "wake_armed": True},
+        {"name": "Intel Wi-Fi", "mac": "00:11:22:33:44:77", "ip": "", "wired": False, "wol_magic": "aus", "wake_armed": False}]), util.now()))
+    db.ex("UPDATE computers SET extra=? WHERE id=?", (json.dumps({"fast_startup": False}), ziel))
+    old = {k: db.setting(k) for k in ("wol_repeat", "wol_wait_seconds", "wol_relays")}
+    orig_ps, orig_probe, orig_wait = tools.remote.ps, presence.probe, tools.WAKE_POLL
+    sent = []
+    try:
+        c = db.q1("SELECT * FROM computers WHERE id=?", (ziel,))
+        macs = [m for m, _p in tools._packets(c)]
+        assert macs == ["00:11:22:33:44:55", "00:11:22:33:44:66"], ("Kabelkarte dazu, WLAN nicht", macs)
+        db.set_setting("wol_relays", "wl-srv")
+        rel = [(r["name"], same) for r, same in tools.wol_relays(c)]
+        assert rel[0][0] == "WL-SRV" and ("WL-NACHBAR", True) in rel, rel
+        assert not {r["name"] for r, _s in tools.wol_relays(c, exclude={"WL-NACHBAR", "WL-SRV"})} & {"WL-NACHBAR", "WL-SRV"}, "zweiter Versuch: andere Relays"
+        db.set_setting("wol_repeat", 3)
+        tools.remote.ps = lambda host, script, **kw: (sent.append((host, script)) or ("OK 10.9.0.255:9\n", "", 0))
+        res = tools.wake(c)
+        assert res["exit"] == 0 and "3×" in res["output"] and "Magic Packet an, darf wecken" in res["output"], res["output"]
+        assert all("-le 3" in sc for _h, sc in sent) and len(sent) == 2, "jedes Relay sendet 3×"
+        assert "(fest)" in res["output"]
+        # Aufwachen abwarten: beim zweiten Blick online
+        db.set_setting("wol_wait_seconds", 60)
+        tools.WAKE_POLL = 0.05
+        calls = {"n": 0}
+        def probe(row, now=None, force=False):
+            calls["n"] += 1
+            return (calls["n"] >= 2, calls["n"] >= 2)
+        presence.probe = probe
+        assert tools.watch_wake(c, res["relay"], "test") is True
+        for _i in range(100):
+            st = tools.wake_state(ziel)
+            if st and st["state"] != "waiting":
+                break
+            _t.sleep(0.05)
+        assert st["state"] == "awake" and db.val("SELECT online FROM computers WHERE id=?", (ziel,)) == 1, st
+        db.set_setting("wol_wait_seconds", 0)
+        assert tools.watch_wake(c, [], "test") is False, "0 = nicht warten"
+        # Bereitschaft: Spalte für Sammlungen und Bericht
+        w, p = collections_.build({"type": "group", "match": "all", "items": [
+            {"type": "cond", "table": "computer", "column": "wol_ready", "op": "is_true", "value": ""}]})
+        assert ziel in {r["id"] for r in db.q(f"SELECT c.id FROM computers c WHERE {w}", p)}, "Kabelkarte mit Magic Packet an → bereit"
+        rows = reports.run("wol", {})["rows"]
+        assert any(r["computer"] == "WL-ZIEL" and r["wol_magic"] == "an" and r["wake_armed"] == "ja" for r in rows), rows
+        script = inventory.build_script(["nics"])
+        assert "Get-NetAdapterPowerManagement" in script and "wake_armed" in script and "'fast_startup'" in script
+        assert "fast_startup" in inventory.MODULE_EXTRA["nics"]
+        pw = os.environ.get("PK_PWSH")
+        if pw and os.path.exists(pw):
+            import subprocess
+            chk = ("$e = $null; $null = [System.Management.Automation.Language.Parser]::ParseInput($env:PKS, [ref]$null, [ref]$e); "
+                   "if ($e) { $e | ForEach-Object { $_.Message } } else { 'PARSE-OK' }")
+            r = subprocess.run([pw, "-NoProfile", "-NonInteractive", "-Command", chk], capture_output=True, text=True, timeout=60,
+                               env={**os.environ, "PKS": script})
+            assert "PARSE-OK" in r.stdout, r.stdout + r.stderr
+        # Zeitplan: Standard aus; an → nur bei echten Läufen, nicht bei Heartbeat/Nachholen
+        assert schedules.DEFAULT_OPTIONS["wake_offline"] is False
+        woken = []
+        orig_wake = tools.wake
+        tools.wake = lambda cc, **kw: (woken.append(cc["id"]) or {"exit": 1})
+        try:
+            sc = {"id": 0, "name": "T"}
+            schedules._wake_offline(sc, {"wake_offline": True}, [ziel], "Heartbeat (erreichbar, noch nicht versorgt)")
+            schedules._wake_offline(sc, {"wake_offline": False}, [ziel], "täglich 07:00")
+            schedules._wake_offline(sc, {"wake_offline": True}, [ziel], "täglich 07:00")
+            for _i in range(50):
+                if woken:
+                    break
+                _t.sleep(0.05)
+            assert woken == [ziel], woken
+        finally:
+            tools.wake = orig_wake
+        cl = schedules.clean({"name": "x", "kind": "packages", "packages": [db.val("SELECT id FROM packages LIMIT 1")] if db.val("SELECT id FROM packages LIMIT 1") else [],
+                              "targets": {"computers": [ziel]}, "options": {"wake_offline": True, "offline": "skip"}}) \
+            if db.val("SELECT id FROM packages LIMIT 1") else None
+        if cl:
+            assert cl["options"]["offline"] == "wait", "geweckte Ziele werden vorgemerkt"
+        js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
+        assert "function wakeDialog(targets)" in js and "['wol', 'Wake-on-LAN', 'play', [wolCard], true]" in js and "o.wake_offline" in js
+    finally:
+        tools.remote.ps, presence.probe, tools.WAKE_POLL = orig_ps, orig_probe, orig_wait
+        for k, v in old.items():
+            db.set_setting(k, v)
+        for x in (ziel, nachbar, server):
+            db.ex("DELETE FROM inventory_data WHERE computer_id=?", (x,))
+            db.ex("DELETE FROM computers WHERE id=?", (x,))
+
+
+@test("2.31 Fehlersuche: Prozess „ohne Ergebnis beendet“ nennt den Grund (Fehlerausgabe von PowerShell, Sperre durch Defender-ASR/AppLocker, letzte Ausgabe); Rechenlast je Hintergrundaufgabe und Lastspitzen mit Kontext")
+def _():
+    from app import loadstats
+    import app.remote as _r
+    assert "2>\"' + (Join-Path $dir 'pk_err.txt')" in _r.START_DIRECT and "cmd.exe /d /c" in _r.START_DIRECT
+    assert "PK_BLOCK:" in _r.POLL and "Microsoft-Windows-Windows Defender/Operational" in _r.POLL and "8007" in _r.POLL
+    m = _r.gone_message("PK_PROC:gone\nPK_BLOCK:Microsoft Defender Exploit Guard hat einen Vorgang blockiert … WMI\nPK_LAST:OK gesetzt", True)
+    assert "ASR" in m and "Lokales System" in m and "Letzte Ausgabe: OK gesetzt" in m, m
+    m = _r.gone_message("PK_PROC:gone\nPK_ERR:Die Datei kann nicht geladen werden.", False)
+    assert "Fehlermeldung von PowerShell: Die Datei kann nicht geladen werden." in m and "WMI" not in m, m
+    assert "Lokales System" in _r.gone_message("PK_PROC:gone", True)
+    with loadstats.task("selbsttest"):
+        sum(i * i for i in range(200000))
+    loadstats._req.clear()
+    loadstats.request("/api/computers/17/inventory")
+    v = loadstats.view()
+    t = [x for x in v["tasks"] if x["key"] == "selbsttest"][0]
+    assert t["runs"] == 1 and t["cpu"] >= 0, t
+    assert loadstats._NUM.sub("/{id}", "/api/computers/17/inventory") == "/api/computers/{id}/inventory"
+    loadstats._last = (loadstats.time.time() - 10, loadstats.cpu() - 9)  # 90 % in 10 s
+    pct = loadstats.sample(["heartbeat"], scans=2, deployments=1)
+    assert pct >= 80 and v is not None
+    pk = loadstats.view()["peaks"][0]
+    assert pk["tasks"] == ["heartbeat"] and pk["scans"] == 2 and any("/api/computers/{id}/inventory" in x for x in pk["requests"]), pk
+    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "scheduler.py"), encoding="utf-8").read()
+    assert "loadstats.task(" in src and "loadstats.sample(" in src
 
 
 def main():

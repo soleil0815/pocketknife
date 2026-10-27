@@ -944,7 +944,7 @@ Select computers → **Tools ▾** or right-click → Tools.
 |---|---|
 | Ping & Ports | reachability and open ports |
 | Remote Desktop / VNC in browser | remote session in a separate tab |
-| Wake-on-LAN | via a reachable computer in the same subnet (relay) |
+| Wake-on-LAN | via a reachable computer in the same subnet (relay), several times, checking whether it wakes up – see below |
 | Restart / Shut down / Cancel | with a 60-second warning |
 | gpupdate /force | refresh group policies |
 | Check / install winget | provides winget where it is missing |
@@ -952,6 +952,15 @@ Select computers → **Tools ▾** or right-click → Tools.
 | Analyse disk space | folder sizes as a ring chart – see below |
 | Files (Explorer) | manage the client's files in the browser – see below |
 | Event log | Windows event logs in the browser – see below |
+
+
+**Wake-on-LAN:** broadcasts do not leave their subnet. The magic packet is therefore sent by a computer that is running and in the same subnet as the target (up to 3 "relays", determined from IP and subnet mask of the last scan), plus the container. From 2.31:
+
+- **Sent several times:** every packet 3× about a second apart (UDP can get lost), to all known MAC addresses – including wired adapters that had no IP at the last scan (e.g. docking station).
+- **Waits for the result:** POCKET KNIFE then checks the computer every 10 seconds. The window shows "waiting … 45 s", then "awake after 70 s" or "did not wake up"; after half the waiting time it sends once more – via other computers if there are any. The result is also logged; a computer that woke up triggers the heartbeat triggers at once (scans, schedules).
+- **Fixed relays (optional):** under **Settings → Wake-on-LAN** enter computers that always run (e.g. servers). They send first – so it also works when nobody else in the subnet is online. The number of packets and the waiting time can be set there too.
+- **Readiness in the inventory:** the "Network adapters" scanner reads per adapter whether the magic packet is allowed, whether it may wake the computer and the WoL settings of the driver, plus Windows Fast Startup (many adapters do not wake from "shut down" with it). Shown with the computer under **Network adapters**, in the report **Wake-on-LAN readiness** and as the filter "Wake-on-LAN ready" for collections. Windows cannot read the BIOS/UEFI setting.
+- **Wake before schedules (optional, off by default):** in the schedule under Options → "wake switched-off targets when running". Applies at a scheduled time, in the time window and with "Run now", not with every heartbeat; woken computers are served as soon as they have started. They are not shut down afterwards.
 
 **Analyse disk space** (Tools ▾ → *Analyse disk space …* or on the computer under **Disks**): shows where the space on a drive or in a folder goes – like TreeSize or WinDirStat, but without installing anything on the client.
 
@@ -1399,7 +1408,12 @@ The mapping stays **only in your database**. If someone gives you a placeholder 
 | WinRM port not reachable | WinRM GPO, firewall, is the computer turned on? |
 | Access denied | The service account is not a local administrator |
 | Copy fails | Port 445 / ADMIN$ on the client, read access to the repository share |
-| winget: "No applicable update" (`-1978335189`) although a newer version can be installed ("A newer package version is available … but it does not apply") | The package does not state an installation scope in the winget catalogue (e.g. MobaXterm); with a fixed scope winget rejects the update. From 2.30.1 POCKET KNIFE then repeats the step once without `--scope`. Permanently: set the installation scope of the package to "Package default" |
+| winget: "No applicable update" (`-1978335189`) although a newer version can be installed ("A newer package version is available … but it does not apply") | The package does not state an installation scope in the winget catalogue (e.g. MobaXterm); with a fixed scope winget rejects the update. From 2.30.1 POCKET KNIFE then repeats the step once without `--scope` (from 2.31 also for "No installed package found", `-1978335212`, and the extraction with tar.exe afterwards also without). Permanently: set the installation scope of the package to "Package default" |
+| winget: "Newer version available, but with a different install technology" (POCKET KNIFE code 9011) | Installed is e.g. the MSI version, the catalogue only has another installer type (e.g. PowerShell 7) – winget does not upgrade that ("install technology is different"). In the package first add an **Uninstall** step, then **Install**; or `--force` under "Additional arguments" (installs the new version alongside, the old one stays and must be removed afterwards) |
+| winget: "Newer version available, but it does not fit this system" (9012) | According to the winget catalogue the new version needs a different architecture, Windows version or other requirements. Previously POCKET KNIFE reported this as "already up to date" |
+| "The process ended without a result" | From 2.31 the reason is shown: error output of PowerShell, block by Defender (ASR rule "Block process creations originating from PSExec and WMI commands") or AppLocker, last output. Steps **as service account** run as a process of their own started via WMI – if security software blocks that, set the step to "Local System" (suitable for HKLM registry values anyway) |
+| Service account protection because of a single computer | From 2.31, on "wrong password" from one computer POCKET KNIFE first checks via LDAP whether the account really fails. If it is fine, the error only concerns this computer (usually a wrong DNS entry: another device answers at the address) – the protection stays off |
+| High CPU load | **Settings → Maintenance → CPU load** shows the average, the background tasks with the most CPU time and the latest peaks with what was running (tasks, scans, deployments, requests of the interface) |
 | winget not found | Enable automatic installation or use the "Check / install winget" tool |
 | Step as service account does not start ("Prozess als Dienstkonto konnte nicht gestartet werden") | check the WMI service (Winmgmt) on the client, the service account must be a local administrator – or set the step to "Local System" |
 | Custom command as service account cannot reach a share | No password is stored on the client (from 2.14). Have the file copied with "File from the repository" or run as "Local System" |

@@ -944,7 +944,7 @@ Computer auswählen → **Tools ▾** oder Rechtsklick → Tools.
 |---|---|
 | Ping & Ports | Erreichbarkeit und offene Ports |
 | Remotedesktop / VNC im Browser | Fernsitzung in einem eigenen Tab |
-| Wake-on-LAN | über einen erreichbaren Computer im selben Subnetz (Relay) |
+| Wake-on-LAN | über einen erreichbaren Computer im selben Subnetz (Relay), mehrfach, mit Prüfung, ob er aufwacht – siehe unten |
 | Neustart / Herunterfahren / Abbrechen | mit 60 Sekunden Vorwarnung |
 | gpupdate /force | Gruppenrichtlinien aktualisieren |
 | winget prüfen / nachinstallieren | stellt winget bereit, wo es fehlt |
@@ -952,6 +952,15 @@ Computer auswählen → **Tools ▾** oder Rechtsklick → Tools.
 | Speicherplatz analysieren | Ordnergrößen als Ringdiagramm – siehe unten |
 | Dateien (Explorer) | Dateien des Clients im Browser verwalten – siehe unten |
 | Ereignisanzeige | Windows-Ereignisprotokolle im Browser – siehe unten |
+
+
+**Wake-on-LAN:** Broadcasts verlassen ihr Subnetz nicht. Das Magic Packet sendet deshalb ein Computer, der gerade läuft und im selben Subnetz wie das Ziel liegt (bis zu 3 „Relays“, ermittelt aus IP und Subnetzmaske des letzten Scans), zusätzlich der Container. Ab 2.31:
+
+- **Mehrfach senden:** jedes Paket 3× im Abstand von knapp einer Sekunde (UDP kann verloren gehen), an alle bekannten MAC-Adressen – auch an die kabelgebundener Karten, die beim letzten Scan keine IP hatten (z. B. Dockingstation).
+- **Aufwachen abwarten:** Danach prüft POCKET KNIFE den Computer alle 10 Sekunden. Das Fenster zeigt „wartet … 45 s“, dann „aufgewacht nach 70 s“ oder „nicht aufgewacht“; nach der halben Wartezeit wird automatisch noch einmal gesendet – über andere Computer, wenn es welche gibt. Das Ergebnis steht auch im Protokoll; ein aufgewachter Computer löst sofort die Heartbeat-Auslöser aus (Scans, Zeitpläne).
+- **Feste Relays (optional):** unter **Einstellungen → Wake-on-LAN** Computer eintragen, die immer laufen (z. B. Server). Sie senden zuerst – so klappt es auch, wenn im Subnetz sonst niemand online ist. Dort lassen sich auch Anzahl der Pakete und Wartezeit einstellen.
+- **Bereitschaft im Inventar:** Der Scanner „Netzwerkkarten“ liest je Karte, ob das Magic Packet erlaubt ist, ob sie den Computer wecken darf und die WoL-Einstellungen des Treibers, dazu den Windows-Schnellstart (weckt aus „Herunterfahren“ bei vielen Karten nicht). Zu sehen beim Computer unter **Netzwerkkarten**, im Bericht **Wake-on-LAN-Bereitschaft** und als Filter „Wake-on-LAN bereit“ für Sammlungen. Die Einstellung im BIOS/UEFI kann Windows nicht auslesen.
+- **Vor Zeitplänen wecken (optional, Standard aus):** im Zeitplan unter Optionen → „ausgeschaltete Ziele beim Lauf wecken“. Gilt bei einem Termin, im Zeitfenster und bei „Jetzt ausführen“, nicht bei jedem Heartbeat; geweckte Computer werden versorgt, sobald sie hochgefahren sind. Heruntergefahren werden sie danach nicht.
 
 **Speicherplatz analysieren** (Tools ▾ → *Speicherplatz analysieren …* oder beim Computer unter **Laufwerke**): zeigt, wo auf einem Laufwerk oder in einem Ordner der Platz bleibt – wie TreeSize oder WinDirStat, aber ohne Installation auf dem Client.
 
@@ -1400,7 +1409,12 @@ Die Zuordnung bleibt **nur in Ihrer Datenbank**. Nennt Ihnen jemand einen Platzh
 | Zugriff verweigert | Dienstkonto ist nicht lokaler Administrator |
 | Kopieren schlägt fehl | Port 445 / ADMIN$ auf dem Client, Leserecht auf der Repository-Freigabe |
 | winget nicht gefunden | Automatische Nachinstallation einschalten oder Tool „winget prüfen / nachinstallieren“ |
-| winget: „Keine passende Aktualisierung“ (`-1978335189`), obwohl eine neuere Version installierbar ist („A newer package version is available … but it does not apply“) | Das Paket gibt im winget-Katalog keinen Installationsbereich an (z. B. MobaXterm); mit festgelegtem Bereich lehnt winget die Aktualisierung ab. Ab 2.30.1 wiederholt POCKET KNIFE den Schritt dann einmal ohne `--scope`. Dauerhaft: im Paket den Installationsbereich auf „Standard des Pakets“ stellen |
+| winget: „Keine passende Aktualisierung“ (`-1978335189`), obwohl eine neuere Version installierbar ist („A newer package version is available … but it does not apply“) | Das Paket gibt im winget-Katalog keinen Installationsbereich an (z. B. MobaXterm); mit festgelegtem Bereich lehnt winget die Aktualisierung ab. Ab 2.30.1 wiederholt POCKET KNIFE den Schritt dann einmal ohne `--scope` (ab 2.31 auch bei „No installed package found“, `-1978335212`, und das Entpacken mit tar.exe danach ebenfalls ohne). Dauerhaft: im Paket den Installationsbereich auf „Standard des Pakets“ stellen |
+| winget: „Neuere Version vorhanden, aber mit anderer Installationstechnik“ (POCKET KNIFE-Code 9011) | Installiert ist z. B. die MSI-Version, im Katalog gibt es nur noch eine andere Installationsart (z. B. PowerShell 7) – winget aktualisiert das nicht („install technology is different“). Im Paket erst einen Schritt **Deinstallieren**, dann **Installieren**; oder bei „Zusätzliche Argumente“ `--force` (installiert die neue Version daneben, die alte bleibt und muss danach entfernt werden) |
+| winget: „Neuere Version vorhanden, passt aber nicht zu diesem System“ (9012) | Die neue Version setzt laut winget-Katalog eine andere Architektur, Windows-Version oder andere Voraussetzungen voraus. Bisher meldete POCKET KNIFE das als „bereits aktuell“ |
+| „Der Prozess wurde ohne Ergebnis beendet“ | Ab 2.31 steht der Grund dabei: Fehlermeldung von PowerShell, Sperre durch Defender (ASR-Regel „Prozesserstellungen durch PSExec- und WMI-Befehle blockieren“) oder AppLocker, letzte Ausgabe. Schritte **als Dienstkonto** startet POCKET KNIFE als eigenen Prozess über WMI – blockiert eine Schutzsoftware das, den Schritt auf „Lokales System“ stellen (für HKLM-Registry-Werte ohnehin passend) |
+| Dienstkonto-Schutz wegen eines einzelnen Computers | Ab 2.31 prüft POCKET KNIFE bei „Kennwort falsch“ von einem Computer erst per LDAP, ob das Konto wirklich nicht geht. Ist es in Ordnung, betrifft der Fehler nur diesen Computer (meist ein falscher DNS-Eintrag: unter der Adresse antwortet ein anderes Gerät) – der Schutz bleibt aus |
+| Hohe Rechenlast | **Einstellungen → Wartung → Rechenlast** zeigt den Durchschnitt, die Hintergrundaufgaben mit der meisten Rechenzeit und die letzten Spitzen mit dem, was gerade lief (Aufgaben, Scans, Bereitstellungen, Anfragen der Oberfläche) |
 | Schritt als Dienstkonto startet nicht („Prozess als Dienstkonto konnte nicht gestartet werden“) | WMI-Dienst (Winmgmt) auf dem Client prüfen, Dienstkonto muss lokaler Administrator sein – oder Schritt auf „Lokales System“ stellen |
 | Eigener Befehl als Dienstkonto erreicht keine Freigabe | Auf dem Client liegt kein Kennwort (ab 2.14). Datei per „Datei aus dem Repository“ kopieren lassen oder als „Lokales System“ ausführen |
 | Warnung „/repo ist nicht lesbar“ | Der Dienst läuft als UID 10001: auf dem Docker-Host `chmod -R o+rX` oder `chown -R 10001` auf den Repository-Ordner |

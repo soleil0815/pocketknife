@@ -179,6 +179,22 @@ def _system_props(p):
              ("smb1_client", "SMBv1-Client"), ("dotnet", ".NET"), ("location", "Standort")])
 
 
+def _wol(p):
+    """2.31: Wake-on-LAN-Bereitschaft je Netzwerkkarte – warum ein Computer nicht aufwacht, steht oft hier."""
+    w, a = _cw(p)
+    x = lambda k: f"json_extract(j.value, '$.{k}')"  # noqa: E731
+    return (f"""SELECT c.name computer, {x('name')} adapter, {x('status')} status,
+               CASE {x('wired')} WHEN 1 THEN 'ja' WHEN 0 THEN 'nein' ELSE '' END wired,
+               {x('wol_magic')} wol_magic, CASE {x('wake_armed')} WHEN 1 THEN 'ja' WHEN 0 THEN 'NEIN' ELSE '' END wake_armed,
+               CASE json_extract(c.extra, '$.fast_startup') WHEN 1 THEN 'AN' WHEN 0 THEN 'aus' ELSE '' END fast_startup,
+               {x('wol_driver')} wol_driver, {x('mac')} mac
+               FROM inventory_data d JOIN computers c ON c.id = d.computer_id, json_each(d.json) j
+               WHERE d.category = 'nics' AND {w} ORDER BY c.name, {x('name')}""", a,
+            [("computer", "Computer"), ("adapter", "Netzwerkkarte"), ("status", "Status"), ("wired", "Kabel"),
+             ("wol_magic", "Magic Packet"), ("wake_armed", "Darf wecken"), ("fast_startup", "Schnellstart"),
+             ("wol_driver", "Einstellungen des Treibers"), ("mac", "MAC")])
+
+
 REPORTS = [
     {"key": "computers", "title": "Computerübersicht", "desc": "Hardware, Betriebssystem und Status aller Computer.",
      "params": [COLL], "fn": _computers},
@@ -225,6 +241,9 @@ REPORTS = [
      "params": [COLL], "fn": _json_report("devices", [("name", "Gerät"), ("class", "Klasse"), ("problem", "Fehlercode"),
                                                        ("status", "Status")],
                                           "AND CAST(json_extract(j.value, '$.problem') AS INTEGER) > 0")},
+    {"key": "wol", "title": "Wake-on-LAN-Bereitschaft", "desc": "Je Netzwerkkarte: Magic Packet erlaubt, darf den Computer "
+     "wecken, Einstellungen des Treibers, Windows-Schnellstart (ab Scan mit 2.31). Die Einstellung im BIOS/UEFI kann "
+     "Windows nicht auslesen.", "params": [COLL], "fn": _wol},
     {"key": "deployments", "title": "Bereitstellungsverlauf", "desc": "Ergebnisse aller Bereitstellungen.",
      "params": [{"name": "days", "label": "Zeitraum (Tage)", "type": "number", "default": "30"}], "fn": _deployments},
 ]

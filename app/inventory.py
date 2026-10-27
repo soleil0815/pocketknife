@@ -71,6 +71,7 @@ MODULE_EXTRA = {
                  "domain_controller", "dotnet", "last_wu_install"],
     "security": ["defender", "bitlocker", "tpm", "firewall", "antivirus"],
     "memory": ["memory_slots", "memory_max"],
+    "nics": ["fast_startup"],  # 2.31: Wake-on-LAN-Bereitschaft
 }
 
 CHASSIS = {1: "Sonstiges", 2: "Unbekannt", 3: "Desktop", 4: "Low-Profile-Desktop", 5: "Pizza-Box", 6: "Mini-Tower",

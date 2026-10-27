@@ -1,5 +1,16 @@
 # Änderungen
 
+## pocketknife-2.31 (27.10.2026)
+- **Neu – Wake-on-LAN zuverlässiger:** jedes Magic Packet mehrfach (Standard 3×), auch an die MAC-Adresse kabelgebundener Karten ohne IP beim letzten Scan; danach prüft POCKET KNIFE, ob der Computer aufwacht („aufgewacht nach 70 s“ / „nicht aufgewacht“), und sendet nach der halben Wartezeit automatisch noch einmal – über andere Relays. Optional **feste Relays** (Einstellungen → Wake-on-LAN), dort auch Anzahl und Wartezeit
+- **Neu – Wake-on-LAN-Bereitschaft im Inventar:** je Netzwerkkarte Magic Packet erlaubt, darf den Computer wecken, WoL-Einstellungen des Treibers, kabelgebunden; dazu Windows-Schnellstart. Beim Computer, im Bericht „Wake-on-LAN-Bereitschaft“ und als Sammlungsfilter „Wake-on-LAN bereit“ (ab dem nächsten Scan)
+- **Neu – Zeitplan: ausgeschaltete Ziele wecken (optional, Standard aus):** bei einem Termin, im Zeitfenster und bei „Jetzt ausführen“ – nicht bei jedem Heartbeat; geweckte Computer werden versorgt, sobald sie hochgefahren sind
+- **Behoben – winget (MobaXterm):** nach der Wiederholung ohne `--scope` scheiterte das Entpacken des ZIP-Archivs, die Wiederholung mit tar.exe lief aber nur vorher. Jetzt der Reihe nach: erst ohne `--scope`, dann – falls nötig – mit tar.exe, ebenfalls ohne `--scope`. Lokales System wird ohne .NET-Methode erkannt (Constrained Language Mode)
+- **Behoben – winget (PowerShell 7):** „No installed package found“ (`-1978335212`) mit `--scope machine` wird ebenfalls ohne `--scope` wiederholt. „Keine passende Aktualisierung“ heißt nicht mehr automatisch „bereits aktuell“: gibt es eine neuere Version mit anderer Installationstechnik (9011) oder eine, die nicht zum System passt (9012), schlägt der Schritt mit Klartext und Abhilfe fehl
+- **Behoben – Dienstkonto-Schutz durch einen einzelnen Computer:** Lehnte ein Gerät die Anmeldung mit „Kennwort falsch“ ab (z. B. falscher DNS-Eintrag – unter der Adresse antwortet ein anderes Gerät), pausierte POCKET KNIFE alle Zugriffe. Jetzt wird erst per LDAP geprüft, ob das Konto wirklich nicht geht; sonst betrifft der Fehler nur diesen Computer
+- **Verbessert – „Prozess ohne Ergebnis beendet“:** Schritte als Dienstkonto schreiben die Fehlerausgabe von PowerShell jetzt mit; die Meldung nennt den Grund (PowerShell-Fehler, Sperre durch Defender-ASR oder AppLocker, letzte Ausgabe) und die Abhilfe („Lokales System“)
+- **Neu – Rechenlast in Einstellungen → Wartung:** Durchschnitt, Hintergrundaufgaben mit der meisten Rechenzeit und die letzten Lastspitzen mit dem, was gerade lief (Aufgaben, Scans, Bereitstellungen, Anfragen der Oberfläche)
+- **Selbsttest:** Wake-on-LAN (mehrfach, feste Relays, Kabelkarte, Abwarten, Bereitschaft, Bericht, Scanner in PowerShell geparst, Zeitplan nur auf Wunsch), winget-Reihenfolge und Auswertung in echter PowerShell nachgespielt, Dienstkonto-Schutz, Fehlergrund bei „ohne Ergebnis“, Rechenlast
+
 ## pocketknife-2.30.1-s1 (26.10.2026)
 - **Wöchentliches Sicherheitsupdate** (automatisch gebaut): Basis-Image, Debian- und Python-Pakete auf den neuesten Stand gebracht, ohne Cache neu gebaut, Selbsttest und Schwachstellen-Prüfung (Trivy) bestanden. Am Programm selbst hat sich nichts geändert (Programmstand 2.30.1)
 

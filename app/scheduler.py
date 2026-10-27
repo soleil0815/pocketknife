@@ -25,8 +25,10 @@ def _bg(key, fn):
         _running.add(key)
 
     def run():
+        from . import loadstats
         try:
-            fn()
+            with loadstats.task(key.split("-")[0]):  # „start-17“ → „start“: Bereitstellungsstarts zusammen
+                fn()
         except Exception as e:
             pklog.error("system", f"Hintergrundaufgabe '{key}' fehlgeschlagen: {e}")
         finally:
@@ -181,6 +183,12 @@ def _mail():
 
 def tick():
     state["last_tick"] = util.now()
+    try:  # 2.31: Lastspitzen mit dem, was gerade lief (Einstellungen → Wartung)
+        from . import inventory, loadstats
+        loadstats.sample(running(), len(inventory.scanning_ids()),
+                         db.val("SELECT COUNT(*) FROM deployments WHERE status='running'", (), 0))
+    except Exception:
+        pass
     if _due("idle", 1):
         _last["idle"] = time.time()
         try:

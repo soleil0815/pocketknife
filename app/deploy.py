@@ -211,48 +211,58 @@ def _winget_body(p):
     extra = (p.get("extra_args") or "").strip()
     if extra:
         argline += " " + extra
-    retry = ""
-    noscope = ""
-    if p["winget_action"] in ("install", "upgrade") and "--scope" in args:
-        # 2.30.1: Pakete ohne angegebenen Bereich im winget-Manifest (z. B. MobaXterm, als ZIP mit MSI): ist schon eine
-        # ältere Version installiert, lehnt winget die Aktualisierung mit --scope machine ab („A newer package version is
-        # available … but it does not apply“, Code -1978335189) – „winget upgrade“ von Hand ohne --scope klappt. Dann
-        # einmal ohne --scope wiederholen; ist das Paket wirklich aktuell, kommt derselbe Code zurück.
+    act = p["winget_action"] in ("install", "upgrade")
+    body = f"""
+Set-Location (Split-Path $wg)
+$pkA = {util.psq(argline)}
+PK-Run $wg $pkA
+"""
+    if act and "--scope" in args:
+        # 2.30.1/2.31: Pakete ohne angegebenen Bereich im winget-Katalog (z. B. MobaXterm) bzw. Installationen, deren
+        # Bereich winget nicht kennt (z. B. PowerShell 7 per MSI): mit --scope lehnt winget die Aktualisierung ab
+        # („does not apply“ -1978335189 bzw. „No installed package found“ -1978335212) – von Hand ohne --scope klappt es.
+        # Dann einmal ohne --scope wiederholen; alle weiteren Versuche (tar.exe) laufen ebenfalls ohne.
         i = args.index("--scope")
         plain = args[:i] + args[i + 2:]
         pline = " ".join(a if " " not in a else f'"{a}"' for a in plain) + (" " + extra if extra else "")
-        noscope = f"""
-if ($global:PKExit -eq -1978335189) {{
+        body += f"""
+if ($global:PKExit -eq -1978335189 -or $global:PKExit -eq -1978335212) {{
   Write-Output 'Hinweis: keine passende Aktualisierung mit festgelegtem Bereich (--scope) – neuer Versuch ohne, so wie „winget upgrade“ von Hand (das Paket gibt im winget-Katalog keinen Bereich an).'
-  PK-Run $wg {util.psq(pline)}
+  $pkA = {util.psq(pline)}
+  PK-Run $wg $pkA
 }}
 """
-    if p["winget_action"] in ("install", "upgrade"):
-        retry = f"""
-if ($global:PKExit -eq -1978335140 -and [Security.Principal.WindowsIdentity]::GetCurrent().IsSystem) {{
+    if act:
+        body += """
+# Lokales System erkennen, ohne .NET-Methoden (Constrained Language Mode): Benutzername ist dann <Computer>$
+$pkSys = ($env:USERNAME -eq ($env:COMPUTERNAME + '$')) -or ($env:USERPROFILE -like '*\\systemprofile')
+if ($global:PKExit -eq -1978335140 -and $pkSys) {
   # Als Lokales System scheitert das Entpacken über die Windows-Shell oft – einmal mit tar.exe wiederholen
   # winget liest als Lokales System ...\\WinGet\\Settings\\defaultState\\settings.json (laut „winget settings export“ auf einem Client)
   Write-Output 'Hinweis: Archiv konnte nicht entpackt werden – neuer Versuch mit tar.exe (winget-Einstellung archiveExtractionMethod für Lokales System).'
-  foreach ($d in @("$env:LOCALAPPDATA\\Packages\\Microsoft.DesktopAppInstaller_8wekyb3d8bbwe\\LocalState", "$env:LOCALAPPDATA\\Microsoft\\WinGet\\Settings\\defaultState")) {{
-    try {{
+  foreach ($d in @("$env:LOCALAPPDATA\\Packages\\Microsoft.DesktopAppInstaller_8wekyb3d8bbwe\\LocalState", "$env:LOCALAPPDATA\\Microsoft\\WinGet\\Settings\\defaultState")) {
+    try {
       $f = Join-Path $d 'settings.json'
       $j = $null
       # Kommentarzeilen (// …, wie in der Vorlage von winget) entfernen – Windows PowerShell 5.1 kann sie nicht lesen
-      if (Test-Path $f) {{ try {{ $j = ((Get-Content $f -Raw -ErrorAction Stop) -replace '(?m)^\\s*//.*$', '') | ConvertFrom-Json -ErrorAction Stop }} catch {{ Write-Output ('Eigene winget-Einstellungen unverändert: ' + $f); continue }} }}
-      if ($null -eq $j) {{ $j = [pscustomobject]@{{}} }}
-      if (-not $j.installBehavior) {{ $j | Add-Member -NotePropertyName installBehavior -NotePropertyValue ([pscustomobject]@{{}}) -Force }}
+      if (Test-Path $f) { try { $j = ((Get-Content $f -Raw -ErrorAction Stop) -replace '(?m)^\\s*//.*$', '') | ConvertFrom-Json -ErrorAction Stop } catch { Write-Output ('Eigene winget-Einstellungen unverändert: ' + $f); continue } }
+      if ($null -eq $j) { $j = [pscustomobject]@{} }
+      if (-not $j.installBehavior) { $j | Add-Member -NotePropertyName installBehavior -NotePropertyValue ([pscustomobject]@{}) -Force }
       $j.installBehavior | Add-Member -NotePropertyName archiveExtractionMethod -NotePropertyValue 'tar' -Force
       New-Item -ItemType Directory -Force -Path $d | Out-Null
       [IO.File]::WriteAllText($f, ($j | ConvertTo-Json -Depth 10), (New-Object Text.UTF8Encoding $false))
-    }} catch {{ Write-Output ('winget-Einstellung nicht geschrieben: ' + $_.Exception.Message) }}
-  }}
-  PK-Run $wg {util.psq(argline)}
-}}
+    } catch { Write-Output ('winget-Einstellung nicht geschrieben: ' + $_.Exception.Message) }
+  }
+  PK-Run $wg $pkA
+}
+if ($global:PKExit -eq -1978335189) {
+  # „Keine passende Aktualisierung“ heißt nicht immer „aktuell“: eine neuere Version kann es geben, sie passt nur nicht
+  $pkT = ($global:PKOut | Out-String)
+  if ($pkT -match 'install technology is different|Installationstechnologie unterscheidet sich') { $global:PKExit = 9011 }
+  elseif ($pkT -match 'does not apply to your system|nicht f\\S{1,2}r Ihr System') { $global:PKExit = 9012 }
+}
 """
-    return _winget_find() + f"""
-Set-Location (Split-Path $wg)
-PK-Run $wg {util.psq(argline)}
-""" + retry + noscope
+    return _winget_find() + body
 
 
 def _detect(p):
@@ -407,6 +417,12 @@ WINGET_MESSAGES = {
     -1978334974: "Eine andere Installation läuft gerade (Windows Installer belegt, 1618) – später erneut versuchen",
     9009: "winget nicht gefunden (App-Installer fehlt, Nachinstallation nicht möglich)",
     9010: "Übersprungen – winget wird auf diesem Betriebssystem nicht unterstützt",
+    # 2.31: von POCKET KNIFE vergeben, wenn winget „keine passende Aktualisierung“ meldet, obwohl es eine neuere gibt
+    9011: "Neuere Version vorhanden, aber mit anderer Installationstechnik (z. B. MSI ↔ EXE/MSIX) – winget aktualisiert "
+          "das nicht. Abhilfe: im Paket erst einen Schritt „Deinstallieren“, dann „Installieren“ – oder bei „Zusätzliche "
+          "Argumente“ --force (installiert die neue Version daneben, die alte bleibt)",
+    9012: "Neuere Version vorhanden, passt aber nicht zu diesem System (Architektur, Windows-Version oder andere "
+          "Voraussetzungen im winget-Katalog)",
 }
 
 

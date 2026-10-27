@@ -17,7 +17,8 @@ from . import db, pklog, profiles, util
 TRIGGER_TYPES = {k: v for k, v in profiles.TRIGGER_TYPES.items() if k != "scan_age"}
 KINDS = {"packages": "Pakete verteilen", "winget": "winget-Updates"}
 DEFAULT_OPTIONS = {"stop_on_fail": True, "offline": "wait", "skip_successful": True, "max_attempts": 0,
-                   "only_online": True, "retry_wait_hours": 0, "renew_after_hours": 0, "retry_failed": True}
+                   "only_online": True, "retry_wait_hours": 0, "renew_after_hours": 0, "retry_failed": True,
+                   "wake_offline": False}  # 2.31: ausgeschaltete Ziele vorher per Wake-on-LAN wecken (Standard: nein)
 DEFAULT_WINGET = {"mode": "all", "ids": "", "exclude": "", "scope": ""}
 DEFAULT_WINDOW = {"enabled": False, "days": [1, 2, 3, 4, 5, 6, 7], "start": "00:00", "end": "23:59"}
 DEFERRED = "__window"  # Merker in schedule_trigger_state: Lauf fällig, wartet auf das Zeitfenster
@@ -134,7 +135,9 @@ def clean(data):
             "skip_successful": bool(o.get("skip_successful")), "max_attempts": maxa, "only_online": True,
             "retry_wait_hours": _hours(o.get("retry_wait_hours"), "Wartezeit nach Fehlschlag"),
             "renew_after_hours": _hours(o.get("renew_after_hours"), "Erneut versorgen nach"),
-            "retry_failed": bool(o.get("retry_failed", True))}
+            "retry_failed": bool(o.get("retry_failed", True)), "wake_offline": bool(o.get("wake_offline"))}
+    if opts["wake_offline"]:
+        opts["offline"] = "wait"  # geweckte Computer werden versorgt, sobald sie hochgefahren sind
     tenant = data.get("tenant_id")
     tenant = int(tenant) if tenant not in (None, "", 0, "0") else None
     return {"name": name[:200], "description": (data.get("description") or "").strip()[:2000], "kind": kind,
@@ -398,9 +401,10 @@ def _fire_winget(s, cids, reason, user):
     targets = members(s) if cids is None else (set(cids) & members(s))
     online = {r["id"] for r in db.q("SELECT id FROM computers WHERE online=1 AND winrm=1")}
     now = util.now()
-    if o["offline"] == "wait":
+    if o["offline"] == "wait" or o.get("wake_offline"):
         # Offline Ziele mit veralteter Software vormerken – sie werden beim Heartbeat versorgt
         offline_cand = winget_candidates(s, [c for c in targets if c not in online], online_only=False)
+        _wake_offline(s, o, sorted({c for ids in offline_cand.values() for c in ids}), reason)
         for cid in {c for ids in offline_cand.values() for c in ids}:
             db.ex("""INSERT INTO schedule_targets(schedule_id, computer_id, pending, pending_since, message) VALUES(?,?,1,?,?)
                      ON CONFLICT(schedule_id, computer_id) DO UPDATE SET pending=1,
@@ -432,6 +436,35 @@ def _fire_winget(s, cids, reason, user):
     if n:
         pklog.info("deploy", f"Zeitplan „{s['name']}“ ({reason}): {n} winget-Update(s) gestartet.", user=user)
     return {"deployment_id": first, "count": n}
+
+
+# 2.31: nur bei einem echten Lauf (Termin, Zeitfenster, manuell) wecken – nicht bei jedem Heartbeat oder Nachholen
+_NO_WAKE = ("Heartbeat", "Computer wieder online", "vorgemerkte Ziele", "fehlgeschlagene Ziele", "Wiederholung")
+WAKE_MAX = 200  # höchstens so viele Computer je Lauf wecken
+
+
+def _wake_offline(s, o, ids, reason):
+    if not o.get("wake_offline") or not ids or any(str(reason or "").startswith(x) for x in _NO_WAKE):
+        return
+
+    def run():
+        from . import tools
+        n = 0
+        for cid in list(ids)[:WAKE_MAX]:
+            c = db.q1("SELECT * FROM computers WHERE id=?", (cid,))
+            if not c:
+                continue
+            try:
+                res = tools.wake(c)
+                if res.get("exit") == 0:
+                    tools.watch_wake(c, res.get("relay") or [], "Zeitplan")
+                    n += 1
+            except Exception as e:  # noqa: BLE001
+                pklog.warn("deploy", f"Zeitplan „{s['name']}“: Wake-on-LAN für {c['name']} fehlgeschlagen: {e}", computer_id=cid)
+        if n:
+            pklog.info("deploy", f"Zeitplan „{s['name']}“ ({reason}): {n} ausgeschaltete(n) Computer per Wake-on-LAN geweckt – "
+                                 "sie werden versorgt, sobald sie hochgefahren sind.")
+    threading.Thread(target=run, name=f"wake-sched-{s['id']}", daemon=True).start()
 
 
 # --- Ausführen --------------------------------------------------------------------------------
@@ -489,8 +522,9 @@ def _fire(s, cids=None, reason="Zeitplan", user=None, force=False):
     now = util.now()
     run = [c for c in todo if c in online]
     off = [c for c in todo if c not in online]
+    _wake_offline(s, o, off, reason)
     for cid in off:
-        if o["offline"] == "wait":
+        if o["offline"] == "wait" or o.get("wake_offline"):
             db.ex("""INSERT INTO schedule_targets(schedule_id, computer_id, pending, pending_since, message) VALUES(?,?,1,?,?)
                      ON CONFLICT(schedule_id, computer_id) DO UPDATE SET pending=1,
                      pending_since=COALESCE(pending_since, excluded.pending_since), message=excluded.message""",
