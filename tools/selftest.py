@@ -4968,10 +4968,16 @@ def _():
         if os.geteuid() == 0:  # echt prüfen: als Benutzer ohne Rechte auf einem fremden Ordner (eigener Prozess, kein fork)
             import subprocess
             os.chmod(d, 0o700)
-            code = ("import sys; sys.path.insert(0, %r); from app import privileges; "
-                    "sys.exit(3 if privileges.unwritable([%r]) else 0)") % (os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."), d)
+            # Modul in einen für alle lesbaren Ordner kopieren – der Programmordner ist für UID 65534 evtl. nicht lesbar
+            mod = tempfile.mkdtemp(prefix="pk-wrmod-")
+            os.chmod(mod, 0o755)
+            shutil.copy(privileges.__file__, os.path.join(mod, "pkpriv.py"))
+            os.chmod(os.path.join(mod, "pkpriv.py"), 0o644)
+            code = ("import sys; sys.path.insert(0, %r); import pkpriv; "
+                    "sys.exit(3 if pkpriv.unwritable([%r]) else 0)") % (mod, d)
             r = subprocess.run([sys.executable, "-I", "-c", code], user=65534, group=65534, extra_groups=[],
                                capture_output=True, text=True, timeout=60, cwd="/")
+            shutil.rmtree(mod, ignore_errors=True)
             assert r.returncode == 3, ("fremder Ordner muss als nicht beschreibbar erkannt werden", r.returncode, r.stderr[-300:])
         base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
         rp = os.path.join(base, "run.py")
