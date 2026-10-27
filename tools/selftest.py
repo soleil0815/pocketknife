@@ -18,6 +18,11 @@ import tempfile
 import threading
 import traceback
 
+# 2.32: Die Einstellungen der Instanz (.env im Container: PK_NETBIOS, PK_DOMAIN, Dienstkonto …) gelten hier nicht – sonst
+# hinge ein Ergebnis von der Umgebung ab (z. B. Kiosk-Test mit „FIRMA\nutzer“ bei anderem NetBIOS-Namen), und echte
+# Anmeldedaten hätten im Test nichts verloren. Nur die Schalter des Selbsttests selbst bleiben.
+for _k in [k for k in os.environ if k.startswith("PK_") and k != "PK_PWSH" and not k.startswith("PK_SELFTEST")]:
+    del os.environ[_k]
 TMP = tempfile.mkdtemp(prefix="pk-selftest-")
 os.environ.update(PK_DATA_DIR=TMP, PK_HTTPS="false", PK_DOMAIN="firma.local", PK_PUBLIC_HOSTNAME="pocketknife")
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
@@ -4960,18 +4965,14 @@ def _():
         for w in ("Start abgebrochen", f"{os.getuid()}:{os.getgid()}", "tls: Permission denied", "PK_UID und PK_GID", "Synology", "chown -R",
                   "nicht von Hand"):
             assert w in msg, (w, msg)
-        if os.geteuid() == 0:  # echt prüfen: als Benutzer ohne Rechte auf einem fremden Ordner
+        if os.geteuid() == 0:  # echt prüfen: als Benutzer ohne Rechte auf einem fremden Ordner (eigener Prozess, kein fork)
+            import subprocess
             os.chmod(d, 0o700)
-            pid = os.fork()
-            if pid == 0:
-                try:
-                    os.setgid(65534)
-                    os.setuid(65534)
-                    os._exit(3 if privileges.unwritable([d]) else 0)
-                except BaseException:
-                    os._exit(4)
-            st = os.waitpid(pid, 0)[1]
-            assert st >> 8 == 3, ("fremder Ordner muss als nicht beschreibbar erkannt werden", st, d)
+            code = ("import sys; sys.path.insert(0, %r); from app import privileges; "
+                    "sys.exit(3 if privileges.unwritable([%r]) else 0)") % (os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."), d)
+            r = subprocess.run([sys.executable, "-I", "-c", code], user=65534, group=65534, extra_groups=[],
+                               capture_output=True, text=True, timeout=60, cwd="/")
+            assert r.returncode == 3, ("fremder Ordner muss als nicht beschreibbar erkannt werden", r.returncode, r.stderr[-300:])
         base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
         rp = os.path.join(base, "run.py")
         if os.path.exists(rp):
@@ -5241,6 +5242,16 @@ def _():
             db.ex("DELETE FROM pkg_ident WHERE package_id=?", (x,))
             db.ex("DELETE FROM packages WHERE id=?", (x,))
         db.ex("DELETE FROM tenants WHERE id IN (?,?)", (tid, tid2))
+
+
+@test("2.32 Selbsttest unabhängig von der Instanz: Einstellungen aus der .env (PK_NETBIOS, Dienstkonto …) gelten im Test nicht; kein fork()")
+def _():
+    from app import config
+    assert config.NETBIOS == "" and config.DOMAIN == "firma.local" and not config.ENV_SERVICE_USER, (config.NETBIOS, config.DOMAIN)
+    assert not [k for k in os.environ if k.startswith("PK_") and k not in ("PK_PWSH", "PK_DATA_DIR", "PK_HTTPS", "PK_DOMAIN", "PK_PUBLIC_HOSTNAME")
+                and not k.startswith("PK_SELFTEST")], sorted(k for k in os.environ if k.startswith("PK_"))
+    src = open(os.path.abspath(__file__), encoding="utf-8").read()
+    assert "os." + "fork()" not in src, "fork() in einem Prozess mit Threads kann hängen – subprocess verwenden"
 
 
 def main():

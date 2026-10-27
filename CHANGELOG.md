@@ -3,6 +3,7 @@
 ## pocketknife-2.32 (27.10.2026)
 - **Neu – Pakete zusammenfassen:** mehrere Pakete markieren → Rechtsklick → „Zu neuem Paket zusammenfassen …“. Reihenfolge, Name, „Bei Fehler weitermachen“; **verschachtelt** (bleibt mit den Originalen verbunden, deren Bedingungen, „Ausführen als“ und Neustart gelten weiter) oder **Schritte kopieren** (unabhängig; „Ausführen als“ bleibt je Schritt; Pakete mit eigenen Bedingungen nur verschachtelt). Nie über Mandanten hinweg – zentrale Pakete gehen mit jedem
 - **Geändert – Tool „gpupdate /force“:** jetzt das normale `gpupdate /force` (Computer- und Benutzerrichtlinien) statt nur `/target:computer`. Fragt gpupdate nach Abmelden oder Neustart, antwortet POCKET KNIFE „N“ – der Aufruf hängt nicht. Die Benutzerrichtlinien sind die des ausführenden Kontos (Dienstkonto), nicht die des angemeldeten Benutzers
+- **Behoben – Selbsttest nach dem Update meldete einen Fehler (Kiosk 2.15):** Der Test lief mit den Einstellungen der Instanz aus der `.env`; mit einem anderen NetBIOS-Namen als dem der Testdaten („FIRMA“) galt der Test-Benutzer als „anderer Benutzer“. POCKET KNIFE selbst war nicht betroffen. Der Selbsttest ignoriert jetzt alle `PK_…`-Einstellungen der Instanz (auch das Dienstkonto) und läuft überall gleich; die Warnung zu `fork()` ist ebenfalls weg
 - **Selbsttest:** Zusammenfassen verschachtelt und als Kopie (Reihenfolge, Neustart, Bei Fehler, „Ausführen als“, Bedingungen, Mandanten), gpupdate
 
 ## pocketknife-2.31 (27.10.2026)
