@@ -167,7 +167,7 @@ def run(tool, cid):
             body = (f"$sf = Join-Path $PKDir 'pk_tool.ps1'\n"
                     f"[System.IO.File]::WriteAllText($sf, [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{b64}')), "
                     f"(New-Object System.Text.UTF8Encoding $true))\n"
-                    f"PK-Run {util.PS_EXE_PS} ('{util.PS_FLAGS} {util.PS_LOAD_PRE_Q}' + $sf + '{util.PS_LOAD_POST_Q}')")
+                    "PK-RunPs1 $sf ''")
         else:
             body = (f"$cf = Join-Path $PKDir 'pk_tool.cmd'\n"
                     f"$txt = '@echo off' + [Environment]::NewLine + [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{b64}')).Replace(\"`n\", \"`r`n\")\n"

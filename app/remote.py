@@ -1288,23 +1288,52 @@ $PKLog = Join-Path $PKDir 'pk_output.log'
 $global:PKExit = 0
 function PK-Run([string]$File, [string]$Arguments) {
   $global:PKOut = @()  # Ausgabe des letzten Aufrufs – für Auswertungen danach (z. B. winget „keine passende Aktualisierung“)
+  $global:PKStdN = 0; $global:PKErrTxt = ''
   $so = Join-Path $PKDir ('pk_so_' + [guid]::NewGuid().ToString('N') + '.txt')
   $se = $so + '.err'
   $sp = @{ FilePath = $File; Wait = $true; PassThru = $true; NoNewWindow = $true; WorkingDirectory = $PKDir;
            RedirectStandardOutput = $so; RedirectStandardError = $se }
   if ($Arguments) { $sp.ArgumentList = $Arguments }
   Write-Output ('> ' + $File + ' ' + $Arguments)
-  $p = Start-Process @sp
+  $p = $null
+  try { $p = Start-Process @sp -ErrorAction Stop }
+  catch {
+    # 2.32.2: Programm startet gar nicht (z. B. von AppLocker/Softwareeinschränkung gesperrt) – Grund nennen statt leerem Exitcode
+    Write-Output ('Konnte nicht gestartet werden: ' + $_.Exception.Message)
+    $global:PKExit = 1; Write-Output 'Exitcode: 1'; return
+  }
   foreach ($f in @($so, $se)) {
     if (Test-Path $f) {
-      $pkL = @(Get-Content -Path $f -Encoding UTF8 | Where-Object { $_ -notmatch '^\s*[-\\|/]?\s*$' -and $_ -notmatch '[\u2580-\u259F]' })
+      $pkL = @(Get-Content -Path $f -Encoding UTF8 | Where-Object { $_ -notmatch '^\s*[-\\|/]?\s*$' -and $_ -notmatch '[▀-▟]' })
       $global:PKOut += $pkL
+      if ($f -eq $so) { $global:PKStdN = $pkL.Count } else { $global:PKErrTxt = ($pkL -join '') }
       $pkL
       Remove-Item $f -Force -ErrorAction SilentlyContinue
     }
   }
   $global:PKExit = $p.ExitCode
   Write-Output ('Exitcode: ' + $p.ExitCode)
+}
+# 2.32.2: PowerShell-Skript (eigene Schritte, Tools, .ps1 aus dem Repository) erst ganz normal mit -File starten. Verweigert
+# Windows genau diese Datei (Ausführungsrichtlinie per GPO, Signatur, Sicherheitszone: Exitcode 1, keine Ausgabe, Fehler
+# „UnauthorizedAccess“ mit dem Dateinamen), lädt POCKET KNIFE ihren Inhalt – das Skript lief dann noch nicht, es läuft
+# also nie doppelt. Parameter werden übergeben, $PSScriptRoot/$PSCommandPath zeigen weiter auf die Originaldatei.
+function PK-RunPs1([string]$Path, [string]$Arguments) {
+  PK-Run "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" (('__PSFLAGS__ -File "' + $Path + '" ' + $Arguments).Trim())
+  if ($global:PKExit -ne 1 -or $global:PKStdN -gt 0) { return }
+  $pkE = $global:PKErrTxt -replace '\s', ''
+  if (-not ($pkE -match 'FullyQualifiedErrorId:UnauthorizedAccess(?!Exception)' -and $pkE.Contains(((Split-Path -Leaf $Path) -replace '\s', '')))) { return }
+  $global:PKLoaded = $true
+  Write-Output 'Windows lässt die Skriptdatei nicht zu (Ausführungsrichtlinie oder Sicherheitszone) – POCKET KNIFE lädt ihren Inhalt.'
+  $pkC = [string](Get-Content -LiteralPath $Path -Raw)
+  $pkC = $pkC -replace '(?i)\$PSScriptRoot\b|\$\{PSScriptRoot\}', '$$PKScriptRoot' -replace '(?i)\$PSCommandPath\b|\$\{PSCommandPath\}|\$MyInvocation\.MyCommand\.Path\b', '$$PKScriptPath'
+  $pkH = '$PKScriptRoot = ''' + (Split-Path -Parent $Path).Replace("'", "''") + "'`r`n" + '$PKScriptPath = ''' + $Path.Replace("'", "''") + "'`r`n"
+  $pkLf = Join-Path $PKDir ('pk_load_' + [guid]::NewGuid().ToString('N') + '.ps1')
+  Set-Content -LiteralPath $pkLf -Value ($pkH + '& {' + "`r`n" + $pkC + "`r`n} " + $Arguments) -Encoding UTF8
+  PK-Run "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" ('__PSFLAGS__ __PSLOADPRE__' + $pkLf + '__PSLOADPOST__')
+}
+if ($ExecutionContext.SessionState.LanguageMode -ne 'FullLanguage') {
+  ('Hinweis: PowerShell läuft auf diesem Computer im eingeschränkten Sprachmodus (' + $ExecutionContext.SessionState.LanguageMode + ', AppLocker/WDAC).') | Out-File -FilePath $PKLog -Encoding utf8 -Append
 }
 try {
   & {
@@ -1313,6 +1342,19 @@ __BODY__
 } catch {
   ('FEHLER: ' + $_.Exception.Message) | Out-File -FilePath $PKLog -Encoding utf8 -Append
   if ($global:PKExit -eq 0) { $global:PKExit = 1 }
+}
+# 2.32.2: Fehlgeschlagen, weil Windows gehärtet ist? Dann eigener Code (9013–9016) mit Klartext statt nur „Exitcode 1“
+if ($global:PKExit -ne 0 -and $global:PKExit -ne 3010 -and $global:PKExit -ne 1641) {
+  $pkT = ''; try { $pkT = [string](Get-Content -LiteralPath $PKLog -Raw -Encoding UTF8) } catch {}
+  $pkH = 0
+  if ($pkT -match 'malicious content|sch\S{1,2}dliche Inhalte|ScriptContainedMaliciousContent') { $pkH = 9014 }
+  elseif ($pkT -match 'blocked by group policy|durch eine Gruppenrichtlinie blockiert|Softwareeinschr\S{1,2}nkungsrichtlinie|software restriction polic') { $pkH = 9016 }
+  elseif ($pkT -match 'language mode|diesem Sprachmodus') { $pkH = 9015 }
+  elseif (-not $global:PKLoaded -and $pkT -match '(?m)FullyQualifiedErrorId\s*:\s*UnauthorizedAccess\s*$|PSSecurityException') { $pkH = 9013 }
+  if ($pkH) {
+    ('POCKET KNIFE: Windows hat die Ausführung verhindert (Code ' + $pkH + ', ursprünglicher Exitcode ' + $global:PKExit + ').') | Out-File -FilePath $PKLog -Encoding utf8 -Append
+    $global:PKExit = $pkH
+  }
 }
 Set-Content -Path (Join-Path $PKDir 'pk_exit.txt') -Value ([string]$global:PKExit) -Encoding Ascii
 """
@@ -1325,7 +1367,8 @@ $w = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('__B64__
 [System.IO.File]::WriteAllText((Join-Path $dir 'pk_run.ps1'), $w, (New-Object System.Text.UTF8Encoding $true))
 __EXTRA__
 # Windows PowerShell mit vollem Pfad und festen Schaltern (siehe util.PS_FLAGS)
-$a = New-ScheduledTaskAction -Execute "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -Argument ('-NoLogo -NonInteractive -NoProfile -ExecutionPolicy Bypass -Command "Invoke-Expression ((Get-Content -LiteralPath ''' + (Join-Path $dir 'pk_run.ps1') + ''' -Raw -Encoding UTF8)); exit 0"') -WorkingDirectory $dir
+$pkRunF = Join-Path $dir 'pk_run.ps1'
+$a = New-ScheduledTaskAction -Execute "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -Argument __PKSTART__ -WorkingDirectory $dir
 $pkRunAs = '__RUNAS__'
 if ($pkRunAs -eq 'user') {
   # Als angemeldeter Benutzer (z. B. für Software, die nur im Benutzerprofil installiert ist)
@@ -1353,6 +1396,8 @@ Register-ScheduledTask -TaskName '__TASK__' -TaskPath '\POCKETKNIFE\' -Action $a
 Start-ScheduledTask -TaskName '__TASK__' -TaskPath '\POCKETKNIFE\'
 'PK_STARTED'
 """
+WRAPPER = WRAPPER.replace("__PSFLAGS__", util.PS_FLAGS).replace("__PSLOADPRE__", util.PS_LOAD_PRE_Q).replace("__PSLOADPOST__", util.PS_LOAD_POST_Q)
+REGISTER = REGISTER.replace("__PKSTART__", util.ps_start_expr("$pkRunF"))
 
 # Dienstkonto: direkt als Prozess des Dienstkontos starten. Win32_Process.Create läuft mit der Identität der
 # WinRM-Sitzung (volle Administratorrechte), der Prozess gehört aber nicht zur WinRM-Sitzung und überlebt
@@ -1366,12 +1411,14 @@ $w = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('__B64__
 __EXTRA__
 # 2.31: über cmd.exe, damit Fehlermeldungen von PowerShell selbst (Skript nicht ladbar, Richtlinie) in pk_err.txt landen –
 # sonst endet der Prozess „ohne Ergebnis“, und niemand sieht warum
-$cmd = $env:SystemRoot + '\System32\cmd.exe /d /c ""' + $env:SystemRoot + '\System32\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NonInteractive -NoProfile -ExecutionPolicy Bypass -Command "Invoke-Expression ((Get-Content -LiteralPath ''' + (Join-Path $dir 'pk_run.ps1') + ''' -Raw -Encoding UTF8)); exit 0" 2>"' + (Join-Path $dir 'pk_err.txt') + '""'
+$pkRunF = Join-Path $dir 'pk_run.ps1'
+$cmd = $env:SystemRoot + '\System32\cmd.exe /d /c ""' + $env:SystemRoot + '\System32\WindowsPowerShell\v1.0\powershell.exe" ' + __PKSTART__ + ' 2>"' + (Join-Path $dir 'pk_err.txt') + '""'
 $r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = $cmd; CurrentDirectory = $dir }
 if ($r.ReturnValue -ne 0) { 'PK_STARTFAIL:' + $r.ReturnValue; return }
 Set-Content -Path (Join-Path $dir 'pk_pid.txt') -Value ([string]$r.ProcessId) -Encoding Ascii
 'PK_STARTED'
 """
+START_DIRECT = START_DIRECT.replace("__PKSTART__", util.ps_start_expr("$pkRunF"))
 
 POLL = r"""$dir = '__DIR__'
 $f = Join-Path $dir 'pk_exit.txt'
@@ -1510,6 +1557,24 @@ ASR_RULES = {  # die üblichen Regeln – Name wie in der Gruppenrichtlinie
 }
 
 
+HARD_PATTERNS = (
+    (re.compile(r"malicious content|sch\S{1,2}dliche Inhalte|ScriptContainedMaliciousContent", re.I), 9014),
+    (re.compile(r"blocked by group policy|durch eine Gruppenrichtlinie blockiert|Softwareeinschr\S{1,2}nkungsrichtlinie|"
+                r"software restriction polic", re.I), 9016),
+    (re.compile(r"language mode|diesem Sprachmodus", re.I), 9015),
+    (re.compile(r"FullyQualifiedErrorId\s*:\s*UnauthorizedAccess\b(?!Exception)|PSSecurityException", re.I), 9013),
+)
+
+
+def hard_hint(text):
+    """2.32.2: Klartext, wenn eine Meldung von Windows auf ein gehärtetes System zeigt (sonst "")."""
+    from . import deploy
+    for rx, code in HARD_PATTERNS:
+        if rx.search(text or ""):
+            return " Windows ist auf diesem Computer so eingestellt, dass es POCKET KNIFE blockiert: " + deploy.HARD_MESSAGES[code] + "."
+    return ""
+
+
 def gone_message(out, direct):
     """2.31: „ohne Ergebnis beendet“ – mit dem, was der Client über den Grund weiß.
     2.32.1: Defender unterscheidet „blockiert“ (1121) und „nur überwacht“ (1122) – nur ein Block ist ein Grund; die Regel
@@ -1547,6 +1612,8 @@ def gone_message(out, direct):
                     + " auf „Überwachen“) – das blockiert nicht und ist nicht der Grund.")
     if det.get("PK_LAST:"):
         msg += " Letzte Ausgabe: " + det["PK_LAST:"][0]
+    if not blocks and not det.get("PK_AV:"):
+        msg += hard_hint(" ".join(det.get("PK_ERR:", []) + det.get("PK_LAST:", []) + det.get("PK_BLOCK:", [])))
     return msg
 
 
@@ -1577,9 +1644,10 @@ def run_as_system(host, body, name, timeout_s=3600, cancel=None, extra_ps="", ru
             raise RemoteError(f"Kein angemeldeter Benutzer{(' ' + who) if who else ''} – die Aktion muss im Benutzerkontext "
                               "laufen und geht nur, solange der Benutzer angemeldet ist.")
         if "PK_STARTED" not in out:
+            why = (err or out).strip()[:1500]
             if direct:
-                raise RemoteError("Prozess als Dienstkonto konnte nicht gestartet werden: " + (err or out).strip()[:1500])
-            raise RemoteError("Geplante Aufgabe konnte nicht gestartet werden: " + (err or out).strip()[:1500])
+                raise RemoteError("Prozess als Dienstkonto konnte nicht gestartet werden: " + why + hard_hint(why))
+            raise RemoteError("Geplante Aufgabe konnte nicht gestartet werden: " + why + hard_hint(why))
     except BaseException:
         # Auch wenn Registrierung/Start scheitert: Aufgabe und Arbeitsordner entfernen
         try:

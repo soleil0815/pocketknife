@@ -291,7 +291,7 @@ def _custom_body(p):
         body += f"""
 $sf = Join-Path $PKDir 'pk_script.ps1'
 [System.IO.File]::WriteAllText($sf, [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{b64}')), (New-Object System.Text.UTF8Encoding $true))
-PK-Run {util.PS_EXE_PS} {f"('{util.PS_FLAGS} {util.PS_LOAD_PRE_Q}' + $sf + '{util.PS_LOAD_POST_Q}')" if not args.strip() else f"('{util.PS_FLAGS} -File \"' + $sf + '\" ' + {util.psq(args)})"}
+PK-RunPs1 $sf {util.psq(args)}
 """
         return body
     body += f"$f = Join-Path $PKDir {util.psq(p['install_file'])}\n"
@@ -316,7 +316,7 @@ PK-Run {util.PS_EXE_PS} {f"('{util.PS_FLAGS} {util.PS_LOAD_PRE_Q}' + $sf + '{uti
     elif it == "cmd":
         body += f"PK-Run 'cmd.exe' ('/c \"\"' + $f + '\" ' + {a} + '\"')\n"
     elif it == "ps1":
-        body += f"PK-Run {util.PS_EXE_PS} ('{util.PS_FLAGS} -File \"' + $f + '\" ' + {a})\n"
+        body += f"PK-RunPs1 $f {a}\n"
     elif it == "reg":
         # 64-Bit-reg.exe (auch aus einer 32-Bit-PowerShell); anders als regedit /s liefert reg import einen Exitcode
         body += ("$pkRegExe = Join-Path $env:windir 'Sysnative\\reg.exe'\n"
@@ -423,6 +423,20 @@ WINGET_MESSAGES = {
           "Argumente“ --force (installiert die neue Version daneben, die alte bleibt)",
     9012: "Neuere Version vorhanden, passt aber nicht zu diesem System (Architektur, Windows-Version oder andere "
           "Voraussetzungen im winget-Katalog)",
+}
+
+
+# 2.32.2: vom Rahmen auf dem Client vergeben, wenn Windows die Ausführung verhindert hat (gehärtetes System) – für alle
+# Schrittarten; der ursprüngliche Exitcode und die Meldung von Windows stehen im Protokoll
+HARD_MESSAGES = {
+    9013: "Windows lässt das PowerShell-Skript nicht zu (Ausführungsrichtlinie/Signatur), auch das Laden des Inhalts wurde "
+          "verweigert. Ausführungsrichtlinie der GPO für diesen Computer prüfen oder das Skript signieren",
+    9014: "Vom Virenschutz blockiert (AMSI: „schädlicher Inhalt“). Skript und Meldung im Virenschutz prüfen",
+    9015: "Windows führt PowerShell hier im eingeschränkten Sprachmodus aus (AppLocker/WDAC); dort sind die benötigten "
+          "Funktionen gesperrt. Den Arbeitsordner C:\\Windows\\Temp\\PocketKnife in der Richtlinie zulassen oder den "
+          "Computer von dieser Härtung ausnehmen",
+    9016: "Windows hat ein Programm gesperrt (AppLocker oder Softwareeinschränkung). Programm bzw. Ordner in der "
+          "Richtlinie zulassen – welches, steht im Protokoll",
 }
 
 

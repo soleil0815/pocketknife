@@ -1872,7 +1872,7 @@ def _():
 @test("2.24.3 PowerShell immer mit vollem Pfad und festen Schaltern (-NoLogo -NonInteractive -NoProfile -ExecutionPolicy Bypass)")
 def _():
     import glob as _g
-    from app import steps, util
+    from app import remote, steps, util
     assert util.PS_FLAGS == "-NoLogo -NonInteractive -NoProfile -ExecutionPolicy Bypass"
     root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app")
     for f in _g.glob(os.path.join(root, "*.py")):
@@ -1880,7 +1880,9 @@ def _():
         for bad in ("'powershell.exe'", "powershell.exe -No", "--headless powershell.exe"):
             assert bad not in src, f"{os.path.basename(f)}: PowerShell ohne vollen Pfad ({bad})"
     b = steps.body_for({"type": "powershell", "script": "Write-Output 1", "id": "x"}, {})
-    assert '"$env:SystemRoot\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" (\'-NoLogo -NonInteractive -NoProfile -ExecutionPolicy Bypass -Command' in b
+    assert b.rstrip().endswith("PK-RunPs1 $pkF ''")
+    w = remote.WRAPPER
+    assert 'PK-Run "$env:SystemRoot\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" ((\'-NoLogo -NonInteractive -NoProfile -ExecutionPolicy Bypass -File' in w
 
 
 @test("2.24.4 update.sh: Abbruch mitten im Tausch legt automatisch zurück; .pk-vorher bleibt bei Wiederholung; Ordner mit Sicherungen/Datenbank werden nie gelöscht; nur bekannte Programmdateien")
@@ -5317,37 +5319,99 @@ def _():
 
 
 
-@test("2.32.2 Eigene Skripte von POCKET KNIFE (Rahmen, PowerShell-Schritte, Tools als SYSTEM) werden geladen statt als Datei gestartet – eine Ausführungsrichtlinie per GPO oder Sicherheitszonen blockieren sie nicht; Exitcode wie bei -File; Dateien aus dem Repository weiter per -File (Parameter, $PSScriptRoot)")
+
+@test("2.32.2 Skripte laufen immer: erst normal als Datei (-File, Exitcode, $PSScriptRoot, Parameter), verweigert Windows die Datei (Ausführungsrichtlinie per GPO, Signatur, Zone), wird ihr Inhalt geladen – nie doppelt; gehärtetes Windows (Sprachmodus, Virenschutz, gesperrtes Programm) meldet POCKET KNIFE mit eigenem Code und Klartext")
 def _():
+    import subprocess
     from app import deploy, remote, steps, util
+    # Rahmen: erst & 'pk_run.ps1', Laden nur bei UnauthorizedAccess für genau diese Datei
     for src in (remote.REGISTER, remote.START_DIRECT):
-        assert "Invoke-Expression ((Get-Content -LiteralPath" in src and "pk_run.ps1" in src, src[:200]
-        assert "-File \"' + (Join-Path $dir 'pk_run.ps1')" not in src
+        assert "__PKSTART__" not in src and "try { & ''' + $pkRunF + '''" in src and "-File" not in src, src[:300]
+    # Schritte, Inline-Skripte, Repository-.ps1 und Tools über PK-RunPs1
     b = steps.body_for({"type": "powershell", "script": "Write-Output 1", "id": "x"}, {})
-    assert util.PS_LOAD_PRE_Q in b and "-File" not in b.split("PK-Run", 1)[1]
-    assert "-File" in deploy._custom_body({"install_type": "ps1", "install_file": "setup.ps1", "arguments": "-Silent"}), "Repository-Datei: -File"
-    assert util.PS_LOAD_PRE_Q in deploy._custom_body({"install_type": "script", "script": "x", "arguments": ""})
+    assert b.rstrip().endswith("PK-RunPs1 $pkF ''"), b[-80:]
+    assert "PK-RunPs1 $f '-Silent'" in deploy._custom_body({"install_type": "ps1", "install_file": "setup.ps1", "arguments": "-Silent"})
+    assert "PK-RunPs1 $sf ''" in deploy._custom_body({"install_type": "script", "script": "x", "arguments": ""})
     tsrc = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "tools.py"), encoding="utf-8").read()
-    assert "PS_LOAD_PRE_Q" in tsrc
+    assert "PK-RunPs1 $sf ''" in tsrc and "PS_LOAD" not in tsrc
+    for k in ("__PSFLAGS__", "__PSLOADPRE__", "__PSLOADPOST__"):
+        assert k not in remote.WRAPPER, k
+    assert set(deploy.HARD_MESSAGES) == {9013, 9014, 9015, 9016}
+    assert "Sprachmodus" in remote.hard_hint("Methodenaufrufe werden in diesem Sprachmodus nur für Kerntypen unterstützt.")
+    assert "Virenschutz" in remote.hard_hint("This script contains malicious content and has been blocked by your antivirus software.")
+    assert remote.hard_hint("System.UnauthorizedAccessException: Access to the path is denied") == "", "Zugriff verweigert ist keine Härtung"
+    assert "Sprachmodus" in remote.gone_message("PK_PROC:gone\nPK_ERR:Cannot invoke method. Method invocation is supported only on core types in this language mode.", False)
     pw = os.environ.get("PK_PWSH")
-    if pw and os.path.exists(pw):
-        import subprocess
-        d = tempfile.mkdtemp(prefix="pk-load-")
-        try:
-            sf = os.path.join(d, "pk_script.ps1")
-            line = b.split("PK-Run ", 1)[1].strip().splitlines()[0]
-            expr = line[line.index("("):]
-            ps = (f"$pkF = '{sf}'; $a = {expr}; "
-                  f"$p = Start-Process -FilePath '{pw}' -ArgumentList $a -Wait -PassThru -WorkingDirectory '{d}' -NoNewWindow; 'RC=' + $p.ExitCode")
-            for body, rc in (("param($x)\n'läuft' | Out-File -LiteralPath (Join-Path (Get-Location) 'out.txt') -Encoding utf8\nexit 5\n", "RC=5"),
-                             ("'ohne exit'\n", "RC=0"), ("throw 'kaputt'\n", "RC=1")):
-                with open(sf, "w", encoding="utf-8-sig") as fh:
-                    fh.write(body)
-                r = subprocess.run([pw, "-NoProfile", "-NonInteractive", "-Command", ps], capture_output=True, text=True, timeout=120)
-                assert rc in r.stdout, (body, r.stdout, r.stderr)
-            assert open(os.path.join(d, "out.txt"), encoding="utf-8-sig").read().strip() == "läuft"
-        finally:
-            shutil.rmtree(d, ignore_errors=True)
+    if not (pw and os.path.exists(pw)):
+        return
+    d = tempfile.mkdtemp(prefix="pk-ps-")
+    try:
+        # Windows PowerShell nachgebildet: verweigert -File für Dateien mit „refuse“ im Namen wie eine GPO (RemoteSigned)
+        exe = os.path.join(d, "sr", "System32", "WindowsPowerShell", "v1.0")
+        os.makedirs(exe)
+        exe = os.path.join(exe, "powershell.exe")
+        with open(exe, "w") as fh:
+            fh.write('#!/bin/sh\nprev=""\nfor a in "$@"; do\n  case "$prev:$a" in -File:*refuse*)\n'
+                     '    echo "Die Datei $a kann nicht geladen werden. Die Datei ist nicht digital signiert." >&2\n'
+                     '    echo "    + FullyQualifiedErrorId : UnauthorizedAccess" >&2; exit 1;;\n  esac\n  prev="$a"\ndone\n'
+                     f'exec "{pw}" "$@"\n')
+        os.chmod(exe, 0o755)
+        run = os.path.join(d, "run")
+        os.makedirs(run)
+        env = {**os.environ, "SystemRoot": os.path.join(d, "sr"), "TERM": "dumb"}
+
+        def wrap(body, clm=False):
+            for f in os.listdir(run):
+                os.remove(os.path.join(run, f))
+            for n in ("refuse_x.ps1", "ok_x.ps1"):
+                with open(os.path.join(run, n), "w", encoding="utf-8-sig") as fh:
+                    fh.write("param([string]$Name = 'leer', [switch]$Laut)\n'R=' + $PSScriptRoot + ' N=' + $Name + ' L=' + $Laut + ' P=' + $PSCommandPath\n"
+                             "'läuft' | Out-File -LiteralPath (Join-Path $PSScriptRoot 'o.txt') -Append\nexit 6\n")
+            with open(os.path.join(run, "pk_run.ps1"), "w", encoding="utf-8-sig") as fh:
+                fh.write(remote.WRAPPER.replace("__DIR__", run).replace("__BODY__", body))
+            cmd = ("$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'; " if clm else "") + "& ./pk_run.ps1"
+            subprocess.run([pw, "-NoProfile", "-NonInteractive", "-Command", cmd], cwd=run, env=env, capture_output=True, text=True, timeout=180)
+            rd = lambda n: open(os.path.join(run, n), encoding="utf-8-sig").read() if os.path.exists(os.path.join(run, n)) else ""  # noqa: E731
+            return rd("pk_exit.txt").strip(), rd("pk_output.log"), rd("o.txt")
+
+        for clm in (False, True):
+            code, log, o = wrap("$f = Join-Path $PKDir 'refuse_x.ps1'\nPK-RunPs1 $f '-Name \"a b\" -Laut'\n", clm)
+            assert code == "6" and o.count("läuft") == 1, ("Verweigert → geladen, einmal, Exitcode", clm, code, log)
+            assert f"R={run} N=a b L=True P={os.path.join(run, 'refuse_x.ps1')}" in log and "lädt ihren Inhalt" in log, log
+            assert ("eingeschränkten Sprachmodus" in log) == clm and "Cannot" not in log, log
+            code, log, o = wrap("$f = Join-Path $PKDir 'ok_x.ps1'\nPK-RunPs1 $f '-Name z'\n", clm)
+            assert code == "6" and o.count("läuft") == 1 and "lädt ihren Inhalt" not in log and "N=z L=False" in log, ("normal -File", log)
+        # Skript lief schon (Ausgabe) und scheitert danach an etwas anderem → nie ein zweites Mal
+        code, log, o = wrap("$sf = Join-Path $PKDir 'x.ps1'\nSet-Content -LiteralPath $sf -Value \"'teil'; Write-Error 'FullyQualifiedErrorId : UnauthorizedAccess x.ps1'; exit 1\"\nPK-RunPs1 $sf ''\n")
+        assert code == "1" and "lädt ihren Inhalt" not in log, log
+        sc = lambda t: "$sf = Join-Path $PKDir 'c.ps1'\nSet-Content -LiteralPath $sf -Value " + util.psq(t) + "\nPK-RunPs1 $sf ''\n"  # noqa: E731
+        code, log, _o = wrap(sc("$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'\n[System.Text.Encoding]::UTF8.GetString([byte[]](65))\nthrow 'x'"))
+        assert code == "9015" and "ursprünglicher Exitcode 1" in log, log
+        code, log, _o = wrap(sc("Write-Error 'Dieses Skript enthält schädliche Inhalte und wurde von Ihrer Antivirensoftware blockiert.'; exit 1"))
+        assert code == "9014", log
+        code, log, _o = wrap(sc("Write-Error 'Dieses Programm wird durch eine Gruppenrichtlinie blockiert.'; exit 1"))
+        assert code == "9016", log
+        code, log, _o = wrap(sc("Write-Error 'Methodenaufrufe werden in diesem Sprachmodus nur für Kerntypen unterstützt.'; exit 0"))
+        assert code == "0", ("Erfolg bleibt Erfolg", log)
+        code, log, _o = wrap("PK-Run (Join-Path $PKDir 'gibtsnicht.exe') 'x'\n")
+        assert code == "1" and "Konnte nicht gestartet werden" in log, log
+        # Start des Rahmens: normal einmal; verweigert (UnauthorizedAccess für pk_run.ps1) → Inhalt geladen; anderer Fehler → nicht nochmal
+        expr = util.ps_start_expr("$pkRunF")
+        for body, want in (("'x' | Out-File -LiteralPath (Join-Path (Get-Location) 'o.txt') -Append", 1),
+                           ("if ($PSCommandPath) { throw (New-Object System.Management.Automation.ErrorRecord ((New-Object System.Management.Automation.PSSecurityException 'Die Datei pk_run.ps1 ist nicht digital signiert.'), 'UnauthorizedAccess', 'SecurityError', $null)) }\n'x' | Out-File -LiteralPath (Join-Path (Get-Location) 'o.txt') -Append", 1),
+                           ("'x' | Out-File -LiteralPath (Join-Path (Get-Location) 'o.txt') -Append\nthrow 'anderer Fehler'", 1),
+                           ("if ($PSCommandPath) { throw (New-Object System.Management.Automation.ErrorRecord ((New-Object System.Management.Automation.PSSecurityException 'andere.ps1'), 'UnauthorizedAccess', 'SecurityError', $null)) }\n'x' | Out-File -LiteralPath (Join-Path (Get-Location) 'o.txt') -Append", 0)):
+            for f in os.listdir(run):
+                os.remove(os.path.join(run, f))
+            with open(os.path.join(run, "pk_run.ps1"), "w", encoding="utf-8-sig") as fh:
+                fh.write(body + "\n")
+            ps = (f"$pkRunF = '{os.path.join(run, 'pk_run.ps1')}'; $a = {expr}; "
+                  f"$p = Start-Process -FilePath '{pw}' -ArgumentList $a -Wait -PassThru -WorkingDirectory '{run}' -NoNewWindow -RedirectStandardError '{d}/e.txt'")
+            subprocess.run([pw, "-NoProfile", "-NonInteractive", "-Command", ps], capture_output=True, text=True, timeout=120)
+            o = open(os.path.join(run, "o.txt")).read() if os.path.exists(os.path.join(run, "o.txt")) else ""
+            assert o.count("x") == want, (body, o, open(f"{d}/e.txt").read())
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
 
 def main():
     ok = 0
