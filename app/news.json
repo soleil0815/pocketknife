@@ -16,6 +16,12 @@
      "audience": "admin",
      "de": "Das Tool „gpupdate /force“ aktualisiert jetzt wie gewohnt Computer- und Benutzerrichtlinien.",
      "en": "The \"gpupdate /force\" tool now refreshes computer and user policies as usual."
+    },
+    {
+     "kind": "fixed",
+     "audience": "admin",
+     "de": "Nach einer Bereitstellung wird mit dem im Paket gewählten Scanprofil gescannt – auch bei mehreren Paketen und in Zeitplänen; ein gerade laufender Scan verdrängt ihn nicht mehr.",
+     "en": "After a deployment the scan uses the profile chosen in the package – also with several packages and in schedules; a scan already running no longer drops it."
     }
    ]
   },

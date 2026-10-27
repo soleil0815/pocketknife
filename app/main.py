@@ -2202,6 +2202,20 @@ def api_packages_merge(data: dict = Body(...), user=U):
            "rescan": 1 if any(p.get("rescan") for p in pkgs) else 0,
            "timeout_min": max(int(p.get("timeout_min") or 0) for p in pkgs) or db.setting("deploy_timeout_minutes"),
            "notify_user": "", "rescan_profile_id": None}
+    # Danach scannen: wie die Einzelpakete – ein gemeinsames Profil direkt, verschiedene als Schritte „Scannen“ am Ende
+    prof = []
+    for p in pkgs:
+        x = deploy.rescan_profiles({**p, "composite": False})
+        if x and x[0] not in prof:
+            prof.append(x[0])
+    apps = profiles.apps_profile_id()
+    new["rescan"] = 1 if prof else 0
+    new["rescan_profile_id"] = prof[0] if len(prof) == 1 and prof[0] != apps else None
+    if len(prof) > 1:
+        for x in prof:
+            if x != apps:
+                st["post"].append({"id": nid(), "type": "scan", "profile_id": x, "title": "", "enabled": True, "run_as": "inherit",
+                                   "on_error": "continue", "timeout_min": 0, "conditions": steps.default_conditions()})
     res = api_package_create(new, user=user)
     pklog.info("deploy", f"Paket '{name}' aus {len(rows)} Paketen zusammengefasst ({'verschachtelt' if mode == 'nested' else 'Kopie der Schritte'}).",
                user=user["username"])

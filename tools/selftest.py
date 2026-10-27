@@ -5260,6 +5260,54 @@ def _():
     assert "os." + "fork()" not in src, "fork() in einem Prozess mit Threads kann hängen – subprocess verwenden"
 
 
+@test("2.32 Scan nach der Bereitstellung: gewähltes Scanprofil des Pakets – auch bei mehreren Paketen und in Zeitplänen (je Paket, „Nicht scannen“ zählt); läuft gerade ein Scan, wird er danach nachgeholt statt verworfen")
+def _():
+    from app import deploy, inventory, profiles, schedules, steps
+    apps = profiles.apps_profile_id()
+    hw = db.val("SELECT id FROM scan_profiles WHERE builtin_key='hardware'") or profiles.default()["id"]
+    mk = lambda name, rescan, prof: db.ex("INSERT INTO packages(name, version, steps, conditions, run_as, rescan, rescan_profile_id, created_at) "  # noqa: E731
+                                          "VALUES(?,?,?,?,?,?,?,?)", (name, "1", json.dumps({"main": [{"id": "x", "type": "command", "command": "echo"}]}),
+                                                                      "{}", "system", rescan, prof, util.now()))
+    a, b, n, gone = mk("RS A", 1, None), mk("RS B", 1, hw), mk("RS Nie", 0, None), mk("RS Weg", 1, 987654)
+    made = [a, b, n, gone]
+    orig_pool = inventory.pool
+    try:
+        assert deploy.rescan_profiles(deploy.row_to_package(db.q1("SELECT * FROM packages WHERE id=?", (b,)))) == [hw], "eigenes Profil"
+        assert deploy.rescan_profiles(deploy.row_to_package(db.q1("SELECT * FROM packages WHERE id=?", (a,)))) == [apps], "Standard: Anwendungen"
+        assert deploy.rescan_profiles(deploy.row_to_package(db.q1("SELECT * FROM packages WHERE id=?", (n,)))) == [], "Nicht scannen"
+        assert deploy.rescan_profiles(deploy.row_to_package(db.q1("SELECT * FROM packages WHERE id=?", (gone,)))) == [apps], "gelöschtes Profil → Anwendungen"
+        comp = deploy.composite([b, n, a])
+        assert deploy.rescan_profiles(comp) == [hw, apps], ("mehrere Pakete: je Paket", deploy.rescan_profiles(comp))
+        assert deploy.rescan_profiles(deploy.composite([n])) == [], "nur „Nicht scannen“"
+        s = {"name": "RS", "packages": [b, a], "options": {"stop_on_fail": True}, "tenant_id": None}
+        assert deploy.rescan_profiles(schedules.composite_package(s)) == [hw, apps], "Zeitplan: je Paket statt immer „Anwendungen“"
+        # läuft gerade ein Scan: nachholen statt verwerfen
+        started = []
+        class _P:
+            def submit(self, fn, cid, user, prof):
+                started.append((cid, prof["id"]))
+        inventory.pool = lambda: _P()
+        cid = 4242
+        inventory._scanning[cid] = "läuft"
+        assert inventory.queue_scan(cid, None, hw) is False, "ohne follow: wie bisher"
+        assert inventory.queue_scan(cid, None, hw, follow=True) is True and inventory.queue_scan(cid, None, hw, follow=True)
+        inventory.queue_scan(cid, None, apps, follow=True)
+        inventory._release(cid)
+        assert started == [(cid, hw)] and inventory._scanning.get(cid), started
+        inventory._release(cid)
+        assert started == [(cid, hw), (cid, apps)], started
+        inventory._release(cid)
+        assert cid not in inventory._scanning and cid not in inventory._follow
+        src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "deploy.py"), encoding="utf-8").read()
+        assert "inventory.queue_scan(c[\"id\"], None, pid, follow=True)" in src
+    finally:
+        inventory.pool = orig_pool
+        inventory._scanning.pop(4242, None)
+        inventory._follow.pop(4242, None)
+        for x in made:
+            db.ex("DELETE FROM packages WHERE id=?", (x,))
+
+
 def main():
     ok = 0
     for name, fn in RESULTS:
