@@ -1330,7 +1330,9 @@ def api_action(cid: int, data: dict = Body(...), user=U):
     cmds = {"restart": "& shutdown.exe /r /t 60 /c " + util.psq(rebootmsg.text("restart", sekunden=60)),
             "shutdown": "& shutdown.exe /s /t 60 /c " + util.psq(rebootmsg.text("shutdown", sekunden=60)),
             "abort": "shutdown.exe /a",
-            "gpupdate": "gpupdate.exe /target:computer /force | Out-String"}
+            # 2.32: das normale „gpupdate /force“ (Computer- und Benutzerrichtlinien). Fragt gpupdate nach Abmelden oder
+            # Neustart (z. B. Ordnerumleitung, Softwareinstallation), antwortet „N“ – sonst hinge der Aufruf ohne Konsole
+            "gpupdate": "cmd.exe /c 'echo N| gpupdate.exe /force' | Out-String"}
     if act not in cmds:
         _err("Unbekannte Aktion")
     try:
@@ -2140,6 +2142,84 @@ def api_package_duplicate(pid: int, user=U):
     repofiles.store_idents(nid, ids, pending)
     integrity.after_save(nid)
     return {"id": nid}
+
+
+@app.post("/api/packages/merge")
+def api_packages_merge(data: dict = Body(...), user=U):
+    """2.32: Mehrere Pakete zu einem neuen zusammenfassen – verschachtelt (bleibt mit den Originalen verbunden, deren
+    Bedingungen, „Ausführen als“ und Neustart gelten weiter) oder als Kopie der Schritte (unabhängig)."""
+    ids = []
+    for x in data.get("ids") or []:
+        try:
+            x = int(x)
+        except (TypeError, ValueError):
+            _err("Ungültige Paket-ID.")
+        if x not in ids:
+            ids.append(x)
+    if len(ids) < 2:
+        _err("Mindestens zwei Pakete auswählen.")
+    if len(ids) > 50:
+        _err("Höchstens 50 Pakete auf einmal.")
+    rows = [access.need_package(user, i) for i in ids]
+    mode = "copy" if data.get("mode") == "copy" else "nested"
+    tenants = {int(r["tenant_id"]) for r in rows if r.get("tenant_id")}
+    if len(tenants) > 1:
+        _err("Pakete verschiedener Mandanten lassen sich nicht zusammenfassen – zentrale Pakete gehen mit jedem Mandanten.")
+    tid = next(iter(tenants), None)
+    if access.scoped(user):
+        tid = access.own_tenant_for(user, tid if tid in [t["id"] for t in access.build_tenants(user)] else None)
+    pkgs = [steps.normalize(deploy.row_to_package(r)) for r in rows]
+    on_error = "continue" if data.get("continue_on_error") else "stop"
+    nid = lambda: secrets.token_hex(4)  # noqa: E731
+    if mode == "nested":
+        main = [{"id": nid(), "type": "nested", "package_id": r["id"], "title": "", "enabled": True, "run_as": "inherit",
+                 "on_error": on_error, "timeout_min": 0, "conditions": steps.default_conditions()} for r in rows]
+        st = {"pre": [], "main": main, "post": []}
+    else:
+        st = {"pre": [], "main": [], "post": []}
+        for r, p in zip(rows, pkgs):
+            if steps.client_checks(steps.clean_conditions(p.get("conditions") or steps.default_conditions())) or \
+                    (p.get("conditions") or {}).get("collections"):
+                _err(f"Paket „{r['name']}“ hat eigene Bedingungen – die gingen beim Kopieren der Schritte verloren. "
+                     "Bitte „verschachtelt“ wählen.")
+            for ph in ("pre", "main", "post"):
+                for s in p["steps"].get(ph) or []:
+                    s = json.loads(json.dumps(s))
+                    s["id"] = nid()
+                    if s.get("run_as") in (None, "", "inherit") and p.get("run_as") and s.get("type") in (
+                            "install", "command", "powershell", "filecopy", "registry", "uninstall"):
+                        s["run_as"] = p["run_as"]  # wie im Original ausführen, auch wenn das neue Paket anders eingestellt ist
+                    if ph == "main" and on_error == "continue":
+                        s["on_error"] = "continue"
+                    st[ph].append(s)
+    name = (data.get("name") or "").strip() or " + ".join(r["name"] for r in rows)[:200]
+    new = {"name": name[:200], "version": "", "description": (data.get("description") or "").strip()[:2000]
+           or "Zusammengefasst aus: " + ", ".join(r["name"] for r in rows),
+           "run_as": "deploy" if not access.scoped(user) else "system", "tenant_id": tid, "steps": st,
+           "conditions": steps.default_conditions(),
+           # wie bei Zeitplänen mit mehreren Paketen: die stärkste Neustart-Einstellung gilt für das ganze Paket
+           "reboot": deploy.strongest_reboot(p.get("reboot") for p in pkgs),
+           "rescan": 1 if any(p.get("rescan") for p in pkgs) else 0,
+           "timeout_min": max(int(p.get("timeout_min") or 0) for p in pkgs) or db.setting("deploy_timeout_minutes"),
+           "notify_user": "", "rescan_profile_id": None}
+    # Danach scannen: wie die Einzelpakete – ein gemeinsames Profil direkt, verschiedene als Schritte „Scannen“ am Ende
+    prof = []
+    for p in pkgs:
+        x = deploy.rescan_profiles({**p, "composite": False})
+        if x and x[0] not in prof:
+            prof.append(x[0])
+    apps = profiles.apps_profile_id()
+    new["rescan"] = 1 if prof else 0
+    new["rescan_profile_id"] = prof[0] if len(prof) == 1 and prof[0] != apps else None
+    if len(prof) > 1:
+        for x in prof:
+            if x != apps:
+                st["post"].append({"id": nid(), "type": "scan", "profile_id": x, "title": "", "enabled": True, "run_as": "inherit",
+                                   "on_error": "continue", "timeout_min": 0, "conditions": steps.default_conditions()})
+    res = api_package_create(new, user=user)
+    pklog.info("deploy", f"Paket '{name}' aus {len(rows)} Paketen zusammengefasst ({'verschachtelt' if mode == 'nested' else 'Kopie der Schritte'}).",
+               user=user["username"])
+    return res
 
 
 @app.delete("/api/packages/{pid}")

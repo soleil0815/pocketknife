@@ -18,6 +18,11 @@ import tempfile
 import threading
 import traceback
 
+# 2.32: Die Einstellungen der Instanz (.env im Container: PK_NETBIOS, PK_DOMAIN, Dienstkonto …) gelten hier nicht – sonst
+# hinge ein Ergebnis von der Umgebung ab (z. B. Kiosk-Test mit „FIRMA\nutzer“ bei anderem NetBIOS-Namen), und echte
+# Anmeldedaten hätten im Test nichts verloren. Nur die Schalter des Selbsttests selbst bleiben.
+for _k in [k for k in os.environ if k.startswith("PK_") and k != "PK_PWSH" and not k.startswith("PK_SELFTEST")]:
+    del os.environ[_k]
 TMP = tempfile.mkdtemp(prefix="pk-selftest-")
 os.environ.update(PK_DATA_DIR=TMP, PK_HTTPS="false", PK_DOMAIN="firma.local", PK_PUBLIC_HOSTNAME="pocketknife")
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
@@ -4960,18 +4965,20 @@ def _():
         for w in ("Start abgebrochen", f"{os.getuid()}:{os.getgid()}", "tls: Permission denied", "PK_UID und PK_GID", "Synology", "chown -R",
                   "nicht von Hand"):
             assert w in msg, (w, msg)
-        if os.geteuid() == 0:  # echt prüfen: als Benutzer ohne Rechte auf einem fremden Ordner
+        if os.geteuid() == 0:  # echt prüfen: als Benutzer ohne Rechte auf einem fremden Ordner (eigener Prozess, kein fork)
+            import subprocess
             os.chmod(d, 0o700)
-            pid = os.fork()
-            if pid == 0:
-                try:
-                    os.setgid(65534)
-                    os.setuid(65534)
-                    os._exit(3 if privileges.unwritable([d]) else 0)
-                except BaseException:
-                    os._exit(4)
-            st = os.waitpid(pid, 0)[1]
-            assert st >> 8 == 3, ("fremder Ordner muss als nicht beschreibbar erkannt werden", st, d)
+            # Modul in einen für alle lesbaren Ordner kopieren – der Programmordner ist für UID 65534 evtl. nicht lesbar
+            mod = tempfile.mkdtemp(prefix="pk-wrmod-")
+            os.chmod(mod, 0o755)
+            shutil.copy(privileges.__file__, os.path.join(mod, "pkpriv.py"))
+            os.chmod(os.path.join(mod, "pkpriv.py"), 0o644)
+            code = ("import sys; sys.path.insert(0, %r); import pkpriv; "
+                    "sys.exit(3 if pkpriv.unwritable([%r]) else 0)") % (mod, d)
+            r = subprocess.run([sys.executable, "-I", "-c", code], user=65534, group=65534, extra_groups=[],
+                               capture_output=True, text=True, timeout=60, cwd="/")
+            shutil.rmtree(mod, ignore_errors=True)
+            assert r.returncode == 3, ("fremder Ordner muss als nicht beschreibbar erkannt werden", r.returncode, r.stderr[-300:])
         base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
         rp = os.path.join(base, "run.py")
         if os.path.exists(rp):
@@ -5182,6 +5189,123 @@ def _():
     assert pk["tasks"] == ["heartbeat"] and pk["scans"] == 2 and any("/api/computers/{id}/inventory" in x for x in pk["requests"]), pk
     src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "scheduler.py"), encoding="utf-8").read()
     assert "loadstats.task(" in src and "loadstats.sample(" in src
+
+
+@test("2.32 Pakete zusammenfassen: verschachtelt (Reihenfolge, Neustart, Bei Fehler) oder als Kopie der Schritte („Ausführen als“ bleibt, eigene Bedingungen verhindern das Kopieren); nie über Mandanten hinweg; gpupdate /force wie gewohnt")
+def _():
+    import hashlib
+    import secrets
+    import time as _t
+    from app import auth, deploy, steps
+    tok = secrets.token_urlsafe(16)
+    th = hashlib.sha256(tok.encode()).hexdigest()
+    db.ex("INSERT INTO sessions(token_hash, username, display_name, created, expires, ip, last_active, role, scope) VALUES(?,?,?,?,?,?,?,?,?)",
+          (th, "pm-haupt", "Test", util.now(), "2099-01-01 00:00:00", "127.0.0.1", util.now(), "admin", None))
+    auth._checked[th] = _t.time() + 10 ** 6
+    mk = lambda name, st, run_as="system", reboot="never", conds="{}", tenant=None: db.ex(  # noqa: E731
+        "INSERT INTO packages(name, version, steps, conditions, run_as, reboot, tenant_id, created_at) VALUES(?,?,?,?,?,?,?,?)",
+        (name, "1", json.dumps({"main": st}), conds, run_as, reboot, tenant, util.now()))
+    a = mk("PM A", [{"id": "a1", "type": "command", "command": "echo a"}], run_as="system", reboot="if_required")
+    b = mk("PM B", [{"id": "b1", "type": "command", "command": "echo b"}], run_as="deploy")
+    cnd = mk("PM Bedingung", [{"id": "c1", "type": "command", "command": "echo c"}],
+             conds=json.dumps({"os": ["win11"], "arch": ["x64"], "ps_min": "", "logged_on": "always", "files": [], "registry": [], "collections": []}))
+    tid = db.ex("INSERT INTO tenants(name, created_at) VALUES('PM Mandant', ?)", (util.now(),))
+    tid2 = db.ex("INSERT INTO tenants(name, created_at) VALUES('PM Mandant 2', ?)", (util.now(),))
+    t1, t2 = mk("PM T1", [{"id": "t1", "type": "command", "command": "echo t1"}], tenant=tid), mk("PM T2", [{"id": "t2", "type": "command", "command": "echo t2"}], tenant=tid2)
+    made = [a, b, cnd, t1, t2]
+    try:
+        st, r = _asgi("POST", "/api/packages/merge", tok, {"ids": [b, a], "name": "PM Zusammen", "mode": "nested"})
+        assert st == 200, (st, r)
+        made.append(r["id"])
+        p = steps.normalize(deploy.row_to_package(db.q1("SELECT * FROM packages WHERE id=?", (r["id"],))))
+        assert [x["package_id"] for x in p["steps"]["main"]] == [b, a] and all(x["type"] == "nested" for x in p["steps"]["main"])
+        assert p["reboot"] == "if_required" and all(x["on_error"] == "stop" for x in p["steps"]["main"]), p["reboot"]
+        st, r = _asgi("POST", "/api/packages/merge", tok, {"ids": [a, b], "mode": "copy", "continue_on_error": True})
+        assert st == 200, (st, r)
+        made.append(r["id"])
+        p = steps.normalize(deploy.row_to_package(db.q1("SELECT * FROM packages WHERE id=?", (r["id"],))))
+        cmds = [(x["command"], x["run_as"], x["on_error"]) for x in p["steps"]["main"]]
+        assert cmds == [("echo a", "system", "continue"), ("echo b", "deploy", "continue")], cmds
+        assert p["name"] == "PM A + PM B" and len({x["id"] for x in p["steps"]["main"]}) == 2
+        st, r = _asgi("POST", "/api/packages/merge", tok, {"ids": [a, cnd], "mode": "copy"})
+        assert st == 400 and "Bedingungen" in str(r), (st, r)
+        st, r = _asgi("POST", "/api/packages/merge", tok, {"ids": [a, cnd], "mode": "nested"})
+        assert st == 200, ("verschachtelt geht mit Bedingungen", st, r)
+        made.append(r["id"])
+        st, r = _asgi("POST", "/api/packages/merge", tok, {"ids": [t1, t2], "mode": "nested"})
+        assert st == 400 and "Mandanten" in str(r), (st, r)
+        st, r = _asgi("POST", "/api/packages/merge", tok, {"ids": [a, t1], "mode": "nested"})
+        assert st == 200 and db.val("SELECT tenant_id FROM packages WHERE id=?", (r["id"],)) == tid, ("zentral + Mandant → Mandant", st, r)
+        made.append(r["id"])
+        assert _asgi("POST", "/api/packages/merge", tok, {"ids": [a]})[0] == 400, "mindestens zwei"
+        src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "main.py"), encoding="utf-8").read()
+        assert "echo N| gpupdate.exe /force" in src and "/target:computer" not in src
+        js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
+        assert "function mergePackagesDlg(selRows)" in js and "Zu neuem Paket zusammenfassen" in js
+    finally:
+        db.ex("DELETE FROM sessions WHERE token_hash=?", (th,))
+        for x in made:
+            db.ex("DELETE FROM pkg_ident WHERE package_id=?", (x,))
+            db.ex("DELETE FROM packages WHERE id=?", (x,))
+        db.ex("DELETE FROM tenants WHERE id IN (?,?)", (tid, tid2))
+
+
+@test("2.32 Selbsttest unabhängig von der Instanz: Einstellungen aus der .env (PK_NETBIOS, Dienstkonto …) gelten im Test nicht; kein fork()")
+def _():
+    from app import config
+    assert config.NETBIOS == "" and config.DOMAIN == "firma.local" and not config.ENV_SERVICE_USER, (config.NETBIOS, config.DOMAIN)
+    assert not [k for k in os.environ if k.startswith("PK_") and k not in ("PK_PWSH", "PK_DATA_DIR", "PK_HTTPS", "PK_DOMAIN", "PK_PUBLIC_HOSTNAME")
+                and not k.startswith("PK_SELFTEST")], sorted(k for k in os.environ if k.startswith("PK_"))
+    src = open(os.path.abspath(__file__), encoding="utf-8").read()
+    assert "os." + "fork()" not in src, "fork() in einem Prozess mit Threads kann hängen – subprocess verwenden"
+
+
+@test("2.32 Scan nach der Bereitstellung: gewähltes Scanprofil des Pakets – auch bei mehreren Paketen und in Zeitplänen (je Paket, „Nicht scannen“ zählt); läuft gerade ein Scan, wird er danach nachgeholt statt verworfen")
+def _():
+    from app import deploy, inventory, profiles, schedules, steps
+    apps = profiles.apps_profile_id()
+    hw = db.val("SELECT id FROM scan_profiles WHERE builtin_key='hardware'") or profiles.default()["id"]
+    mk = lambda name, rescan, prof: db.ex("INSERT INTO packages(name, version, steps, conditions, run_as, rescan, rescan_profile_id, created_at) "  # noqa: E731
+                                          "VALUES(?,?,?,?,?,?,?,?)", (name, "1", json.dumps({"main": [{"id": "x", "type": "command", "command": "echo"}]}),
+                                                                      "{}", "system", rescan, prof, util.now()))
+    a, b, n, gone = mk("RS A", 1, None), mk("RS B", 1, hw), mk("RS Nie", 0, None), mk("RS Weg", 1, 987654)
+    made = [a, b, n, gone]
+    orig_pool = inventory.pool
+    try:
+        assert deploy.rescan_profiles(deploy.row_to_package(db.q1("SELECT * FROM packages WHERE id=?", (b,)))) == [hw], "eigenes Profil"
+        assert deploy.rescan_profiles(deploy.row_to_package(db.q1("SELECT * FROM packages WHERE id=?", (a,)))) == [apps], "Standard: Anwendungen"
+        assert deploy.rescan_profiles(deploy.row_to_package(db.q1("SELECT * FROM packages WHERE id=?", (n,)))) == [], "Nicht scannen"
+        assert deploy.rescan_profiles(deploy.row_to_package(db.q1("SELECT * FROM packages WHERE id=?", (gone,)))) == [apps], "gelöschtes Profil → Anwendungen"
+        comp = deploy.composite([b, n, a])
+        assert deploy.rescan_profiles(comp) == [hw, apps], ("mehrere Pakete: je Paket", deploy.rescan_profiles(comp))
+        assert deploy.rescan_profiles(deploy.composite([n])) == [], "nur „Nicht scannen“"
+        s = {"name": "RS", "packages": [b, a], "options": {"stop_on_fail": True}, "tenant_id": None}
+        assert deploy.rescan_profiles(schedules.composite_package(s)) == [hw, apps], "Zeitplan: je Paket statt immer „Anwendungen“"
+        # läuft gerade ein Scan: nachholen statt verwerfen
+        started = []
+        class _P:
+            def submit(self, fn, cid, user, prof):
+                started.append((cid, prof["id"]))
+        inventory.pool = lambda: _P()
+        cid = 4242
+        inventory._scanning[cid] = "läuft"
+        assert inventory.queue_scan(cid, None, hw) is False, "ohne follow: wie bisher"
+        assert inventory.queue_scan(cid, None, hw, follow=True) is True and inventory.queue_scan(cid, None, hw, follow=True)
+        inventory.queue_scan(cid, None, apps, follow=True)
+        inventory._release(cid)
+        assert started == [(cid, hw)] and inventory._scanning.get(cid), started
+        inventory._release(cid)
+        assert started == [(cid, hw), (cid, apps)], started
+        inventory._release(cid)
+        assert cid not in inventory._scanning and cid not in inventory._follow
+        src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "deploy.py"), encoding="utf-8").read()
+        assert "inventory.queue_scan(c[\"id\"], None, pid, follow=True)" in src
+    finally:
+        inventory.pool = orig_pool
+        inventory._scanning.pop(4242, None)
+        inventory._follow.pop(4242, None)
+        for x in made:
+            db.ex("DELETE FROM packages WHERE id=?", (x,))
 
 
 def main():

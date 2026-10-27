@@ -452,6 +452,7 @@ ROUTES = {
     ("GET", "/api/packages/meta"): OPEN,
     ("GET", "/api/packages/{pid}"): _p_pkg,
     ("POST", "/api/packages"): _p_build,
+    ("POST", "/api/packages/merge"): _p_build,       # 2.32: Handler prüft jedes Paket (sichtbar) und den Mandanten
     ("PUT", "/api/packages/{pid}"): _p_pkg_edit,
     ("POST", "/api/packages/export"): OPEN,      # Handler: nur sichtbare Pakete (need_package je Paket)
     ("POST", "/api/packages/import"): _p_build,  # wie „Paket anlegen“; Mandant erzwungen, Regeln aus _pkg_values

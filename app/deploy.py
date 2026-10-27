@@ -502,6 +502,30 @@ def composite(package_ids, stop_on_fail=True):
             "steps": {"pre": [], "main": main, "post": []}, "tenant_id": tenants.pop()}
 
 
+def rescan_profiles(p):
+    """2.32: Mit welchen Scanprofilen nach der Bereitstellung gescannt wird – [] = nicht scannen.
+    Ein Paket: sein Profil („Danach scannen“, Standard „Anwendungen“). Mehrere Pakete in einer Bereitstellung oder einem
+    Zeitplan (composite): das Profil jedes einzelnen Pakets, „Nicht scannen“ zählt je Paket; jedes Profil einmal."""
+    from . import profiles, steps
+
+    def one(rescan, pid):
+        if not rescan:
+            return None
+        return pid if pid and profiles.get(pid) else profiles.apps_profile_id()
+    if not p.get("composite"):
+        x = one(p.get("rescan", 1), p.get("rescan_profile_id"))
+        return [x] if x else []
+    out = []
+    for _k, st in steps.iter_steps(steps.normalize(p)):
+        if st.get("type") != "nested" or not st.get("package_id") or st.get("enabled") is False:
+            continue
+        r = db.q1("SELECT rescan, rescan_profile_id FROM packages WHERE id=?", (st["package_id"],))
+        x = one(r["rescan"] if r and r["rescan"] is not None else 1, r["rescan_profile_id"] if r else None)
+        if x and x not in out:
+            out.append(x)
+    return out
+
+
 def strongest_reboot(values):
     """Neustart-Einstellung mehrerer Pakete zusammengefasst: „immer“ vor „wenn nötig“ vor „nie“ –
     ein Paket, das allein neu startet, tut das auch innerhalb eines Zeitplans oder einer Mehrfachauswahl."""
@@ -927,12 +951,12 @@ def _run_target(did, tid):
         try:
             lvl = pklog.info if ok else pklog.warn
             lvl("deploy", f"#{did} {p['name']} auf {c['name']}: {msg}", computer_id=c["id"])
-            if res in ("success", "failed") and p.get("rescan", 1) and db.setting("rescan_after_deploy"):
-                # Nach jeder Installation/Deinstallation: Standard ist das Profil „Anwendungen“, im Paket änderbar
-                from . import profiles
-                pid = p.get("rescan_profile_id") if p.get("rescan_profile_id") and profiles.get(p["rescan_profile_id"]) \
-                    else profiles.apps_profile_id()
-                inventory.queue_scan(c["id"], None, pid)
+            if res in ("success", "failed") and db.setting("rescan_after_deploy"):
+                # Nach jeder Installation/Deinstallation: Standard ist das Profil „Anwendungen“, im Paket änderbar.
+                # 2.32: bei mehreren Paketen (Auswahl, Zeitplan) das jeweils im Paket gewählte Profil; läuft gerade ein
+                # Scan, wird der danach nachgeholt statt verworfen
+                for pid in rescan_profiles(p):
+                    inventory.queue_scan(c["id"], None, pid, follow=True)
         except Exception as e:
             pklog.warn("deploy", f"#{did}: Nacharbeiten (Protokoll/Scan) fehlgeschlagen: {e}", computer_id=c["id"])
     except remote.Cancelled:

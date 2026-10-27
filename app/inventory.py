@@ -128,16 +128,41 @@ def scanning_ids():
     return list(_scanning)
 
 
-def queue_scan(cid, user=None, profile_id=None):
-    """Scan mit Scanprofil einreihen (ohne Angabe: Standardprofil)."""
+_follow = {}  # 2.32: computer_id → [(profil, benutzer)] – Scans, die nach dem laufenden Scan dran sind
+
+
+def queue_scan(cid, user=None, profile_id=None, follow=False):
+    """Scan mit Scanprofil einreihen (ohne Angabe: Standardprofil).
+    follow=True (Scan nach einer Bereitstellung, 2.32): Läuft für den Computer gerade ein Scan, wird dieser danach
+    nachgeholt statt verworfen – der laufende hat womöglich noch den Stand vor der Installation gelesen."""
     from . import profiles
     prof = (profiles.get(profile_id) if profile_id else None) or profiles.default()
     with _pool_lock:
         if cid in _scanning:
+            if follow:
+                q = _follow.setdefault(cid, [])
+                if prof["id"] not in [p["id"] for p, _u in q]:
+                    q.append((prof, user))
+                return True
             return False
         _scanning[cid] = prof["name"]
     pool().submit(_scan_safe, cid, user, prof)
     return True
+
+
+def _release(cid):
+    """Scan für cid beendet: einen nachzuholenden Scan starten (2.32), sonst den Computer freigeben."""
+    with _pool_lock:
+        q = _follow.get(cid)
+        if q:
+            prof, user = q.pop(0)
+            if not q:
+                _follow.pop(cid, None)
+            _scanning[cid] = prof["name"]
+        else:
+            _scanning.pop(cid, None)
+            return
+    pool().submit(_scan_safe, cid, user, prof)
 
 
 def scan_now(cid, user=None, prof=None, wait_s=600):
@@ -156,7 +181,7 @@ def scan_now(cid, user=None, prof=None, wait_s=600):
     try:
         scan(cid, user, prof)
     finally:
-        _scanning.pop(cid, None)
+        _release(cid)
     st = db.val("SELECT status FROM profile_scans WHERE computer_id=? AND profile_id=?", (cid, prof["id"]))
     if st == "OK":
         return "OK"
@@ -171,7 +196,7 @@ def _scan_safe(cid, user, prof):
     except Exception as e:  # pragma: no cover
         pklog.error("scan", f"Unerwarteter Fehler beim Scan: {e}", computer_id=cid)
     finally:
-        _scanning.pop(cid, None)
+        _release(cid)
 
 
 def scan(cid, user=None, prof=None):

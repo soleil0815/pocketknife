@@ -3092,6 +3092,7 @@ async function viewPackages(_p, params) {
       { label: `${selRows.length} Pakete bereitstellen …`, icon: 'send', onClick: () => deployDlg({ packageIds: selRows.map((x) => x.id) }) },
       { label: 'Zeitplan anlegen …', icon: 'clock', onClick: () => scheduleDlg(null, { packages: selRows.map((x) => x.id) }) },
       { label: `${selRows.length} Pakete exportieren`, icon: 'download', onClick: () => exportPackages(selRows.map((x) => x.id)) },
+      mayBuild() ? { label: 'Zu neuem Paket zusammenfassen …', icon: 'coll', onClick: () => mergePackagesDlg(selRows) } : null,
     ] : [
       { label: 'Bearbeiten', icon: 'edit', hint: 'Doppelklick', onClick: () => packageDlg(r.id) },
       { label: 'Bereitstellen …', icon: 'send', onClick: () => deployDlg({ packageId: r.id }) },
@@ -3113,6 +3114,37 @@ async function viewPackages(_p, params) {
     const fresh = await GET('/api/packages');
     t.setRows(tf === null || tf === '' ? fresh : fresh.filter((r) => String(r.tenant_id || 0) === tf));
   });
+}
+
+// --- 2.32: Pakete zu einem neuen zusammenfassen -------------------------------------------------
+function mergePackagesDlg(selRows) {
+  const list = selRows.slice();
+  const name = h('input', { value: list.map((x) => x.name).join(' + ').slice(0, 200) });
+  let mode = 'nested';
+  const seg = h('div.seg');
+  const hint = h('p.muted.small', { style: { margin: '6px 0 0' } });
+  const drawSeg = () => {
+    seg.replaceChildren(...[['nested', 'Verschachtelt (empfohlen)'], ['copy', 'Schritte kopieren']].map(([k, l]) => h('button', { type: 'button', class: mode === k ? 'on' : '', onclick: () => { mode = k; drawSeg(); } }, l)));
+    hint.textContent = tr(mode === 'nested'
+      ? 'Das neue Paket ruft die Pakete nacheinander auf. Sie bleiben verbunden: Ändern Sie ein Original, gilt das auch hier. Bedingungen, „Ausführen als“ und Neustart der Einzelpakete gelten weiter.'
+      : 'Die Schritte werden in das neue Paket kopiert – unabhängig von den Originalen. „Ausführen als“ jedes Schritts bleibt wie im Original. Pakete mit eigenen Bedingungen lassen sich nicht kopieren (die Bedingungen gingen verloren) – dann „verschachtelt“ wählen.');
+  };
+  drawSeg();
+  const cont = h('input', { type: 'checkbox' });
+  const box = h('div');
+  const drawList = () => box.replaceChildren(...list.map((r, i) => h('div.cond-line', h('span.pkg-n', String(i + 1)), h('b.raw', r.name), h('div.spacer'),
+    h('button.ghost.small', { type: 'button', title: 'Nach oben', onclick: () => { if (i) { list.splice(i - 1, 0, list.splice(i, 1)[0]); drawList(); } } }, '↑'),
+    h('button.ghost.small', { type: 'button', title: 'Nach unten', onclick: () => { if (i < list.length - 1) { list.splice(i + 1, 0, list.splice(i, 1)[0]); drawList(); } } }, '↓'))));
+  drawList();
+  modal('Pakete zusammenfassen', h('div.form',
+    field('Reihenfolge', box, 'Die Pakete laufen je Computer nacheinander in dieser Reihenfolge.'),
+    field('Name', name),
+    field('Art', h('div', seg, hint)),
+    field('Bei Fehler', h('label.chk', cont, 'mit dem nächsten Paket weitermachen'), 'Aus: nach einem Fehler werden die weiteren Pakete für diesen Computer nicht mehr ausgeführt.')),
+  [{ label: 'Abbrechen' }, { label: 'Zusammenfassen', cls: 'primary', onClick: async () => {
+    const r = await POST('/api/packages/merge', { ids: list.map((x) => x.id), name: name.value, mode, continue_on_error: cont.checked });
+    toast('Neues Paket angelegt', 'ok'); PKG_META = null; route(); packageDlg(r.id);
+  } }], { wide: true });
 }
 
 // --- Pakete exportieren / importieren ------------------------------------------------------
