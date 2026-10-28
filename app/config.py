@@ -39,6 +39,7 @@ LOG_DIR = os.path.join(DATA_DIR, "logs")
 WINGET_DIR = os.path.join(DATA_DIR, "winget")
 TLS_DIR = os.path.join(DATA_DIR, "tls")
 REPORT_DIR = os.path.join(DATA_DIR, "reports")
+UPDATE_DIR = os.path.join(DATA_DIR, "update")  # 2.32.9: Update-Auftrag an den Helfer auf dem Docker-Host (app/selfupdate.py)
 TMP_DIR = os.path.join(DATA_DIR, "tmp")  # Zwischendateien (TMPDIR im Container) – das Root-Dateisystem ist schreibgeschützt
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 
@@ -153,5 +154,5 @@ def repo_login():
 
 
 def ensure_dirs():
-    for d in (DATA_DIR, LOG_DIR, WINGET_DIR, TLS_DIR, REPORT_DIR, TMP_DIR):
+    for d in (DATA_DIR, LOG_DIR, WINGET_DIR, TLS_DIR, REPORT_DIR, TMP_DIR, UPDATE_DIR):
         os.makedirs(d, exist_ok=True)

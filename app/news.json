@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.32.9",
+   "date": "2026-10-28",
+   "items": [
+    {
+     "kind": "new",
+     "audience": "admin",
+     "de": "Update per Knopf: „Jetzt aktualisieren“ bei einer neuen Version – ein Helfer auf dem Docker-Host führt das Update mit Sicherung und automatischem Zurück aus (einmalig einrichten: sh update.sh --watch-install). Der Container bekommt keinen Zugriff auf Docker.",
+     "en": "Update with a button: \"Update now\" for a new version – a helper on the Docker host carries out the update with backup and automatic rollback (set up once: sh update.sh --watch-install). The container gets no access to Docker."
+    }
+   ]
+  },
+  {
    "version": "2.32.8",
    "date": "2026-10-28",
    "items": [

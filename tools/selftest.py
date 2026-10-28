@@ -5948,6 +5948,143 @@ def _():
         db.ex("DELETE FROM profile_scans WHERE computer_id=?", (c,))
         db.ex("DELETE FROM computers WHERE id=?", (c,))
 
+
+@test("2.32.9 Update aus der Oberfläche: Auftrag im Datenordner, nur Hauptadmins, nie älter; Host-Helfer update.sh --watch ohne Docker-Zugriff im Container")
+def _():
+    import shutil as _sh
+    import subprocess as _sp
+    import time as _t
+    from app import config, main as _m, selfupdate as su, news, util as _u
+    assert ("POST", "/api/system/selfupdate") not in _m.access.ROUTES and ("GET", "/api/system/selfupdate") not in _m.access.ROUTES, "nur Hauptadmins"
+    assert su.UPDATE_DIR == os.path.join(config.DATA_DIR, "update")
+    config.ensure_dirs()
+    assert os.path.isdir(su.UPDATE_DIR)
+    for n in os.listdir(su.UPDATE_DIR):
+        os.remove(os.path.join(su.UPDATE_DIR, n))
+    user = {"username": "admin'; rm -rf /"}
+    newer = config.VERSION.split("-")[0] + ".9"
+    # ohne Host-Helfer: verständliche Meldung, kein Auftrag
+    try:
+        su.request(newer, user); raise AssertionError("Helfer fehlt")
+    except ValueError as e:
+        assert "--watch-install" in str(e)
+    assert not os.path.exists(os.path.join(su.UPDATE_DIR, "request"))
+    open(os.path.join(su.UPDATE_DIR, "helper"), "w").write("seen=1\n")
+    assert su.state()["helper"]["active"]
+    for bad in ("", "1.0; rm -rf /", "../x", config.VERSION, "1.0"):
+        try:
+            su.request(bad, user); raise AssertionError(("abgelehnt", bad))
+        except ValueError:
+            pass
+    st = su.request(newer, user)
+    req = open(os.path.join(su.UPDATE_DIR, "request")).read()
+    assert req.startswith(f"version={newer}\n") and "by=adminrm-rf\n" in req.replace("'", ""), req
+    assert ";" not in req and " " not in req.split("by=")[1].split("\n")[0], req
+    assert st["request"]["version"] == newer and not st["request"]["stale"]
+    su.request("latest", user)
+    assert su.cancel(user)["request"] is None
+    # Stand vom Host: läuft → kein zweiter Auftrag; fertig → einmal ins Protokoll
+    w = lambda n, s: open(os.path.join(su.UPDATE_DIR, n), "w").write(s)  # noqa: E731
+    w("status", f"state=running\nfrom=2.32.8\ntarget={newer}\nstarted={int(_t.time())}\n")
+    try:
+        su.request(newer, user); raise AssertionError("läuft bereits")
+    except ValueError as e:
+        assert "bereits" in str(e)
+    w("status", f"state=done\nfrom=2.32.8\nto={newer}\ntarget={newer}\nby=admin\nstarted=1\nfinished=2\nmessage=\n")
+    w("update.log", "\x1b[1mzeile1\x1b[0m\r\nzeile2\n")
+    s = su.state()
+    assert s["status"]["state"] == "done" and s["status"]["finished"] == 2 and s["log"] == "zeile1\nzeile2", s
+    n0 = db.val("SELECT COUNT(*) FROM logs") if "logs" in [r["name"] for r in db.q("SELECT name FROM sqlite_master WHERE type='table'")] else None
+    su.poll(); su.poll()
+    assert db.setting_raw(su.LOGGED_KEY) == "2:done"
+    if n0 is not None:
+        assert db.val("SELECT COUNT(*) FROM logs") == n0 + 1, "nur einmal protokolliert"
+    w("status", "state=hacked\n")
+    assert su.read_status() is None
+    w("status", "state=failed\nfrom=x y\nto=<b>\nfinished=abc\n")
+    s = su.read_status()
+    assert s["from"] == "" and s["to"] == "" and s["finished"] is None, s
+    # nie einem Link folgen
+    os.remove(os.path.join(su.UPDATE_DIR, "status"))
+    secret = os.path.join(TMP, "geheim.txt"); open(secret, "w").write("state=done\n")
+    os.symlink(secret, os.path.join(su.UPDATE_DIR, "status"))
+    assert su.read_status() is None
+    for n in os.listdir(su.UPDATE_DIR):
+        os.remove(os.path.join(su.UPDATE_DIR, n))
+    # Oberfläche: Knopf, kein Docker-Socket
+    js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
+    assert "/api/system/selfupdate" in js and "Jetzt aktualisieren" in js
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+    dc = os.path.join(root, "docker-compose.yml")
+    if os.path.exists(dc):
+        assert "docker.sock" not in open(dc, encoding="utf-8").read(), "der Container bekommt nie Zugriff auf Docker"
+
+    # --- Host-Helfer (update.sh --watch) mit einem nachgebauten docker ---
+    f = os.path.join(root, "update.sh")
+    if not os.path.exists(f) or not _sh.which("sh"):
+        return  # im Container liegt update.sh nicht
+    src = open(f, encoding="utf-8").read()
+    for need in ("--watch) WATCH=run", 'mktemp "./.pk-host.XXXXXX"', '[ "$(pwd -P)" = "$(canon "$D")/update" ]', "< /dev/null",
+                 "OnUnitActiveSec=5min", "/etc/cron.d/$WATCH_UNIT", "synoinfo.conf"):
+        assert need in src, need
+    base = tempfile.mkdtemp(prefix="pk-watch-", dir=TMP)
+    inst, data, bind = os.path.join(base, "opt"), os.path.join(base, "daten"), os.path.join(base, "bin")
+    for d in (inst, data, bind, os.path.join(data, "update")):
+        os.makedirs(d)
+    open(os.path.join(data, "pocketknife.db"), "w").close()
+    open(os.path.join(inst, "VERSION"), "w").write("2.32.8\n")
+    open(os.path.join(inst, ".env"), "w").write(f"PK_DATA_PATH={data}\nPK_IMAGE_REPO=ghcr.io/test/pocketknife\n")
+    _sh.copy(f, os.path.join(inst, "update.sh"))
+    with open(os.path.join(bind, "docker"), "w") as h:  # Ziehen scheitert immer (hier geht es nur um den Helfer)
+        h.write('#!/bin/sh\necho "$*" >> "$FAKE_CALLS"\ncase "$1" in info|compose) exit 0 ;; pull) echo denied >&2; exit 1 ;; esac\nexit 0\n')
+    os.chmod(os.path.join(bind, "docker"), 0o755)
+    calls = os.path.join(base, "calls")
+    env = {**os.environ, "PATH": bind + ":" + os.environ.get("PATH", ""), "FAKE_CALLS": calls}
+    run = lambda: _sp.run(["sh", "update.sh", "--watch"], cwd=inst, env=env, capture_output=True, text=True, timeout=60)  # noqa: E731
+    U = os.path.join(data, "update")
+    rdk = lambda: dict(l.split("=", 1) for l in open(os.path.join(U, "status")).read().splitlines() if "=" in l)  # noqa: E731
+    # ohne Auftrag: nur Lebenszeichen, kein docker
+    r = run()
+    assert r.returncode == 0 and os.path.exists(os.path.join(U, "helper")) and not os.path.exists(calls), r.stderr
+    assert oct(os.stat(os.path.join(U, "helper")).st_mode & 0o777) == "0o644"
+    # ungültiger Auftrag / älter → abgelehnt, Auftrag weg, nichts gezogen
+    for body, why in (("version=1.0; reboot\n", "invalid"), ("version=2.32.7\n", "older"), ("version=2.32.8\n", "older")):
+        open(os.path.join(U, "request"), "w").write(body)
+        r = run()
+        assert r.returncode == 0 and rdk()["state"] == "refused" and rdk()["message"] == why, (body, rdk(), r.stderr)
+        assert not os.path.exists(os.path.join(U, "request")) and not os.path.exists(calls)
+    # gültiger Auftrag: update.sh --pull <Version> -y; Ziehen scheitert → failed, Protokoll da
+    open(os.path.join(U, "request"), "w").write("version=2.32.9-s1\nby=adm\\in\nat=1\n")
+    r = run()
+    k = rdk()
+    assert r.returncode == 0 and k["state"] == "failed" and k["target"] == "2.32.9-s1" and k["from"] == "2.32.8" and k["by"] == "adm\\in", (k, r.stderr)
+    assert int(k["finished"]) >= int(k["started"]) > 0
+    assert "pull ghcr.io/test/pocketknife:2.32.9-s1" in open(calls).read()
+    assert "could not be pulled" in open(os.path.join(U, "update.log")).read()
+    assert not [n for n in os.listdir(inst) if n.startswith((".pk-watch", ".pk-pull."))], os.listdir(inst)
+    assert not [n for n in os.listdir(U) if n.startswith(".pk-host.")], os.listdir(U)
+    # Link als Auftrag: entfernt, nie gelesen
+    os.symlink(os.path.join(inst, ".env"), os.path.join(U, "request"))
+    os.remove(calls)
+    r = run()
+    assert r.returncode == 0 and not os.path.lexists(os.path.join(U, "request")) and not os.path.exists(calls)
+    # Ordner durch einen Link ersetzt → nicht benutzt (nichts landet woanders)
+    _sh.rmtree(U)
+    elsewhere = os.path.join(base, "woanders"); os.makedirs(elsewhere)
+    os.symlink(elsewhere, U)
+    r = run()
+    assert r.returncode != 0 and not os.listdir(elsewhere), (r.stderr, os.listdir(elsewhere))
+    os.remove(U)
+    # läuft schon ein Helfer → sofort Ende
+    os.makedirs(U)
+    lk = os.path.join(inst, ".pk-watch.lock"); os.makedirs(lk); open(os.path.join(lk, "pid"), "w").write(str(os.getpid()))
+    open(os.path.join(U, "request"), "w").write("version=2.32.9\n")
+    r = run()
+    assert r.returncode == 0 and os.path.exists(os.path.join(U, "request")), "zweiter Helfer wartet"
+    open(os.path.join(lk, "pid"), "w").write("999999")  # verwaistes Schloss
+    r = run()
+    assert not os.path.exists(os.path.join(U, "request")) and not os.path.exists(lk), r.stderr
+
 def main():
     ok = 0
     for name, fn in RESULTS:

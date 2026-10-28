@@ -386,7 +386,23 @@ Das Skript zieht das Image, nimmt die Programm-ZIP **aus dem Image** (geprüft p
 - **Ohne Internet** oder bei einer eigenen Änderung am Code bleibt der ZIP-Weg wie bisher (baut lokal).
 - Der erste Wechsel auf 2.27.1 geht mit der ZIP-Datei (das alte `update.sh` kennt `--pull` noch nicht); danach genügt `--pull`.
 
-**Woher das Image kommt:** Bei jeder Version baut GitHub (Workflow `.github/workflows/release.yml`) das Image für amd64 und arm64, lässt den Selbsttest in beiden laufen, prüft beide mit **Trivy** auf bekannte Schwachstellen und lädt es nur dann hoch (zusätzlich montags automatisch mit aktualisierten Paketen – „Wöchentliches Sicherheitsupdate“ als `<Version>-s<n>`, z. B. 2.29.7-s1: gleiches Programm, nur neue Pakete; mit `:latest` sind die Container so jede Woche auf dem neuesten Stand); dazu ein Release mit der ZIP-Datei und ihrer Prüfsumme. Ausgelöst wird es mit einem Tag `v<Version>`, der zur Datei `VERSION` passen muss. Jeder Push und Pull Request baut und testet zusätzlich (`test.yml`), ohne etwas zu veröffentlichen.
+**Woher das Image kommt:** Bei jeder Version baut GitHub (Workflow `.github/workflows/release.yml`) das Image für amd64 und arm64, lässt den Selbsttest in beiden laufen, prüft beide mit **Trivy** auf bekannte Schwachstellen und lädt es nur dann hoch (zusätzlich montags automatisch mit aktualisierten Paketen – „Wöchentliches Sicherheitsupdate“ als `<Version>-s<n>`, z. B. 2.29.7-s1: gleiches Programm, nur neue Pakete; installiert per Knopf, `update.sh --pull` oder eine Container-Verwaltung mit `:latest`); dazu ein Release mit der ZIP-Datei und ihrer Prüfsumme. Ausgelöst wird es mit einem Tag `v<Version>`, der zur Datei `VERSION` passen muss. Jeder Push und Pull Request baut und testet zusätzlich (`test.yml`), ohne etwas zu veröffentlichen.
+
+**Update per Knopf aus der Oberfläche (ab 2.32.9):** POCKET KNIFE bekommt dafür **keinen** Zugriff auf Docker (wer den Docker-Socket hat, ist root auf dem Host). Der Knopf **Jetzt aktualisieren** legt nur einen Auftrag in den Datenordner (`data/update/`); ein kleiner **Update-Helfer** auf dem Docker-Host schaut alle 5 Minuten nach (ohne Auftrag nur ein Zeitstempel, kein Docker-Aufruf) und führt dann genau das obige `sh update.sh --pull <Version> -y` aus – mit Prüfsumme, Sicherung der Programmdateien, Gesundheitsprüfung, **automatischer Rückkehr** zur bisherigen Version, falls die neue nicht startet, und Selbsttest. Stand und Protokoll schreibt er zurück; POCKET KNIFE zeigt sie an, auch nach dem Neustart.
+
+Einmalig einrichten, als root im Programmordner:
+
+```bash
+cd /opt/pocketknife
+sudo sh update.sh --watch-install    # systemd-Timer (sonst /etc/cron.d), alle 5 Minuten
+sudo sh update.sh --watch-remove     # wieder abschalten
+```
+
+- **Synology:** Systemsteuerung → Aufgabenplaner → Erstellen → Geplante Aufgabe → Benutzerdefiniertes Skript; Benutzer **root**, Zeitplan täglich, **alle 5 Minuten** wiederholen (erste Ausführung 00:00, letzte 23:59), Skript: `sh /volume1/docker/pocketknife/update.sh --watch` (Pfad anpassen). `--watch-install` zeigt das auf einer Synology auch an.
+- **Private Registry:** `docker login ghcr.io` einmal **als root** (der Helfer läuft als root), siehe oben.
+- **Container-Verwaltung (Dockhand, Watchtower …):** für POCKET KNIFE das automatische Aktualisieren abschalten – sonst tauscht sie das Image ohne Sicherung und ohne die Programmdateien auf dem Host.
+- Der Helfer vertraut dem Auftrag nicht: nur eine Versionsnummer, **nie älter** als die laufende Version (zurück nur von Hand), nur aus der Registry der `.env`. Er folgt keinen Links im Datenordner und läuft nie doppelt.
+- In der Oberfläche: **Neuigkeiten → Version … ist verfügbar → Jetzt aktualisieren**, oder **Einstellungen → Wartung → Neuigkeiten und Updates → Update aus der Oberfläche** (dort auch Stand des Helfers, Ergebnis und Protokoll des letzten Updates). Nur Hauptadmins.
 
 Von Hand geht es wie bisher – entpacken und im neuen Ordner mit dem alten als Parameter aufrufen:
 
@@ -432,7 +448,7 @@ Fast jede Seite hat oben rechts ein **?**, das direkt zum passenden Kapitel dies
 
 Unter der Versionsnummer links oben steht nach einem Update dezent **Neu** – bei Sicherheitsupdates **Neu · Sicherheit** mit rotem Punkt. Ein Klick öffnet die Neuigkeiten: je Version kurze Punkte, gekennzeichnet als **Sicherheit**, **Neu**, **Verbessert** oder **Behoben** (Sicherheit immer oben). Danach verschwindet der Hinweis; die Neuigkeiten bleiben über **Neuigkeiten** an derselben Stelle erreichbar. POCKET KNIFE merkt sich je Benutzer, was er gesehen hat – wer mehrere Updates verpasst hat, sieht alle seither. Alle Einzelheiten stehen weiterhin im CHANGELOG.
 
-**Neue Version verfügbar** (nur Hauptadmins): Der POCKET-KNIFE-Server fragt einmal täglich bei GitHub nach dem neuesten Release – nie der Browser, und über den Proxyserver, falls eingetragen. Gibt es eine neuere Version, steht dort **↑ 2.28.1 verfügbar** (rot, wenn sie Sicherheitsupdates enthält). Der Klick zeigt ihre Neuigkeiten und den Befehl für das Update auf dem Docker-Host (`sh update.sh --pull`, siehe [Update](#update)); im Protokoll steht es einmal.
+**Neue Version verfügbar** (nur Hauptadmins): Der POCKET-KNIFE-Server fragt einmal täglich bei GitHub nach dem neuesten Release – nie der Browser, und über den Proxyserver, falls eingetragen. Gibt es eine neuere Version, steht dort **↑ 2.28.1 verfügbar** (rot, wenn sie Sicherheitsupdates enthält). Der Klick zeigt ihre Neuigkeiten und – ist der Update-Helfer auf dem Docker-Host eingerichtet – den Knopf **Jetzt aktualisieren**, sonst den Befehl für das Update auf dem Docker-Host (`sh update.sh --pull`, siehe [Update](#update)); im Protokoll steht es einmal.
 
 Einstellungen unter **Einstellungen → Wartung → Neuigkeiten und Updates**:
 

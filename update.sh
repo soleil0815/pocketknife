@@ -33,6 +33,16 @@
 #     once as the user that runs the update:  docker login ghcr.io -u <github user>  (token with read:packages).
 #   The ZIP way stays unchanged (e.g. without internet access).
 #
+# Since 2.32.9 – update from the web interface (button "Update now", main admins only), without giving the container
+# access to Docker:
+#
+#     sudo sh update.sh --watch-install    once: systemd timer or /etc/cron.d runs  update.sh --watch  every 5 minutes
+#     sudo sh update.sh --watch-remove     switch it off again
+#
+#   --watch looks for a request in <data>/update/, carries out  update.sh --pull <version> -y  (backup, checksum,
+#   health check, going back automatically) and writes state and log back for the web interface.
+#   Synology: Task Scheduler → user-defined script as root, every 5 minutes:  sh /path/update.sh --watch
+#
 # Options: -y (answer all questions with "yes")
 set -eu
 
@@ -42,6 +52,7 @@ ARG=""
 PULL=""
 PULLTAG=""
 PULLREF=""
+WATCH=""
 LOCAL_IMAGE="pocketknife:local"      # image name in docker-compose.yml
 PREV_IMAGE="pocketknife:previous"    # the image before the current (good) version – after a successful update
 BACK_IMAGE="pocketknife:rollback"    # the image running before THIS update – going back needs no build
@@ -53,8 +64,11 @@ while [ $# -gt 0 ]; do
     --pull) PULL=1
             case "${2:-}" in [0-9]*) PULLTAG="$2"; shift ;; esac ;;
     --pull=*) PULL=1; PULLTAG="${1#--pull=}" ;;
+    --watch) WATCH=run ;;
+    --watch-install) WATCH=install ;;
+    --watch-remove) WATCH=remove ;;
     --keep) shift ;;   # formerly: keep old version folders – since 2.24.1 there is only one program folder
-    -h|--help) sed -n '2,37p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,48p' "$0"; exit 0 ;;
     *) ARG="$1" ;;
   esac
   shift
@@ -637,6 +651,163 @@ from_registry() {
   fi
   from_zip "$Z"
 }
+
+# --------------------------------------------------------------------------------------------------------------
+# Since 2.32.9: update requested in the web interface (Settings → Maintenance / "Update now")
+#   The container never gets access to Docker. It only puts a request into <data>/update/request; this helper runs
+#   on the host every 5 minutes (sh update.sh --watch-install sets it up) and carries out  update.sh --pull <version> -y
+#   – with the usual backup, checksum, health check, automatic going back and self-test – and writes the state and
+#   the log back into <data>/update/. The request is not trusted: only a version number (or "latest"), never older than
+#   the running version; the folder belongs to the container, so nothing in it is followed as a link and every file is
+#   written as a new file (mktemp + mv).
+# --------------------------------------------------------------------------------------------------------------
+WATCH_UNIT="pocketknife-update"
+watch_datadir() {
+  D=$(envval "$SCRIPTDIR/.env" PK_DATA_PATH); D=$(resolve "$SCRIPTDIR" "${D:-./data}")
+  if [ ! -f "$D/pocketknife.db" ] && command -v docker >/dev/null 2>&1; then
+    m=$(docker inspect pocketknife --format '{{ range .Mounts }}{{ if eq .Destination "/data" }}{{ .Source }}{{ end }}{{ end }}' 2>/dev/null || true)
+    [ -n "$m" ] && D="$m"
+  fi
+  printf '%s' "$D"
+}
+# write a file into the update folder: new file next to it, then rename (never through a link planted there)
+watch_put() {
+  t=$(mktemp "./.pk-host.XXXXXX") || return 1
+  cat > "$t" && chmod 644 "$t" && mv -f "$t" "./$1" || { rm -f "$t"; return 1; }
+}
+watch_status() {  # state message
+  { printf 'state=%s\n' "$1"
+    printf 'from=%s\nto=%s\ntarget=%s\nby=%s\n' "${W_FROM:-}" "$(tr -d ' \r\n' < "$SCRIPTDIR/VERSION" 2>/dev/null || true)" "${W_REQ:-}" "${W_BY:-}"
+    printf 'started=%s\n' "${W_START:-}"
+    [ "$1" = running ] || printf 'finished=%s\n' "$(date +%s)"
+    printf 'message=%s\n' "$(printf '%s' "${2:-}" | tr -d '\r\n' | cut -c1-280)"
+  } | watch_put status
+}
+watch() {
+  YES=1
+  D=$(watch_datadir)
+  [ -d "$D" ] || die "Data folder not found ($D) – PK_DATA_PATH in $SCRIPTDIR/.env?"
+  WU="$D/update"
+  if [ -L "$WU" ]; then die "$WU is a symbolic link – not used."; fi
+  if [ ! -d "$WU" ]; then
+    mkdir -p "$WU" && chown "$(stat -c '%u:%g' "$D")" "$WU" 2>/dev/null || true
+  fi
+  # work INSIDE the folder (relative names from here on): even if it were swapped for a link later, every file stays
+  # in exactly this folder
+  cd "$WU" 2>/dev/null || exit 0
+  [ "$(pwd -P)" = "$(canon "$D")/update" ] || die "$WU does not resolve to $(canon "$D")/update – not used."
+  # one helper at a time (an update takes a few minutes, the timer may start again meanwhile)
+  LOCK="$SCRIPTDIR/.pk-watch.lock"
+  if ! mkdir "$LOCK" 2>/dev/null; then
+    op=$(cat "$LOCK/pid" 2>/dev/null || true)
+    if [ -n "$op" ] && kill -0 "$op" 2>/dev/null; then exit 0; fi
+    rm -rf "$LOCK"; mkdir "$LOCK" 2>/dev/null || exit 0
+  fi
+  echo $$ > "$LOCK/pid"
+  trap 'rm -rf "$LOCK"' EXIT
+  printf 'seen=%s\n' "$(date +%s)" | watch_put helper || true
+  R="request"
+  [ -f "$R" ] && [ ! -L "$R" ] || { [ -L "$R" ] && rm -f "$R"; exit 0; }
+  REQTXT=$(head -c 1024 "$R" 2>/dev/null || true)
+  rm -f "$R"   # taken – also if it is invalid (never twice)
+  W_REQ=$(printf '%s\n' "$REQTXT" | sed -n 's/^version=//p' | head -n 1 | tr -d ' \r')
+  W_BY=$(printf '%s\n' "$REQTXT" | sed -n 's/^by=//p' | head -n 1 | tr -cd 'A-Za-z0-9._@\\-' | cut -c1-64)
+  W_FROM=$(tr -d ' \r\n' < "$SCRIPTDIR/VERSION" 2>/dev/null || echo "?")
+  W_START=$(date +%s)
+  if ! printf '%s' "$W_REQ" | grep -Eq '^(latest|[0-9]+(\.[0-9]+){1,3}(-s[0-9]+)?)$'; then
+    W_REQ=""; watch_status refused "invalid"; exit 0   # invalid request (no version number)
+  fi
+  if [ "$W_REQ" != latest ] && [ "$W_FROM" != "?" ] && ! ver_lt "$W_FROM" "$W_REQ"; then
+    watch_status refused "older"; exit 0   # not newer than the running version – going back only by hand on the host
+  fi
+  watch_status running ""
+  L=$(mktemp "$SCRIPTDIR/.pk-watch-log.XXXXXX") || { watch_status failed "cannot create a log file in $SCRIPTDIR"; exit 1; }
+  trap 'rm -rf "$LOCK"; rm -f "$L"; [ -n "${CP:-}" ] && kill "$CP" 2>/dev/null' EXIT
+  # show progress in the web interface (as long as it is running)
+  ( while :; do sleep 5; tail -c 32768 "$L" 2>/dev/null | watch_put update.log || true; done ) &
+  CP=$!
+  set +e
+  if [ "$W_REQ" = latest ]; then sh "$SCRIPTDIR/update.sh" --pull -y < /dev/null > "$L" 2>&1
+  else sh "$SCRIPTDIR/update.sh" --pull "$W_REQ" -y < /dev/null > "$L" 2>&1
+  fi
+  rc=$?
+  set -e
+  kill "$CP" 2>/dev/null || true; wait "$CP" 2>/dev/null || true; CP=""
+  tail -c 32768 "$L" | watch_put update.log || true
+  if [ "$rc" = 0 ] && grep -q "is already up to date" "$L"; then watch_status current ""
+  elif [ "$rc" = 0 ]; then watch_status done ""
+  elif grep -q "is running again" "$L"; then watch_status rolledback ""
+  else watch_status failed "$(grep '^ERROR:' "$L" | tail -n 1 | sed 's/^ERROR: //')"
+  fi
+  exit 0
+}
+
+# sh update.sh --watch-install: run the helper every 5 minutes (systemd timer, otherwise /etc/cron.d)
+watch_install() {
+  need_docker
+  [ "$(id -u)" = 0 ] || die "Please run as root: sudo sh update.sh --watch-install"
+  D=$(watch_datadir); [ -d "$D" ] || die "Data folder not found ($D) – install POCKET KNIFE first."
+  if [ -f /etc/synoinfo.conf ]; then
+    say "Synology: please create the task in DSM instead (survives DSM updates):"
+    say "  Control Panel → Task Scheduler → Create → Scheduled Task → User-defined script"
+    say "    User: root     Schedule: daily, repeat every 5 minutes (Settings: first run 00:00, last run 23:59)"
+    say "    Script:  sh $SCRIPTDIR/update.sh --watch"
+    exit 0
+  fi
+  if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+    cat > "/etc/systemd/system/$WATCH_UNIT.service" <<UNIT
+[Unit]
+Description=POCKET KNIFE – carry out an update requested in the web interface
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh $SCRIPTDIR/update.sh --watch
+UNIT
+    cat > "/etc/systemd/system/$WATCH_UNIT.timer" <<UNIT
+[Unit]
+Description=POCKET KNIFE – look for an update request every 5 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target
+UNIT
+    systemctl daemon-reload && systemctl enable --now "$WATCH_UNIT.timer" >/dev/null
+    say "Set up: systemd timer $WATCH_UNIT.timer (every 5 minutes)."
+  elif [ -d /etc/cron.d ]; then
+    printf '# POCKET KNIFE – carry out an update requested in the web interface (update.sh --watch-remove removes this)\n*/5 * * * * root /bin/sh %s/update.sh --watch >/dev/null 2>&1\n' "$SCRIPTDIR" > "/etc/cron.d/$WATCH_UNIT"
+    chmod 644 "/etc/cron.d/$WATCH_UNIT"
+    say "Set up: /etc/cron.d/$WATCH_UNIT (every 5 minutes)."
+  else
+    die "Neither systemd nor /etc/cron.d – please run  sh $SCRIPTDIR/update.sh --watch  every 5 minutes as root yourself."
+  fi
+  sh "$SCRIPTDIR/update.sh" --watch || true
+  say "POCKET KNIFE now shows \"Update now\" for main admins when a new version is available."
+  say "Private registry: log in once as root:  docker login ghcr.io -u <user>  (token with read:packages)."
+  say "If a container manager (Dockhand, Watchtower …) updates POCKET KNIFE automatically, switch that off for it."
+}
+watch_remove() {
+  [ "$(id -u)" = 0 ] || die "Please run as root: sudo sh update.sh --watch-remove"
+  if [ -f "/etc/systemd/system/$WATCH_UNIT.timer" ]; then
+    systemctl disable --now "$WATCH_UNIT.timer" >/dev/null 2>&1 || true
+    rm -f "/etc/systemd/system/$WATCH_UNIT.timer" "/etc/systemd/system/$WATCH_UNIT.service"
+    systemctl daemon-reload 2>/dev/null || true
+    say "Removed: systemd timer $WATCH_UNIT.timer"
+  fi
+  [ -f "/etc/cron.d/$WATCH_UNIT" ] && rm -f "/etc/cron.d/$WATCH_UNIT" && say "Removed: /etc/cron.d/$WATCH_UNIT"
+  D=$(watch_datadir); [ -d "$D/update" ] && rm -f "$D/update/helper"
+  say "Update from the web interface is switched off (Synology: delete the task in the Task Scheduler)."
+}
+
+case "$WATCH" in
+  run) watch ;;
+  install) watch_install; exit 0 ;;
+  remove) watch_remove; exit 0 ;;
+esac
 
 if [ -n "$PULL" ]; then
   from_registry
