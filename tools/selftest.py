@@ -1930,7 +1930,7 @@ def _():
                 for n in fn:
                     z.write(os.path.join(dp, n), os.path.relpath(os.path.join(dp, n), zd))
         return zp
-    env = {**os.environ, "PATH": bind + ":" + os.environ.get("PATH", ""), "FAKE_STATE": st}
+    env = {**os.environ, "PATH": bind + ":" + os.environ.get("PATH", ""), "FAKE_STATE": st, "PK_SYSROOT": tempfile.mkdtemp(dir=TMP)}
     open(os.path.join(st, "running"), "w").write(inst + "\n")
 
     def run(zp):
@@ -2031,7 +2031,7 @@ def _():
         h = _hl.sha256(open(zp, "rb").read()).hexdigest()
         open(zp + ".sha256", "w").write(("0" * 64 if bad_sum else h) + f"  pocketknife-{ver}.zip\n")
         open(os.path.join(st, "imgver"), "w").write(ver + "\n")
-    env = {**os.environ, "PATH": bind + ":" + os.environ.get("PATH", ""), "FAKE_STATE": st}
+    env = {**os.environ, "PATH": bind + ":" + os.environ.get("PATH", ""), "FAKE_STATE": st, "PK_SYSROOT": tempfile.mkdtemp(dir=TMP)}
     open(os.path.join(st, "running"), "w").write(inst + "\n")
     open(os.path.join(st, "runid"), "w").write("sha256:old\n")
     open(os.path.join(st, "runref"), "w").write("pocketknife:local\n")
@@ -2049,6 +2049,21 @@ def _():
     assert "PK_IMAGE=ghcr.io/test/pocketknife:latest" in rd(".env") and "PK_DNS_1=1.2.3.4" in rd(".env"), "Container zeigt die Herkunft (wie andere Container)"
     assert "pull ghcr.io/test/pocketknife:latest" in open(os.path.join(st, "calls")).read()
     assert not [n for n in os.listdir(inst) if n.startswith((".pk-pull.", ".pk-update."))], "keine temporären Ordner übrig"
+    # 2.32.9: das Update richtet den Update-Helfer gleich mit ein (nichts zu aktivieren) – nur als root
+    sysr = env["PK_SYSROOT"]
+    if os.geteuid() == 0:
+        assert "Update from the web interface" in r.stdout and "every 5 minutes as root" in r.stdout and not os.path.exists(os.path.join(sysr, "etc")), "ohne systemd/cron nur ein Hinweis"
+        os.makedirs(os.path.join(sysr, "etc", "cron.d"))
+        dist("2.27.1", "NEU")
+        r = run("--pull")
+        cr = open(os.path.join(sysr, "etc", "cron.d", "pocketknife-update")).read()
+        assert r.returncode == 0 and f"*/5 * * * * root /bin/sh {os.path.realpath(inst)}/update.sh --watch" in cr, (r.stdout[-400:], cr)
+        open(os.path.join(inst, ".env"), "a").write("PK_UPDATE_HELPER=off\n")
+        os.remove(os.path.join(sysr, "etc", "cron.d", "pocketknife-update"))
+        r = run("--pull")
+        assert not os.path.exists(os.path.join(sysr, "etc", "cron.d", "pocketknife-update")), "abgeschaltet bleibt abgeschaltet"
+        envtxt = rd(".env").replace("PK_UPDATE_HELPER=off", "")
+        open(os.path.join(inst, ".env"), "w").write(envtxt + "\n")
     # bestimmte Version; Prüfsumme falsch → nichts geändert
     dist("2.27.2", "BOESE", bad_sum=True)
     r = run("--pull", "2.27.2")
@@ -2254,7 +2269,7 @@ def _():
         return zp
     tree(inst, "2.24.2", "ALT")
     open(os.path.join(inst, ".env"), "w").write("PK_SERVICE_PASSWORD=geheim\n")
-    env = {**os.environ, "PATH": bind + ":" + os.environ.get("PATH", ""), "FAKE_STATE": st}
+    env = {**os.environ, "PATH": bind + ":" + os.environ.get("PATH", ""), "FAKE_STATE": st, "PK_SYSROOT": tempfile.mkdtemp(dir=TMP)}
     open(os.path.join(st, "running"), "w").write(inst + "\n")
 
     def run(zp):
@@ -5967,7 +5982,7 @@ def _():
     try:
         su.request(newer, user); raise AssertionError("Helfer fehlt")
     except ValueError as e:
-        assert "--watch-install" in str(e)
+        assert "--watch-install" in str(e) and "automatisch" in str(e)
     assert not os.path.exists(os.path.join(su.UPDATE_DIR, "request"))
     open(os.path.join(su.UPDATE_DIR, "helper"), "w").write("seen=1\n")
     assert su.state()["helper"]["active"]
@@ -6039,7 +6054,7 @@ def _():
         h.write('#!/bin/sh\necho "$*" >> "$FAKE_CALLS"\ncase "$1" in info|compose) exit 0 ;; pull) echo denied >&2; exit 1 ;; esac\nexit 0\n')
     os.chmod(os.path.join(bind, "docker"), 0o755)
     calls = os.path.join(base, "calls")
-    env = {**os.environ, "PATH": bind + ":" + os.environ.get("PATH", ""), "FAKE_CALLS": calls}
+    env = {**os.environ, "PATH": bind + ":" + os.environ.get("PATH", ""), "FAKE_CALLS": calls, "PK_SYSROOT": tempfile.mkdtemp(dir=TMP)}
     run = lambda: _sp.run(["sh", "update.sh", "--watch"], cwd=inst, env=env, capture_output=True, text=True, timeout=60)  # noqa: E731
     U = os.path.join(data, "update")
     rdk = lambda: dict(l.split("=", 1) for l in open(os.path.join(U, "status")).read().splitlines() if "=" in l)  # noqa: E731
