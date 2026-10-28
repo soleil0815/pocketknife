@@ -1149,7 +1149,7 @@ function updatesCard() {
           const r = await run(() => PUT('/api/system/updates', { clear_token: true }), 'Token gelöscht'); if (r) draw(r);
         }, { cls: 'small ghost' }) : null), 'Nur bei einem privaten Repository: fein granulares Token mit Lesezugriff auf das Repository („Contents: Read“). Wird verschlüsselt gespeichert und nie angezeigt.'),
         field('Stand', h('span.small', { class: st && !st.ok ? 'err-text' : 'muted' }, stTxt)),
-        field('Update aus der Oberfläche', suField(), 'Der Container hat keinen Zugriff auf Docker: POCKET KNIFE legt nur einen Auftrag in den Datenordner, der Update-Helfer auf dem Docker-Host führt das Update aus (sh update.sh --pull, mit Sicherung und automatischem Zurück). Eine Container-Verwaltung wie Dockhand sollte POCKET KNIFE dann nicht mehr selbst aktualisieren.')),
+        field('Update aus der Oberfläche', suField(), 'Der Container hat keinen Zugriff auf Docker: POCKET KNIFE legt nur einen Auftrag in den Datenordner, der Update-Helfer auf dem Docker-Host führt das Update aus (sh update.sh --pull, mit Sicherung und automatischem Zurück). Empfehlung: keine automatischen Updates durch Watchtower, Dockhand, Tugtainer & Co. – sie tauschen nur das Image, ohne guacd, docker-compose.yml und automatisches Zurück.')),
       h('div.row', { style: { gap: '8px', marginTop: '8px' } },
         btn('Speichern', async () => {
           const b = { enabled: en.checked, repo: repo.value.trim() };

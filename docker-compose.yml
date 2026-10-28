@@ -4,9 +4,9 @@ name: pocketknife
 
 services:
   pocketknife:
-    # Since 2.28.2: by default the ready-made image from the GitHub Container Registry (amd64/arm64). With :latest a
-    # container manager (e.g. Dockhand, Watchtower) or "docker compose pull && docker compose up -d" keeps it up to date;
-    # to stay on a version: PK_IMAGE=ghcr.io/soleil0815/pocketknife:2.28.2 in the .env.
+    # Since 2.28.2: by default the ready-made image from the GitHub Container Registry (amd64/arm64). Update with the
+    # button "Update now" in POCKET KNIFE or "sudo sh update.sh --pull" – not with automatic updates by Watchtower,
+    # Dockhand, Tugtainer & co. (they only swap this image; guacd below and this file stay old); to stay on a version: PK_IMAGE=ghcr.io/soleil0815/pocketknife:2.28.2 in the .env.
     # Built locally (ZIP update, no internet): PK_IMAGE=pocketknife:local – update.sh sets that itself.
     image: ${PK_IMAGE:-ghcr.io/soleil0815/pocketknife:latest}
     container_name: pocketknife
