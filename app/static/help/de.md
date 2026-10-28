@@ -545,6 +545,8 @@ Ist es unter **Einstellungen → Active Directory** eingeschaltet, legt der Abgl
 
 Ein Doppelklick auf einen Computer öffnet seine Detailansicht. Links stehen die Kategorien (Computer, Anwendungen, Hardware, Dienste, Laufwerke, Netzwerkkarten, Scans, Bereitstellungen …), rechts die Daten. Die Übersicht zeigt Betriebssystem, Hardware, Sicherheit (Defender, BitLocker, TPM, Firewall) und den Scanstatus.
 
+**Angemeldete Benutzer (ab 2.32.6):** Neben jedem angemeldeten Benutzer steht, ob seine Sitzung **gesperrt** ist (Sperrbildschirm) oder **getrennt** (Remotedesktop geschlossen oder Benutzer gewechselt – seine Programme laufen weiter). Ohne Zusatz ist die Sitzung aktiv. Bei Online-Computern fragt POCKET KNIFE das beim Öffnen live ab, sonst gilt der Stand des letzten Scans; die Computerliste zeigt es in der Spalte „Benutzer“. Grundlage sind `quser` (getrennt) und der Sperrbildschirm-Prozess in der Sitzung (gesperrt); auf Windows Home ohne `quser` fehlt „getrennt“.
+
 ![Detailansicht eines Computers](img/de/computer.jpg)
 
 Aktionen direkt beim Computer:
@@ -579,7 +581,7 @@ Ein Scanprofil legt fest, **was** gescannt wird (Scanner), **bei welchen Compute
 | Intervall | alle n Minuten/Stunden/Tage |
 | Täglich / Wöchentlich / Monatlich | zu einer Uhrzeit an bestimmten Tagen |
 | Scan-Alter | sobald der letzte Scan älter als eine Zeitspanne ist, optional nur in einem Zeitfenster |
-| Heartbeat | sobald ein Computer (wieder) online ist |
+| Heartbeat | sobald ein Computer (wieder) online ist – ab 2.32.8 erst einige Minuten danach (Standard 3, **Einstellungen → Zeitpläne & Leistung → Scan nach dem Hochfahren**), damit Netzwerk, Dienste und Anmeldung fertig sind. Das gilt für alle automatischen Scans eines gerade hochgefahrenen oder aufgewachten Computers; manuelle Scans laufen sofort |
 
 „Offline Computer nachholen“ scannt Computer, die zum Zeitpunkt offline waren, sobald sie online kommen.
 
@@ -950,6 +952,8 @@ Nur bei **Pakete verteilen**: bei Fehler die weiteren Pakete auslassen, erfolgre
 # Tools {#tools}
 
 Computer auswählen → **Tools ▾** oder Rechtsklick → Tools.
+
+**Dateien aus dem Repository, Zeitlimit, Erfolgscodes, Danach scannen (ab 2.32.7):** Braucht ein Tool ein Programm, das nicht auf dem Client liegt (z. B. `iperf3.exe`), trägt man unter **Dateien aus dem Repository** einen Ordner oder eine Datei aus dem Repository ein. POCKET KNIFE kopiert sie vor dem Ausführen selbst über die Admin-Freigabe auf den Computer, der Befehl läuft in diesem Ordner (`iperf3.exe -c server -i 1`), danach wird aufgeräumt. So braucht der Computer keinen Zugriff auf Freigaben: Ein Befehl wie `\\server\freigabe\programm.exe` scheitert in einer WinRM-Sitzung grundsätzlich („Double-Hop“ – die Sitzung hat keine Anmeldedaten für weitere Freigaben), und Leserechte für Computerkonten oder Kennwörter auf dem Client sind keine gute Idee. Ordner von Mandanten sind für Tools nicht wählbar – bekommt ein Mandant den Ordner später, läuft das Tool nicht mehr. **Zeitlimit** in Sekunden (leer = 30 Minuten), **Erfolgscodes** wie bei Paketen (leer = 0). **Danach scannen** (Standard: nicht): *Nach Erfolg* oder *Immer* mit einem Scanprofil – je Computer nach dem Tool; läuft gerade ein Scan, wird er danach nachgeholt.
 
 **Tastenkürzel (ab 2.32.4):** Jedes Tool kann ein Kürzel haben – immer **Strg+Alt**, wahlweise mit **Umschalt**, dazu ein Buchstabe, eine Ziffer oder F1–F12. Bei eigenen Tools legst du es im Tool fest: Tool öffnen, ins Feld **Tastenkürzel** klicken und die Kombination drücken (Rücktaste oder Entf entfernt es). Ist sie schon vergeben, steht sofort darunter, an welches Tool. Die eingebauten Tools haben Vorgaben (z. B. Strg+Alt+P Ping & Ports, Strg+Alt+R Remotedesktop, Strg+Alt+E Ereignisanzeige, Strg+Alt+B Neustart/Herunterfahren), die du unter **Tools → Tastenkürzel …** ändern oder entfernen kannst; dort steht auch die Übersicht aller Kürzel. Ein Kürzel startet das Tool für die markierten Computer der Computerliste oder für den geöffneten Computer; bei mehreren Computern fragt POCKET KNIFE vorher nach. Die Kürzel gelten für alle Benutzer. In Eingabefeldern, Dialogen und geöffneten Menüs sind sie aus – AltGr-Zeichen wie `{ [ ] } @ €` starten also nie ein Tool. Menüs und die Tools-Seite zeigen das Kürzel neben dem Tool.
 

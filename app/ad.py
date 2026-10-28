@@ -904,7 +904,7 @@ def rdn_name(dn):
 
 
 def dn_path(dn):
-    """„OU=MOBILE,OU=WORKSTATION,DC=ihome,DC=dom“ → „ihome.dom/WORKSTATION/MOBILE“"""
+    """„OU=MOBILE,OU=WORKSTATION,DC=firma,DC=local“ → „firma.local/WORKSTATION/MOBILE“"""
     parts = split_dn(dn)
     dcs = [p.split("=", 1)[1] for p in parts if p.upper().startswith("DC=")]
     rest = [re.sub(r"\\(.)", r"\1", p.split("=", 1)[1]) for p in parts if not p.upper().startswith("DC=")]

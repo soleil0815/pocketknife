@@ -258,6 +258,16 @@ def check_tenant_folder(folder, tid=None):
         o = key(r["repo_folder"])
         if k == o or k.startswith(o + "\\") or o.startswith(k + "\\"):
             raise RepoError(f"Der Repository-Ordner überschneidet sich mit dem von Mandant „{r['name']}“ ({norm(r['repo_folder'])}).")
+    # 2.32.7: auch keine Ordner, die ein Tool benutzt (Tools laufen für alle mit dem Dienstkonto bzw. als SYSTEM)
+    try:
+        tool_rows = db.q("SELECT name, repo_path FROM tools WHERE COALESCE(repo_path, '') != ''")
+    except Exception:  # Tabelle/Spalte noch nicht angelegt (Start, ältere Datenbank)
+        tool_rows = []
+    for t in tool_rows:
+        o = key(t["repo_path"])
+        if o and (k == o or k.startswith(o + "\\") or o.startswith(k + "\\")):
+            raise RepoError(f"Der Ordner „{norm(folder)}“ überschneidet sich mit den Dateien des Tools „{t['name']}“ "
+                            f"({norm(t['repo_path'])}) – als Mandantenordner nicht möglich.")
     # Ordner, die schon Pakete anderer Bereiche (zentral, andere Mandanten) benutzen, darf ein Mandant nicht bekommen –
     # seine Admins könnten sonst deren Dateien ändern oder etwas danebenlegen
     others = [h for h in usage(folder) if h[4][0] == "pkg" and h[4][3] != int(tid or 0) and

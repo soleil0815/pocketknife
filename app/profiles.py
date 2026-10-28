@@ -568,10 +568,15 @@ def dispatch():
     from . import inventory
     db.ex("UPDATE profile_scans SET pending=0, pending_since=NULL WHERE pending=1 AND pending_since < ?",
           (util.ago(days=14),))
+    # 2.32.8: gerade hochgefahrene oder aufgewachte Computer erst nach einer kurzen Wartezeit scannen – Netzwerkkarte
+    # (Geschwindigkeit), Dienste und angemeldete Benutzer sind dann fertig; manuelle Scans laufen sofort
+    delay = int(db.setting("scan_online_delay_minutes") or 0)
+    ready = util.ago(minutes=delay) if delay > 0 else "9999"
     rows = db.q("""SELECT ps.computer_id, ps.profile_id FROM profile_scans ps JOIN computers c ON c.id=ps.computer_id
                    JOIN scan_profiles p ON p.id=ps.profile_id
                    WHERE ps.pending=1 AND c.online=1 AND c.winrm=1 AND p.enabled=1 AND COALESCE(c.scan_allowed, 1)=1
-                   ORDER BY ps.pending_since""")
+                     AND (c.online_since IS NULL OR c.online_since <= ?)
+                   ORDER BY ps.pending_since""", (ready,))
     for r in rows:
         if inventory.is_scanning(r["computer_id"]):
             continue

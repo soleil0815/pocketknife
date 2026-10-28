@@ -334,7 +334,7 @@ class Anonymizer:
         if not self.enabled:
             return t
         dn_parts = list(config.BASE_DN.split(",")) if config.BASE_DN else []
-        # AD-Pfade: DC=aap,DC=dom → DC=firma,DC=local; OU=…/CN=… → Platzhalter
+        # AD-Pfade: DC=beispiel,DC=lan → DC=firma,DC=local; OU=…/CN=… → Platzhalter
         if dn_parts:
             t = re.sub(re.escape(config.BASE_DN), ",".join("DC=" + p for p in ANON_DOMAIN.split(".")), t, flags=re.I)
         t = re.sub(r"\b(DC)=([^,=\s\\]+)", lambda m: m.group(0) if m.group(2).lower() in ANON_DOMAIN.split(".")

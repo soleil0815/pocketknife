@@ -1631,7 +1631,7 @@ async function viewComputers(_parts, params) {
     { key: 'os_display_version', label: 'Version' },
     { key: 'os_build', label: 'Build' },
     { key: 'uptime', label: 'Betriebszeit', value: (r) => (r.online ? uptime(r.last_boot) : ''), sort: (r) => (r.online && r.last_boot ? r.last_boot : ''), hidden: true },
-    { key: 'current_user', label: 'Benutzer' },
+    { key: 'current_user', label: 'Benutzer', render: (r) => usersEl(r.current_user, r.user_states), value: (r) => usersText(r.current_user, r.user_states) },
     { key: 'manufacturer', label: 'Hersteller', hidden: true },
     { key: 'model', label: 'Modell' },
     { key: 'chassis', label: 'Gehäuse', hidden: true },
@@ -2208,7 +2208,9 @@ const PC_COLS = {
     ['password_expires', 'Passwort läuft ab', R.date('password_expires')], ['description', 'Beschreibung', null, 'trunc']],
   nics: [['name', 'Adapter'], ['connection', 'Verbindung'], ['status', 'Status', (r) => h('span.badge', { class: r.status === 'Verbunden' ? 'ok' : '' }, r.status || '')],
     ['ip', 'IP-Adresse'], ['subnet', 'Subnetz'], ['gateway', 'Gateway'], ['dns', 'DNS'], ['dhcp', 'DHCP', R.bool('dhcp')],
-    ['dhcp_server', 'DHCP-Server'], ['mac', 'MAC', null, 'mono'], ['speed', 'Geschwindigkeit', (r) => (r.speed ? `${Math.round(r.speed / 1e6)} Mbit/s` : '')],
+    ['dhcp_server', 'DHCP-Server'], ['mac', 'MAC', null, 'mono'], ['speed', 'Geschwindigkeit', (r) => (!r.speed ? '' : (r.wired !== false && r.speed <= 1e8)
+      ? h('span', `${Math.round(r.speed / 1e6)} Mbit/s `, h('span.badge.warn', { title: tr('Kabelgebundene Karte nur mit 10/100 Mbit/s verbunden – Kabel, Switchport oder Energiespar-Einstellung des Treibers prüfen') }, '!'))
+      : `${Math.round(r.speed / 1e6)} Mbit/s`)],
     // 2.31: Wake-on-LAN-Bereitschaft (ab Scan mit 2.31)
     ['wol_magic', 'Wake-on-LAN', (r) => (r.wol_magic ? h('span.badge', { class: r.wol_magic === 'an' ? 'ok' : 'warn' }, r.wol_magic) : '')],
     ['wake_armed', 'Darf wecken', R.bool('wake_armed')], ['wol_driver', 'WoL-Treiber-Einstellungen', null, 'wrap']],
@@ -2456,12 +2458,12 @@ function pcOverview(c, link) {
   const warnBool = (v) => (v ? h('span.badge.warn', 'Ja') : v === false ? 'Nein' : '');
 
   // Angemeldeter Benutzer: Stand des letzten Scans, bei Online-Computern sofort live nachgefragt
-  const userBox = h('span', c.current_user || (c.online ? h('span.muted', 'wird abgefragt …') : h('span.muted', 'niemand (laut letztem Scan)')));
+  const userBox = h('span', c.current_user ? usersEl(c.current_user, e.user_states) : (c.online ? h('span.muted', 'wird abgefragt …') : h('span.muted', 'niemand (laut letztem Scan)')));
   const userDn = h('span', e.user_display_name || '');
   if (c.online) {
     POST(`/api/computers/${c.id}/loggedon`).then((r) => {
       if (!r.live) { if (!c.current_user) userBox.replaceChildren(h('span.muted', 'nicht abfragbar')); return; }
-      userBox.replaceChildren(r.user || h('span.muted', 'niemand angemeldet'));
+      userBox.replaceChildren(r.user ? usersEl(r.user, r.states) : h('span.muted', 'niemand angemeldet'));
       userDn.replaceChildren(r.display_name || '');
     }).catch(() => { if (!c.current_user) userBox.replaceChildren(''); });
   }
@@ -5479,6 +5481,7 @@ async function viewSettings() {
 
   const sched = h('div.card', h('div.card-h', h('h2', 'Zeitpläne & Leistung')), h('div.card-b', h('div.form',
     field('Heartbeat alle (Min.)', n('heartbeat_minutes'), 'Prüft, welche Computer online sind. Wann gescannt wird, legen die Scanprofile fest.'),
+    field('Scan nach dem Hochfahren (Min.)', n('scan_online_delay_minutes', { min: 0 }), 'Automatische Scans für einen gerade hochgefahrenen oder aufgewachten Computer erst nach dieser Zeit – dann sind Netzwerk, Dienste und Anmeldung fertig. 0 = sofort. Manuelle Scans laufen immer sofort.'),
     field('Parallele Scans', n('scan_concurrency', { min: 1 }), 'Wirksam nach Neustart des Containers.'),
     field('Parallele Installationen', n('deploy_concurrency', { min: 1 }), 'Wirksam nach Neustart des Containers.'),
     field('Zeitlimit Installation (Min.)', n('deploy_timeout_minutes', { min: 1 })),
@@ -5968,6 +5971,29 @@ const BUILTIN_TOOLS = [
   { key: 'files', name: 'Dateien (Explorer) …', icon: 'folder', view: 'files' },
   { key: 'eventlog', name: 'Ereignisanzeige …', icon: 'log', view: 'eventlog' },
 ];
+// 2.32.6: Sitzungszustand angemeldeter Benutzer – gesperrt (Sperrbildschirm) oder getrennt (Remotedesktop/Benutzerwechsel)
+const USER_STATE = { locked: 'gesperrt', disconnected: 'getrennt' };
+function userStatesOf(states) {
+  let o = states || {};
+  if (typeof o === 'string') { try { o = JSON.parse(o) || {}; } catch (e) { o = {}; } }
+  const out = {};  // Groß/Klein egal (Win32_ComputerSystem und explorer.exe schreiben Domäne/Name nicht immer gleich)
+  Object.entries(o).forEach(([k, v]) => { out[k.toLowerCase()] = v; });
+  return out;
+}
+function usersText(users, states) {
+  const st = userStatesOf(states);
+  return String(users || '').split(',').map((u) => u.trim()).filter(Boolean).map((u) => { const x = st[u.toLowerCase()]; return x ? `${u} (${tr(USER_STATE[x] || x)})` : u; }).join(', ');
+}
+function usersEl(users, states) {
+  const st = userStatesOf(states);
+  const list = String(users || '').split(',').map((u) => u.trim()).filter(Boolean);
+  return h('span', list.map((u, i) => {
+    const x = st[u.toLowerCase()];
+    return [i ? ', ' : '', h('span.raw', u), x ? h('span.badge' + (x === 'locked' ? '.info' : ''), { style: { marginLeft: '4px' },
+      title: x === 'locked' ? 'Sperrbildschirm' : 'Sitzung getrennt (Remotedesktop oder Benutzerwechsel) – Programme laufen weiter' }, USER_STATE[x] || x) : null];
+  }));
+}
+
 // 2.32.4: Tastenkürzel gehören zum Tool (für alle gleich): beim eigenen Tool im Tool-Dialog festlegen, bei eingebauten
 // Tools unter Tools → „Tastenkürzel …“ (mit Vorgaben). Immer Strg+Alt (+ Umschalt) und A–Z, 0–9 oder F1–F12; schon
 // vergebene Kürzel werden sofort angezeigt. Gilt für die markierten Computer der Computerliste bzw. den geöffneten
@@ -6435,11 +6461,29 @@ async function toolDlg(tool, presetFolder) {
   const desc = h('input', { value: tool.description || '' });
   const confirm = h('input', { type: 'checkbox', checked: !!tool.confirm });
   const hk = hkInput(tool.hotkey || '', isNew ? null : `tool:${tool.id}`);
+  // 2.32.7: Dateien aus dem Repository, Zeitlimit, Erfolgscodes, Danach scannen
+  const repo = h('input', { value: tool.repo_path || '', placeholder: 'z. B. Tools\\iperf' });
+  const repoBtn = btn('Wählen …', async () => { const f = await repoPickFolder(repo.value || ''); if (f !== undefined && f !== null) repo.value = f; }, { cls: 'small' });
+  const timeout = h('input', { type: 'number', min: '10', max: '14400', step: '1', value: tool.timeout_s || '', placeholder: String(data.default_timeout || 1800), style: { width: '120px' } });
+  const codes = h('input', { value: tool.success_codes || '', placeholder: '0', style: { width: '160px' } });
+  const scanAfter = sel(Object.entries(data.scan_after || { never: 'Nicht scannen' }), tool.scan_after || 'never');
+  const scanProf = sel([['', 'Standardprofil'], ...(data.profiles || []).map((p) => [String(p.id), p.name + (p.is_default ? ' (Standard)' : '')])], tool.scan_profile_id ? String(tool.scan_profile_id) : '');
+  const scanUpd = () => { scanProf.disabled = scanAfter.value === 'never'; };
+  scanAfter.addEventListener('change', scanUpd);
+  scanUpd();
   const hint = h('div.hint');
   const runRow = field('Ausführen als', runAs, 'Dienstkonto: direkt über WinRM, schnell. SYSTEM: über eine geplante Aufgabe, z. B. für SFC oder Dinge, die als Computerkonto laufen müssen.');
+  const extraRows = [
+    field('Dateien aus dem Repository', h('div.row', { style: { gap: '6px' } }, repo, repoBtn),
+      'Ordner (oder Datei) wird vor dem Ausführen auf den Computer kopiert, der Befehl läuft in diesem Ordner – z. B. „iperf3.exe -c server“. Danach wird aufgeräumt. Kein Zugriff des Computers auf Freigaben nötig.'),
+    field('Zeitlimit', h('div.row', { style: { gap: '6px', alignItems: 'center' } }, timeout, h('span.muted', 'Sekunden')), 'Leer = Standard.'),
+    field('Erfolgscodes', codes, 'Exitcodes, die als Erfolg zählen, mit Komma getrennt (leer = 0).'),
+    field('Danach scannen', h('div.row', { style: { gap: '6px' } }, scanAfter, scanProf), 'Je Computer nach dem Tool; läuft gerade ein Scan, wird er danach nachgeholt.'),
+  ];
   const toggle = () => {
     const url = type.value === 'url';
     runRow.forEach((e) => e && (e.style.display = url ? 'none' : ''));
+    extraRows.forEach((r) => r.forEach((e) => e && (e.style.display = url ? 'none' : '')));
     script.rows = url ? 2 : 12;
     hint.textContent = url ? 'Wird im Browser geöffnet, z. B. vnc://$(IP), https://$(Host):8443 oder http://$(IP):9100'
       : type.value === 'cmd' ? 'Befehle wie in einer .cmd-Datei, mehrzeilig möglich, z. B. ipconfig /all'
@@ -6447,7 +6491,7 @@ async function toolDlg(tool, presetFolder) {
   };
   type.addEventListener('change', toggle);
   const form = h('div.form', field('Name', name), field('Ordner', combo(folder, folders, { width: '100%' })),
-    field('Typ', type), runRow, h('label', 'Befehl / URL'), script, hint,
+    field('Typ', type), runRow, h('label', 'Befehl / URL'), script, hint, ...extraRows,
     field('Beschreibung', desc), field('Rückfrage', h('label.chk', confirm, 'vor dem Ausführen bestätigen (für ändernde Aktionen)')),
     field('Tastenkürzel', hk.el, 'Startet das Tool für die markierten Computer bzw. den geöffneten Computer.'),
     h('div.full.muted.small', 'Variablen: $(Computer) $(Host) $(IP) $(MAC) $(User) $(Domain)'));
@@ -6458,7 +6502,8 @@ async function toolDlg(tool, presetFolder) {
     buttons.splice(1, 0, { label: 'Als Kopie speichern', onClick: async () => { await POST('/api/tools', { ...collect(), name: name.value + ' (Kopie)', hotkey: '' }); toast('Kopie angelegt', 'ok'); route(); } });
   }
   function collect() {
-    return { name: name.value, folder: folder.value, type: type.value, run_as: runAs.value, script: script.value, description: desc.value, confirm: confirm.checked, hotkey: hk.value };
+    return { name: name.value, folder: folder.value, type: type.value, run_as: runAs.value, script: script.value, description: desc.value, confirm: confirm.checked, hotkey: hk.value,
+      repo_path: repo.value, timeout_s: timeout.value, success_codes: codes.value, scan_after: scanAfter.value, scan_profile_id: scanProf.value || null };
   }
   buttons.push({ label: 'Speichern', cls: 'primary', onClick: async () => {
     if (hk.conflict()) { toast(`Tastenkürzel ${hkText(hk.value)} ist bereits vergeben an „${hk.conflict()}“`, 'err'); return false; }

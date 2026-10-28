@@ -37,13 +37,42 @@ function PKStr($a) { if ($a) { (($a | Where-Object { $_ -ne 0 } | ForEach-Object
 # @module computer | Computer-Details (Allgemein, Betriebssystem, System)
 try {
 $cpu = @(Get-CimInstance Win32_Processor)
+# @sessions-begin (2.32.6: gleich in remote.SESSIONS_PS – der Selbsttest prüft das)
+# Sitzungszustand je angemeldetem Benutzer: getrennt (Remotedesktop/Benutzerwechsel, quser) oder gesperrt (LogonUI.exe
+# läuft in seiner Sitzung). Nur Cmdlets, Hashtables und quser.exe – läuft auch im eingeschränkten Sprachmodus.
+$pkLui = @(Get-CimInstance Win32_Process -Filter "Name='LogonUI.exe'" | ForEach-Object { [int]$_.SessionId })
+$pkQ = @{}
+$pkQo = @()
+try { $pkQo = @(& (Join-Path $env:SystemRoot 'System32\quser.exe') 2>$null) } catch {}
+# ID steht rechtsbündig unter „ID“ (Kopfzeile in jeder Sprache) – ab dort lesen, Benutzer-/Sitzungsnamen davor egal
+$pkIp = -1
+if ($pkQo.Count) { $pkIp = ("" + $pkQo[0]).IndexOf(' ID ') }
+foreach ($l in @($pkQo | Select-Object -Skip 1)) {
+  $t = "" + $l
+  if ($pkIp -gt 4 -and $t.Length -gt $pkIp) { $t = $t.Substring($pkIp - 4) } elseif ($t -match '^\s*>?\S+\s+(?:\S+\s+)?(\d+\s+\S+.*)$') { $t = $matches[1] }
+  if ($t -match '^\s*(\d+)\s+(\S+)') { $pkQ[[int]$matches[1]] = $matches[2] }
+}
+$pkSt = @{}
+$pkExp = @(Get-CimInstance Win32_Process -Filter "Name='explorer.exe'" | ForEach-Object {
+  $o = Invoke-CimMethod -InputObject $_ -MethodName GetOwner
+  if ($o -and $o.User) {
+    $n = $o.Domain + '\' + $o.User
+    $sid = [int]$_.SessionId
+    $s = 'active'
+    if ("" + $pkQ[$sid] -match '^(Disc|Getr|D.co|Desc|Disco|Getrennt)') { $s = 'disconnected' } elseif ($pkLui -contains $sid) { $s = 'locked' }
+    # mehrere Sitzungen eines Benutzers: aktiv vor gesperrt vor getrennt
+    $rank = @{ active = 3; locked = 2; disconnected = 1 }
+    if (-not $pkSt.ContainsKey($n) -or $rank[$s] -gt $rank[$pkSt[$n]]) { $pkSt[$n] = $s }
+    $n
+  } })
+# @sessions-end
 $pkUser = $cs.UserName
 if (-not $pkUser) {
   # Bei Remotedesktop-Sitzungen bleibt Win32_ComputerSystem.UserName leer – angemeldete Benutzer über explorer.exe ermitteln
-  $pkUser = (@(Get-CimInstance Win32_Process -Filter "Name='explorer.exe'" | ForEach-Object {
-    $o = Invoke-CimMethod -InputObject $_ -MethodName GetOwner -ErrorAction SilentlyContinue
-    if ($o -and $o.User) { $o.Domain + '\' + $o.User } }) | Select-Object -Unique) -join ', '
+  $pkUser = (@($pkExp) | Select-Object -Unique) -join ', '
 }
+$e.user_states = [ordered]@{}
+foreach ($k in $pkSt.Keys) { if ($pkSt[$k] -ne 'active') { $e.user_states[$k] = $pkSt[$k] } }
 $dv = $cv.DisplayVersion; if (-not $dv) { $dv = $cv.ReleaseId }
 $osName = $os.Caption
 if ([int]$os.BuildNumber -ge 22000 -and $osName -match 'Windows 10') { $osName = $osName -replace 'Windows 10', 'Windows 11' }
@@ -254,7 +283,11 @@ PKS 'nics' {
   # 2.31: Wake-on-LAN-Bereitschaft je Karte – Magic Packet erlaubt, darf den Computer wecken, Treiber-Einstellungen,
   # kabelgebunden (nur cmdlets und powercfg, Constrained-Language-tauglich)
   $wolPm = @{}; try { Get-NetAdapterPowerManagement -ErrorAction Stop | ForEach-Object { $wolPm[[string]$_.InterfaceDescription] = [string]$_.WakeOnMagicPacket } } catch {}
-  $wolMedia = @{}; try { Get-NetAdapter -Physical -ErrorAction Stop | ForEach-Object { $wolMedia[[string]$_.InterfaceDescription] = [string]$_.PhysicalMediaType } } catch {}
+  # 2.32.8: Geschwindigkeit aus Get-NetAdapter (fragt den Treiber direkt) – Win32_NetworkAdapter.Speed ist bei manchen
+  # Treibern veraltet oder meldet bei getrennten Karten 10 Mbit/s. Nur für verbundene Karten.
+  $wolMedia = @{}; $nSpeed = @{}; $nUp = @{}
+  try { Get-NetAdapter -Physical -ErrorAction Stop | ForEach-Object { $k = [string]$_.InterfaceDescription
+    $wolMedia[$k] = [string]$_.PhysicalMediaType; $nSpeed[$k] = $_.Speed; $nUp[$k] = ([string]$_.Status -eq 'Up') } } catch {}
   $wolAdv = @{}; try { Get-NetAdapterAdvancedProperty -ErrorAction Stop | Where-Object { $_.RegistryKeyword -match 'Wake|WOL|PME|S5' } | ForEach-Object {
     $k = [string]$_.InterfaceDescription; $wolAdv[$k] = @($wolAdv[$k]) + @(([string]$_.DisplayName) + ': ' + ([string]$_.DisplayValue)) } } catch {}
   $wolArmed = @(); try { $wolArmed = @(& powercfg.exe /devicequery wake_armed 2>$null | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ }) } catch {}
@@ -263,7 +296,11 @@ PKS 'nics' {
   Get-CimInstance Win32_NetworkAdapter -Filter 'PhysicalAdapter=True' | ForEach-Object {
     $c = $cfg[[int]$_.Index]
     [ordered]@{ name = $_.Name; connection = $_.NetConnectionID; status = $states[[int]$_.NetConnectionStatus]; mac = $_.MACAddress
-      speed = $(if ($_.Speed -and $_.Speed -lt 1e12) { [int64]$_.Speed } else { $null }); manufacturer = $_.Manufacturer
+      speed = $(
+        $sp = $null; $nk = [string]$_.Name
+        if ($nSpeed.ContainsKey($nk)) { if ($nUp[$nk] -and $nSpeed[$nk]) { $sp = [int64]$nSpeed[$nk] } }
+        elseif ([int]$_.NetConnectionStatus -eq 2 -and $_.Speed -and $_.Speed -lt 1e12) { $sp = [int64]$_.Speed }
+        if ($sp -gt 0 -and $sp -lt 1e12) { $sp } else { $null }); manufacturer = $_.Manufacturer
       ip = (@($c.IPAddress) -join ', '); subnet = (@($c.IPSubnet) -join ', '); gateway = (@($c.DefaultIPGateway) -join ', ')
       dns = (@($c.DNSServerSearchOrder) -join ', '); dhcp = [bool]$c.DHCPEnabled; dhcp_server = $c.DHCPServer
       dns_suffix = $c.DNSDomain; enabled = $_.NetEnabled

@@ -15,9 +15,11 @@ def update(cid, online, winrm, prev_winrm=None, now=None):
     if prev_winrm is None:
         prev_winrm = db.val("SELECT winrm FROM computers WHERE id=?", (cid,), 0)
     now = now or util.now()
-    db.ex("UPDATE computers SET online=?, winrm=?, last_seen=CASE WHEN ? THEN ? ELSE last_seen END WHERE id=?",
-          (1 if online else 0, 1 if winrm else 0, 1 if online else 0, now, cid))
-    return bool(winrm) and not prev_winrm
+    came = bool(winrm) and not prev_winrm
+    db.ex("UPDATE computers SET online=?, winrm=?, last_seen=CASE WHEN ? THEN ? ELSE last_seen END, "
+          "online_since=CASE WHEN ? THEN ? WHEN ? THEN NULL ELSE online_since END WHERE id=?",
+          (1 if online else 0, 1 if winrm else 0, 1 if online else 0, now, 1 if came else 0, now, 0 if winrm else 1, cid))
+    return came
 
 
 def after_heartbeat(online_ids, background=False):

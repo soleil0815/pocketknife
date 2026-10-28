@@ -398,7 +398,7 @@ def api_computers(collection: int = 0, user=U):
                     c.last_scan, c.scan_status, c.scan_error, c.ad_enabled, c.ad_present, c.dn, c.description,
                     c.last_boot, c.cpu, c.os_arch, c.mac_addresses, c.ad_last_logon, c.bios_version, c.created_at,
                     COALESCE(c.scan_allowed, 1) scan_allowed, json_extract(c.extra, '$.chassis_name') chassis,
-                    json_extract(c.extra, '$.winget') winget,
+                    json_extract(c.extra, '$.winget') winget, json_extract(c.extra, '$.user_states') user_states,
                     ROUND(c.ram_bytes/1073741824.0, 1) ram_gb,
                     (SELECT COUNT(*) FROM software s WHERE s.computer_id=c.id AND s.outdated=1) outdated
                     FROM computers c WHERE {where} AND {sw} ORDER BY c.name COLLATE NOCASE""", params + sp)
@@ -427,14 +427,16 @@ def api_computer_loggedon(cid: int, user=U):
     # „PKUSERS:“ ohne Namen = niemand angemeldet
     rest = out.split("PKUSERS:", 1)[1] if "PKUSERS:" in out else ""
     users = (rest.splitlines() or [""])[0].strip()
-    db.ex("UPDATE computers SET current_user=? WHERE id=?", (users or None, cid))
+    states = remote.parse_states(out)  # 2.32.6: gesperrt/getrennt
+    db.ex("UPDATE computers SET current_user=?, extra=json_set(COALESCE(extra,'{}'), '$.user_states', json(?)) WHERE id=?",
+          (users or None, json.dumps(states), cid))
     first = users.split(",")[0].strip() if users else ""
     if first:
         inventory._display_name(cid, first)
     elif c["current_user"]:
         db.ex("UPDATE computers SET extra=json_remove(COALESCE(extra,'{}'), '$.user_display_name') WHERE id=?", (cid,))
     extra = db.val("SELECT json_extract(extra, '$.user_display_name') FROM computers WHERE id=?", (cid,))
-    return {"ok": True, "user": users, "display_name": extra if first else None, "live": True}
+    return {"ok": True, "user": users, "display_name": extra if first else None, "live": True, "states": states}
 
 
 @app.post("/api/computers")
@@ -816,13 +818,16 @@ def api_secrets(cid: int, what: str, user=U):
 
 
 # --- Tools ---------------------------------------------------
-TOOL_FIELDS = ["name", "folder", "type", "script", "run_as", "confirm", "description", "hotkey"]
+TOOL_FIELDS = ["name", "folder", "type", "script", "run_as", "confirm", "description", "hotkey", "repo_path", "scan_after",
+               "scan_profile_id", "timeout_s", "success_codes"]
 
 
 @app.get("/api/tools")
 def api_tools(user=U):
     return {"tools": db.q("SELECT * FROM tools ORDER BY folder COLLATE NOCASE, sort, name COLLATE NOCASE"),
-            "types": tools.TYPES, "run_as": tools.RUN_AS, "builtin_hotkeys": tools.builtin_hotkeys()}
+            "types": tools.TYPES, "run_as": tools.RUN_AS, "builtin_hotkeys": tools.builtin_hotkeys(),
+            "scan_after": tools.SCAN_AFTER, "default_timeout": tools.DEFAULT_TIMEOUT,
+            "profiles": [{"id": p["id"], "name": p["name"], "is_default": bool(p.get("is_default"))} for p in profiles.all_profiles()]}
 
 
 @app.put("/api/tools-hotkeys")
@@ -892,6 +897,7 @@ def api_tool_run(tid: int, data: dict = Body(...), user=U):
     res = _act(tools.run, t, cid)
     pklog.info("tool", f"Tool '{t['name']}' auf {name} ausgeführt (Exitcode {res['exit']}, {res['seconds']} s).",
                user=user["username"], computer_id=cid)
+    tools.scan_after(t, cid, user["username"], res.get("ok", not res["exit"]), res)  # 2.32.7: wie im Auftrag
     return res
 
 
@@ -3276,7 +3282,7 @@ def rebootmsg_clean(v, limit):
 EDITABLE = [k for k in db.DEFAULT_SETTINGS if k not in INTERNAL_SETTINGS]
 # Grenzen für Zahlenwerte (min, max)
 SETTING_BOUNDS = {"repo_upload_max_mb": (1, 102400), "repo_tenant_quota_mb": (0, 10 ** 7), "integrity_full_start": (0, 23), "integrity_full_end": (0, 24), "integrity_full_mbps": (5, 1000),
-                  "integrity_full_enabled": (0, 1), "heartbeat_minutes": (1, 1440), "scan_concurrency": (1, 64), "deploy_concurrency": (1, 64),
+                  "integrity_full_enabled": (0, 1), "heartbeat_minutes": (1, 1440), "scan_online_delay_minutes": (0, 120), "scan_concurrency": (1, 64), "deploy_concurrency": (1, 64),
                   "deploy_timeout_minutes": (1, 1440), "winget_refresh_hours": (1, 720), "backup_keep": (1, 365),
                   "backup_hour": (0, 23), "db_maintenance_hour": (0, 23), "scan_interval_hours": (1, 8760), "du_scan_depth": (1, 8),
                   "rule_retry_hours": (1, 8760), "session_idle_minutes": (5, 720), "kiosk_max_per_day": (1, 500),

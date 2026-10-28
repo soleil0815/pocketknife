@@ -2,6 +2,60 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.32.8",
+   "date": "2026-10-28",
+   "items": [
+    {
+     "kind": "fixed",
+     "audience": "all",
+     "de": "Netzwerkkarten zeigen die richtige Geschwindigkeit (bisher teils 10 statt 1000 Mbit/s); langsame Kabelverbindungen bekommen einen Hinweis.",
+     "en": "Network adapters show the correct speed (previously sometimes 10 instead of 1000 Mbit/s); slow wired links get a hint."
+    },
+    {
+     "kind": "improved",
+     "audience": "admin",
+     "de": "Automatische Scans warten nach dem Hochfahren/Aufwachen einige Minuten (einstellbar), manuelle Scans laufen sofort.",
+     "en": "Automatic scans wait a few minutes after startup/wake-up (configurable), manual scans run immediately."
+    }
+   ]
+  },
+  {
+   "version": "2.32.7",
+   "date": "2026-10-28",
+   "items": [
+    {
+     "kind": "new",
+     "audience": "admin",
+     "de": "Tools können Dateien aus dem Repository mitnehmen (z. B. iperf) – POCKET KNIFE kopiert sie selbst auf den Computer, ohne Freigabezugriff und ohne Kennwort auf dem Client.",
+     "en": "Tools can take files from the repository (e.g. iperf) – POCKET KNIFE copies them to the computer itself, without share access and without a password on the client."
+    },
+    {
+     "kind": "new",
+     "audience": "admin",
+     "de": "Tools: optional danach scannen (nach Erfolg oder immer, mit Scanprofil), dazu Zeitlimit und Erfolgscodes.",
+     "en": "Tools: optionally scan afterwards (on success or always, with a scan profile), plus time limit and success codes."
+    },
+    {
+     "kind": "fixed",
+     "audience": "all",
+     "de": "Umlaute in der Ausgabe von CMD-Tools werden richtig angezeigt.",
+     "en": "Umlauts in the output of CMD tools are shown correctly."
+    }
+   ]
+  },
+  {
+   "version": "2.32.6",
+   "date": "2026-10-28",
+   "items": [
+    {
+     "kind": "new",
+     "audience": "all",
+     "de": "Angemeldete Benutzer zeigen jetzt, ob ihre Sitzung gesperrt oder getrennt ist – in der Computeransicht und in der Computerliste.",
+     "en": "Signed-in users now show whether their session is locked or disconnected – in the computer view and the computer list."
+    }
+   ]
+  },
+  {
    "version": "2.32.5",
    "date": "2026-10-28",
    "items": [

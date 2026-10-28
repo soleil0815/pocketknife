@@ -24,6 +24,16 @@ class RemoteError(Exception):
     pass
 
 
+class RemoteTimeout(RemoteError):
+    """2.32.7: Zeitlimit überschritten (eigener Typ – nicht am Meldungstext erkennen)."""
+
+
+def dur_text(s):
+    """Dauer für Meldungen: unter 2 Minuten in Sekunden, sonst in Minuten."""
+    s = int(s or 0)
+    return f"{s} Sekunden" if s < 120 else f"{round(s / 60)} Minuten"
+
+
 class RemoteConnectError(RemoteError):
     """WinRM gar nicht erreichbar (Verbindungsaufbau gescheitert: Port zu, Name unbekannt, Zeitüberschreitung beim
     Verbinden) – im Unterschied zu Anmelde- oder Skriptfehlern. Die Meldung ist dieselbe wie bei RemoteError."""
@@ -148,7 +158,7 @@ def ps(host, script, auth=None, timeout=PS_TIMEOUT):
     try:
         out, streams, had_errors = fut.result(timeout=timeout)
     except concurrent.futures.TimeoutError:
-        raise RemoteError(f"WinRM: keine Antwort von {host} nach {int(timeout / 60)} Minuten – Aufruf abgebrochen.")
+        raise RemoteTimeout(f"WinRM: keine Antwort von {host} nach {dur_text(timeout)} – Aufruf abgebrochen.")
     except Exception as e:
         if _is_connect_error(e):
             raise RemoteConnectError("WinRM: " + _winrm_error(str(e)))
@@ -189,7 +199,7 @@ def ps_params(host, script, params, timeout=300):
     try:
         return fut.result(timeout=timeout)
     except concurrent.futures.TimeoutError:
-        raise RemoteError(f"WinRM: keine Antwort von {host} nach {int(timeout / 60)} Minuten – Aufruf abgebrochen.")
+        raise RemoteTimeout(f"WinRM: keine Antwort von {host} nach {dur_text(timeout)} – Aufruf abgebrochen.")
     except Exception as e:
         raise RemoteError("WinRM: " + _winrm_error(str(e)))
     finally:
@@ -1272,15 +1282,55 @@ def secure_workdir(host, force=False):
 
 
 # Angemeldete Benutzer live (Computeransicht, Kiosk)
+SESSIONS_PS = r"""# @sessions-begin (2.32.6: gleich in remote.SESSIONS_PS – der Selbsttest prüft das)
+# Sitzungszustand je angemeldetem Benutzer: getrennt (Remotedesktop/Benutzerwechsel, quser) oder gesperrt (LogonUI.exe
+# läuft in seiner Sitzung). Nur Cmdlets, Hashtables und quser.exe – läuft auch im eingeschränkten Sprachmodus.
+$pkLui = @(Get-CimInstance Win32_Process -Filter "Name='LogonUI.exe'" | ForEach-Object { [int]$_.SessionId })
+$pkQ = @{}
+$pkQo = @()
+try { $pkQo = @(& (Join-Path $env:SystemRoot 'System32\quser.exe') 2>$null) } catch {}
+# ID steht rechtsbündig unter „ID“ (Kopfzeile in jeder Sprache) – ab dort lesen, Benutzer-/Sitzungsnamen davor egal
+$pkIp = -1
+if ($pkQo.Count) { $pkIp = ("" + $pkQo[0]).IndexOf(' ID ') }
+foreach ($l in @($pkQo | Select-Object -Skip 1)) {
+  $t = "" + $l
+  if ($pkIp -gt 4 -and $t.Length -gt $pkIp) { $t = $t.Substring($pkIp - 4) } elseif ($t -match '^\s*>?\S+\s+(?:\S+\s+)?(\d+\s+\S+.*)$') { $t = $matches[1] }
+  if ($t -match '^\s*(\d+)\s+(\S+)') { $pkQ[[int]$matches[1]] = $matches[2] }
+}
+$pkSt = @{}
+$pkExp = @(Get-CimInstance Win32_Process -Filter "Name='explorer.exe'" | ForEach-Object {
+  $o = Invoke-CimMethod -InputObject $_ -MethodName GetOwner
+  if ($o -and $o.User) {
+    $n = $o.Domain + '\' + $o.User
+    $sid = [int]$_.SessionId
+    $s = 'active'
+    if ("" + $pkQ[$sid] -match '^(Disc|Getr|D.co|Desc|Disco|Getrennt)') { $s = 'disconnected' } elseif ($pkLui -contains $sid) { $s = 'locked' }
+    # mehrere Sitzungen eines Benutzers: aktiv vor gesperrt vor getrennt
+    $rank = @{ active = 3; locked = 2; disconnected = 1 }
+    if (-not $pkSt.ContainsKey($n) -or $rank[$s] -gt $rank[$pkSt[$n]]) { $pkSt[$n] = $s }
+    $n
+  } })
+# @sessions-end
+"""
 LOGGEDON_PS = r"""$ErrorActionPreference = 'SilentlyContinue'
 $u = @()
 $cs = (Get-CimInstance Win32_ComputerSystem).UserName
 if ($cs) { $u += $cs }
-$u += @(Get-CimInstance Win32_Process -Filter "Name='explorer.exe'" | ForEach-Object {
-  $o = Invoke-CimMethod -InputObject $_ -MethodName GetOwner
-  if ($o -and $o.User) { $o.Domain + '\' + $o.User } })
+""" + SESSIONS_PS + r"""$u += $pkExp
 'PKUSERS:' + ((@($u | Where-Object { $_ }) | Select-Object -Unique) -join ', ')
+'PKSTATES:' + ((@($pkSt.GetEnumerator() | Where-Object { $_.Value -ne 'active' } | ForEach-Object { $_.Key + '=' + $_.Value })) -join ';')
 """
+
+
+def parse_states(out):
+    """2.32.6: {"DOM\\user": "locked"|"disconnected"} aus der Zeile PKSTATES: (aktive Sitzungen fehlen)."""
+    line = out.split("PKSTATES:", 1)[1].splitlines()[0] if "PKSTATES:" in (out or "") else ""
+    res = {}
+    for part in line.split(";"):
+        k, _, v = part.strip().partition("=")
+        if k.strip() and v.strip() in ("locked", "disconnected"):
+            res[k.strip()] = v.strip()
+    return res
 
 
 # --- Ausführung als SYSTEM ---------------------------------------------------
@@ -1308,7 +1358,11 @@ function PK-Run([string]$File, [string]$Arguments) {
   }
   foreach ($f in @($so, $se)) {
     if (Test-Path $f) {
-      $pkL = @(Get-Content -Path $f -Encoding UTF8 | Where-Object { $_ -notmatch '^\s*[-\\|/]?\s*$' -and $_ -notmatch '[▀-▟]' })
+      # 2.32.7: erst als UTF-8 lesen; enthält das Ersatzzeichen (Ausgabe in der Konsolen-Codepage, z. B. cmd.exe ohne
+      # Konsole), als OEM lesen – sonst kommen Umlaute als „?“ an
+      $pkEnc = 'UTF8'
+      if (([string](Get-Content -Path $f -Raw -Encoding UTF8)) -match '\uFFFD') { $pkEnc = 'Oem' }
+      $pkL = @(Get-Content -Path $f -Encoding $pkEnc | Where-Object { $_ -notmatch '^\s*[-\\|/]?\s*$' -and $_ -notmatch '[▀-▟]' })
       $global:PKOut += $pkL
       if ($f -eq $so) { $global:PKStdN = $pkL.Count } else { $global:PKErrTxt = ($pkL -join '') }
       $pkL
@@ -1696,7 +1750,7 @@ def run_as_system(host, body, name, timeout_s=3600, cancel=None, extra_ps="", ru
             if cancel and cancel():
                 raise Cancelled("Abgebrochen")
             if time.time() - start > timeout_s:
-                raise RemoteError(f"Zeitüberschreitung nach {int(timeout_s / 60)} Minuten.")
+                raise RemoteTimeout(f"Zeitüberschreitung nach {dur_text(timeout_s)}.")
             try:
                 out, err, _ = ps(host, fill(POLL), timeout=90)  # kurze Abfrage – nicht 30 Minuten auf einen hängenden Client warten
                 fails = 0
