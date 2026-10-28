@@ -112,25 +112,42 @@ HOST_REJECT = ("Dieses Gerät lehnt die Anmeldung des Dienstkontos ab – das Ko
                "Domäne gehört.")
 
 
+# 2.32.5: nur diese Fehler sind mehrdeutig (ein fremdes Gerät antwortet genauso) – „gesperrt“, „deaktiviert“,
+# „abgelaufen“ usw. betreffen immer das Konto und lösen den Schutz sofort aus
+AMBIGUOUS = ("0xc000006d", "0xc000006a", "logon_failure", "wrong_password")
+VERIFY_SECONDS = 60  # „Konto in Ordnung“ höchstens so lange merken – ein im AD geändertes Kennwort fällt schnell auf
+
+
 def report_remote(msg, source):
     """2.31: Anmeldefehler bei einem einzelnen Computer (WinRM, SMB). Ein Gerät, das nicht zur Domäne gehört – z. B. weil
     der DNS-Eintrag auf ein anderes Gerät zeigt –, antwortet auf jede Anmeldung mit „Benutzername oder Kennwort falsch“.
-    Das sagt nichts über das Dienstkonto: erst per LDAP prüfen (höchstens alle 5 Minuten) und den Schutz nur auslösen,
-    wenn das Konto wirklich nicht geht. Sonst lähmte ein einziger falscher DNS-Eintrag alle Scans und Bereitstellungen."""
+    Das sagt nichts über das Dienstkonto: erst per LDAP prüfen und den Schutz nur auslösen, wenn das Konto wirklich nicht
+    geht. Sonst lähmte ein einziger falscher DNS-Eintrag alle Scans und Bereitstellungen.
+    2.32.5: Eindeutige Kontofehler (gesperrt, deaktiviert, abgelaufen …) lösen sofort aus; ist das AD gerade nicht
+    erreichbar, bleibt es offen (kein „Kennwort falsch“, kein Schutz wegen eines einzelnen Geräts)."""
     text, account = explain(msg)
     if not text or not account:
         return text
-    if verify_account():
+    low = str(msg or "").lower()
+    if not any(c in low for c in AMBIGUOUS):
+        trip(text, source)
+        return text
+    ok = verify_account()
+    if ok:
         return f"{HOST_REJECT} ({text})"
+    if ok is None:
+        return ("Dieses Gerät lehnt die Anmeldung des Dienstkontos ab; das Konto ließ sich gerade nicht per LDAP prüfen "
+                f"(Domänencontroller nicht erreichbar). ({text})")
     trip(text, source)  # verify_account hat den Schutz meist schon ausgelöst – trip ist dann ohne Wirkung
     return text
 
 
 def verify_account():
-    """Prüft das Dienstkonto per LDAP – höchstens alle 5 Minuten. True = Konto in Ordnung."""
+    """Prüft das Dienstkonto per LDAP – höchstens alle VERIFY_SECONDS. True = Konto in Ordnung, False = abgelehnt
+    (Schutz ausgelöst), None = nicht prüfbar (Domänencontroller nicht erreichbar, Zertifikat …)."""
     now = time.time()
     with _lock:
-        if now - _verify["at"] < 300 and _verify["ok"] is not None:
+        if now - _verify["at"] < VERIFY_SECONDS and _verify["ok"] is not None:
             return _verify["ok"]
         _verify["at"] = now
     from . import ad
@@ -139,6 +156,9 @@ def verify_account():
         c.unbind()
         ok = True
     except Exception:
-        ok = False  # service_conn hat den Schutz bei Kontoproblemen bereits ausgelöst
+        # abgelehnt → service_conn hat den Schutz ausgelöst; sonst (Netzwerk, Zertifikat) bleibt es offen
+        ok = False if paused() else None
     _verify["ok"] = ok
+    if ok is None:
+        _verify["at"] = 0.0  # nicht merken – beim nächsten Fehler erneut prüfen
     return ok

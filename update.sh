@@ -111,9 +111,11 @@ resolve() {
 # Compare versions: 0 if $1 < $2
 ver_lt() {  # „2.29.6-s3“ = Sicherheitsupdate von 2.29.6 (höher als 2.29.6, niedriger als 2.29.7)
   [ "$1" = "$2" ] && return 1
-  a=$(printf '%s' "$1" | awk -F'-s' '{n=split($1,p,"."); while(n<3){n++; p[n]=0}; printf "%s.%s.%s.%s", p[1],p[2],p[3],($2==""?0:$2+1)}')
-  b=$(printf '%s' "$2" | awk -F'-s' '{n=split($1,p,"."); while(n<3){n++; p[n]=0}; printf "%s.%s.%s.%s", p[1],p[2],p[3],($2==""?0:$2+1)}')
-  first=$(printf '%s\n%s\n' "$a" "$b" | sort -t. -k1,1n -k2,2n -k3,3n -k4,4n | head -n 1)
+  # vier Stellen (2.29.6.1 ist erlaubt) und das „-sN“ als fünftes Feld
+  a=$(printf '%s' "$1" | awk -F'-s' '{n=split($1,p,"."); while(n<4){n++; p[n]=0}; printf "%s.%s.%s.%s.%s", p[1],p[2],p[3],p[4],($2==""?0:$2+1)}')
+  b=$(printf '%s' "$2" | awk -F'-s' '{n=split($1,p,"."); while(n<4){n++; p[n]=0}; printf "%s.%s.%s.%s.%s", p[1],p[2],p[3],p[4],($2==""?0:$2+1)}')
+  [ "$a" = "$b" ] && return 1
+  first=$(printf '%s\n%s\n' "$a" "$b" | sort -t. -k1,1n -k2,2n -k3,3n -k4,4n -k5,5n | head -n 1)
   [ "$first" = "$a" ]
 }
 

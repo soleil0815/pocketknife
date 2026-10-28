@@ -84,7 +84,7 @@ BUILTIN_NAMES = {"ping": "Ping & Ports", "rdpweb": "Remotedesktop im Browser", "
                  "gpupdate": "gpupdate /force", "winget": "winget prüfen / nachinstallieren", "scan": "Scannen mit Profil …",
                  "diskusage": "Speicherplatz analysieren …", "files": "Dateien (Explorer) …", "eventlog": "Ereignisanzeige …"}
 BUILTIN_HOTKEY_DEFAULTS = {"ping": "Ctrl+Alt+P", "rdpweb": "Ctrl+Alt+R", "vncweb": "Ctrl+Alt+V", "wake": "Ctrl+Alt+W",
-                           "power": "Ctrl+Alt+N", "gpupdate": "Ctrl+Alt+G", "files": "Ctrl+Alt+D", "eventlog": "Ctrl+Alt+E"}
+                           "power": "Ctrl+Alt+B", "gpupdate": "Ctrl+Alt+G", "files": "Ctrl+Alt+D", "eventlog": "Ctrl+Alt+E"}
 HOTKEY_RE = re.compile(r"^Ctrl\+Alt\+(Shift\+)?([A-Z]|[0-9]|F[1-9]|F1[0-2])$")
 
 
@@ -162,6 +162,27 @@ def save_builtin_hotkeys(data):
     return builtin_hotkeys()
 
 
+def _migrate_power_b():
+    """2.32.5: Vorgabe für Neustart/Herunterfahren ist Strg+Alt+B. Wer in 2.32.4 die Übersicht gespeichert hat, hat dort
+    noch die alte Vorgabe N stehen – einmalig auf B umstellen, wenn B frei ist."""
+    if db.setting_raw("hotkeys_power_b"):
+        return
+    try:
+        saved = json.loads(db.setting_raw("builtin_hotkeys") or "{}")
+    except (ValueError, TypeError):
+        saved = {}
+    if not isinstance(saved, dict):
+        saved = {}
+    if saved.get("power") == "Ctrl+Alt+N" and not hotkey_owner("Ctrl+Alt+B", "builtin:power"):
+        saved["power"] = "Ctrl+Alt+B"
+        db.set_setting("builtin_hotkeys", json.dumps(saved))
+    elif "power" not in saved and db.q1("SELECT id FROM tools WHERE hotkey='Ctrl+Alt+B'"):
+        # ein eigenes Tool hat B schon (in 2.32.4 war es frei): Neustart/Herunterfahren behält N bzw. bleibt ohne Kürzel
+        saved["power"] = "" if hotkey_owner("Ctrl+Alt+N", "builtin:power") else "Ctrl+Alt+N"
+        db.set_setting("builtin_hotkeys", json.dumps(saved))
+    db.set_setting("hotkeys_power_b", "1")
+
+
 def _migrate_user_hotkeys():
     """2.32.3 speicherte Strg+Alt+Ziffer je Benutzer – einmalig ans Tool übernehmen, soweit frei."""
     if db.setting_raw("hotkeys_migrated"):
@@ -198,6 +219,7 @@ def init():
         db.ex("INSERT OR REPLACE INTO settings(key, value) VALUES('tools_seeded', '1')")
     try:
         _migrate_user_hotkeys()
+        _migrate_power_b()
     except Exception as e:  # pragma: no cover
         pklog.warn("tool", f"Tastenkürzel aus 2.32.3 nicht übernommen: {e}")
 
@@ -292,7 +314,12 @@ def run(tool, cid):
                     f"[System.IO.File]::WriteAllText($cf, $txt, {util.PS_CMD_ENCODING})\n"
                     f"PK-Run 'cmd.exe' ('/c \"' + $cf + '\"')")
         code, out = remote.run_as_system(host, body, f"tool_{tool['id']}_{secrets.token_hex(3)}", timeout_s=1800)
+        hard = ""
+        if code != 0:
+            code, hard = remote.apply_hard(code, out)  # 2.32.5: gehärtetes Windows im Klartext
         out = "\n".join(l for l in (out or "").splitlines() if not l.startswith("> ") and not l.startswith("Exitcode: "))
+        if hard:
+            out = f"POCKET KNIFE: {hard}\n\n{out}"
     else:
         # Direkt als Dienstkonto über WinRM
         if tool["type"] == "cmd":
@@ -402,6 +429,12 @@ def wol_relays(c, limit=WOL_RELAYS, exclude=()):
     out = pinned[:len(fixed)]
     if same:
         return out + [(r, True) for r in same[:limit]]
+    if exclude and not any(s for _r, s in out):
+        # 2.32.5: zweiter Versuch – gibt es im Zielnetz keinen anderen Computer, wieder die bisherigen nehmen
+        # (ein Relay aus einem fremden Netz oder nur der Container würden das Ziel meist nicht erreichen)
+        again = wol_relays(c, limit, ())
+        if any(s for _r, s in again):
+            return again
     return out + ([(r, False) for r in other[:1]] if not out else [])
 
 
@@ -427,6 +460,8 @@ def _packets(c):
 
 WOL_PS = r"""
 $ErrorActionPreference = 'Stop'
+# 2.32.5: im eingeschränkten Sprachmodus gibt es keinen UdpClient – sagen, statt still nichts zu senden
+if ($ExecutionContext.SessionState.LanguageMode -ne 'FullLanguage') { 'PK_CLM'; return }
 $u = New-Object System.Net.Sockets.UdpClient
 $u.EnableBroadcast = $true
 try {
@@ -491,6 +526,10 @@ def wake(c, exclude=(), round_no=1):
             sent = [x for x in out.splitlines() if x.startswith("OK ")]
             ok_relay = ok_relay or bool(sent)
             pinned = r["name"].lower() in _fixed_relays()
+            if "PK_CLM" in out:
+                lines.append(f"Relay {r['name']}: kann nicht senden – PowerShell läuft dort im eingeschränkten Sprachmodus "
+                             "(AppLocker/WDAC). Anderen Computer als festes Relay eintragen.")
+                continue
             lines.append(f"Relay {r['name']}{' (fest)' if pinned else ''} ({'gleiches Subnetz' if same else 'anderes Subnetz, gerichteter Broadcast'}): "
                          f"{len(sent)} Pakete gesendet" + (f" – {err.strip()[:300]}" if err.strip() else ""))
             lines += ["   " + x for x in out.splitlines() if x.startswith("FEHLER")]

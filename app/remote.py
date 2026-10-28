@@ -99,9 +99,9 @@ def identify(host):
         elif guard.explain(str(e))[1]:
             # 2.31: „Kennwort falsch“ von einem Gerät heißt nicht, dass das Konto falsch ist (fremdes Gerät, falscher
             # DNS-Eintrag) – per LDAP prüfen; nur wenn das Konto wirklich nicht geht, ist der Schutz aktiv
-            kind = "auth" if guard.verify_account() else "paused"
-        elif kind == "auth" and not guard.verify_account():
-            kind = "paused"  # das Dienstkonto selbst ist das Problem (Prüfung per LDAP, höchstens alle 5 Minuten)
+            kind = "paused" if guard.verify_account() is False else "auth"  # None = AD nicht erreichbar: offen lassen
+        elif kind == "auth" and guard.verify_account() is False:
+            kind = "paused"  # das Dienstkonto selbst ist das Problem (Prüfung per LDAP)
         return {"error": kind, "detail": str(e)[:200]}
     finally:
         try:
@@ -213,9 +213,13 @@ def _winrm_error(msg):
         return f"{kt} ({msg})"
     low = msg.lower()
     if "failed to authenticate" in low or "401" in low or "credentials" in low:
-        if guard.verify_account():
+        v = guard.verify_account()
+        if v:
             return ("Das Dienstkonto ist in Ordnung, wird aber von diesem Computer abgelehnt: Es ist dort nicht in der "
                     "lokalen Gruppe „Administratoren“, oder die Netzwerkanmeldung ist per Richtlinie verweigert.")
+        if v is None:
+            return ("Dieser Computer lehnt die Anmeldung des Dienstkontos ab; das Konto ließ sich gerade nicht per LDAP "
+                    f"prüfen (Domänencontroller nicht erreichbar). ({msg})")
         st = guard.status()
         return st["reason"] or "Anmeldung des Dienstkontos abgelehnt."
     return msg
@@ -1323,11 +1327,19 @@ function PK-RunPs1([string]$Path, [string]$Arguments) {
   if ($global:PKExit -ne 1 -or $global:PKStdN -gt 0) { return }
   $pkE = $global:PKErrTxt -replace '\s', ''
   if (-not ($pkE -match 'FullyQualifiedErrorId:UnauthorizedAccess(?!Exception)' -and $pkE.Contains(((Split-Path -Leaf $Path) -replace '\s', '')))) { return }
+  # 2.32.5: Fehler mit Positionsangabe (… .ps1:4 Zeichen:1) kommt aus dem laufenden Skript (z. B. ein verweigertes
+  # Unterskript) – das Skript lief schon, also nie ein zweites Mal. Softwareeinschränkung/AppLocker: bewusste Sperre,
+  # die POCKET KNIFE nicht aushebelt.
+  if ($pkE -match '\.ps1:\d+(char|Zeichen):' -or $pkE -match '(?i)Softwareeinschr|softwarerestriction|Gruppenrichtlinieblockiert|blockedbygrouppolicy|AppLocker') { return }
   $global:PKLoaded = $true
   Write-Output 'Windows lässt die Skriptdatei nicht zu (Ausführungsrichtlinie oder Sicherheitszone) – POCKET KNIFE lädt ihren Inhalt.'
   $pkC = [string](Get-Content -LiteralPath $Path -Raw)
+  # „using namespace/module/assembly“ muss ganz vorne stehen – nicht in den Block, sondern davor
+  $pkU = (@(($pkC -split "`r?`n") | Where-Object { $_ -match '^\s*using\s+(namespace|module|assembly)\s' }) -join "`r`n")
+  if ($pkU) { $pkC = $pkC -replace '(?im)^\s*using\s+(namespace|module|assembly)\s.*$', '' }
   $pkC = $pkC -replace '(?i)\$PSScriptRoot\b|\$\{PSScriptRoot\}', '$$PKScriptRoot' -replace '(?i)\$PSCommandPath\b|\$\{PSCommandPath\}|\$MyInvocation\.MyCommand\.Path\b', '$$PKScriptPath'
-  $pkH = '$PKScriptRoot = ''' + (Split-Path -Parent $Path).Replace("'", "''") + "'`r`n" + '$PKScriptPath = ''' + $Path.Replace("'", "''") + "'`r`n"
+  # $PKLoadOk: nur gesetzt, wenn PowerShell den Inhalt übersetzen konnte – sonst Exitcode 1 statt „Erfolgreich“
+  $pkH = $(if ($pkU) { $pkU + "`r`n" } else { '' }) + '$PKLoadOk = $true' + "`r`n" + '$PKScriptRoot = ''' + (Split-Path -Parent $Path).Replace("'", "''") + "'`r`n" + '$PKScriptPath = ''' + $Path.Replace("'", "''") + "'`r`n"
   $pkLf = Join-Path $PKDir ('pk_load_' + [guid]::NewGuid().ToString('N') + '.ps1')
   Set-Content -LiteralPath $pkLf -Value ($pkH + '& {' + "`r`n" + $pkC + "`r`n} " + $Arguments) -Encoding UTF8
   PK-Run "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" ('__PSFLAGS__ __PSLOADPRE__' + $pkLf + '__PSLOADPOST__')
@@ -1342,19 +1354,6 @@ __BODY__
 } catch {
   ('FEHLER: ' + $_.Exception.Message) | Out-File -FilePath $PKLog -Encoding utf8 -Append
   if ($global:PKExit -eq 0) { $global:PKExit = 1 }
-}
-# 2.32.2: Fehlgeschlagen, weil Windows gehärtet ist? Dann eigener Code (9013–9016) mit Klartext statt nur „Exitcode 1“
-if ($global:PKExit -ne 0 -and $global:PKExit -ne 3010 -and $global:PKExit -ne 1641) {
-  $pkT = ''; try { $pkT = [string](Get-Content -LiteralPath $PKLog -Raw -Encoding UTF8) } catch {}
-  $pkH = 0
-  if ($pkT -match 'malicious content|sch\S{1,2}dliche Inhalte|ScriptContainedMaliciousContent') { $pkH = 9014 }
-  elseif ($pkT -match 'blocked by group policy|durch eine Gruppenrichtlinie blockiert|Softwareeinschr\S{1,2}nkungsrichtlinie|software restriction polic') { $pkH = 9016 }
-  elseif ($pkT -match 'language mode|diesem Sprachmodus') { $pkH = 9015 }
-  elseif (-not $global:PKLoaded -and $pkT -match '(?m)FullyQualifiedErrorId\s*:\s*UnauthorizedAccess\s*$|PSSecurityException') { $pkH = 9013 }
-  if ($pkH) {
-    ('POCKET KNIFE: Windows hat die Ausführung verhindert (Code ' + $pkH + ', ursprünglicher Exitcode ' + $global:PKExit + ').') | Out-File -FilePath $PKLog -Encoding utf8 -Append
-    $global:PKExit = $pkH
-  }
 }
 Set-Content -Path (Join-Path $PKDir 'pk_exit.txt') -Value ([string]$global:PKExit) -Encoding Ascii
 """
@@ -1443,14 +1442,19 @@ if ($st -eq 'PK_PROC:gone') {
   $since = (Get-Date).AddMinutes(-30)
   if (Test-Path $pf) { $since = (Get-Item $pf).LastWriteTime.AddMinutes(-1) }
   $rx = 'ID:\s*([0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12})'
-  try { Get-WinEvent -FilterHashtable @{ LogName = 'Microsoft-Windows-Windows Defender/Operational'; Id = 1121, 1122; StartTime = $since } -MaxEvents 6 -ErrorAction Stop | ForEach-Object {
+  # 2.32.5: nur Ereignisse, die zu diesem Lauf passen können (PowerShell, cmd, WMI-Start, Arbeitsordner) – nicht z. B.
+  # die ständigen Blockaden der lsass-Regel oder ein Virenfund irgendwo auf dem Rechner
+  $rel = 'powershell|cmd\.exe|wmiprvse|PocketKnife|amsi:'
+  try { Get-WinEvent -FilterHashtable @{ LogName = 'Microsoft-Windows-Windows Defender/Operational'; Id = 1121, 1122; StartTime = $since } -MaxEvents 20 -ErrorAction Stop |
+    Where-Object { [string]$_.Message -match $rel } | Select-Object -First 6 | ForEach-Object {
     $m = [string]$_.Message; $rid = $(if ($m -match $rx) { $matches[1] } else { '?' })
     $(if ($_.Id -eq 1121) { 'PK_ASRBLOCK:' } else { 'PK_ASRAUDIT:' }) + $rid } } catch {}
   # Virenschutz hat das Skript als Bedrohung erkannt (AMSI) – 1116 erkannt, 1117 Aktion ausgeführt
-  try { Get-WinEvent -FilterHashtable @{ LogName = 'Microsoft-Windows-Windows Defender/Operational'; Id = 1116; StartTime = $since } -MaxEvents 1 -ErrorAction Stop |
-    ForEach-Object { 'PK_AV:' + ((($_.Message -replace '\s+', ' ').Trim()) -replace '^(.{0,400}).*$', '$1') } } catch {}
+  try { Get-WinEvent -FilterHashtable @{ LogName = 'Microsoft-Windows-Windows Defender/Operational'; Id = 1116; StartTime = $since } -MaxEvents 10 -ErrorAction Stop |
+    Where-Object { [string]$_.Message -match $rel } | Select-Object -First 1 | ForEach-Object { 'PK_AV:' + ((($_.Message -replace '\s+', ' ').Trim()) -replace '^(.{0,400}).*$', '$1') } } catch {}
   foreach ($q in @(@{ LogName = 'Microsoft-Windows-AppLocker/EXE and DLL'; Id = 8004 }, @{ LogName = 'Microsoft-Windows-AppLocker/MSI and Script'; Id = 8007 })) {
-    try { $q.StartTime = $since; Get-WinEvent -FilterHashtable $q -MaxEvents 2 -ErrorAction Stop | ForEach-Object { 'PK_BLOCK:AppLocker: ' + ((($_.Message -replace '\s+', ' ').Trim()) -replace '^(.{0,300}).*$', '$1') } } catch {}
+    try { $q.StartTime = $since; Get-WinEvent -FilterHashtable $q -MaxEvents 10 -ErrorAction Stop | Where-Object { [string]$_.Message -match $rel } |
+      Select-Object -First 2 | ForEach-Object { 'PK_BLOCK:AppLocker: ' + ((($_.Message -replace '\s+', ' ').Trim()) -replace '^(.{0,300}).*$', '$1') } } catch {}
   }
   # abgestürzt? (Anwendungsfehler 1000 für powershell.exe/cmd.exe)
   try { Get-WinEvent -FilterHashtable @{ LogName = 'Application'; Id = 1000; StartTime = $since } -MaxEvents 5 -ErrorAction Stop |
@@ -1566,13 +1570,42 @@ HARD_PATTERNS = (
 )
 
 
-def hard_hint(text):
-    """2.32.2: Klartext, wenn eine Meldung von Windows auf ein gehärtetes System zeigt (sonst "")."""
-    from . import deploy
+LOADED_MARK = "lädt ihren Inhalt"   # Zeile von PK-RunPs1, wenn nach einer Verweigerung geladen wurde
+
+
+def hard_code(text):
+    """2.32.5: Zeigt das Protokoll, dass Windows die Ausführung verhindert hat? → 9013–9016, sonst 0. Wird nur bei einem
+    fehlgeschlagenen Schritt ausgewertet (Erfolgscodes des Schritts, winget-Meldungen gehen vor) – nicht mehr im
+    Rahmen auf dem Client, der die Erfolgscodes nicht kennt."""
+    t = text or ""
     for rx, code in HARD_PATTERNS:
-        if rx.search(text or ""):
-            return " Windows ist auf diesem Computer so eingestellt, dass es POCKET KNIFE blockiert: " + deploy.HARD_MESSAGES[code] + "."
-    return ""
+        if code == 9013 and LOADED_MARK in t:
+            continue  # die Verweigerung wurde durch Laden umgangen – nicht der Grund
+        if rx.search(t):
+            return code
+    return 0
+
+
+def hard_hint(text, start=False):
+    """2.32.2: Klartext, wenn eine Meldung von Windows auf ein gehärtetes System zeigt (sonst "").
+    start: Fehler schon beim Einrichten über WinRM – dann betrifft der eingeschränkte Sprachmodus die Remotesitzung."""
+    from . import deploy
+    code = hard_code(text)
+    if not code:
+        return ""
+    if start and code == 9015:
+        return (" Schon die WinRM-Sitzung läuft auf diesem Computer im eingeschränkten Sprachmodus (AppLocker/WDAC) – "
+                "POCKET KNIFE kann dort nichts einrichten. Den Computer von dieser Härtung ausnehmen.")
+    return " Windows ist auf diesem Computer so eingestellt, dass es POCKET KNIFE blockiert: " + deploy.HARD_MESSAGES[code] + "."
+
+
+def apply_hard(code, out):
+    """Fehlgeschlagener Schritt/Tool: (Code, Klartext) – bei gehärtetem Windows 9013–9016, sonst unverändert."""
+    from . import deploy
+    h = hard_code(out)
+    if not h:
+        return code, ""
+    return h, f"{deploy.HARD_MESSAGES[h]} (Code {h}, Exitcode {code})"
 
 
 def gone_message(out, direct):
@@ -1646,8 +1679,8 @@ def run_as_system(host, body, name, timeout_s=3600, cancel=None, extra_ps="", ru
         if "PK_STARTED" not in out:
             why = (err or out).strip()[:1500]
             if direct:
-                raise RemoteError("Prozess als Dienstkonto konnte nicht gestartet werden: " + why + hard_hint(why))
-            raise RemoteError("Geplante Aufgabe konnte nicht gestartet werden: " + why + hard_hint(why))
+                raise RemoteError("Prozess als Dienstkonto konnte nicht gestartet werden: " + why + hard_hint(why, start=True))
+            raise RemoteError("Geplante Aufgabe konnte nicht gestartet werden: " + why + hard_hint(why, start=True))
     except BaseException:
         # Auch wenn Registrierung/Start scheitert: Aufgabe und Arbeitsordner entfernen
         try:

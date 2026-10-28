@@ -1605,6 +1605,7 @@ async function viewComputers(_parts, params) {
   treeBody.addEventListener('contextmenu', (e) => { if (e.target === treeBody) { e.preventDefault(); treeMenu(null, e); } });
   dragTarget(treeBody, null);
   treeBody.addEventListener('keydown', (e) => {
+    if (e.altKey) return;  // Strg+Alt+… sind Tastenkürzel für Tools, nicht Kopieren/Einfügen
     const c = cols.find((x) => x.id === selId);
     const k = e.key.toLowerCase();
     if ((e.ctrlKey || e.metaKey) && k === 'c' && c) { S.collClip = { mode: 'copy', id: c.id, name: c.name }; toast(`„${c.name}“ kopiert`); }
@@ -1701,6 +1702,7 @@ async function viewComputers(_parts, params) {
     ]);
   }
   t.el.querySelector('.tbl-scroll').addEventListener('keydown', (e) => {
+    if (e.altKey) return;  // Strg+Alt+… sind Tastenkürzel für Tools
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c' && t.selected().length) { e.preventDefault(); copyText(t.selected().map((r) => r.name).join('\r\n'), `${t.selected().length} Name(n) kopiert`); }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'h' && t.selected().length) { e.preventDefault(); heartbeatIds(t.selectedIds()); }
   });
@@ -3146,7 +3148,9 @@ function mergePackagesDlg(selRows) {
     field('Art', h('div', seg, hint)),
     field('Bei Fehler', h('label.chk', cont, 'mit dem nächsten Paket weitermachen'), 'Aus: nach einem Fehler werden die weiteren Pakete für diesen Computer nicht mehr ausgeführt.')),
   [{ label: 'Abbrechen' }, { label: 'Zusammenfassen', cls: 'primary', onClick: async () => {
-    const r = await POST('/api/packages/merge', { ids: list.map((x) => x.id), name: name.value, mode, continue_on_error: cont.checked });
+    // 2.32.5: Duplikatsperre wie beim Speichern eines Pakets (Hauptadmins dürfen nach Rückfrage übersteuern)
+    const r = await saveWithDup((x) => POST('/api/packages/merge', { ids: list.map((y) => y.id), name: name.value, mode, continue_on_error: cont.checked, ...x }));
+    if (!r) return false;
     toast('Neues Paket angelegt', 'ok'); PKG_META = null; route(); packageDlg(r.id);
   } }], { wide: true });
 }
@@ -5994,17 +5998,30 @@ function comboOf(e) {
   else if (/^F([1-9]|1[0-2])$/.test(e.code || '')) k = e.code;
   return k ? `Ctrl+Alt+${e.shiftKey ? 'Shift+' : ''}${k}` : null;
 }
+let HK_BUSY = false;
 async function hotkeyRun(ref, combo) {
+  // Ein Kürzel nach dem anderen: zweimal drücken startet ein Tool nicht doppelt
+  if (HK_BUSY) return;
+  HK_BUSY = true;
+  try { await hotkeyRun2(ref, combo); } finally { HK_BUSY = false; }
+}
+async function hotkeyRun2(ref, combo) {
   const targets = S.toolTargets ? S.toolTargets() : [];
   if (!targets.length) { toast(`${hkText(combo)}: bitte zuerst Computer markieren (Computerliste) oder einen Computer öffnen`, 'err'); return; }
   let name, exec, asks;
+  if (ref.startsWith('tool:')) {
+    // aktuelle Zuordnung holen – das Kürzel kann inzwischen einem anderen Tool gehören (anderer Benutzer, anderer Tab)
+    await toolsData();
+    ref = HK.map[combo];
+    if (!ref) { toast(`${hkText(combo)} ist keinem Tool mehr zugeordnet`, 'err'); return; }
+  }
   if (ref.startsWith('builtin:')) {
     const b = BUILTIN_TOOLS.find((x) => x.key === ref.slice(8));
     if (!b) return;
-    name = tr(b.name); asks = !!b.confirm || ['scan', 'wake', 'power'].includes(b.key); exec = () => runBuiltin(b, targets);
+    // Rückfrage kommt aus dem Tool selbst (Neustart-Dialog, Scanprofil) bzw. Ansichten öffnen nur einen Computer
+    name = tr(b.name); asks = !!b.confirm || ['scan', 'power', 'files', 'eventlog', 'diskusage'].includes(b.key); exec = () => runBuiltin(b, targets);
   } else {
-    const data = await toolsData();
-    const t = data.tools.find((x) => `tool:${x.id}` === ref);
+    const t = HK.tools.find((x) => `tool:${x.id}` === ref);
     if (!t) { toast('Das Tool zu diesem Tastenkürzel gibt es nicht mehr', 'err'); return; }
     name = t.name; asks = !!t.confirm; exec = () => runTool(t, targets);
   }
@@ -6017,7 +6034,9 @@ document.addEventListener('keydown', (e) => {
   const combo = comboOf(e);
   if (!combo || e.repeat || !S.me) return;
   const el = e.target;
-  if (el && el.closest && el.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"], .cm-editor')) return;
+  // Nur beim Schreiben aus: Kontrollkästchen (z. B. Auswahl in der Computerliste) und Knöpfe lösen das Kürzel aus
+  if (el && el.closest && el.closest('textarea, select, [contenteditable=""], [contenteditable="true"], .cm-editor')) return;
+  if (el && el.tagName === 'INPUT' && !['checkbox', 'radio', 'button', 'submit', 'reset', 'image', 'range', 'color', 'file'].includes((el.type || '').toLowerCase())) return;
   if (document.querySelector('#modal-root .backdrop') || openMenu || ctxMenu) return;
   if (!HK) { toolsData().catch(() => {}); return; }
   const ref = HK.map[combo];
@@ -6194,6 +6213,7 @@ async function runBuiltin(b, targets) {
 
 async function runTool(t, targets) {
   if (t.type === 'url') {
+    if (t.confirm && !(await confirmDlg(`„${t.name}“ für ${targets.length === 1 ? targets[0].name : `${Math.min(targets.length, 10)} Computer`} öffnen?`, 'Öffnen'))) return;
     for (const c of targets.slice(0, 10)) {
       const r = await run(() => POST(`/api/tools/${t.id}/run`, { computer_id: c.id }));
       if (r && r.url) window.open(r.url, '_blank', 'noopener');
@@ -6208,7 +6228,7 @@ async function runTool(t, targets) {
 
 // 2.31: Wake-on-LAN – senden und abwarten, ob der Computer aufwacht (zweiter Versuch über andere Relays automatisch)
 function wakeDialog(targets) {
-  const rows = targets.slice(0, 200).map((c) => ({ c, res: null, st: null }));
+  const rows = targets.map((c) => ({ c, res: null, st: null }));
   const body = h('div');
   let closed = false;
   const final = (r) => r.res && (r.res.exit || !r.res.watch || (r.st && (r.st.state === 'awake' || r.st.state === 'timeout')));
@@ -6230,16 +6250,16 @@ function wakeDialog(targets) {
     }
     const awake = rows.filter((r) => r.st && r.st.state === 'awake').length;
     body.replaceChildren(h('div.row', { style: { marginBottom: '8px' } }, h('span', `${awake} von ${rows.length} aufgewacht`),
-      h('span.muted.small', 'Die Prüfung läuft auf dem Server weiter, auch wenn Sie dieses Fenster schließen; das Ergebnis steht im Protokoll.')),
+      h('span.muted.small', 'Schließen Sie das Fenster ruhig: Das Senden an die übrigen Computer läuft weiter, solange POCKET KNIFE geöffnet ist; die Prüfung läuft auf dem Server, das Ergebnis steht im Protokoll.')),
     h('div.run-list', rows.map((r) => h('details', h('summary', h('b.raw', r.c.name), badge(r)), h('pre.out', out(r))))));
   }
   modal('Wake-on-LAN', body, [{ label: 'Schließen' }], { wide: true, onClose: () => { closed = true; } });
   draw();
   (async () => {
     for (const r of rows) {
-      if (closed) break;
+      // auch nach dem Schließen weiter senden – sonst bekämen die übrigen Computer nie ein Magic Packet
       try { r.res = await POST('/api/tools/builtin/wake', { computer_id: r.c.id }); } catch (e) { r.res = { exit: 1, output: e.message }; }
-      draw();
+      if (!closed) draw();
     }
     const poll = async () => {
       if (closed) return;

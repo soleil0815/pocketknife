@@ -16,8 +16,10 @@ PS_FLAGS = "-NoLogo -NonInteractive -NoProfile -ExecutionPolicy Bypass"
 # der Ausführungsrichtlinie nicht (wie Befehle über WinRM); AMSI, Virenschutz und Constrained Language Mode gelten
 # weiter. Invoke-Expression statt [ScriptBlock]::Create – das ist im Constrained Language Mode erlaubt.
 # „exit 0“ am Ende: gleicher Exitcode wie bei -File (ohne exit 0, exit N → N, Fehler → 1).
-PS_LOAD_PRE = "-Command \"Invoke-Expression ((Get-Content -LiteralPath '"
-PS_LOAD_POST = "' -Raw -Encoding UTF8)); exit 0\""
+# 2.32.5: $PKLoadOk setzt die erste Zeile der Ladedatei – kann PowerShell den Inhalt nicht übersetzen (Syntaxfehler),
+# läuft keine Zeile und der Exitcode ist 1 (wie bei -File) statt 0
+PS_LOAD_PRE = "-Command \"$PKLoadOk = $false; Invoke-Expression ((Get-Content -LiteralPath '"
+PS_LOAD_POST = "' -Raw -Encoding UTF8)); if (-not $PKLoadOk) { exit 1 }; exit 0\""
 # dieselben Teile zum Einbetten in einen PowerShell-String in einfachen Anführungszeichen ('…' + $pfad + '…')
 PS_LOAD_PRE_Q = PS_LOAD_PRE.replace("'", "''")
 PS_LOAD_POST_Q = PS_LOAD_POST.replace("'", "''")

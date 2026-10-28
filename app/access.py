@@ -127,9 +127,21 @@ def need_computer(user, cid):
     return cid
 
 
+def _ints(ids):
+    """2.32.5: Computer-IDs als Zahlen – Unsinn in der Anfrage ist ein 400, kein interner Fehler."""
+    if ids is None:
+        return []
+    if not isinstance(ids, (list, tuple, set)):
+        raise HTTPException(400, "Ungültige Computer-IDs.")
+    try:
+        return [int(i) for i in ids]
+    except (TypeError, ValueError):
+        raise HTTPException(400, "Ungültige Computer-IDs.")
+
+
 def check_ids(user, ids):
     """Computer-IDs aus einer Anfrage: alle müssen im Bereich liegen (sonst 403 – nie stillschweigend mehr)."""
-    ids = [int(i) for i in ids or []]
+    ids = _ints(ids)
     allowed = computer_ids(user)
     if allowed is None:
         return ids
@@ -142,7 +154,7 @@ def check_ids(user, ids):
 def limit_ids(user, ids):
     """Computer-IDs auf den Bereich beschneiden (für „alle Mitglieder einer Sammlung“)."""
     allowed = computer_ids(user)
-    ids = [int(i) for i in ids or []]
+    ids = _ints(ids)
     return ids if allowed is None else [i for i in ids if i in allowed]
 
 
