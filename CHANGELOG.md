@@ -1,5 +1,12 @@
 # Änderungen
 
+## pocketknife-2.32.7 (28.10.2026)
+- **Neu – Tools mit Dateien aus dem Repository:** Im Tool einen Ordner oder eine Datei aus dem Repository wählen (z. B. iperf). POCKET KNIFE kopiert sie vor dem Ausführen selbst auf den Computer, der Befehl läuft in diesem Ordner, danach wird aufgeräumt – als Dienstkonto und als SYSTEM. Kein Zugriff des Computers auf Freigaben nötig (ein Aufruf wie `\\server\freigabe\programm.exe` scheitert in einer WinRM-Sitzung grundsätzlich), keine Kennwörter auf dem Client. Mandanten-Ordner sind nicht wählbar
+- **Neu – Danach scannen:** Ein Tool kann danach scannen – *Nach Erfolg* oder *Immer*, mit wählbarem Scanprofil. Standard: nicht scannen
+- **Neu – Zeitlimit und Erfolgscodes je Tool** (leer = 30 Minuten bzw. 0)
+- **Behoben – Umlaute in der Ausgabe von CMD-Tools und Befehl-Schritten:** „ausf?hren“ statt „ausführen“ – die Ausgabe von cmd.exe wird jetzt in der Konsolen-Codepage gelesen
+- **Selbsttest:** Dateien kopieren/Arbeitsordner/Aufräumen (Dienstkonto und SYSTEM), Mandanten-Ordner gesperrt, Erfolgscodes, Zeitlimit, Danach scannen (Standard aus), Konsolen-Codepage
+
 ## pocketknife-2.32.6 (28.10.2026)
 - **Neu – Sitzungszustand angemeldeter Benutzer:** In der Computeransicht und in der Spalte „Benutzer“ der Computerliste steht neben jedem angemeldeten Benutzer **gesperrt** (Sperrbildschirm) oder **getrennt** (Remotedesktop geschlossen oder Benutzer gewechselt). Live beim Öffnen eines Online-Computers, sonst aus dem letzten Scan; mehrere Sitzungen eines Benutzers: die aktive zählt. Läuft auch im eingeschränkten Sprachmodus
 - **Selbsttest:** Zustände aus `quser` (deutsch/englisch) und Sperrbildschirm, mehrere Sitzungen, eingeschränkter Sprachmodus, Scan und Live-Abfrage gleich

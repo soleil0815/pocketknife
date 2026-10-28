@@ -818,13 +818,16 @@ def api_secrets(cid: int, what: str, user=U):
 
 
 # --- Tools ---------------------------------------------------
-TOOL_FIELDS = ["name", "folder", "type", "script", "run_as", "confirm", "description", "hotkey"]
+TOOL_FIELDS = ["name", "folder", "type", "script", "run_as", "confirm", "description", "hotkey", "repo_path", "scan_after",
+               "scan_profile_id", "timeout_s", "success_codes"]
 
 
 @app.get("/api/tools")
 def api_tools(user=U):
     return {"tools": db.q("SELECT * FROM tools ORDER BY folder COLLATE NOCASE, sort, name COLLATE NOCASE"),
-            "types": tools.TYPES, "run_as": tools.RUN_AS, "builtin_hotkeys": tools.builtin_hotkeys()}
+            "types": tools.TYPES, "run_as": tools.RUN_AS, "builtin_hotkeys": tools.builtin_hotkeys(),
+            "scan_after": tools.SCAN_AFTER, "default_timeout": tools.DEFAULT_TIMEOUT,
+            "profiles": [{"id": p["id"], "name": p["name"], "is_default": bool(p.get("is_default"))} for p in profiles.all_profiles()]}
 
 
 @app.put("/api/tools-hotkeys")

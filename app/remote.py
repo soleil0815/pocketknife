@@ -1341,7 +1341,8 @@ function PK-Run([string]$File, [string]$Arguments) {
   }
   foreach ($f in @($so, $se)) {
     if (Test-Path $f) {
-      $pkL = @(Get-Content -Path $f -Encoding UTF8 | Where-Object { $_ -notmatch '^\s*[-\\|/]?\s*$' -and $_ -notmatch '[▀-▟]' })
+      # 2.32.7: cmd.exe schreibt in der Konsolen-Codepage (OEM) – sonst kommen Umlaute als „?“ an
+      $pkL = @(Get-Content -Path $f -Encoding $(if ($File -match 'cmd\.exe$') { 'Oem' } else { 'UTF8' }) | Where-Object { $_ -notmatch '^\s*[-\\|/]?\s*$' -and $_ -notmatch '[▀-▟]' })
       $global:PKOut += $pkL
       if ($f -eq $so) { $global:PKStdN = $pkL.Count } else { $global:PKErrTxt = ($pkL -join '') }
       $pkL

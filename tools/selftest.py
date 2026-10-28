@@ -5760,6 +5760,84 @@ def _():
     finally:
         shutil.rmtree(d, ignore_errors=True)
 
+@test("2.32.7 Tools: Dateien aus dem Repository (POCKET KNIFE kopiert selbst, Befehl im Arbeitsordner, danach aufgeräumt, nie aus Mandanten-Ordnern), Danach scannen (Standard aus), Zeitlimit, Erfolgscodes; CMD-Ausgabe mit Umlauten (OEM)")
+def _():
+    import time as _t
+    from app import db, inventory, remote, tools
+    tools.init()
+    cols = {r["name"] for r in db.q("PRAGMA table_info(tools)")}
+    assert {"repo_path", "scan_after", "scan_profile_id", "timeout_s", "success_codes"} <= cols
+    base = {"name": "T", "type": "cmd", "script": "ver", "run_as": "service"}
+    orig = (remote.repo_stat, remote.copy_package, remote.remove_package_copy, remote.ps, remote.run_as_system, inventory.queue_scan)
+    calls = []
+    remote.repo_stat = lambda rel: {"tools\\iperf": "dir", "tools\\x.exe": "file"}.get(rel.lower())
+    remote.copy_package = lambda folder, host, name, single_file=None: calls.append(("copy", folder, name, single_file))
+    remote.remove_package_copy = lambda host, name: calls.append(("rm", name))
+    tid = db.ex("INSERT INTO tenants(name, repo_folder, created_at) VALUES('T-HK7', 'Mandant\\A', ?)", (util.now(),))
+    c = db.ex("INSERT INTO computers(name, dns_name, created_at) VALUES('TL-PC', 'tl-pc.firma.local', ?)", (util.now(),))
+    try:
+        d = dict(base, repo_path="/Tools/iperf/")
+        tools.validate(d)
+        assert d["repo_path"] == "Tools\\iperf" and d["scan_after"] == "never" and d["scan_profile_id"] is None, d
+        assert d["timeout_s"] is None and d["success_codes"] is None, "Standard: kein Zeitlimit eingetragen, Erfolg = 0, kein Scan"
+        for bad in ({"repo_path": "..\\geheim"}, {"repo_path": "C:\\x"}, {"repo_path": "\\\\srv\\x"}, {"repo_path": "Tools\\fehlt"},
+                    {"repo_path": "Mandant\\A\\iperf"}, {"repo_path": "Mandant"}, {"scan_after": "manchmal"},
+                    {"timeout_s": 5}, {"timeout_s": 999999}, {"timeout_s": "x"}, {"success_codes": "0, abc"}):
+            try:
+                tools.validate(dict(base, **bad))
+                raise AssertionError(("angenommen", bad))
+            except ValueError:
+                pass
+        d = dict(base, success_codes="0; 3010 ,1", timeout_s="120", scan_after="success")
+        tools.validate(d)
+        assert d["success_codes"] == "0,3010,1" and d["timeout_s"] == 120
+        assert tools.parse_codes("") == [0]
+        # Ausführung als Dienstkonto mit Dateien: kopieren → im Ordner ausführen → aufräumen; Erfolgscodes; Zeitlimit
+        seen = {}
+
+        def ps(host, script, timeout=None, **kw):
+            seen["script"], seen["timeout"] = script, timeout
+            return "Ausgabe\nPKEXIT:3010", "", False
+        remote.ps = ps
+        t = {"id": 7, "name": "IPERF", "type": "cmd", "script": "iperf3.exe -c pve", "run_as": "service", "repo_path": "Tools\\iperf",
+             "timeout_s": 90, "success_codes": "0,3010", "scan_after": "never", "scan_profile_id": None}
+        r = tools.run(t, c)
+        assert r["exit"] == 3010 and r["ok"] is True and "Tools\\iperf" in r["output"], r
+        assert calls[0][0] == "copy" and calls[0][1] == "Tools\\iperf" and calls[-1] == ("rm", calls[0][2]), calls
+        assert f'cd /d "C:\\Windows\\Temp\\PocketKnife\\{calls[0][2]}"' in seen["script"], seen["script"][:400]
+        assert seen["timeout"] == 90 and "-Encoding Oem" in seen["script"], "CMD-Ausgabe in der Konsolen-Codepage"
+        calls.clear()
+        r = tools.run(dict(t, repo_path="Tools\\x.exe", type="powershell", script="Get-Item ."), c)
+        assert calls[0] == ("copy", "Tools", calls[0][2], "x.exe") and "Set-Location -LiteralPath" in seen["script"], (calls, seen["script"][:300])
+        # SYSTEM: gleicher Name für Kopie und Lauf, Aufräumen durch run_as_system
+        calls.clear()
+        remote.run_as_system = lambda host, body, name, timeout_s=0, **kw: (calls.append(("sys", name, timeout_s)) or (1, "> x\nExitcode: 1"))
+        r = tools.run(dict(t, run_as="system"), c)
+        assert calls[0][0] == "copy" and calls[1] == ("sys", calls[0][2], 90) and not any(x[0] == "rm" for x in calls), calls
+        assert r["ok"] is False
+        # Danach scannen: Standard nie; „Nach Erfolg“ nur bei OK; „Immer“ immer
+        scans = []
+        inventory.queue_scan = lambda cid, user=None, profile_id=None, follow=False: scans.append((cid, profile_id, follow)) or True
+        orig_run = tools.run
+        for sa, ok, want in (("never", True, 0), ("success", False, 0), ("success", True, 1), ("always", False, 1)):
+            scans.clear()
+            tools.run = lambda tool, cid, _ok=ok: {"exit": 0 if _ok else 1, "ok": _ok, "output": "", "seconds": 0}
+            jid = tools.start_job(dict(t, scan_after=sa), [c], "tester")
+            for _i in range(500):
+                j = tools.job(jid)
+                if all(x["status"] in ("OK", "Fehler") for x in j["targets"]):
+                    break
+                _t.sleep(0.02)
+            assert len(scans) == want and all(s[2] for s in scans), (sa, ok, scans)
+        tools.run = orig_run
+    finally:
+        remote.repo_stat, remote.copy_package, remote.remove_package_copy, remote.ps, remote.run_as_system, inventory.queue_scan = orig
+        db.ex("DELETE FROM tenants WHERE id=?", (tid,))
+        db.ex("DELETE FROM computers WHERE id=?", (c,))
+    assert "-Encoding $(if ($File -match 'cmd\\.exe$') { 'Oem' } else { 'UTF8' })" in remote.WRAPPER
+    js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
+    assert "repo_path: repo.value" in js and "scan_after: scanAfter.value" in js and "tool.scan_after || 'never'" in js
+
 def main():
     ok = 0
     for name, fn in RESULTS:

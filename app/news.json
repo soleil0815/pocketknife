@@ -2,6 +2,30 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.32.7",
+   "date": "2026-10-28",
+   "items": [
+    {
+     "kind": "new",
+     "audience": "admin",
+     "de": "Tools können Dateien aus dem Repository mitnehmen (z. B. iperf) – POCKET KNIFE kopiert sie selbst auf den Computer, ohne Freigabezugriff und ohne Kennwort auf dem Client.",
+     "en": "Tools can take files from the repository (e.g. iperf) – POCKET KNIFE copies them to the computer itself, without share access and without a password on the client."
+    },
+    {
+     "kind": "new",
+     "audience": "admin",
+     "de": "Tools: optional danach scannen (nach Erfolg oder immer, mit Scanprofil), dazu Zeitlimit und Erfolgscodes.",
+     "en": "Tools: optionally scan afterwards (on success or always, with a scan profile), plus time limit and success codes."
+    },
+    {
+     "kind": "fixed",
+     "audience": "all",
+     "de": "Umlaute in der Ausgabe von CMD-Tools werden richtig angezeigt.",
+     "en": "Umlauts in the output of CMD tools are shown correctly."
+    }
+   ]
+  },
+  {
    "version": "2.32.6",
    "date": "2026-10-28",
    "items": [

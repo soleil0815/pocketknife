@@ -6458,11 +6458,29 @@ async function toolDlg(tool, presetFolder) {
   const desc = h('input', { value: tool.description || '' });
   const confirm = h('input', { type: 'checkbox', checked: !!tool.confirm });
   const hk = hkInput(tool.hotkey || '', isNew ? null : `tool:${tool.id}`);
+  // 2.32.7: Dateien aus dem Repository, Zeitlimit, Erfolgscodes, Danach scannen
+  const repo = h('input', { value: tool.repo_path || '', placeholder: 'z. B. Tools\\iperf' });
+  const repoBtn = btn('Wählen …', async () => { const f = await repoPickFolder(repo.value || ''); if (f !== undefined && f !== null) repo.value = f; }, { cls: 'small' });
+  const timeout = h('input', { type: 'number', min: '10', max: '14400', step: '1', value: tool.timeout_s || '', placeholder: String(data.default_timeout || 1800), style: { width: '120px' } });
+  const codes = h('input', { value: tool.success_codes || '', placeholder: '0', style: { width: '160px' } });
+  const scanAfter = sel(Object.entries(data.scan_after || { never: 'Nicht scannen' }), tool.scan_after || 'never');
+  const scanProf = sel([['', 'Standardprofil'], ...(data.profiles || []).map((p) => [String(p.id), p.name + (p.is_default ? ' (Standard)' : '')])], tool.scan_profile_id ? String(tool.scan_profile_id) : '');
+  const scanUpd = () => { scanProf.disabled = scanAfter.value === 'never'; };
+  scanAfter.addEventListener('change', scanUpd);
+  scanUpd();
   const hint = h('div.hint');
   const runRow = field('Ausführen als', runAs, 'Dienstkonto: direkt über WinRM, schnell. SYSTEM: über eine geplante Aufgabe, z. B. für SFC oder Dinge, die als Computerkonto laufen müssen.');
+  const extraRows = [
+    field('Dateien aus dem Repository', h('div.row', { style: { gap: '6px' } }, repo, repoBtn),
+      'Ordner (oder Datei) wird vor dem Ausführen auf den Computer kopiert, der Befehl läuft in diesem Ordner – z. B. „iperf3.exe -c server“. Danach wird aufgeräumt. Kein Zugriff des Computers auf Freigaben nötig.'),
+    field('Zeitlimit', h('div.row', { style: { gap: '6px', alignItems: 'center' } }, timeout, h('span.muted', 'Sekunden')), 'Leer = Standard.'),
+    field('Erfolgscodes', codes, 'Exitcodes, die als Erfolg zählen, mit Komma getrennt (leer = 0).'),
+    field('Danach scannen', h('div.row', { style: { gap: '6px' } }, scanAfter, scanProf), 'Je Computer nach dem Tool; läuft gerade ein Scan, wird er danach nachgeholt.'),
+  ];
   const toggle = () => {
     const url = type.value === 'url';
     runRow.forEach((e) => e && (e.style.display = url ? 'none' : ''));
+    extraRows.forEach((r) => r.forEach((e) => e && (e.style.display = url ? 'none' : '')));
     script.rows = url ? 2 : 12;
     hint.textContent = url ? 'Wird im Browser geöffnet, z. B. vnc://$(IP), https://$(Host):8443 oder http://$(IP):9100'
       : type.value === 'cmd' ? 'Befehle wie in einer .cmd-Datei, mehrzeilig möglich, z. B. ipconfig /all'
@@ -6470,7 +6488,7 @@ async function toolDlg(tool, presetFolder) {
   };
   type.addEventListener('change', toggle);
   const form = h('div.form', field('Name', name), field('Ordner', combo(folder, folders, { width: '100%' })),
-    field('Typ', type), runRow, h('label', 'Befehl / URL'), script, hint,
+    field('Typ', type), runRow, h('label', 'Befehl / URL'), script, hint, ...extraRows,
     field('Beschreibung', desc), field('Rückfrage', h('label.chk', confirm, 'vor dem Ausführen bestätigen (für ändernde Aktionen)')),
     field('Tastenkürzel', hk.el, 'Startet das Tool für die markierten Computer bzw. den geöffneten Computer.'),
     h('div.full.muted.small', 'Variablen: $(Computer) $(Host) $(IP) $(MAC) $(User) $(Domain)'));
@@ -6481,7 +6499,8 @@ async function toolDlg(tool, presetFolder) {
     buttons.splice(1, 0, { label: 'Als Kopie speichern', onClick: async () => { await POST('/api/tools', { ...collect(), name: name.value + ' (Kopie)', hotkey: '' }); toast('Kopie angelegt', 'ok'); route(); } });
   }
   function collect() {
-    return { name: name.value, folder: folder.value, type: type.value, run_as: runAs.value, script: script.value, description: desc.value, confirm: confirm.checked, hotkey: hk.value };
+    return { name: name.value, folder: folder.value, type: type.value, run_as: runAs.value, script: script.value, description: desc.value, confirm: confirm.checked, hotkey: hk.value,
+      repo_path: repo.value, timeout_s: timeout.value, success_codes: codes.value, scan_after: scanAfter.value, scan_profile_id: scanProf.value || null };
   }
   buttons.push({ label: 'Speichern', cls: 'primary', onClick: async () => {
     if (hk.conflict()) { toast(`Tastenkürzel ${hkText(hk.value)} ist bereits vergeben an „${hk.conflict()}“`, 'err'); return false; }
