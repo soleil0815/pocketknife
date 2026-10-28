@@ -3282,7 +3282,7 @@ def rebootmsg_clean(v, limit):
 EDITABLE = [k for k in db.DEFAULT_SETTINGS if k not in INTERNAL_SETTINGS]
 # Grenzen für Zahlenwerte (min, max)
 SETTING_BOUNDS = {"repo_upload_max_mb": (1, 102400), "repo_tenant_quota_mb": (0, 10 ** 7), "integrity_full_start": (0, 23), "integrity_full_end": (0, 24), "integrity_full_mbps": (5, 1000),
-                  "integrity_full_enabled": (0, 1), "heartbeat_minutes": (1, 1440), "scan_concurrency": (1, 64), "deploy_concurrency": (1, 64),
+                  "integrity_full_enabled": (0, 1), "heartbeat_minutes": (1, 1440), "scan_online_delay_minutes": (0, 120), "scan_concurrency": (1, 64), "deploy_concurrency": (1, 64),
                   "deploy_timeout_minutes": (1, 1440), "winget_refresh_hours": (1, 720), "backup_keep": (1, 365),
                   "backup_hour": (0, 23), "db_maintenance_hour": (0, 23), "scan_interval_hours": (1, 8760), "du_scan_depth": (1, 8),
                   "rule_retry_hours": (1, 8760), "session_idle_minutes": (5, 720), "kiosk_max_per_day": (1, 500),

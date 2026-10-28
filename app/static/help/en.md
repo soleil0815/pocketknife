@@ -581,7 +581,7 @@ A scan profile defines **what** is scanned (scanners), **on which computers** (t
 | Interval | every n minutes/hours/days |
 | Daily / Weekly / Monthly | at a time of day on specific days |
 | Scan age | as soon as the last scan is older than a given period, optionally only within a time window |
-| Heartbeat | as soon as a computer is (back) online |
+| Heartbeat | as soon as a computer is (back) online – from 2.32.8 only a few minutes later (default 3, **Settings → Schedules & performance → Scan after startup**), so that network, services and sign-in are ready. This applies to all automatic scans of a computer that has just started or woken up; manual scans run immediately |
 
 "Catch up on offline computers" scans computers that were offline at the scheduled time as soon as they come online.
 

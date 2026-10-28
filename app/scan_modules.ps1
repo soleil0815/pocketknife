@@ -283,7 +283,11 @@ PKS 'nics' {
   # 2.31: Wake-on-LAN-Bereitschaft je Karte – Magic Packet erlaubt, darf den Computer wecken, Treiber-Einstellungen,
   # kabelgebunden (nur cmdlets und powercfg, Constrained-Language-tauglich)
   $wolPm = @{}; try { Get-NetAdapterPowerManagement -ErrorAction Stop | ForEach-Object { $wolPm[[string]$_.InterfaceDescription] = [string]$_.WakeOnMagicPacket } } catch {}
-  $wolMedia = @{}; try { Get-NetAdapter -Physical -ErrorAction Stop | ForEach-Object { $wolMedia[[string]$_.InterfaceDescription] = [string]$_.PhysicalMediaType } } catch {}
+  # 2.32.8: Geschwindigkeit aus Get-NetAdapter (fragt den Treiber direkt) – Win32_NetworkAdapter.Speed ist bei manchen
+  # Treibern veraltet oder meldet bei getrennten Karten 10 Mbit/s. Nur für verbundene Karten.
+  $wolMedia = @{}; $nSpeed = @{}; $nUp = @{}
+  try { Get-NetAdapter -Physical -ErrorAction Stop | ForEach-Object { $k = [string]$_.InterfaceDescription
+    $wolMedia[$k] = [string]$_.PhysicalMediaType; $nSpeed[$k] = $_.Speed; $nUp[$k] = ([string]$_.Status -eq 'Up') } } catch {}
   $wolAdv = @{}; try { Get-NetAdapterAdvancedProperty -ErrorAction Stop | Where-Object { $_.RegistryKeyword -match 'Wake|WOL|PME|S5' } | ForEach-Object {
     $k = [string]$_.InterfaceDescription; $wolAdv[$k] = @($wolAdv[$k]) + @(([string]$_.DisplayName) + ': ' + ([string]$_.DisplayValue)) } } catch {}
   $wolArmed = @(); try { $wolArmed = @(& powercfg.exe /devicequery wake_armed 2>$null | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ }) } catch {}
@@ -292,7 +296,11 @@ PKS 'nics' {
   Get-CimInstance Win32_NetworkAdapter -Filter 'PhysicalAdapter=True' | ForEach-Object {
     $c = $cfg[[int]$_.Index]
     [ordered]@{ name = $_.Name; connection = $_.NetConnectionID; status = $states[[int]$_.NetConnectionStatus]; mac = $_.MACAddress
-      speed = $(if ($_.Speed -and $_.Speed -lt 1e12) { [int64]$_.Speed } else { $null }); manufacturer = $_.Manufacturer
+      speed = $(
+        $sp = $null; $nk = [string]$_.Name
+        if ($nSpeed.ContainsKey($nk)) { if ($nUp[$nk] -and $nSpeed[$nk]) { $sp = [int64]$nSpeed[$nk] } }
+        elseif ([int]$_.NetConnectionStatus -eq 2 -and $_.Speed -and $_.Speed -lt 1e12) { $sp = [int64]$_.Speed }
+        if ($sp -gt 0 -and $sp -lt 1e12) { $sp } else { $null }); manufacturer = $_.Manufacturer
       ip = (@($c.IPAddress) -join ', '); subnet = (@($c.IPSubnet) -join ', '); gateway = (@($c.DefaultIPGateway) -join ', ')
       dns = (@($c.DNSServerSearchOrder) -join ', '); dhcp = [bool]$c.DHCPEnabled; dhcp_server = $c.DHCPServer
       dns_suffix = $c.DNSDomain; enabled = $_.NetEnabled

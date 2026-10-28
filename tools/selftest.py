@@ -5892,6 +5892,62 @@ def _():
     js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
     assert "repo_path: repo.value" in js and "scan_after: scanAfter.value" in js and "tool.scan_after || 'never'" in js
 
+@test("2.32.8 Netzwerkkarten: Geschwindigkeit aus Get-NetAdapter (nicht der veraltete WMI-Wert), nur für verbundene Karten; automatische Scans erst einige Minuten nach dem Hochfahren/Aufwachen, manuelle sofort")
+def _():
+    import subprocess
+    from app import db, inventory, profiles
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app")
+    src = open(os.path.join(root, "scan_modules.ps1"), encoding="utf-8").read()
+    pre = src[src.index("# @prelude"):src.index("# @module active_directory")]
+    nics = src[src.index("# @module nics"):src.index("# @module printers")]
+    pw = os.environ.get("PK_PWSH")
+    if pw and os.path.exists(pw):
+        mocks = ("$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'\n"
+                 "function Get-CimInstance { param($ClassName, $Filter)\n"
+                 "  if ($ClassName -eq 'Win32_NetworkAdapter') { return @(\n"
+                 "    @{ Name = 'Intel Ethernet'; Index = 1; NetConnectionStatus = 2; Speed = 10000000; MACAddress = 'AA'; NetEnabled = $true },\n"
+                 "    @{ Name = 'Realtek USB'; Index = 2; NetConnectionStatus = 7; Speed = 10000000; MACAddress = 'BB'; NetEnabled = $true },\n"
+                 "    @{ Name = 'Alt-Karte'; Index = 3; NetConnectionStatus = 2; Speed = 100000000; MACAddress = 'CC'; NetEnabled = $true }) }\n"
+                 "  return @() }\n"
+                 "function Get-NetAdapter { param([switch]$Physical, $ErrorAction)\n"
+                 "  @(@{ InterfaceDescription = 'Intel Ethernet'; PhysicalMediaType = '802.3'; Speed = 1000000000; Status = 'Up' },\n"
+                 "    @{ InterfaceDescription = 'Realtek USB'; PhysicalMediaType = '802.3'; Speed = 0; Status = 'Disconnected' }) }\n"
+                 "function Get-NetAdapterPowerManagement { @() }\nfunction Get-NetAdapterAdvancedProperty { @() }\nfunction powercfg.exe { }\n")
+        sf = os.path.join(TMP, "pk-nics.ps1")
+        with open(sf, "w", encoding="utf-8-sig") as fh:
+            fh.write(mocks + pre + nics + "\nConvertTo-Json -InputObject @($r.nics) -Compress\n'ERR:' + ($r.errors -join ' | ')\n")
+        r = subprocess.run([pw, "-NoLogo", "-NoProfile", "-NonInteractive", "-File", sf], capture_output=True, text=True, timeout=120)
+        line = [x for x in r.stdout.splitlines() if x.startswith("[")]
+        assert line, r.stdout + r.stderr
+        sp = {n["name"]: n.get("speed") for n in json.loads(line[0])}
+        assert sp == {"Intel Ethernet": 1000000000, "Realtek USB": None, "Alt-Karte": 100000000}, (sp, r.stdout[-300:])
+        assert "ERR:\n" in r.stdout + "\n" or r.stdout.strip().endswith("ERR:"), r.stdout[-300:]
+    # Wartezeit nach dem Hochfahren
+    assert db.DEFAULT_SETTINGS["scan_online_delay_minutes"] == 3
+    c = db.ex("INSERT INTO computers(name, dns_name, online, winrm, online_since, created_at) VALUES('NS-PC', 'ns-pc.firma.local', 1, 1, ?, ?)",
+              (util.now(), util.now()))
+    pid = profiles.default()["id"]
+    started = []
+    orig = (inventory.queue_scan, inventory.is_scanning)
+    inventory.queue_scan = lambda cid, user=None, profile_id=None, follow=False: started.append(cid) or True
+    inventory.is_scanning = lambda cid: False
+    try:
+        db.ex("INSERT OR REPLACE INTO profile_scans(computer_id, profile_id, pending, pending_since) VALUES(?,?,1,?)", (c, pid, util.now()))
+        profiles.dispatch()
+        assert c not in started, "gerade erst online → noch nicht"
+        db.ex("UPDATE computers SET online_since=? WHERE id=?", (util.ago(minutes=4), c))
+        profiles.dispatch()
+        assert c in started, "nach der Wartezeit"
+        from app import presence
+        db.ex("UPDATE computers SET winrm=0 WHERE id=?", (c,))
+        assert presence.update(c, True, True) and db.val("SELECT online_since FROM computers WHERE id=?", (c,)), "beim Online-Kommen gesetzt"
+        presence.update(c, False, False)
+        assert db.val("SELECT online_since FROM computers WHERE id=?", (c,)) is None
+    finally:
+        inventory.queue_scan, inventory.is_scanning = orig
+        db.ex("DELETE FROM profile_scans WHERE computer_id=?", (c,))
+        db.ex("DELETE FROM computers WHERE id=?", (c,))
+
 def main():
     ok = 0
     for name, fn in RESULTS:

@@ -2,6 +2,24 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.32.8",
+   "date": "2026-10-28",
+   "items": [
+    {
+     "kind": "fixed",
+     "audience": "all",
+     "de": "Netzwerkkarten zeigen die richtige Geschwindigkeit (bisher teils 10 statt 1000 Mbit/s); langsame Kabelverbindungen bekommen einen Hinweis.",
+     "en": "Network adapters show the correct speed (previously sometimes 10 instead of 1000 Mbit/s); slow wired links get a hint."
+    },
+    {
+     "kind": "improved",
+     "audience": "admin",
+     "de": "Automatische Scans warten nach dem Hochfahren/Aufwachen einige Minuten (einstellbar), manuelle Scans laufen sofort.",
+     "en": "Automatic scans wait a few minutes after startup/wake-up (configurable), manual scans run immediately."
+    }
+   ]
+  },
+  {
    "version": "2.32.7",
    "date": "2026-10-28",
    "items": [

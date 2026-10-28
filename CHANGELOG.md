@@ -1,5 +1,10 @@
 # Änderungen
 
+## pocketknife-2.32.8 (28.10.2026)
+- **Behoben – falsche Geschwindigkeit der Netzwerkkarte (z. B. 10 statt 1000 Mbit/s):** Der Scanner „Netzwerkkarten“ nahm den Wert aus WMI (`Win32_NetworkAdapter.Speed`), der bei manchen Treibern veraltet ist oder bei getrennten Karten 10 Mbit/s meldet. Jetzt kommt er aus `Get-NetAdapter` (fragt den Treiber direkt) und steht nur bei verbundenen Karten. Kabelgebundene Karten mit 10/100 Mbit/s bekommen einen Hinweis (Kabel, Switchport, Energiespar-Einstellung prüfen)
+- **Neu – Scan erst nach dem Hochfahren:** Automatische Scans für einen gerade hochgefahrenen oder aufgewachten Computer laufen erst nach einer Wartezeit (Standard 3 Minuten, **Einstellungen → Zeitpläne & Leistung**), damit Netzwerk, Dienste und Anmeldung fertig sind. Manuelle Scans laufen sofort
+- **Selbsttest:** Geschwindigkeit aus Get-NetAdapter, getrennte Karten ohne Wert, WMI nur als Rückfall (eingeschränkter Sprachmodus); Wartezeit nach dem Online-Kommen
+
 ## pocketknife-2.32.7 (28.10.2026)
 - **Neu – Tools mit Dateien aus dem Repository:** Im Tool einen Ordner oder eine Datei aus dem Repository wählen (z. B. iperf). POCKET KNIFE kopiert sie vor dem Ausführen selbst auf den Computer, der Befehl läuft in diesem Ordner, danach wird aufgeräumt – als Dienstkonto und als SYSTEM. Kein Zugriff des Computers auf Freigaben nötig (ein Aufruf wie `\\server\freigabe\programm.exe` scheitert in einer WinRM-Sitzung grundsätzlich), keine Kennwörter auf dem Client. Mandanten-Ordner sind nicht wählbar – auch nicht nachträglich: Bekommt ein Mandant den Ordner später, läuft das Tool nicht mehr, und ein Mandant bekommt keinen Ordner, den ein Tool benutzt. Mit Dateien läuft ein Tool auch als Dienstkonto als eigener Prozess, damit das Zeitlimit das Programm wirklich beendet; der Ordner wird in jedem Fall aufgeräumt
 - **Neu – Danach scannen:** Ein Tool kann danach scannen – *Nach Erfolg* oder *Immer*, mit wählbarem Scanprofil. Standard: nicht scannen

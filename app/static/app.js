@@ -2208,7 +2208,9 @@ const PC_COLS = {
     ['password_expires', 'Passwort läuft ab', R.date('password_expires')], ['description', 'Beschreibung', null, 'trunc']],
   nics: [['name', 'Adapter'], ['connection', 'Verbindung'], ['status', 'Status', (r) => h('span.badge', { class: r.status === 'Verbunden' ? 'ok' : '' }, r.status || '')],
     ['ip', 'IP-Adresse'], ['subnet', 'Subnetz'], ['gateway', 'Gateway'], ['dns', 'DNS'], ['dhcp', 'DHCP', R.bool('dhcp')],
-    ['dhcp_server', 'DHCP-Server'], ['mac', 'MAC', null, 'mono'], ['speed', 'Geschwindigkeit', (r) => (r.speed ? `${Math.round(r.speed / 1e6)} Mbit/s` : '')],
+    ['dhcp_server', 'DHCP-Server'], ['mac', 'MAC', null, 'mono'], ['speed', 'Geschwindigkeit', (r) => (!r.speed ? '' : (r.wired !== false && r.speed <= 1e8)
+      ? h('span', `${Math.round(r.speed / 1e6)} Mbit/s `, h('span.badge.warn', { title: tr('Kabelgebundene Karte nur mit 10/100 Mbit/s verbunden – Kabel, Switchport oder Energiespar-Einstellung des Treibers prüfen') }, '!'))
+      : `${Math.round(r.speed / 1e6)} Mbit/s`)],
     // 2.31: Wake-on-LAN-Bereitschaft (ab Scan mit 2.31)
     ['wol_magic', 'Wake-on-LAN', (r) => (r.wol_magic ? h('span.badge', { class: r.wol_magic === 'an' ? 'ok' : 'warn' }, r.wol_magic) : '')],
     ['wake_armed', 'Darf wecken', R.bool('wake_armed')], ['wol_driver', 'WoL-Treiber-Einstellungen', null, 'wrap']],
@@ -5479,6 +5481,7 @@ async function viewSettings() {
 
   const sched = h('div.card', h('div.card-h', h('h2', 'Zeitpläne & Leistung')), h('div.card-b', h('div.form',
     field('Heartbeat alle (Min.)', n('heartbeat_minutes'), 'Prüft, welche Computer online sind. Wann gescannt wird, legen die Scanprofile fest.'),
+    field('Scan nach dem Hochfahren (Min.)', n('scan_online_delay_minutes', { min: 0 }), 'Automatische Scans für einen gerade hochgefahrenen oder aufgewachten Computer erst nach dieser Zeit – dann sind Netzwerk, Dienste und Anmeldung fertig. 0 = sofort. Manuelle Scans laufen immer sofort.'),
     field('Parallele Scans', n('scan_concurrency', { min: 1 }), 'Wirksam nach Neustart des Containers.'),
     field('Parallele Installationen', n('deploy_concurrency', { min: 1 }), 'Wirksam nach Neustart des Containers.'),
     field('Zeitlimit Installation (Min.)', n('deploy_timeout_minutes', { min: 1 })),

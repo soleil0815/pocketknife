@@ -251,6 +251,7 @@ DEFAULT_SETTINGS = {
     "ad_last_sync": "",
     "ad_last_status": "",
     "heartbeat_minutes": 5,
+    "scan_online_delay_minutes": 3,  # 2.32.8: Scans für gerade hochgefahrene/aufgewachte Computer erst nach dieser Zeit
     # 2.31: Wake-on-LAN – Pakete je Versuch, Wartezeit auf das Aufwachen (0 = nicht warten), feste Relays (Computernamen)
     "wol_repeat": 3, "wol_wait_seconds": 240, "wol_relays": "",
     "scan_interval_hours": 12,
@@ -482,6 +483,7 @@ MIGRATIONS = [
     ("schedules", "ou_edit", "INTEGER"),    # 2.30: wie bei Paketen
     ("collections", "tenant_id", "INTEGER"),  # 2.30: von einem OU-Admin angelegt – gehört diesem Mandanten  # 2.29.9: mehrere Sammlungen je Mandant (JSON-Liste); collection_id = erste  # 2.29.1: OU-Admins dürfen Befehls-/PowerShell-Schritte schreiben
     ("tenants", "quota_mb", "INTEGER"), # 2.27: Speicherkontingent im Repository (leer = Standard aus den Einstellungen)
+    ("computers", "online_since", "TEXT"),  # 2.32.8: seit wann WinRM (wieder) erreichbar ist – Scan erst nach kurzer Wartezeit
 ]
 
 

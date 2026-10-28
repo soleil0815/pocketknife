@@ -581,7 +581,7 @@ Ein Scanprofil legt fest, **was** gescannt wird (Scanner), **bei welchen Compute
 | Intervall | alle n Minuten/Stunden/Tage |
 | Täglich / Wöchentlich / Monatlich | zu einer Uhrzeit an bestimmten Tagen |
 | Scan-Alter | sobald der letzte Scan älter als eine Zeitspanne ist, optional nur in einem Zeitfenster |
-| Heartbeat | sobald ein Computer (wieder) online ist |
+| Heartbeat | sobald ein Computer (wieder) online ist – ab 2.32.8 erst einige Minuten danach (Standard 3, **Einstellungen → Zeitpläne & Leistung → Scan nach dem Hochfahren**), damit Netzwerk, Dienste und Anmeldung fertig sind. Das gilt für alle automatischen Scans eines gerade hochgefahrenen oder aufgewachten Computers; manuelle Scans laufen sofort |
 
 „Offline Computer nachholen“ scannt Computer, die zum Zeitpunkt offline waren, sobald sie online kommen.
 
