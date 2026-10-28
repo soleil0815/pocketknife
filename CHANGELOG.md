@@ -1,5 +1,9 @@
 # Änderungen
 
+## pocketknife-2.32.6 (28.10.2026)
+- **Neu – Sitzungszustand angemeldeter Benutzer:** In der Computeransicht und in der Spalte „Benutzer“ der Computerliste steht neben jedem angemeldeten Benutzer **gesperrt** (Sperrbildschirm) oder **getrennt** (Remotedesktop geschlossen oder Benutzer gewechselt). Live beim Öffnen eines Online-Computers, sonst aus dem letzten Scan; mehrere Sitzungen eines Benutzers: die aktive zählt. Läuft auch im eingeschränkten Sprachmodus
+- **Selbsttest:** Zustände aus `quser` (deutsch/englisch) und Sperrbildschirm, mehrere Sitzungen, eingeschränkter Sprachmodus, Scan und Live-Abfrage gleich
+
 ## pocketknife-2.32.5 (28.10.2026)
 Code-Review aller Änderungen seit 2.29 – die Funde sind behoben:
 - **Behoben – Deinstallieren-Schritt:** Wurde die Software per winget oder mit dem Befehl aus der Registry entfernt, baute POCKET KNIFE den falschen Befehl, und der Schritt schlug immer fehl

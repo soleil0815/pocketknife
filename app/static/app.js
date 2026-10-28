@@ -1631,7 +1631,7 @@ async function viewComputers(_parts, params) {
     { key: 'os_display_version', label: 'Version' },
     { key: 'os_build', label: 'Build' },
     { key: 'uptime', label: 'Betriebszeit', value: (r) => (r.online ? uptime(r.last_boot) : ''), sort: (r) => (r.online && r.last_boot ? r.last_boot : ''), hidden: true },
-    { key: 'current_user', label: 'Benutzer' },
+    { key: 'current_user', label: 'Benutzer', render: (r) => usersEl(r.current_user, r.user_states), value: (r) => usersText(r.current_user, r.user_states) },
     { key: 'manufacturer', label: 'Hersteller', hidden: true },
     { key: 'model', label: 'Modell' },
     { key: 'chassis', label: 'Gehäuse', hidden: true },
@@ -2456,12 +2456,12 @@ function pcOverview(c, link) {
   const warnBool = (v) => (v ? h('span.badge.warn', 'Ja') : v === false ? 'Nein' : '');
 
   // Angemeldeter Benutzer: Stand des letzten Scans, bei Online-Computern sofort live nachgefragt
-  const userBox = h('span', c.current_user || (c.online ? h('span.muted', 'wird abgefragt …') : h('span.muted', 'niemand (laut letztem Scan)')));
+  const userBox = h('span', c.current_user ? usersEl(c.current_user, e.user_states) : (c.online ? h('span.muted', 'wird abgefragt …') : h('span.muted', 'niemand (laut letztem Scan)')));
   const userDn = h('span', e.user_display_name || '');
   if (c.online) {
     POST(`/api/computers/${c.id}/loggedon`).then((r) => {
       if (!r.live) { if (!c.current_user) userBox.replaceChildren(h('span.muted', 'nicht abfragbar')); return; }
-      userBox.replaceChildren(r.user || h('span.muted', 'niemand angemeldet'));
+      userBox.replaceChildren(r.user ? usersEl(r.user, r.states) : h('span.muted', 'niemand angemeldet'));
       userDn.replaceChildren(r.display_name || '');
     }).catch(() => { if (!c.current_user) userBox.replaceChildren(''); });
   }
@@ -5968,6 +5968,29 @@ const BUILTIN_TOOLS = [
   { key: 'files', name: 'Dateien (Explorer) …', icon: 'folder', view: 'files' },
   { key: 'eventlog', name: 'Ereignisanzeige …', icon: 'log', view: 'eventlog' },
 ];
+// 2.32.6: Sitzungszustand angemeldeter Benutzer – gesperrt (Sperrbildschirm) oder getrennt (Remotedesktop/Benutzerwechsel)
+const USER_STATE = { locked: 'gesperrt', disconnected: 'getrennt' };
+function userStatesOf(states) {
+  let o = states || {};
+  if (typeof o === 'string') { try { o = JSON.parse(o) || {}; } catch (e) { o = {}; } }
+  const out = {};  // Groß/Klein egal (Win32_ComputerSystem und explorer.exe schreiben Domäne/Name nicht immer gleich)
+  Object.entries(o).forEach(([k, v]) => { out[k.toLowerCase()] = v; });
+  return out;
+}
+function usersText(users, states) {
+  const st = userStatesOf(states);
+  return String(users || '').split(',').map((u) => u.trim()).filter(Boolean).map((u) => { const x = st[u.toLowerCase()]; return x ? `${u} (${tr(USER_STATE[x] || x)})` : u; }).join(', ');
+}
+function usersEl(users, states) {
+  const st = userStatesOf(states);
+  const list = String(users || '').split(',').map((u) => u.trim()).filter(Boolean);
+  return h('span', list.map((u, i) => {
+    const x = st[u.toLowerCase()];
+    return [i ? ', ' : '', h('span.raw', u), x ? h('span.badge' + (x === 'locked' ? '.info' : ''), { style: { marginLeft: '4px' },
+      title: x === 'locked' ? 'Sperrbildschirm' : 'Sitzung getrennt (Remotedesktop oder Benutzerwechsel) – Programme laufen weiter' }, USER_STATE[x] || x) : null];
+  }));
+}
+
 // 2.32.4: Tastenkürzel gehören zum Tool (für alle gleich): beim eigenen Tool im Tool-Dialog festlegen, bei eingebauten
 // Tools unter Tools → „Tastenkürzel …“ (mit Vorgaben). Immer Strg+Alt (+ Umschalt) und A–Z, 0–9 oder F1–F12; schon
 // vergebene Kürzel werden sofort angezeigt. Gilt für die markierten Computer der Computerliste bzw. den geöffneten

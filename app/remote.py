@@ -1272,15 +1272,48 @@ def secure_workdir(host, force=False):
 
 
 # Angemeldete Benutzer live (Computeransicht, Kiosk)
+SESSIONS_PS = r"""# @sessions-begin (2.32.6: gleich in remote.SESSIONS_PS – der Selbsttest prüft das)
+# Sitzungszustand je angemeldetem Benutzer: getrennt (Remotedesktop/Benutzerwechsel, quser) oder gesperrt (LogonUI.exe
+# läuft in seiner Sitzung). Nur Cmdlets, Hashtables und quser.exe – läuft auch im eingeschränkten Sprachmodus.
+$pkLui = @(Get-CimInstance Win32_Process -Filter "Name='LogonUI.exe'" | ForEach-Object { [int]$_.SessionId })
+$pkQ = @{}
+$pkQo = @()
+try { $pkQo = @(& (Join-Path $env:SystemRoot 'System32\quser.exe') 2>$null) } catch {}
+foreach ($l in @($pkQo | Select-Object -Skip 1)) { if ("$l" -match '^\s*>?\S+\s+(?:\S+\s+)?(\d+)\s+(\S+)') { $pkQ[[int]$matches[1]] = $matches[2] } }
+$pkSt = @{}
+$pkExp = @(Get-CimInstance Win32_Process -Filter "Name='explorer.exe'" | ForEach-Object {
+  $o = Invoke-CimMethod -InputObject $_ -MethodName GetOwner
+  if ($o -and $o.User) {
+    $n = $o.Domain + '\' + $o.User
+    $sid = [int]$_.SessionId
+    $s = 'active'
+    if ("" + $pkQ[$sid] -match '^(Disc|Getr|D.co|Desc|Disco|Getrennt)') { $s = 'disconnected' } elseif ($pkLui -contains $sid) { $s = 'locked' }
+    # mehrere Sitzungen eines Benutzers: aktiv vor gesperrt vor getrennt
+    $rank = @{ active = 3; locked = 2; disconnected = 1 }
+    if (-not $pkSt.ContainsKey($n) -or $rank[$s] -gt $rank[$pkSt[$n]]) { $pkSt[$n] = $s }
+    $n
+  } })
+# @sessions-end
+"""
 LOGGEDON_PS = r"""$ErrorActionPreference = 'SilentlyContinue'
 $u = @()
 $cs = (Get-CimInstance Win32_ComputerSystem).UserName
 if ($cs) { $u += $cs }
-$u += @(Get-CimInstance Win32_Process -Filter "Name='explorer.exe'" | ForEach-Object {
-  $o = Invoke-CimMethod -InputObject $_ -MethodName GetOwner
-  if ($o -and $o.User) { $o.Domain + '\' + $o.User } })
+""" + SESSIONS_PS + r"""$u += $pkExp
 'PKUSERS:' + ((@($u | Where-Object { $_ }) | Select-Object -Unique) -join ', ')
+'PKSTATES:' + ((@($pkSt.GetEnumerator() | Where-Object { $_.Value -ne 'active' } | ForEach-Object { $_.Key + '=' + $_.Value })) -join ';')
 """
+
+
+def parse_states(out):
+    """2.32.6: {"DOM\\user": "locked"|"disconnected"} aus der Zeile PKSTATES: (aktive Sitzungen fehlen)."""
+    line = out.split("PKSTATES:", 1)[1].splitlines()[0] if "PKSTATES:" in (out or "") else ""
+    res = {}
+    for part in line.split(";"):
+        k, _, v = part.strip().partition("=")
+        if k.strip() and v.strip() in ("locked", "disconnected"):
+            res[k.strip()] = v.strip()
+    return res
 
 
 # --- Ausführung als SYSTEM ---------------------------------------------------

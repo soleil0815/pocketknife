@@ -37,13 +37,35 @@ function PKStr($a) { if ($a) { (($a | Where-Object { $_ -ne 0 } | ForEach-Object
 # @module computer | Computer-Details (Allgemein, Betriebssystem, System)
 try {
 $cpu = @(Get-CimInstance Win32_Processor)
+# @sessions-begin (2.32.6: gleich in remote.SESSIONS_PS – der Selbsttest prüft das)
+# Sitzungszustand je angemeldetem Benutzer: getrennt (Remotedesktop/Benutzerwechsel, quser) oder gesperrt (LogonUI.exe
+# läuft in seiner Sitzung). Nur Cmdlets, Hashtables und quser.exe – läuft auch im eingeschränkten Sprachmodus.
+$pkLui = @(Get-CimInstance Win32_Process -Filter "Name='LogonUI.exe'" | ForEach-Object { [int]$_.SessionId })
+$pkQ = @{}
+$pkQo = @()
+try { $pkQo = @(& (Join-Path $env:SystemRoot 'System32\quser.exe') 2>$null) } catch {}
+foreach ($l in @($pkQo | Select-Object -Skip 1)) { if ("$l" -match '^\s*>?\S+\s+(?:\S+\s+)?(\d+)\s+(\S+)') { $pkQ[[int]$matches[1]] = $matches[2] } }
+$pkSt = @{}
+$pkExp = @(Get-CimInstance Win32_Process -Filter "Name='explorer.exe'" | ForEach-Object {
+  $o = Invoke-CimMethod -InputObject $_ -MethodName GetOwner
+  if ($o -and $o.User) {
+    $n = $o.Domain + '\' + $o.User
+    $sid = [int]$_.SessionId
+    $s = 'active'
+    if ("" + $pkQ[$sid] -match '^(Disc|Getr|D.co|Desc|Disco|Getrennt)') { $s = 'disconnected' } elseif ($pkLui -contains $sid) { $s = 'locked' }
+    # mehrere Sitzungen eines Benutzers: aktiv vor gesperrt vor getrennt
+    $rank = @{ active = 3; locked = 2; disconnected = 1 }
+    if (-not $pkSt.ContainsKey($n) -or $rank[$s] -gt $rank[$pkSt[$n]]) { $pkSt[$n] = $s }
+    $n
+  } })
+# @sessions-end
 $pkUser = $cs.UserName
 if (-not $pkUser) {
   # Bei Remotedesktop-Sitzungen bleibt Win32_ComputerSystem.UserName leer – angemeldete Benutzer über explorer.exe ermitteln
-  $pkUser = (@(Get-CimInstance Win32_Process -Filter "Name='explorer.exe'" | ForEach-Object {
-    $o = Invoke-CimMethod -InputObject $_ -MethodName GetOwner -ErrorAction SilentlyContinue
-    if ($o -and $o.User) { $o.Domain + '\' + $o.User } }) | Select-Object -Unique) -join ', '
+  $pkUser = (@($pkExp) | Select-Object -Unique) -join ', '
 }
+$e.user_states = [ordered]@{}
+foreach ($k in $pkSt.Keys) { if ($pkSt[$k] -ne 'active') { $e.user_states[$k] = $pkSt[$k] } }
 $dv = $cv.DisplayVersion; if (-not $dv) { $dv = $cv.ReleaseId }
 $osName = $os.Caption
 if ([int]$os.BuildNumber -ge 22000 -and $osName -match 'Windows 10') { $osName = $osName -replace 'Windows 10', 'Windows 11' }

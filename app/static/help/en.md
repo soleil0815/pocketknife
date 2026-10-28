@@ -545,6 +545,8 @@ If enabled under **Settings → Active Directory**, the sync creates the OU stru
 
 Double-clicking a computer opens its detail view. The categories are on the left (Computer, Applications, Hardware, Services, Disks, Network Adapters, Scans, Deployments …), the data on the right. The overview shows the operating system, hardware, security (Defender, BitLocker, TPM, firewall) and scan status.
 
+**Signed-in users (from 2.32.6):** Next to each signed-in user it shows whether the session is **locked** (lock screen) or **disconnected** (Remote Desktop closed or user switched – their programs keep running). Without a note the session is active. For online computers POCKET KNIFE queries this live when the view opens, otherwise the last scan applies; the computer list shows it in the "User" column. It is based on `quser` (disconnected) and the lock screen process in the session (locked); on Windows Home without `quser`, "disconnected" is not available.
+
 ![Detail view of a computer](img/en/computer.jpg)
 
 Actions directly on the computer:

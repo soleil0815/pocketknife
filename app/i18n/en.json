@@ -5205,5 +5205,9 @@
  "Ctrl+Alt+B": null,
  "POCKET KNIFE: {0}\n\n{1}": "POCKET KNIFE: {0}\n\n{1}",
  "Relay {0}: kann nicht senden – PowerShell läuft dort im eingeschränkten Sprachmodus (AppLocker/WDAC). Anderen Computer als festes Relay eintragen.": "Relay {0}: cannot send – PowerShell runs in Constrained Language Mode there (AppLocker/WDAC). Enter another computer as a fixed relay.",
- "' -Raw -Encoding UTF8)); if (-not $PKLoadOk) { exit 1 }; exit 0\"": null
+ "' -Raw -Encoding UTF8)); if (-not $PKLoadOk) { exit 1 }; exit 0\"": null,
+ "PKSTATES:": null,
+ "Sitzung getrennt (Remotedesktop oder Benutzerwechsel) – Programme laufen weiter": "Session disconnected (Remote Desktop or user switch) – programs keep running",
+ "Sperrbildschirm": "Lock screen",
+ "gesperrt": "locked"
 }

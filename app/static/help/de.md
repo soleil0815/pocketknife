@@ -545,6 +545,8 @@ Ist es unter **Einstellungen → Active Directory** eingeschaltet, legt der Abgl
 
 Ein Doppelklick auf einen Computer öffnet seine Detailansicht. Links stehen die Kategorien (Computer, Anwendungen, Hardware, Dienste, Laufwerke, Netzwerkkarten, Scans, Bereitstellungen …), rechts die Daten. Die Übersicht zeigt Betriebssystem, Hardware, Sicherheit (Defender, BitLocker, TPM, Firewall) und den Scanstatus.
 
+**Angemeldete Benutzer (ab 2.32.6):** Neben jedem angemeldeten Benutzer steht, ob seine Sitzung **gesperrt** ist (Sperrbildschirm) oder **getrennt** (Remotedesktop geschlossen oder Benutzer gewechselt – seine Programme laufen weiter). Ohne Zusatz ist die Sitzung aktiv. Bei Online-Computern fragt POCKET KNIFE das beim Öffnen live ab, sonst gilt der Stand des letzten Scans; die Computerliste zeigt es in der Spalte „Benutzer“. Grundlage sind `quser` (getrennt) und der Sperrbildschirm-Prozess in der Sitzung (gesperrt); auf Windows Home ohne `quser` fehlt „getrennt“.
+
 ![Detailansicht eines Computers](img/de/computer.jpg)
 
 Aktionen direkt beim Computer:

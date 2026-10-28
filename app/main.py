@@ -398,7 +398,7 @@ def api_computers(collection: int = 0, user=U):
                     c.last_scan, c.scan_status, c.scan_error, c.ad_enabled, c.ad_present, c.dn, c.description,
                     c.last_boot, c.cpu, c.os_arch, c.mac_addresses, c.ad_last_logon, c.bios_version, c.created_at,
                     COALESCE(c.scan_allowed, 1) scan_allowed, json_extract(c.extra, '$.chassis_name') chassis,
-                    json_extract(c.extra, '$.winget') winget,
+                    json_extract(c.extra, '$.winget') winget, json_extract(c.extra, '$.user_states') user_states,
                     ROUND(c.ram_bytes/1073741824.0, 1) ram_gb,
                     (SELECT COUNT(*) FROM software s WHERE s.computer_id=c.id AND s.outdated=1) outdated
                     FROM computers c WHERE {where} AND {sw} ORDER BY c.name COLLATE NOCASE""", params + sp)
@@ -427,14 +427,16 @@ def api_computer_loggedon(cid: int, user=U):
     # „PKUSERS:“ ohne Namen = niemand angemeldet
     rest = out.split("PKUSERS:", 1)[1] if "PKUSERS:" in out else ""
     users = (rest.splitlines() or [""])[0].strip()
-    db.ex("UPDATE computers SET current_user=? WHERE id=?", (users or None, cid))
+    states = remote.parse_states(out)  # 2.32.6: gesperrt/getrennt
+    db.ex("UPDATE computers SET current_user=?, extra=json_set(COALESCE(extra,'{}'), '$.user_states', json(?)) WHERE id=?",
+          (users or None, json.dumps(states), cid))
     first = users.split(",")[0].strip() if users else ""
     if first:
         inventory._display_name(cid, first)
     elif c["current_user"]:
         db.ex("UPDATE computers SET extra=json_remove(COALESCE(extra,'{}'), '$.user_display_name') WHERE id=?", (cid,))
     extra = db.val("SELECT json_extract(extra, '$.user_display_name') FROM computers WHERE id=?", (cid,))
-    return {"ok": True, "user": users, "display_name": extra if first else None, "live": True}
+    return {"ok": True, "user": users, "display_name": extra if first else None, "live": True, "states": states}
 
 
 @app.post("/api/computers")

@@ -5710,6 +5710,56 @@ def _():
     finally:
         db.ex("DELETE FROM computers WHERE id IN (?, ?, ?)", (ziel, nb, fremd))
 
+@test("2.32.6 Angemeldete Benutzer mit Sitzungszustand: gesperrt (LogonUI in der Sitzung) und getrennt (quser, deutsch/englisch), mehrere Sitzungen → aktiv gewinnt; im eingeschränkten Sprachmodus; Scan und Live-Abfrage gleich")
+def _():
+    import subprocess
+    from app import remote
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app")
+    scan = open(os.path.join(root, "scan_modules.ps1"), encoding="utf-8").read()
+    blk = lambda t: t[t.index("# @sessions-begin"):t.index("# @sessions-end")]  # noqa: E731
+    assert blk(scan) == blk(remote.SESSIONS_PS), "Scan und Live-Abfrage ermitteln den Zustand gleich"
+    assert "user_states" in scan
+    assert remote.parse_states("PKUSERS:x\nPKSTATES:DOM\\a=locked;DOM\\b=disconnected;DOM\\c=active;kaputt") == \
+        {"DOM\\a": "locked", "DOM\\b": "disconnected"}
+    pw = os.environ.get("PK_PWSH")
+    if not (pw and os.path.exists(pw)):
+        return
+    d = tempfile.mkdtemp(prefix="pk-sess-")
+    try:
+        os.makedirs(os.path.join(d, "System32"))
+        for lang, active, disc in (("de", "Aktiv", "Getr."), ("en", "Active", "Disc")):
+            q = os.path.join(d, "System32", "quser.exe")
+            with open(q, "w") as fh:
+                fh.write("#!/bin/sh\ncat <<'X'\n"
+                         " USERNAME              SESSIONNAME        ID  STATE   IDLE TIME  LOGON TIME\n"
+                         f" max                   console             1  {active}      .      28.10.2026 08:00\n"
+                         f" eva                                       2  {disc}       5      28.10.2026 07:00\n"
+                         f" tom                   rdp-tcp#0           3  {active}      .      28.10.2026 09:00\n"
+                         f" ugo                                       4  {disc}       9      28.10.2026 06:00\n"
+                         f" ugo                   rdp-tcp#1           5  {active}      .      28.10.2026 10:00\n"
+                         "X\n")
+            os.chmod(q, 0o755)
+            mocks = ("$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'\n"
+                     f"$env:SystemRoot = '{d}'\n"
+                     "function Get-CimInstance { param($ClassName, $Filter)\n"
+                     "  if ($ClassName -eq 'Win32_ComputerSystem') { return @{ UserName = 'FIRMA\\max' } }\n"
+                     "  if ($Filter -match 'LogonUI') { return @(@{ SessionId = 3 }) }\n"
+                     "  if ($Filter -match 'explorer') { return @(1, 2, 3, 4, 5 | ForEach-Object { @{ SessionId = $_ } }) } }\n"
+                     "function Invoke-CimMethod { param($InputObject, $MethodName)\n"
+                     "  $n = @{ 1 = 'max'; 2 = 'eva'; 3 = 'tom'; 4 = 'ugo'; 5 = 'ugo' }[[int]$InputObject.SessionId]\n"
+                     "  @{ Domain = 'FIRMA'; User = $n } }\n")
+            sf = os.path.join(d, "lo.ps1")
+            with open(sf, "w", encoding="utf-8-sig") as fh:
+                fh.write(mocks + remote.LOGGEDON_PS)
+            r = subprocess.run([pw, "-NoLogo", "-NoProfile", "-NonInteractive", "-File", sf],
+                               capture_output=True, text=True, timeout=120, env={**os.environ, "TERM": "dumb"})
+            out = r.stdout + r.stderr
+            assert "Cannot" not in out and "Methodenaufruf" not in out, out
+            assert remote.parse_states(out) == {"FIRMA\\eva": "disconnected", "FIRMA\\tom": "locked"}, (lang, out)
+            assert "PKUSERS:FIRMA\\max, FIRMA\\eva, FIRMA\\tom, FIRMA\\ugo" in out, out
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
 def main():
     ok = 0
     for name, fn in RESULTS:

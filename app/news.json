@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.32.6",
+   "date": "2026-10-28",
+   "items": [
+    {
+     "kind": "new",
+     "audience": "all",
+     "de": "Angemeldete Benutzer zeigen jetzt, ob ihre Sitzung gesperrt oder getrennt ist – in der Computeransicht und in der Computerliste.",
+     "en": "Signed-in users now show whether their session is locked or disconnected – in the computer view and the computer list."
+    }
+   ]
+  },
+  {
    "version": "2.32.5",
    "date": "2026-10-28",
    "items": [
