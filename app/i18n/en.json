@@ -5285,7 +5285,6 @@
  "Update-Helfer auf dem Docker-Host aktiv ({0}). Mit Sicherung und automatischem Zurück, falls die neue Version nicht startet.": "Update helper on the Docker host active ({0}). With backup and automatic rollback if the new version does not start.",
  "Update-Helfer meldet sich nicht mehr (zuletzt {0}).": "Update helper no longer reports (last {0}).",
  "Version {1} ist bereits aktuell.": "Version {1} is already up to date.",
- "Wartet auf den Update-Helfer auf dem Docker-Host (prüft jede Minute) …": "Waiting for the update helper on the Docker host (checks every minute) …",
  "Zurückgenommen": "Withdrawn",
  "ausführen (Synology: siehe Hilfe).": "(Synology: see help).",
  "vor {0} s": "{0} s ago",
@@ -5293,5 +5292,6 @@
  "Die Version ist nicht neuer als die laufende – zurück nur von Hand auf dem Host.": "The version is not newer than the running one – going back only by hand on the host.",
  "Update-Auftrag abgelehnt: ": "Update request refused: ",
  "ungültiger Auftrag.": "invalid request.",
- "Version nicht neuer als die laufende.": "version not newer than the running one."
+ "Version nicht neuer als die laufende.": "version not newer than the running one.",
+ "Wartet auf den Update-Helfer auf dem Docker-Host (prüft alle 5 Minuten) …": "Waiting for the update helper on the Docker host (checks every 5 minutes) …"
 }

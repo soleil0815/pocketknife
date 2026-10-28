@@ -6025,7 +6025,7 @@ def _():
         return  # im Container liegt update.sh nicht
     src = open(f, encoding="utf-8").read()
     for need in ("--watch) WATCH=run", 'mktemp "./.pk-host.XXXXXX"', '[ "$(pwd -P)" = "$(canon "$D")/update" ]', "< /dev/null",
-                 "OnUnitActiveSec=1min", "/etc/cron.d/$WATCH_UNIT", "synoinfo.conf"):
+                 "OnUnitActiveSec=5min", "/etc/cron.d/$WATCH_UNIT", "synoinfo.conf"):
         assert need in src, need
     base = tempfile.mkdtemp(prefix="pk-watch-", dir=TMP)
     inst, data, bind = os.path.join(base, "opt"), os.path.join(base, "daten"), os.path.join(base, "bin")

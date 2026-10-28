@@ -2,7 +2,7 @@
 
 POCKET KNIFE selbst kann (und soll) keinen Container austauschen: dafür bräuchte es den Docker-Socket, und wer den hat,
 ist root auf dem Host. Stattdessen legt ein Hauptadmin nur einen AUFTRAG in den Datenordner (<daten>/update/request).
-Auf dem Docker-Host läuft jede Minute  sh update.sh --watch  (systemd-Timer, cron oder Synology-Aufgabenplanung,
+Auf dem Docker-Host läuft alle 5 Minuten  sh update.sh --watch  (systemd-Timer, cron oder Synology-Aufgabenplanung,
 eingerichtet mit  sh update.sh --watch-install). Findet er einen Auftrag, führt er das gewohnte
 sh update.sh --pull <Version> -y  aus – mit Sicherung der Programmdateien, Prüfsumme, Gesundheitscheck, Rückkehr zur
 vorherigen Version und Selbsttest – und schreibt Stand und Protokoll zurück in den Datenordner:
@@ -25,7 +25,7 @@ REQ = "request"
 STATUS = "status"
 HELPER = "helper"
 LOG = "update.log"
-HELPER_MAX_AGE = 15 * 60       # Synology-Aufgabenplanung läuft evtl. nur alle 5–10 Minuten
+HELPER_MAX_AGE = 20 * 60       # Helfer alle 5 Minuten – verpasste Läufe (Host ausgelastet) verzeiht das
 REQ_STALE = 30 * 60            # nicht abgeholt → Hinweis
 STATES = ("running", "done", "current", "failed", "rolledback", "refused")
 LOGGED_KEY = "selfupdate_logged"  # nicht in DEFAULT_SETTINGS

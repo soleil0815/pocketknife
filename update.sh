@@ -36,12 +36,12 @@
 # Since 2.32.9 – update from the web interface (button "Update now", main admins only), without giving the container
 # access to Docker:
 #
-#     sudo sh update.sh --watch-install    once: systemd timer or /etc/cron.d runs  update.sh --watch  every minute
+#     sudo sh update.sh --watch-install    once: systemd timer or /etc/cron.d runs  update.sh --watch  every 5 minutes
 #     sudo sh update.sh --watch-remove     switch it off again
 #
 #   --watch looks for a request in <data>/update/, carries out  update.sh --pull <version> -y  (backup, checksum,
 #   health check, going back automatically) and writes state and log back for the web interface.
-#   Synology: Task Scheduler → user-defined script as root, every minute:  sh /path/update.sh --watch
+#   Synology: Task Scheduler → user-defined script as root, every 5 minutes:  sh /path/update.sh --watch
 #
 # Options: -y (answer all questions with "yes")
 set -eu
@@ -655,7 +655,7 @@ from_registry() {
 # --------------------------------------------------------------------------------------------------------------
 # Since 2.32.9: update requested in the web interface (Settings → Maintenance / "Update now")
 #   The container never gets access to Docker. It only puts a request into <data>/update/request; this helper runs
-#   on the host every minute (sh update.sh --watch-install sets it up) and carries out  update.sh --pull <version> -y
+#   on the host every 5 minutes (sh update.sh --watch-install sets it up) and carries out  update.sh --pull <version> -y
 #   – with the usual backup, checksum, health check, automatic going back and self-test – and writes the state and
 #   the log back into <data>/update/. The request is not trusted: only a version number (or "latest"), never older than
 #   the running version; the folder belongs to the container, so nothing in it is followed as a link and every file is
@@ -696,7 +696,7 @@ watch() {
   # in exactly this folder
   cd "$WU" 2>/dev/null || exit 0
   [ "$(pwd -P)" = "$(canon "$D")/update" ] || die "$WU does not resolve to $(canon "$D")/update – not used."
-  # one helper at a time (an update takes a few minutes, the timer starts every minute)
+  # one helper at a time (an update takes a few minutes, the timer may start again meanwhile)
   LOCK="$SCRIPTDIR/.pk-watch.lock"
   if ! mkdir "$LOCK" 2>/dev/null; then
     op=$(cat "$LOCK/pid" 2>/dev/null || true)
@@ -742,7 +742,7 @@ watch() {
   exit 0
 }
 
-# sh update.sh --watch-install: run the helper every minute (systemd timer, otherwise /etc/cron.d)
+# sh update.sh --watch-install: run the helper every 5 minutes (systemd timer, otherwise /etc/cron.d)
 watch_install() {
   need_docker
   [ "$(id -u)" = 0 ] || die "Please run as root: sudo sh update.sh --watch-install"
@@ -750,7 +750,7 @@ watch_install() {
   if [ -f /etc/synoinfo.conf ]; then
     say "Synology: please create the task in DSM instead (survives DSM updates):"
     say "  Control Panel → Task Scheduler → Create → Scheduled Task → User-defined script"
-    say "    User: root     Schedule: daily, every 1 minute (Settings: first run 00:00, last run 23:59)"
+    say "    User: root     Schedule: daily, repeat every 5 minutes (Settings: first run 00:00, last run 23:59)"
     say "    Script:  sh $SCRIPTDIR/update.sh --watch"
     exit 0
   fi
@@ -766,24 +766,24 @@ ExecStart=/bin/sh $SCRIPTDIR/update.sh --watch
 UNIT
     cat > "/etc/systemd/system/$WATCH_UNIT.timer" <<UNIT
 [Unit]
-Description=POCKET KNIFE – look for an update request every minute
+Description=POCKET KNIFE – look for an update request every 5 minutes
 
 [Timer]
-OnBootSec=1min
-OnUnitActiveSec=1min
-AccuracySec=10s
+OnBootSec=2min
+OnUnitActiveSec=5min
+AccuracySec=30s
 
 [Install]
 WantedBy=timers.target
 UNIT
     systemctl daemon-reload && systemctl enable --now "$WATCH_UNIT.timer" >/dev/null
-    say "Set up: systemd timer $WATCH_UNIT.timer (every minute)."
+    say "Set up: systemd timer $WATCH_UNIT.timer (every 5 minutes)."
   elif [ -d /etc/cron.d ]; then
-    printf '# POCKET KNIFE – carry out an update requested in the web interface (update.sh --watch-remove removes this)\n* * * * * root /bin/sh %s/update.sh --watch >/dev/null 2>&1\n' "$SCRIPTDIR" > "/etc/cron.d/$WATCH_UNIT"
+    printf '# POCKET KNIFE – carry out an update requested in the web interface (update.sh --watch-remove removes this)\n*/5 * * * * root /bin/sh %s/update.sh --watch >/dev/null 2>&1\n' "$SCRIPTDIR" > "/etc/cron.d/$WATCH_UNIT"
     chmod 644 "/etc/cron.d/$WATCH_UNIT"
-    say "Set up: /etc/cron.d/$WATCH_UNIT (every minute)."
+    say "Set up: /etc/cron.d/$WATCH_UNIT (every 5 minutes)."
   else
-    die "Neither systemd nor /etc/cron.d – please run  sh $SCRIPTDIR/update.sh --watch  every minute as root yourself."
+    die "Neither systemd nor /etc/cron.d – please run  sh $SCRIPTDIR/update.sh --watch  every 5 minutes as root yourself."
   fi
   sh "$SCRIPTDIR/update.sh" --watch || true
   say "POCKET KNIFE now shows \"Update now\" for main admins when a new version is available."

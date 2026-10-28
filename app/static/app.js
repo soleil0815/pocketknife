@@ -1029,7 +1029,7 @@ async function newsDlg(focusUpdate = false) {
 }
 
 // 2.32.9: Update aus der Oberfläche. Der Container bekommt keinen Zugriff auf Docker – er legt nur einen Auftrag in den
-// Datenordner; der Update-Helfer auf dem Docker-Host (update.sh --watch, jede Minute) führt  update.sh --pull  aus.
+// Datenordner; der Update-Helfer auf dem Docker-Host (update.sh --watch, alle 5 Minuten) führt  update.sh --pull  aus.
 const SU_TEXT = { done: 'Update erledigt: {0} → {1}.', current: 'Version {1} ist bereits aktuell.', failed: 'Update auf {2} fehlgeschlagen – es läuft weiter {1}.',
   rolledback: 'Die neue Version {2} startete nicht – POCKET KNIFE ist automatisch zurück auf {1}.', refused: 'Der Update-Helfer hat den Auftrag abgelehnt.' };
 function suAgo(sec) { return sec == null ? '' : sec < 90 ? fmtT('vor {0} s', sec) : sec < 5400 ? fmtT('vor {0} Min.', Math.round(sec / 60)) : fmtT('vor {0} Std.', Math.round(sec / 3600)); }
@@ -1090,7 +1090,7 @@ function suProgress(first) {
     if (!st) {
       if (!d.request) { msg.textContent = tr('Der Auftrag wurde zurückgenommen.'); return; }
       msg.textContent = d.request.stale ? tr('Der Update-Helfer auf dem Docker-Host hat den Auftrag seit über 30 Minuten nicht abgeholt – läuft der Timer noch?')
-        : tr('Wartet auf den Update-Helfer auf dem Docker-Host (prüft jede Minute) …');
+        : tr('Wartet auf den Update-Helfer auf dem Docker-Host (prüft alle 5 Minuten) …');
       extra.append(btn('Auftrag zurücknehmen', async () => { if (await run(() => DEL('/api/system/selfupdate'), 'Zurückgenommen')) tick(); }, { cls: 'small ghost' }));
     } else if (st.state === 'running') {
       msg.className = 'muted'; msg.textContent = fmtT('Update auf {0} läuft: Image ziehen und prüfen, Programmdateien sichern, neu starten, Gesundheitscheck, Selbsttest …', st.target);
