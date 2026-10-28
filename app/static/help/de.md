@@ -319,7 +319,7 @@ Container-Verwaltungen arbeiten mit derselben `docker-compose.yml`. Darauf kommt
 - **Pfade absolut angeben**, z. B. `PK_DATA_PATH=/volume1/docker/pocketknife/data` – so ist eindeutig, wo die Daten liegen.
 - **Rechte:** Der Dienst läuft im Container als Benutzer mit der ID 10001. Auf einem normalen Linux-Server übergibt er sich Daten- und Sicherungsordner beim Start selbst. Ein eingebundener Repository-Ordner (`PK_REPO_MOUNT`) muss für ihn **lesbar** sein. Auf einem NAS mit eigenen Freigabe-Rechten (z. B. Synology) reicht das nicht – siehe den nächsten Abschnitt.
 - **Port:** Ist 8443 belegt (z. B. durch eine andere Anwendung auf dem NAS), `PK_PORT` ändern.
-- **Updates:** Mit `:latest` kann die Container-Verwaltung das neue Image selbst laden und den Container neu starten; die Daten bleiben. Vor dem Start sichert POCKET KNIFE die Datenbank.
+- **Updates:** nicht über die Container-Verwaltung, sondern per Knopf **Jetzt aktualisieren** oder `sudo sh update.sh --pull` (siehe [Update](#update)); automatisches Aktualisieren für POCKET KNIFE dort abschalten.
 - **Ältere Compose-Versionen** (wie sie manche NAS-Pakete mitbringen) melden doppelte DNS-Einträge als Fehler. Seit 2.30 ist der zweite DNS-Server echt optional; mit einer älteren `docker-compose.yml` die neue aus der Programm-ZIP nehmen.
 
 ### Auf einem NAS (z. B. Synology) {#setup-nas}
@@ -386,21 +386,21 @@ Das Skript zieht das Image, nimmt die Programm-ZIP **aus dem Image** (geprüft p
 - **Ohne Internet** oder bei einer eigenen Änderung am Code bleibt der ZIP-Weg wie bisher (baut lokal).
 - Der erste Wechsel auf 2.27.1 geht mit der ZIP-Datei (das alte `update.sh` kennt `--pull` noch nicht); danach genügt `--pull`.
 
-**Woher das Image kommt:** Bei jeder Version baut GitHub (Workflow `.github/workflows/release.yml`) das Image für amd64 und arm64, lässt den Selbsttest in beiden laufen, prüft beide mit **Trivy** auf bekannte Schwachstellen und lädt es nur dann hoch (zusätzlich montags automatisch mit aktualisierten Paketen – „Wöchentliches Sicherheitsupdate“ als `<Version>-s<n>`, z. B. 2.29.7-s1: gleiches Programm, nur neue Pakete; installiert per Knopf, `update.sh --pull` oder eine Container-Verwaltung mit `:latest`); dazu ein Release mit der ZIP-Datei und ihrer Prüfsumme. Ausgelöst wird es mit einem Tag `v<Version>`, der zur Datei `VERSION` passen muss. Jeder Push und Pull Request baut und testet zusätzlich (`test.yml`), ohne etwas zu veröffentlichen.
+**Woher das Image kommt:** Bei jeder Version baut GitHub (Workflow `.github/workflows/release.yml`) das Image für amd64 und arm64, lässt den Selbsttest in beiden laufen, prüft beide mit **Trivy** auf bekannte Schwachstellen und lädt es nur dann hoch (zusätzlich montags automatisch mit aktualisierten Paketen – „Wöchentliches Sicherheitsupdate“ als `<Version>-s<n>`, z. B. 2.29.7-s1: gleiches Programm, nur neue Pakete; installiert per Knopf oder `update.sh --pull`); dazu ein Release mit der ZIP-Datei und ihrer Prüfsumme. Ausgelöst wird es mit einem Tag `v<Version>`, der zur Datei `VERSION` passen muss. Jeder Push und Pull Request baut und testet zusätzlich (`test.yml`), ohne etwas zu veröffentlichen.
 
 **Update per Knopf aus der Oberfläche (ab 2.32.9):** POCKET KNIFE bekommt dafür **keinen** Zugriff auf Docker (wer den Docker-Socket hat, ist root auf dem Host). Der Knopf **Jetzt aktualisieren** legt nur einen Auftrag in den Datenordner (`data/update/`); ein kleiner **Update-Helfer** auf dem Docker-Host schaut alle 5 Minuten nach (ohne Auftrag nur ein Zeitstempel, kein Docker-Aufruf) und führt dann genau das obige `sh update.sh --pull <Version> -y` aus – mit Prüfsumme, Sicherung der Programmdateien, Gesundheitsprüfung, **automatischer Rückkehr** zur bisherigen Version, falls die neue nicht startet, und Selbsttest. Stand und Protokoll schreibt er zurück; POCKET KNIFE zeigt sie an, auch nach dem Neustart.
 
-Einmalig einrichten, als root im Programmordner:
+**Nichts zu aktivieren:** Jedes Update mit `update.sh` (ZIP oder `--pull`, als root bzw. mit `sudo`) richtet den Helfer gleich mit ein – als systemd-Timer, sonst über `/etc/cron.d`. Nach dem ersten Update auf 2.32.9 von Hand funktioniert der Knopf also, danach geht alles aus der Oberfläche. Von Hand:
 
 ```bash
 cd /opt/pocketknife
-sudo sh update.sh --watch-install    # systemd-Timer (sonst /etc/cron.d), alle 5 Minuten
-sudo sh update.sh --watch-remove     # wieder abschalten
+sudo sh update.sh --watch-install    # einrichten (z. B. nach einem DSM-Update auf der Synology)
+sudo sh update.sh --watch-remove     # dauerhaft abschalten (PK_UPDATE_HELPER=off in der .env – spätere Updates richten ihn nicht wieder ein)
 ```
 
-- **Synology:** Systemsteuerung → Aufgabenplaner → Erstellen → Geplante Aufgabe → Benutzerdefiniertes Skript; Benutzer **root**, Zeitplan täglich, **alle 5 Minuten** wiederholen (erste Ausführung 00:00, letzte 23:59), Skript: `sh /volume1/docker/pocketknife/update.sh --watch` (Pfad anpassen). `--watch-install` zeigt das auf einer Synology auch an.
+- **Synology (DSM 7):** wie unter Linux – DSM 7 hat systemd, das Update richtet den Timer ein. Ein großes DSM-Update kann ihn entfernen; dann zeigt **Einstellungen → Wartung** „Update-Helfer meldet sich nicht mehr“, und `sudo sh update.sh --watch-install` (oder das nächste Update von Hand) richtet ihn wieder ein. Ohne systemd: Systemsteuerung → Aufgabenplaner → Erstellen → Geplante Aufgabe → Benutzerdefiniertes Skript; Benutzer **root**, täglich, **alle 5 Minuten** wiederholen, Skript: `sh /volume1/docker/pocketknife/update.sh --watch` (Pfad anpassen).
 - **Private Registry:** `docker login ghcr.io` einmal **als root** (der Helfer läuft als root), siehe oben.
-- **Container-Verwaltung (Dockhand, Watchtower …):** für POCKET KNIFE das automatische Aktualisieren abschalten – sonst tauscht sie das Image ohne Sicherung und ohne die Programmdateien auf dem Host.
+- **Empfehlung: Updates nur per Knopf **Jetzt aktualisieren** in POCKET KNIFE oder mit `sudo sh update.sh --pull` – keine automatischen Updates durch Watchtower, Dockhand, Tugtainer & Co.** Die tauschen nur das POCKET-KNIFE-Image: `docker-compose.yml` und guacd (Fernsitzungen) bleiben auf dem alten Stand, eine Version, die nicht startet, bleibt stehen (kein automatisches Zurück), und der Neustart kommt irgendwann – auch mitten in einer Verteilung. Die Datenbank wäre zwar sicher (POCKET KNIFE sichert sie bei jedem Versionswechsel vor dem Start), alles andere aber nicht.
 - Der Helfer vertraut dem Auftrag nicht: nur eine Versionsnummer, **nie älter** als die laufende Version (zurück nur von Hand), nur aus der Registry der `.env`. Er folgt keinen Links im Datenordner und läuft nie doppelt.
 - In der Oberfläche: **Neuigkeiten → Version … ist verfügbar → Jetzt aktualisieren**, oder **Einstellungen → Wartung → Neuigkeiten und Updates → Update aus der Oberfläche** (dort auch Stand des Helfers, Ergebnis und Protokoll des letzten Updates). Nur Hauptadmins.
 

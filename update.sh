@@ -27,8 +27,9 @@
 #   → pulls the image (amd64/arm64, Docker picks the right one), takes the program ZIP contained in it (checked
 #     against its SHA-256), replaces the program files as above and starts exactly the pulled image (no build).
 #     The container then shows where it comes from (PK_IMAGE in the .env, e.g. ghcr.io/soleil0815/pocketknife:latest).
-#   Automatically: with :latest a container manager (Dockhand, Watchtower …) can pull and restart the new image
-#   itself – the program files on the host are then refreshed by the next  sh update.sh --pull  (optional).
+#   Recommended: update only this way or with the button in the web interface (see below) – not with automatic
+#   updates by Watchtower, Dockhand, Tugtainer & co.: they only swap the image (docker-compose.yml and guacd stay
+#   old, no automatic going back).
 #     Registry: PK_IMAGE_REPO in the .env (default ghcr.io/soleil0815/pocketknife). For a private registry log in
 #     once as the user that runs the update:  docker login ghcr.io -u <github user>  (token with read:packages).
 #   The ZIP way stays unchanged (e.g. without internet access).
@@ -36,8 +37,10 @@
 # Since 2.32.9 – update from the web interface (button "Update now", main admins only), without giving the container
 # access to Docker:
 #
-#     sudo sh update.sh --watch-install    once: systemd timer or /etc/cron.d runs  update.sh --watch  every 5 minutes
-#     sudo sh update.sh --watch-remove     switch it off again
+#   Nothing to switch on: every update sets up a systemd timer (otherwise /etc/cron.d) that runs  update.sh --watch
+#   every 5 minutes.
+#     sudo sh update.sh --watch-install    set it up by hand (e.g. after a Synology DSM update)
+#     sudo sh update.sh --watch-remove     switch it off for good (PK_UPDATE_HELPER=off in the .env)
 #
 #   --watch looks for a request in <data>/update/, carries out  update.sh --pull <version> -y  (backup, checksum,
 #   health check, going back automatically) and writes state and log back for the web interface.
@@ -510,6 +513,7 @@ from_zip() {
   fi
 
   cleanup
+  watch_auto   # 2.32.9: "Update now" in the web interface works from now on
   # Finally replace the update script itself (new file via mv – the running script stays untouched)
   if [ -f "$SRC/update.sh" ]; then
     cp "$SRC/update.sh" "$INST/update.sh.neu" && chmod +x "$INST/update.sh.neu" && mv "$INST/update.sh.neu" "$INST/update.sh"
@@ -643,10 +647,12 @@ from_registry() {
       rm -f "$INST/.env.pk-alt"
       printf 'Waiting for the start '
       wait_healthy || say "WARNING: POCKET KNIFE does not report as healthy – see: docker compose logs pocketknife"
+      watch_auto
       exit 0
     fi
     say ""
     say "POCKET KNIFE $ZIPVER is already up to date (exactly this image is running)."
+    watch_auto
     exit 0
   fi
   from_zip "$Z"
@@ -742,20 +748,20 @@ watch() {
   exit 0
 }
 
-# sh update.sh --watch-install: run the helper every 5 minutes (systemd timer, otherwise /etc/cron.d)
-watch_install() {
-  need_docker
-  [ "$(id -u)" = 0 ] || die "Please run as root: sudo sh update.sh --watch-install"
-  D=$(watch_datadir); [ -d "$D" ] || die "Data folder not found ($D) – install POCKET KNIFE first."
-  if [ -f /etc/synoinfo.conf ]; then
-    say "Synology: please create the task in DSM instead (survives DSM updates):"
-    say "  Control Panel → Task Scheduler → Create → Scheduled Task → User-defined script"
-    say "    User: root     Schedule: daily, repeat every 5 minutes (Settings: first run 00:00, last run 23:59)"
-    say "    Script:  sh $SCRIPTDIR/update.sh --watch"
-    exit 0
+# The helper is set up AUTOMATICALLY by every update (update.sh runs as root on the host anyway) – nothing to switch
+# on. Switched off for good with  sh update.sh --watch-remove  (PK_UPDATE_HELPER=off in the .env).
+# PK_SYSROOT only for the self-test (instead of / – nothing is written to the real /etc there).
+SYSROOT="${PK_SYSROOT:-}"
+watch_installed() { [ -f "$SYSROOT/etc/systemd/system/$WATCH_UNIT.timer" ] || [ -f "$SYSROOT/etc/cron.d/$WATCH_UNIT" ]; }
+# set up the timer; 0 = set up (or already there), 1 = not possible here (message printed)
+watch_setup() {
+  if [ -f "$SYSROOT/etc/synoinfo.conf" ] && ! { command -v systemctl >/dev/null 2>&1 && [ -d "$SYSROOT/run/systemd/system" ]; }; then
+    say "Synology: please create the task in DSM once (Control Panel → Task Scheduler → Create → Scheduled Task →"
+    say "  User-defined script; user root, daily, repeat every 5 minutes; script:  sh $SCRIPTDIR/update.sh --watch)"
+    return 1
   fi
-  if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
-    cat > "/etc/systemd/system/$WATCH_UNIT.service" <<UNIT
+  if command -v systemctl >/dev/null 2>&1 && [ -d "$SYSROOT/run/systemd/system" ]; then
+    cat > "$SYSROOT/etc/systemd/system/$WATCH_UNIT.service" <<UNIT
 [Unit]
 Description=POCKET KNIFE – carry out an update requested in the web interface
 After=docker.service
@@ -764,7 +770,7 @@ After=docker.service
 Type=oneshot
 ExecStart=/bin/sh $SCRIPTDIR/update.sh --watch
 UNIT
-    cat > "/etc/systemd/system/$WATCH_UNIT.timer" <<UNIT
+    cat > "$SYSROOT/etc/systemd/system/$WATCH_UNIT.timer" <<UNIT
 [Unit]
 Description=POCKET KNIFE – look for an update request every 5 minutes
 
@@ -776,31 +782,54 @@ AccuracySec=30s
 [Install]
 WantedBy=timers.target
 UNIT
-    systemctl daemon-reload && systemctl enable --now "$WATCH_UNIT.timer" >/dev/null
-    say "Set up: systemd timer $WATCH_UNIT.timer (every 5 minutes)."
-  elif [ -d /etc/cron.d ]; then
-    printf '# POCKET KNIFE – carry out an update requested in the web interface (update.sh --watch-remove removes this)\n*/5 * * * * root /bin/sh %s/update.sh --watch >/dev/null 2>&1\n' "$SCRIPTDIR" > "/etc/cron.d/$WATCH_UNIT"
-    chmod 644 "/etc/cron.d/$WATCH_UNIT"
-    say "Set up: /etc/cron.d/$WATCH_UNIT (every 5 minutes)."
-  else
-    die "Neither systemd nor /etc/cron.d – please run  sh $SCRIPTDIR/update.sh --watch  every 5 minutes as root yourself."
+    if systemctl daemon-reload && systemctl enable --now "$WATCH_UNIT.timer" >/dev/null 2>&1; then
+      say "  Update helper: systemd timer $WATCH_UNIT.timer (every 5 minutes) – \"Update now\" in the web interface works."
+      [ -f "$SYSROOT/etc/synoinfo.conf" ] && say "  Synology: after a DSM update, check Settings → Maintenance; if the helper is gone, run  sh update.sh --watch-install"
+      return 0
+    fi
+    rm -f "$SYSROOT/etc/systemd/system/$WATCH_UNIT.timer" "$SYSROOT/etc/systemd/system/$WATCH_UNIT.service"
   fi
+  if [ -d "$SYSROOT/etc/cron.d" ]; then
+    printf '# POCKET KNIFE – carry out an update requested in the web interface (update.sh --watch-remove removes this)\n*/5 * * * * root /bin/sh %s/update.sh --watch >/dev/null 2>&1\n' "$SCRIPTDIR" > "$SYSROOT/etc/cron.d/$WATCH_UNIT"
+    chmod 644 "$SYSROOT/etc/cron.d/$WATCH_UNIT"
+    say "  Update helper: /etc/cron.d/$WATCH_UNIT (every 5 minutes) – \"Update now\" in the web interface works."
+    return 0
+  fi
+  say "  Neither systemd nor /etc/cron.d – for \"Update now\" run  sh $SCRIPTDIR/update.sh --watch  every 5 minutes as root."
+  return 1
+}
+# called by every update: set up the helper unless it is there or was switched off
+watch_auto() {
+  [ "$(id -u)" = 0 ] || return 0
+  [ "$(envval "$SCRIPTDIR/.env" PK_UPDATE_HELPER)" = off ] && return 0
+  watch_installed && return 0
+  info "Update from the web interface"
+  watch_setup || say "  (to stop this note: PK_UPDATE_HELPER=off in the .env)"
+  return 0
+}
+watch_install() {
+  need_docker
+  [ "$(id -u)" = 0 ] || die "Please run as root: sudo sh update.sh --watch-install"
+  D=$(watch_datadir); [ -d "$D" ] || die "Data folder not found ($D) – install POCKET KNIFE first."
+  if [ "$(envval "$SCRIPTDIR/.env" PK_UPDATE_HELPER)" = off ]; then env_set "$SCRIPTDIR/.env" PK_UPDATE_HELPER on; chmod 600 "$SCRIPTDIR/.env" 2>/dev/null || true; fi
+  watch_setup || exit 1
   sh "$SCRIPTDIR/update.sh" --watch || true
-  say "POCKET KNIFE now shows \"Update now\" for main admins when a new version is available."
   say "Private registry: log in once as root:  docker login ghcr.io -u <user>  (token with read:packages)."
-  say "If a container manager (Dockhand, Watchtower …) updates POCKET KNIFE automatically, switch that off for it."
+  say "Recommended: no automatic updates of POCKET KNIFE by Watchtower, Dockhand, Tugtainer & co. – switch them off for it."
 }
 watch_remove() {
   [ "$(id -u)" = 0 ] || die "Please run as root: sudo sh update.sh --watch-remove"
-  if [ -f "/etc/systemd/system/$WATCH_UNIT.timer" ]; then
+  if [ -f "$SYSROOT/etc/systemd/system/$WATCH_UNIT.timer" ]; then
     systemctl disable --now "$WATCH_UNIT.timer" >/dev/null 2>&1 || true
-    rm -f "/etc/systemd/system/$WATCH_UNIT.timer" "/etc/systemd/system/$WATCH_UNIT.service"
+    rm -f "$SYSROOT/etc/systemd/system/$WATCH_UNIT.timer" "$SYSROOT/etc/systemd/system/$WATCH_UNIT.service"
     systemctl daemon-reload 2>/dev/null || true
     say "Removed: systemd timer $WATCH_UNIT.timer"
   fi
-  [ -f "/etc/cron.d/$WATCH_UNIT" ] && rm -f "/etc/cron.d/$WATCH_UNIT" && say "Removed: /etc/cron.d/$WATCH_UNIT"
+  [ -f "$SYSROOT/etc/cron.d/$WATCH_UNIT" ] && rm -f "$SYSROOT/etc/cron.d/$WATCH_UNIT" && say "Removed: /etc/cron.d/$WATCH_UNIT"
+  [ -f "$SCRIPTDIR/.env" ] && { env_set "$SCRIPTDIR/.env" PK_UPDATE_HELPER off; chmod 600 "$SCRIPTDIR/.env" 2>/dev/null || true; }
   D=$(watch_datadir); [ -d "$D/update" ] && rm -f "$D/update/helper"
-  say "Update from the web interface is switched off (Synology: delete the task in the Task Scheduler)."
+  say "Update from the web interface is switched off – also for later updates (PK_UPDATE_HELPER=off in the .env;"
+  say "on again: sh update.sh --watch-install). Synology: delete the task in the Task Scheduler."
 }
 
 case "$WATCH" in

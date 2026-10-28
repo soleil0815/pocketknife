@@ -319,7 +319,7 @@ Container managers use the same `docker-compose.yml`. What matters:
 - **Use absolute paths**, e.g. `PK_DATA_PATH=/volume1/docker/pocketknife/data` – then it is clear where the data lives.
 - **Permissions:** in the container the service runs as the user with ID 10001. On a normal Linux server it takes over the data and backup folders itself at start. A mounted repository folder (`PK_REPO_MOUNT`) must be **readable** for it. On a NAS with share permissions of its own (e.g. Synology) that is not enough – see the next section.
 - **Port:** if 8443 is taken (e.g. by another application on the NAS), change `PK_PORT`.
-- **Updates:** with `:latest` the container manager can pull the new image and restart the container itself; the data stays. POCKET KNIFE backs up the database before starting.
+- **Updates:** not through the container manager, but with the **Update now** button or `sudo sh update.sh --pull` (see [Update](#update)); switch off automatic updates for POCKET KNIFE there.
 - **Older Compose versions** (as shipped with some NAS packages) report duplicate DNS entries as an error. Since 2.30 the second DNS server is truly optional; with an older `docker-compose.yml` use the new one from the program ZIP.
 
 ### On a NAS (e.g. Synology) {#setup-nas}
@@ -386,21 +386,21 @@ The script pulls the image, takes the program ZIP **from the image** (checked by
 - **Without internet** or with your own code changes, the ZIP way stays as before (builds locally).
 - The first switch to 2.27.1 is done with the ZIP file (the old `update.sh` does not know `--pull` yet); after that `--pull` is enough.
 
-**Where the image comes from:** for every version GitHub (workflow `.github/workflows/release.yml`) builds the image for amd64 and arm64, runs the self-test in both, checks both with **Trivy** for known vulnerabilities and only then uploads it (additionally every Monday automatically with updated packages – "Wöchentliches Sicherheitsupdate" as `<version>-s<n>`, e.g. 2.29.7-s1: same program, only new packages; installed with the button, `update.sh --pull` or a container manager with `:latest`); plus a release with the ZIP file and its checksum. It is triggered by a tag `v<version>` that must match the file `VERSION`. Every push and pull request is additionally built and tested (`test.yml`) without publishing anything.
+**Where the image comes from:** for every version GitHub (workflow `.github/workflows/release.yml`) builds the image for amd64 and arm64, runs the self-test in both, checks both with **Trivy** for known vulnerabilities and only then uploads it (additionally every Monday automatically with updated packages – "Wöchentliches Sicherheitsupdate" as `<version>-s<n>`, e.g. 2.29.7-s1: same program, only new packages; installed with the button or `update.sh --pull`); plus a release with the ZIP file and its checksum. It is triggered by a tag `v<version>` that must match the file `VERSION`. Every push and pull request is additionally built and tested (`test.yml`) without publishing anything.
 
 **Update with a button in the web interface (since 2.32.9):** POCKET KNIFE gets **no** access to Docker for this (whoever has the Docker socket is root on the host). The **Update now** button only places a request in the data folder (`data/update/`); a small **update helper** on the Docker host looks every 5 minutes (without a request only a timestamp, no Docker call) and then runs exactly the `sh update.sh --pull <version> -y` above – with checksum, backup of the program files, health check, **automatic return** to the previous version if the new one does not start, and self-test. It writes state and log back; POCKET KNIFE shows them, also after the restart.
 
-Set up once, as root in the program folder:
+**Nothing to switch on:** every update with `update.sh` (ZIP or `--pull`, as root or with `sudo`) sets up the helper as well – as a systemd timer, otherwise via `/etc/cron.d`. After the first update to 2.32.9 by hand the button works, from then on everything goes from the web interface. By hand:
 
 ```bash
 cd /opt/pocketknife
-sudo sh update.sh --watch-install    # systemd timer (otherwise /etc/cron.d), every 5 minutes
-sudo sh update.sh --watch-remove     # switch off again
+sudo sh update.sh --watch-install    # set up (e.g. after a DSM update on the Synology)
+sudo sh update.sh --watch-remove     # switch off for good (PK_UPDATE_HELPER=off in the .env – later updates do not set it up again)
 ```
 
-- **Synology:** Control Panel → Task Scheduler → Create → Scheduled Task → User-defined script; user **root**, schedule daily, repeat **every 5 minutes** (first run 00:00, last 23:59), script: `sh /volume1/docker/pocketknife/update.sh --watch` (adjust the path). `--watch-install` shows this on a Synology as well.
+- **Synology (DSM 7):** as on Linux – DSM 7 has systemd, the update sets up the timer. A major DSM update may remove it; then **Settings → Maintenance** shows "Update helper no longer reports", and `sudo sh update.sh --watch-install` (or the next update by hand) sets it up again. Without systemd: Control Panel → Task Scheduler → Create → Scheduled Task → User-defined script; user **root**, daily, repeat **every 5 minutes**, script: `sh /volume1/docker/pocketknife/update.sh --watch` (adjust the path).
 - **Private registry:** `docker login ghcr.io` once **as root** (the helper runs as root), see above.
-- **Container manager (Dockhand, Watchtower …):** switch off automatic updates for POCKET KNIFE – otherwise it swaps the image without backup and without the program files on the host.
+- **Recommendation: update only with the **Update now** button in POCKET KNIFE or with `sudo sh update.sh --pull` – no automatic updates by Watchtower, Dockhand, Tugtainer & co.** They only swap the POCKET KNIFE image: `docker-compose.yml` and guacd (remote sessions) stay on the old state, a version that does not start stays broken (no automatic rollback), and the restart comes at any time – even in the middle of a deployment. The database would be safe (POCKET KNIFE backs it up before starting a new version), everything else would not.
 - The helper does not trust the request: only a version number, **never older** than the running version (going back only by hand), only from the registry in the `.env`. It follows no links in the data folder and never runs twice.
 - In the web interface: **News → Version … is available → Update now**, or **Settings → Maintenance → News and updates → Update from the web interface** (also the helper's state, result and log of the last update). Main admins only.
 

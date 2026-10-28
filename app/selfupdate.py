@@ -3,7 +3,7 @@
 POCKET KNIFE selbst kann (und soll) keinen Container austauschen: dafür bräuchte es den Docker-Socket, und wer den hat,
 ist root auf dem Host. Stattdessen legt ein Hauptadmin nur einen AUFTRAG in den Datenordner (<daten>/update/request).
 Auf dem Docker-Host läuft alle 5 Minuten  sh update.sh --watch  (systemd-Timer, cron oder Synology-Aufgabenplanung,
-eingerichtet mit  sh update.sh --watch-install). Findet er einen Auftrag, führt er das gewohnte
+richtet jedes Update mit update.sh automatisch ein; von Hand: sh update.sh --watch-install). Findet er einen Auftrag, führt er das gewohnte
 sh update.sh --pull <Version> -y  aus – mit Sicherung der Programmdateien, Prüfsumme, Gesundheitscheck, Rückkehr zur
 vorherigen Version und Selbsttest – und schreibt Stand und Protokoll zurück in den Datenordner:
 
@@ -119,7 +119,7 @@ def state():
     return {"current": config.VERSION, "latest": latest,
             "helper": {"active": age is not None and age <= HELPER_MAX_AGE, "age": age, "max_age": HELPER_MAX_AGE},
             "request": read_request(), "status": read_status(), "log": log_tail(),
-            "install": "sh update.sh --watch-install"}
+            "install": "sudo sh update.sh --pull"}
 
 
 def request(version, user):
@@ -130,8 +130,8 @@ def request(version, user):
         raise ValueError(f"Version {v} ist nicht neuer als die laufende Version {config.VERSION}.")
     age = helper_age()
     if age is None or age > HELPER_MAX_AGE:
-        raise ValueError("Der Update-Helfer auf dem Docker-Host ist nicht eingerichtet oder läuft nicht – einmalig im "
-                         "Programmordner auf dem Host: sh update.sh --watch-install (Synology: siehe Hilfe).")
+        raise ValueError("Der Update-Helfer auf dem Docker-Host läuft nicht – er wird beim nächsten Update auf dem Host "
+                         "(sudo sh update.sh --pull) automatisch eingerichtet, oder von Hand: sudo sh update.sh --watch-install.")
     st = read_status()
     if st and st.get("state") == "running" and (time.time() - (st.get("started") or 0)) < 3600:
         raise ValueError("Es läuft bereits ein Update.")

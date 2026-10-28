@@ -1057,7 +1057,7 @@ function suBox(up) {
         h('span.muted.small', fmtT('Update-Helfer auf dem Docker-Host aktiv ({0}). Mit Sicherung und automatischem Zurück, falls die neue Version nicht startet.', suAgo(d.helper.age)))));
     } else {
       box.replaceChildren(...suManual(up), h('div.muted.small', { style: { marginTop: '6px' } },
-        tr('Per Knopf aus der Oberfläche aktualisieren: einmalig auf dem Docker-Host im Programmordner'), ' ', h('code.raw', d.install), ' ', tr('ausführen (Synology: siehe Hilfe).')));
+        tr('Der Knopf „Jetzt aktualisieren“ erscheint hier, sobald der Update-Helfer läuft – ihn richtet das nächste Update auf dem Docker-Host automatisch mit ein:'), ' ', h('code.raw', d.install)));
     }
   }).catch(() => box.replaceChildren(...suManual(up)));
   return box;
@@ -1115,7 +1115,7 @@ function suField() {
     el.replaceChildren(
       h('div', { class: d.helper.active ? '' : 'muted' }, d.helper.active ? fmtT('Update-Helfer auf dem Docker-Host aktiv ({0}).', suAgo(d.helper.age))
         : d.helper.age != null ? fmtT('Update-Helfer meldet sich nicht mehr (zuletzt {0}).', suAgo(d.helper.age))
-          : tr('Nicht eingerichtet – einmalig auf dem Docker-Host im Programmordner:'), ' ', d.helper.active ? '' : h('code.raw', d.install)),
+          : tr('Noch nicht eingerichtet – das nächste Update auf dem Docker-Host richtet ihn automatisch ein:'), ' ', d.helper.active ? '' : h('code.raw', d.install)),
       st ? h('div', { class: st.state === 'running' ? 'muted' : (st.state === 'done' || st.state === 'current') ? 'ok-text' : 'err-text' },
         st.state === 'running' ? fmtT('Update auf {0} läuft …', st.target) : (st.finished ? suTime(st.finished) + ': ' : '') + suResult(st)) : null,
       h('div.row', { style: { gap: '6px', marginTop: '4px' } },
@@ -1149,7 +1149,7 @@ function updatesCard() {
           const r = await run(() => PUT('/api/system/updates', { clear_token: true }), 'Token gelöscht'); if (r) draw(r);
         }, { cls: 'small ghost' }) : null), 'Nur bei einem privaten Repository: fein granulares Token mit Lesezugriff auf das Repository („Contents: Read“). Wird verschlüsselt gespeichert und nie angezeigt.'),
         field('Stand', h('span.small', { class: st && !st.ok ? 'err-text' : 'muted' }, stTxt)),
-        field('Update aus der Oberfläche', suField(), 'Der Container hat keinen Zugriff auf Docker: POCKET KNIFE legt nur einen Auftrag in den Datenordner, der Update-Helfer auf dem Docker-Host führt das Update aus (sh update.sh --pull, mit Sicherung und automatischem Zurück). Eine Container-Verwaltung wie Dockhand sollte POCKET KNIFE dann nicht mehr selbst aktualisieren.')),
+        field('Update aus der Oberfläche', suField(), 'Der Container hat keinen Zugriff auf Docker: POCKET KNIFE legt nur einen Auftrag in den Datenordner, der Update-Helfer auf dem Docker-Host führt das Update aus (sh update.sh --pull, mit Sicherung und automatischem Zurück). Empfehlung: keine automatischen Updates durch Watchtower, Dockhand, Tugtainer & Co. – sie tauschen nur das Image, ohne guacd, docker-compose.yml und automatisches Zurück.')),
       h('div.row', { style: { gap: '8px', marginTop: '8px' } },
         btn('Speichern', async () => {
           const b = { enabled: en.checked, repo: repo.value.trim() };
