@@ -6017,7 +6017,9 @@ document.addEventListener('keydown', (e) => {
   const combo = comboOf(e);
   if (!combo || e.repeat || !S.me) return;
   const el = e.target;
-  if (el && el.closest && el.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"], .cm-editor')) return;
+  // Nur beim Schreiben aus: Kontrollkästchen (z. B. Auswahl in der Computerliste) und Knöpfe lösen das Kürzel aus
+  if (el && el.closest && el.closest('textarea, select, [contenteditable=""], [contenteditable="true"], .cm-editor')) return;
+  if (el && el.tagName === 'INPUT' && !['checkbox', 'radio', 'button', 'submit', 'reset', 'image', 'range', 'color', 'file'].includes((el.type || '').toLowerCase())) return;
   if (document.querySelector('#modal-root .backdrop') || openMenu || ctxMenu) return;
   if (!HK) { toolsData().catch(() => {}); return; }
   const ref = HK.map[combo];

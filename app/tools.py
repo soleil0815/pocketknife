@@ -84,7 +84,7 @@ BUILTIN_NAMES = {"ping": "Ping & Ports", "rdpweb": "Remotedesktop im Browser", "
                  "gpupdate": "gpupdate /force", "winget": "winget prüfen / nachinstallieren", "scan": "Scannen mit Profil …",
                  "diskusage": "Speicherplatz analysieren …", "files": "Dateien (Explorer) …", "eventlog": "Ereignisanzeige …"}
 BUILTIN_HOTKEY_DEFAULTS = {"ping": "Ctrl+Alt+P", "rdpweb": "Ctrl+Alt+R", "vncweb": "Ctrl+Alt+V", "wake": "Ctrl+Alt+W",
-                           "power": "Ctrl+Alt+N", "gpupdate": "Ctrl+Alt+G", "files": "Ctrl+Alt+D", "eventlog": "Ctrl+Alt+E"}
+                           "power": "Ctrl+Alt+B", "gpupdate": "Ctrl+Alt+G", "files": "Ctrl+Alt+D", "eventlog": "Ctrl+Alt+E"}
 HOTKEY_RE = re.compile(r"^Ctrl\+Alt\+(Shift\+)?([A-Z]|[0-9]|F[1-9]|F1[0-2])$")
 
 
@@ -162,6 +162,21 @@ def save_builtin_hotkeys(data):
     return builtin_hotkeys()
 
 
+def _migrate_power_b():
+    """2.32.5: Vorgabe für Neustart/Herunterfahren ist Strg+Alt+B. Wer in 2.32.4 die Übersicht gespeichert hat, hat dort
+    noch die alte Vorgabe N stehen – einmalig auf B umstellen, wenn B frei ist."""
+    if db.setting_raw("hotkeys_power_b"):
+        return
+    try:
+        saved = json.loads(db.setting_raw("builtin_hotkeys") or "{}")
+    except (ValueError, TypeError):
+        saved = {}
+    if isinstance(saved, dict) and saved.get("power") == "Ctrl+Alt+N" and not hotkey_owner("Ctrl+Alt+B", "builtin:power"):
+        saved["power"] = "Ctrl+Alt+B"
+        db.set_setting("builtin_hotkeys", json.dumps(saved))
+    db.set_setting("hotkeys_power_b", "1")
+
+
 def _migrate_user_hotkeys():
     """2.32.3 speicherte Strg+Alt+Ziffer je Benutzer – einmalig ans Tool übernehmen, soweit frei."""
     if db.setting_raw("hotkeys_migrated"):
@@ -198,6 +213,7 @@ def init():
         db.ex("INSERT OR REPLACE INTO settings(key, value) VALUES('tools_seeded', '1')")
     try:
         _migrate_user_hotkeys()
+        _migrate_power_b()
     except Exception as e:  # pragma: no cover
         pklog.warn("tool", f"Tastenkürzel aus 2.32.3 nicht übernommen: {e}")
 

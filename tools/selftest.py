@@ -5463,6 +5463,15 @@ def _():
         tools._migrate_user_hotkeys()
         assert db.val("SELECT hotkey FROM tools WHERE id=?", (t1,)) == "Ctrl+Alt+1" and db.setting_raw("hotkeys_migrated") == "1"
         tools._migrate_user_hotkeys()  # einmalig – zweiter Lauf ändert nichts
+        # 2.32.5: Neustart/Herunterfahren auf Strg+Alt+B; gespeicherte alte Vorgabe N wird einmalig umgestellt
+        assert tools.BUILTIN_HOTKEY_DEFAULTS["power"] == "Ctrl+Alt+B"
+        db.set_setting("builtin_hotkeys", json.dumps({"power": "Ctrl+Alt+N", "ping": "Ctrl+Alt+P"}))
+        db.ex("DELETE FROM settings WHERE key='hotkeys_power_b'")
+        tools._migrate_power_b()
+        assert tools.builtin_hotkeys()["power"] == "Ctrl+Alt+B"
+        db.set_setting("builtin_hotkeys", json.dumps({"power": "Ctrl+Alt+N"}))
+        tools._migrate_power_b()
+        assert tools.builtin_hotkeys()["power"] == "Ctrl+Alt+N", "nur einmal – eine spätere eigene Wahl bleibt"
     finally:
         db.ex("DELETE FROM tools WHERE id=?", (t1,))
         db.ex("DELETE FROM user_prefs WHERE username LIKE 'hk-%'")
@@ -5472,7 +5481,9 @@ def _():
     blk = js[js.index("const BUILTIN_TOOLS"):js.index("let HK = null")]
     bi = dict(_re.findall(r"\{ key: '([a-z]+)', name: '([^']+)'", blk))
     assert bi == tools.BUILTIN_NAMES, ("eingebaute Tools in Oberfläche und Server gleich", set(bi.items()) ^ set(tools.BUILTIN_NAMES.items()))
-    for need in ("/^Key([A-Z])$/.exec(e.code", "closest('input, textarea, select", "#modal-root .backdrop", "targets.length > 1 && !asks",
+    # 2.32.5: Fokus auf dem Kontrollkästchen der Auswahl blockiert das Kürzel nicht (nur Schreibfelder)
+    assert "['checkbox', 'radio', 'button'" in js and "closest('input, textarea" not in js
+    for need in ("/^Key([A-Z])$/.exec(e.code", "closest('textarea, select", "#modal-root .backdrop", "targets.length > 1 && !asks",
                  "S.toolTargets = null;", "PUT('/api/tools-hotkeys'", "hotkey: hk.value", "hotkey: '' });", "Bereits vergeben an"):
         assert need in js, need
     assert "me/hotkeys" not in js
