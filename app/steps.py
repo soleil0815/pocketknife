@@ -1043,9 +1043,14 @@ class Runner:
         if reboot:
             self.reboot_needed = True
         msg = deploy.WINGET_MESSAGES.get(code, "") if st["type"] == "install" and st.get("source") == "winget" else ""
-        msg = msg or deploy.HARD_MESSAGES.get(code, "")
         if msg and not ok:
             msg = f"Fehlgeschlagen – {msg} (Exitcode {code})"  # Klartext und Code: beides wird für die Fehlersuche gebraucht
+        elif not ok:
+            # 2.32.5: gehärtetes Windows (9013–9016) – nur bei einem Fehlschlag, Erfolgscodes des Schritts gehen vor
+            code, hard = remote.apply_hard(code, out)
+            if hard:
+                self.last_code = code
+                msg = f"Fehlgeschlagen – {hard}"
         if not msg:
             msg = "Erfolgreich" if ok else f"Fehlgeschlagen (Exitcode {code})"
         if ok and "Bereits installiert" in (out or ""):
@@ -1125,9 +1130,8 @@ $out = foreach ($r in $roots) { Get-ChildItem -Path $r | ForEach-Object {
                 # Der Befehl kommt aus der Registry des Clients (UninstallString) – wer dort Administrator ist (z. B. ein
                 # OU-Admin), bestimmt ihn. Nie als das domänenweite Dienstkonto ausführen, sondern als Lokales System.
                 ra = "system"
-                body = deploy._winget_body(p2)
-            else:
-                body = deploy._custom_body(p2)
+            # 2.32.5: Rumpf passend zur Art (winget uninstall oder Befehl) – vorher waren die beiden vertauscht
+            body = deploy.build_body(p2)
             if ra == "deploy" and pkg.get("tenant_id"):
                 ra = "system"  # Audit 2.29: Mandantenpakete nie als Dienstkonto (siehe effective_run_as)
             self.n += 1
@@ -1137,10 +1141,13 @@ $out = foreach ($r in $roots) { Get-ChildItem -Path $r | ForEach-Object {
             code, out = remote.run_as_system(self.host, body, name, timeout_s=timeout, cancel=self.cancel, run_as=ra,
                                              run_user_sid=p2.get("run_user_sid"))
             ok, _rb = deploy.evaluate(p2, code)
+            hard = ""
+            if not ok and p2.get("type") != "winget":
+                code, hard = remote.apply_hard(code, out)
             self.last_code = code
             results.append(ok)
             outs.append(f"--- {sw['name']} {sw.get('version') or ''} ({run_as_label(ra)}) ---\n{out or ''}\n→ "
-                        + ("Erfolgreich" if ok else f"Fehlgeschlagen (Exitcode {code})"))
+                        + ("Erfolgreich" if ok else f"Fehlgeschlagen – {hard}" if hard else f"Fehlgeschlagen (Exitcode {code})"))
         n_ok = sum(1 for x in results if x)
         msg = f"{n_ok} von {len(results)} deinstalliert" if len(results) > 1 else ("Deinstalliert" if n_ok else f"Fehlgeschlagen (Exitcode {self.last_code})")
         status = "success" if n_ok == len(results) else "failed"

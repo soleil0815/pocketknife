@@ -4524,7 +4524,9 @@ def _():
     assert pos == sorted(pos), "Reihenfolge: aktualisieren/bauen/testen → Trivy → Version → speichern → Release"
     assert t.count("if: steps.diff.outputs.changed == 'true'") >= 3, "ohne Änderung keine neue Version"
     assert "actions: write" in t and "contents: write" in t and "packages: write" not in t, "veröffentlichen tut nur release.yml"
-    assert "group: release" in t and "group: release" in open(os.path.join(root, ".github", "workflows", "release.yml"), encoding="utf-8").read()
+    # 2.32.5: eigene Gruppe (sonst verwirft GitHub einen wartenden Release) und nur auf einen veröffentlichten Stand
+    assert "group: weekly-security" in t and "group: release" in open(os.path.join(root, ".github", "workflows", "release.yml"), encoding="utf-8").read()
+    assert 'gh release view "v$VER"' in t and "needs: stand" in t and "if: needs.stand.outputs.released == 'true'" in t
     # Werkzeug: Version +1, CHANGELOG/Neuigkeiten/README, Änderungen aus den festgelegten Versionen
     import importlib.util as _iu
     spec = _iu.spec_from_file_location("pk_secrel", tool)
@@ -4652,7 +4654,10 @@ def _():
         src = open(up, encoding="utf-8").read()
         fn = src[src.index("ver_lt() {"):src.index("\n}\n", src.index("ver_lt() {")) + 3]
         for a, b, lt in (("2.29.6", "2.29.6-s1", True), ("2.29.6-s2", "2.29.6-s10", True), ("2.29.6-s3", "2.29.7", True),
-                         ("2.30", "2.29.6-s9", False), ("2.29.6-s1", "2.29.6", False)):
+                         ("2.30", "2.29.6-s9", False), ("2.29.6-s1", "2.29.6", False),
+                         # 2.32.5: vierstellige Versionen
+                         ("2.29.6", "2.29.6.1", True), ("2.29.6.1", "2.29.6", False), ("2.29.6.1", "2.29.6.1-s1", True),
+                         ("2.29.6.0", "2.29.6", False)):
             r = _sp.run(["sh", "-c", fn + f'\nver_lt "{a}" "{b}"'], capture_output=True, text=True)
             assert (r.returncode == 0) == lt, (a, b, r.returncode)
         assert "(-s[0-9]+)?$" in src, "ZIP mit -s-Version wird angenommen"
@@ -5091,7 +5096,9 @@ def _():
         db.set_setting("wol_relays", "wl-srv")
         rel = [(r["name"], same) for r, same in tools.wol_relays(c)]
         assert rel[0][0] == "WL-SRV" and ("WL-NACHBAR", True) in rel, rel
-        assert not {r["name"] for r, _s in tools.wol_relays(c, exclude={"WL-NACHBAR", "WL-SRV"})} & {"WL-NACHBAR", "WL-SRV"}, "zweiter Versuch: andere Relays"
+        # zweiter Versuch: andere Relays, falls es welche gibt – sonst (2.32.5) wieder die im Zielnetz statt nur des Containers
+        assert ("WL-NACHBAR", True) in [(r["name"], same) for r, same in tools.wol_relays(c, exclude={"WL-NACHBAR", "WL-SRV"})], \
+            "kein anderes Relay im Zielnetz → das bisherige erneut"
         db.set_setting("wol_repeat", 3)
         tools.remote.ps = lambda host, script, **kw: (sent.append((host, script)) or ("OK 10.9.0.255:9\n", "", 0))
         res = tools.wake(c)
@@ -5138,6 +5145,7 @@ def _():
         orig_wake = tools.wake
         tools.wake = lambda cc, **kw: (woken.append(cc["id"]) or {"exit": 1})
         try:
+            db.ex("UPDATE computers SET online=0 WHERE id=?", (ziel,))  # 2.32.5: geweckt wird nur, wer wirklich aus ist
             sc = {"id": 0, "name": "T"}
             schedules._wake_offline(sc, {"wake_offline": True}, [ziel], "Heartbeat (erreichbar, noch nicht versorgt)")
             schedules._wake_offline(sc, {"wake_offline": False}, [ziel], "täglich 07:00")
@@ -5385,14 +5393,30 @@ def _():
         code, log, o = wrap("$sf = Join-Path $PKDir 'x.ps1'\nSet-Content -LiteralPath $sf -Value \"'teil'; Write-Error 'FullyQualifiedErrorId : UnauthorizedAccess x.ps1'; exit 1\"\nPK-RunPs1 $sf ''\n")
         assert code == "1" and "lädt ihren Inhalt" not in log, log
         sc = lambda t: "$sf = Join-Path $PKDir 'c.ps1'\nSet-Content -LiteralPath $sf -Value " + util.psq(t) + "\nPK-RunPs1 $sf ''\n"  # noqa: E731
+        # 2.32.5: der Rahmen ändert den Exitcode nicht mehr – POCKET KNIFE ordnet ihn erst bei einem Fehlschlag ein
         code, log, _o = wrap(sc("$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'\n[System.Text.Encoding]::UTF8.GetString([byte[]](65))\nthrow 'x'"))
-        assert code == "9015" and "ursprünglicher Exitcode 1" in log, log
+        assert code == "1" and remote.apply_hard(1, log)[0] == 9015, log
         code, log, _o = wrap(sc("Write-Error 'Dieses Skript enthält schädliche Inhalte und wurde von Ihrer Antivirensoftware blockiert.'; exit 1"))
-        assert code == "9014", log
+        assert code == "1" and remote.hard_code(log) == 9014, log
         code, log, _o = wrap(sc("Write-Error 'Dieses Programm wird durch eine Gruppenrichtlinie blockiert.'; exit 1"))
-        assert code == "9016", log
+        assert code == "1" and remote.hard_code(log) == 9016, log
         code, log, _o = wrap(sc("Write-Error 'Methodenaufrufe werden in diesem Sprachmodus nur für Kerntypen unterstützt.'; exit 0"))
         assert code == "0", ("Erfolg bleibt Erfolg", log)
+        # 2.32.5: verweigertes Unterskript (Fehler mit Positionsangabe) → das Skript lief schon, nie ein zweites Mal
+        inner = ("'teil' | Out-File -LiteralPath (Join-Path $PSScriptRoot 'o.txt') -Append\n"
+                 "[Console]::Error.WriteLine('At ' + $PSCommandPath + ':2 char:1')\n"
+                 "[Console]::Error.WriteLine('    + FullyQualifiedErrorId : UnauthorizedAccess')\nexit 1\n")
+        code, log, o = wrap("$f = Join-Path $PKDir 'inner_y.ps1'\nSet-Content -LiteralPath $f -Value " + util.psq(inner) + "\nPK-RunPs1 $f ''\n")
+        assert code == "1" and o.count("teil") == 1 and "lädt ihren Inhalt" not in log, ("Unterskript verweigert – nicht nochmal", o, log)
+        # Softwareeinschränkung: bewusste Sperre, nicht laden
+        code, log, o = wrap("$f = Join-Path $PKDir 'refuse_srp.ps1'\nSet-Content -LiteralPath $f -Value 'x'\nPK-RunPs1 $f ''\n")
+        assert "lädt ihren Inhalt" in log, "Gegenprobe: normale Verweigerung lädt"
+        # Syntaxfehler im geladenen Inhalt → 1 statt „Erfolgreich“; „using namespace“ bleibt vorne
+        for body_ps, want in (("$x = (1 +", "1"), ("using namespace System.Text\n'ok' | Out-File -LiteralPath (Join-Path $PSScriptRoot 'o.txt')\nexit 3", "3")):
+            code, log, o = wrap("$f = Join-Path $PKDir 'refuse_z.ps1'\nSet-Content -LiteralPath $f -Value " + util.psq(body_ps.replace("\\n", "\n")) + "\nPK-RunPs1 $f ''\n")
+            assert code == want and "lädt ihren Inhalt" in log, (body_ps, code, log)
+        assert remote.hard_code("FullyQualifiedErrorId : UnauthorizedAccess\n… POCKET KNIFE lädt ihren Inhalt.") == 0, "geladen → 9013 ist nicht der Grund"
+        assert "WinRM-Sitzung" in remote.hard_hint("Cannot invoke method … in this language mode.", start=True)
         code, log, _o = wrap("PK-Run (Join-Path $PKDir 'gibtsnicht.exe') 'x'\n")
         assert code == "1" and "Konnte nicht gestartet werden" in log, log
         # Start des Rahmens: normal einmal; verweigert (UnauthorizedAccess für pk_run.ps1) → Inhalt geladen; anderer Fehler → nicht nochmal
@@ -5472,6 +5496,12 @@ def _():
         db.set_setting("builtin_hotkeys", json.dumps({"power": "Ctrl+Alt+N"}))
         tools._migrate_power_b()
         assert tools.builtin_hotkeys()["power"] == "Ctrl+Alt+N", "nur einmal – eine spätere eigene Wahl bleibt"
+        # ein eigenes Tool hat B schon: Neustart/Herunterfahren behält N (keine Doppelbelegung durch die neue Vorgabe)
+        db.set_setting("builtin_hotkeys", "")
+        db.ex("UPDATE tools SET hotkey='Ctrl+Alt+B' WHERE id=?", (t1,))
+        db.ex("DELETE FROM settings WHERE key='hotkeys_power_b'")
+        tools._migrate_power_b()
+        assert tools.builtin_hotkeys()["power"] == "Ctrl+Alt+N" and tools.hotkey_owner("Ctrl+Alt+B") == "HK-Test"
     finally:
         db.ex("DELETE FROM tools WHERE id=?", (t1,))
         db.ex("DELETE FROM user_prefs WHERE username LIKE 'hk-%'")
@@ -5513,6 +5543,172 @@ def _():
     js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
     assert "{ action: act.value, seconds: secs }" in js and "secs > 86400" in js and "key: 'power'" in js
     assert "Neustart (60 s)" not in js and "key: 'shutdown'" not in js
+
+@test("2.32.5 Dienstkonto-Schutz: „gesperrt/deaktiviert/abgelaufen“ von einem Gerät löst sofort aus (kein zwischengespeichertes „Konto ok“); AD nicht erreichbar ≠ „Kennwort falsch“; „Konto ok“ nur 60 s gemerkt")
+def _():
+    from app import ad, guard
+    import app.remote as _r
+    orig_v, orig_sc = guard.verify_account, ad.service_conn
+    try:
+        guard.reset()
+        calls = []
+        guard.verify_account = lambda: calls.append(1) or True
+        for code in ("0xc0000234", "0xc0000072", "0xc0000071", "0xc0000193", "0xc0000224"):
+            guard.reset()
+            guard.report_remote(f"SMB-Anmeldung fehlgeschlagen {code}", "SMB")
+            assert guard.paused(), code
+        assert not calls, "eindeutige Kontofehler ohne LDAP-Umweg"
+        guard.reset()
+        guard.verify_account = lambda: None
+        t = guard.report_remote("STATUS_LOGON_FAILURE 0xc000006d", "SMB")
+        assert not guard.paused() and "nicht per LDAP" in t, t
+        assert "nicht per LDAP" in _r._winrm_error("the specified credentials were rejected by the server (401)")
+        assert not guard.paused()
+        # echte verify_account: Netzwerkfehler → None (kein Schutz), Ablehnung → False (Schutz), ok → True, 60 s gemerkt
+        guard.verify_account = orig_v
+        guard.reset()
+        def boom():
+            raise ad.ADError("LDAPS-Verbindung zu dc1:636 fehlgeschlagen: timed out")
+        ad.service_conn = boom
+        assert guard.verify_account() is None and not guard.paused()
+        def rejected():
+            guard.trip("Anmeldung abgelehnt", "LDAP")
+            raise ad.ADError("Anmeldung abgelehnt")
+        ad.service_conn = rejected
+        assert guard.verify_account() is False and guard.paused()
+        guard.reset()
+        class Conn:
+            def unbind(self): pass
+        ad.service_conn = lambda: Conn()
+        assert guard.verify_account() is True
+        ad.service_conn = rejected
+        assert guard.verify_account() is True, "innerhalb von 60 s gemerkt"
+        guard._verify["at"] -= guard.VERIFY_SECONDS + 1
+        assert guard.verify_account() is False
+        assert guard.VERIFY_SECONDS <= 60
+    finally:
+        guard.verify_account, ad.service_conn = orig_v, orig_sc
+        guard.reset()
+
+@test("2.32.5 Wecken vor Zeitplänen: nur wirklich ausgeschaltete Computer (nicht „an, aber ohne WinRM“), auch bei der Wiederholung eines gescheiterten Termins, je Zeitplan nur ein Weck-Durchlauf")
+def _():
+    import threading as _th
+    import time as _t
+    from app import db, schedules, tools
+    a = db.ex("INSERT INTO computers(name, dns_name, online, winrm) VALUES('WK-AUS', 'wk-aus.firma.local', 0, 0)")
+    b = db.ex("INSERT INTO computers(name, dns_name, online, winrm) VALUES('WK-AN', 'wk-an.firma.local', 1, 0)")
+    woken, gate = [], _th.Event()
+    orig = tools.wake
+    tools.wake = lambda cc, **kw: (gate.wait(5), woken.append(cc["id"]), {"exit": 1})[2]
+    try:
+        sc = {"id": 987654, "name": "WK"}
+        schedules._wake_offline(sc, {"wake_offline": True}, [a, b], "Wiederholung – Lauf konnte nicht gestartet werden")
+        schedules._wake_offline(sc, {"wake_offline": True}, [a, b], "täglich 07:00")  # läuft noch → kein zweiter Durchlauf
+        gate.set()
+        for _i in range(100):
+            if woken and sc["id"] not in schedules._waking:
+                break
+            _t.sleep(0.05)
+        assert woken == [a], woken
+    finally:
+        tools.wake = orig
+        db.ex("DELETE FROM computers WHERE id IN (?, ?)", (a, b))
+
+@test("2.32.5 OU-Admins: Kopie einer fremden dynamischen Sammlung verrät deren Regeln nicht (wird „ist Mitglied von“); Unsinn in IDs/Namen ergibt 400 statt 500; Zusammenfassen mit Duplikatsperre übersteuerbar")
+def _():
+    import hashlib
+    import secrets
+    import time as _t
+    from app import access, auth, collections_
+    mk = lambda n: db.ex("INSERT INTO computers(name, dns_name, created_at) VALUES(?,?,?)", (n, n.lower() + ".firma.local", util.now()))  # noqa: E731
+    a1, b1 = mk("CL-A1"), mk("CL-B1")
+    ca = db.ex("INSERT INTO collections(name, type) VALUES('CL A', 'static')")
+    db.ex("INSERT INTO collection_members VALUES(?,?)", (ca, a1))
+    ta = db.ex("INSERT INTO tenants(name, collection_id, repo_folder, admin_group, allow_packages, created_at) VALUES('CL A', ?, 'CLA', 'G-CLA', 1, ?)", (ca, util.now()))
+    exc = db.ex("INSERT INTO collections(name, type, match, filters) VALUES('CL Ausnahmen', 'dynamic', 'any', ?)",
+                (json.dumps([{"field": "name", "op": "equals", "value": "CL-A1"}, {"field": "name", "op": "equals", "value": "CL-B1-GEHEIM"}]),))
+    collections_.invalidate()
+    access.flush()
+    tok = secrets.token_urlsafe(16)
+    th = hashlib.sha256(tok.encode()).hexdigest()
+    db.ex("INSERT INTO sessions(token_hash, username, display_name, created, expires, ip, last_active, role, scope) VALUES(?,?,?,?,?,?,?,?,?)",
+          (th, "cl-ou", "Test", util.now(), "2099-01-01 00:00:00", "127.0.0.1", util.now(), "admin", json.dumps([ta])))
+    auth._checked[th] = _t.time() + 10 ** 6
+    new = None
+    try:
+        st, r = _asgi("POST", f"/api/collections/{exc}/duplicate", tok, {})
+        assert st == 200, (st, r)
+        new = r["id"]
+        f = db.val("SELECT filters FROM collections WHERE id=?", (new,))
+        assert "GEHEIM" not in f and "CL-A1" not in f and str(exc) in f, f
+        assert set(collections_.member_ids(new)) <= {a1}, "Kopie enthält nur eigene Computer"
+        own = db.ex("INSERT INTO collections(name, type, tenant_id) VALUES('CL eigen', 'static', ?)", (ta,))
+        collections_.invalidate()
+        access.flush()
+        st, r = _asgi("POST", f"/api/collections/{own}/members", tok, {"add": ["abc"]})
+        assert st == 400, (st, r)
+        st, r = _asgi("POST", "/api/packages/merge", tok, {"ids": "12"})
+        assert st == 400, (st, r)
+        st, r = _asgi("POST", "/api/packages/merge", tok, {"ids": [1, 2], "name": 5})
+        assert st != 500, (st, r)
+        if st == 200:
+            db.ex("DELETE FROM packages WHERE id=?", (r["id"],))
+    finally:
+        db.ex("DELETE FROM sessions WHERE token_hash=?", (th,))
+        for c in (exc, ca, new):
+            if c:
+                db.ex("DELETE FROM collection_members WHERE collection_id=?", (c,))
+                db.ex("DELETE FROM collections WHERE id=?", (c,))
+        db.ex("DELETE FROM collections WHERE name='CL eigen'")
+        db.ex("DELETE FROM tenants WHERE id=?", (ta,))
+        db.ex("DELETE FROM computers WHERE id IN (?, ?)", (a1, b1))
+        collections_.invalidate()
+        access.flush()
+    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "main.py"), encoding="utf-8").read()
+    assert '"allow_duplicate": bool(data.get("allow_duplicate"))}' in src and 'str(data.get("name") or "")' in src
+    js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
+    assert "saveWithDup((x) => POST('/api/packages/merge'" in js
+
+@test("2.32.5 Tastenkürzel/Wecken in der Oberfläche: Wake-on-LAN auf mehreren Computern fragt nach, zweimal drücken startet nicht doppelt, aktuelle Zuordnung zählt, Strg+Alt löst kein Kopieren/Einfügen aus, URL-Tools mit Rückfrage fragen, Wecken sendet nach dem Schließen weiter und an alle")
+def _():
+    js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
+    run = js[js.index("async function hotkeyRun2"):js.index("document.addEventListener('keydown', (e) => {\n  const combo")]
+    assert "'wake'" not in run, "Wecken fragt selbst nicht nach – bei mehreren Computern Rückfrage durch das Kürzel"
+    assert "if (HK_BUSY) return;" in js and "ref = HK.map[combo];" in run
+    assert js.count("if (e.altKey) return;  // Strg+Alt+") == 2
+    assert "if (t.confirm && !(await confirmDlg(`„${t.name}“ für" in js
+    wd = js[js.index("function wakeDialog(targets)"):js.index("function jobDialog(")]
+    assert "slice(0, 200)" not in wd and "if (closed) break;" not in wd
+
+@test("2.32.5 Ausführung: Härtungscodes nur bei Fehlschlag (Erfolgscodes und winget-Meldungen gehen vor), Deinstallation per winget/Registry baut den richtigen Befehl, zweiter Weckversuch nutzt das einzige Relay im Zielnetz erneut, Relay im eingeschränkten Sprachmodus meldet sich")
+def _():
+    from app import deploy, remote, tools
+    clm = "Hinweis\nCannot invoke method. Method invocation is supported only on core types in this language mode.\nExitcode: 1"
+    assert remote.apply_hard(1, clm)[0] == 9015 and remote.apply_hard(1, "nur ein normaler Fehler")[0] == 1
+    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "steps.py"), encoding="utf-8").read()
+    i = src.index("ok, reboot = evaluate(st, code)")
+    blk = src[i:src.index("self._record(", i)]
+    assert "elif not ok:" in blk and "remote.apply_hard(code, out)" in blk, "nur bei Fehlschlag, nach den winget-Meldungen"
+    assert "$global:PKExit = $pkH" not in remote.WRAPPER, "der Rahmen überschreibt keinen Exitcode mehr"
+    # Deinstallation: winget uninstall bzw. Befehl aus der Registry – beides baut einen gültigen Rumpf
+    assert "deploy.build_body(p2)" in src and "deploy._winget_body(p2)" not in src and "deploy._custom_body(p2)" not in src
+    w = deploy.adhoc_winget("Mozilla.Firefox", "uninstall")
+    assert "uninstall" in deploy.build_body(w)
+    assert "PK-Run" in deploy.build_body({"type": "custom", "install_type": "script", "script": "msiexec /x {X} /qn", "arguments": ""})
+    # WoL: Relay im eingeschränkten Sprachmodus sagt es; zweiter Versuch ohne anderes Relay im Zielnetz → wieder dasselbe
+    assert "PK_CLM" in tools.WOL_PS and "LanguageMode -ne 'FullLanguage'" in tools.WOL_PS
+    mk = lambda n, ip: db.ex("INSERT INTO computers(name, dns_name, ip_addresses, online, winrm, created_at) VALUES(?,?,?,?,?,?)",  # noqa: E731
+                             (n, n.lower() + ".firma.local", ip, 1, 1, util.now()))
+    ziel = db.ex("INSERT INTO computers(name, dns_name, ip_addresses, online, winrm, created_at) VALUES('RL-ZIEL', 'rl-ziel.firma.local', '10.77.0.5', 0, 0, ?)", (util.now(),))
+    nb, fremd = mk("RL-NB", "10.77.0.6"), mk("RL-FREMD", "10.66.0.6")
+    try:
+        c = db.q1("SELECT * FROM computers WHERE id=?", (ziel,))
+        first = tools.wol_relays(c)
+        assert [(r["name"], s) for r, s in first if s] == [("RL-NB", True)], [(r["name"], s) for r, s in first]
+        again = tools.wol_relays(c, exclude=["RL-NB"])
+        assert [(r["name"], s) for r, s in again if s] == [("RL-NB", True)], [(r["name"], s) for r, s in again]
+    finally:
+        db.ex("DELETE FROM computers WHERE id IN (?, ?, ?)", (ziel, nb, fremd))
 
 def main():
     ok = 0

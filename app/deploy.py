@@ -429,8 +429,8 @@ WINGET_MESSAGES = {
 # 2.32.2: vom Rahmen auf dem Client vergeben, wenn Windows die Ausführung verhindert hat (gehärtetes System) – für alle
 # Schrittarten; der ursprüngliche Exitcode und die Meldung von Windows stehen im Protokoll
 HARD_MESSAGES = {
-    9013: "Windows lässt das PowerShell-Skript nicht zu (Ausführungsrichtlinie/Signatur), auch das Laden des Inhalts wurde "
-          "verweigert. Ausführungsrichtlinie der GPO für diesen Computer prüfen oder das Skript signieren",
+    9013: "Windows lässt ein PowerShell-Skript nicht zu (Ausführungsrichtlinie/Signatur) – z. B. ein Skript, das dieses "
+          "Skript selbst aufruft. Ausführungsrichtlinie der GPO für diesen Computer prüfen oder das Skript signieren",
     9014: "Vom Virenschutz blockiert (AMSI: „schädlicher Inhalt“). Skript und Meldung im Virenschutz prüfen",
     9015: "Windows führt PowerShell hier im eingeschränkten Sprachmodus aus (AppLocker/WDAC); dort sind die benötigten "
           "Funktionen gesperrt. Den Arbeitsordner C:\\Windows\\Temp\\PocketKnife in der Richtlinie zulassen oder den "

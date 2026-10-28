@@ -2,6 +2,36 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.32.5",
+   "date": "2026-10-28",
+   "items": [
+    {
+     "kind": "fixed",
+     "audience": "admin",
+     "de": "Deinstallieren-Schritte mit winget oder dem Befehl aus der Registry schlugen immer fehl – behoben.",
+     "en": "Uninstall steps using winget or the command from the registry always failed – fixed."
+    },
+    {
+     "kind": "fixed",
+     "audience": "admin",
+     "de": "Dienstkonto-Schutz: Ein gesperrtes oder deaktiviertes Konto wird sofort erkannt; ein nicht erreichbarer Domänencontroller gilt nicht mehr als „Kennwort falsch“.",
+     "en": "Service account protection: a locked or disabled account is detected immediately; an unreachable domain controller no longer counts as \"wrong password\"."
+    },
+    {
+     "kind": "improved",
+     "audience": "all",
+     "de": "Strg+Alt+B startet Neustart/Herunterfahren; Kürzel wirken auch nach dem Markieren per Kontrollkästchen.",
+     "en": "Ctrl+Alt+B starts restart/shutdown; shortcuts also work after selecting via the checkbox."
+    },
+    {
+     "kind": "fixed",
+     "audience": "all",
+     "de": "Code-Review: weitere Korrekturen bei Wake-on-LAN, Tastenkürzeln, Sammlungen und Sicherheitsupdates – Details im CHANGELOG.",
+     "en": "Code review: further fixes for Wake-on-LAN, shortcuts, collections and security updates – details in the CHANGELOG."
+    }
+   ]
+  },
+  {
    "version": "2.32.4",
    "date": "2026-10-28",
    "items": [

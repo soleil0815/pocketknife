@@ -1559,7 +1559,7 @@ def api_collection_move(cid: int, data: dict = Body(...), user=U):
     return {"ok": True}
 
 
-def _copy_collection(cid, parent, depth=0, rename=True, tenant=None, vis=None, only=None):
+def _copy_collection(cid, parent, depth=0, rename=True, tenant=None, vis=None, only=None, user=None):
     """tenant/vis/only (2.30, OU-Admin): Kopie gehört dem Mandanten, nur sichtbare Unterelemente, statische Mitglieder nur
     eigene Computer."""
     col = db.q1("SELECT * FROM collections WHERE id=?", (cid,))
@@ -1573,6 +1573,11 @@ def _copy_collection(cid, parent, depth=0, rename=True, tenant=None, vis=None, o
         # Regeln mit Verweisen auf Sammlungen, die der OU-Admin nicht sieht, nicht mitnehmen
         if collections_._tree_refs(collections_.normalize(filters, col["match"]), set()) - vis:
             filters = json.dumps(collections_.normalize([], "all"), ensure_ascii=False)
+        # 2.32.5: Regeln fremder Sammlungen (Hauptadmin, andere Mandanten) zeigt die Liste dem OU-Admin nicht – die Kopie
+        # darf sie auch nicht verraten (Computernamen, OUs, IP-Bereiche anderer Mandanten): stattdessen „ist Mitglied von“
+        elif user is not None and not access.can_edit_collection(user, col):
+            filters = json.dumps(collections_.normalize(
+                [{"type": "cond", "table": "computer", "column": "collection", "op": "in", "value": str(cid)}], "all"), ensure_ascii=False)
     new = db.ex("INSERT INTO collections(name, parent_id, type, match, filters, description, builtin, sort, tenant_id) "
                 "VALUES(?,?,?,?,?,?,0,?,?)", (name, parent, col["type"], col["match"], filters, col.get("description"),
                                               (col.get("sort") or 100) + 1, tenant if tenant else col.get("tenant_id")))
@@ -1581,7 +1586,7 @@ def _copy_collection(cid, parent, depth=0, rename=True, tenant=None, vis=None, o
             if only is None or r["computer_id"] in only:
                 db.ex("INSERT INTO collection_members(collection_id, computer_id) VALUES(?,?)", (new, r["computer_id"]))
     for ch in db.q("SELECT id FROM collections WHERE parent_id=? ORDER BY sort, name", (cid,)):
-        _copy_collection(ch["id"], new, depth + 1, rename=False, tenant=tenant, vis=vis, only=only)
+        _copy_collection(ch["id"], new, depth + 1, rename=False, tenant=tenant, vis=vis, only=only, user=user)
     return new
 
 
@@ -1614,7 +1619,7 @@ def api_collection_duplicate(cid: int, data: dict = Body(default={}), user=U):
         tenant = _own_tenant_col(user, {"parent_id": parent, "tenant_id": col.get("tenant_id")})
         vis, only = _visible_collections(user) or set(), access.computer_ids(user)
     with db.tx():
-        new = _copy_collection(cid, parent, tenant=tenant, vis=vis, only=only)
+        new = _copy_collection(cid, parent, tenant=tenant, vis=vis, only=only, user=user if vis is not None else None)
     pklog.info("system", f"Sammlung '{col['name']}' kopiert.", user=user["username"])
     return {"id": new}
 
@@ -2173,7 +2178,9 @@ def api_packages_merge(data: dict = Body(...), user=U):
     """2.32: Mehrere Pakete zu einem neuen zusammenfassen – verschachtelt (bleibt mit den Originalen verbunden, deren
     Bedingungen, „Ausführen als“ und Neustart gelten weiter) oder als Kopie der Schritte (unabhängig)."""
     ids = []
-    for x in data.get("ids") or []:
+    if not isinstance(data.get("ids"), list):
+        _err("Bitte Pakete auswählen.")
+    for x in data["ids"]:
         try:
             x = int(x)
         except (TypeError, ValueError):
@@ -2216,8 +2223,8 @@ def api_packages_merge(data: dict = Body(...), user=U):
                     if ph == "main" and on_error == "continue":
                         s["on_error"] = "continue"
                     st[ph].append(s)
-    name = (data.get("name") or "").strip() or " + ".join(r["name"] for r in rows)[:200]
-    new = {"name": name[:200], "version": "", "description": (data.get("description") or "").strip()[:2000]
+    name = str(data.get("name") or "").strip() or " + ".join(r["name"] for r in rows)[:200]
+    new = {"name": name[:200], "version": "", "description": str(data.get("description") or "").strip()[:2000]
            or "Zusammengefasst aus: " + ", ".join(r["name"] for r in rows),
            "run_as": "deploy" if not access.scoped(user) else "system", "tenant_id": tid, "steps": st,
            "conditions": steps.default_conditions(),
@@ -2225,7 +2232,8 @@ def api_packages_merge(data: dict = Body(...), user=U):
            "reboot": deploy.strongest_reboot(p.get("reboot") for p in pkgs),
            "rescan": 1 if any(p.get("rescan") for p in pkgs) else 0,
            "timeout_min": max(int(p.get("timeout_min") or 0) for p in pkgs) or db.setting("deploy_timeout_minutes"),
-           "notify_user": "", "rescan_profile_id": None}
+           "notify_user": "", "rescan_profile_id": None,
+           "allow_duplicate": bool(data.get("allow_duplicate"))}  # 2.32.5: wie beim Speichern (nur Hauptadmins)
     # Danach scannen: wie die Einzelpakete – ein gemeinsames Profil direkt, verschiedene als Schritte „Scannen“ am Ende
     prof = []
     for p in pkgs:
@@ -2675,20 +2683,23 @@ def api_deployment_delete(did: int, user=U):
 def api_schedules(user=U):
     out = []
     mine = access.computer_ids(user)
+    vis = (_visible_collections(user) or set()) if mine is not None else None
     for s in [x for x in schedules.all_schedules() if access.can_see_schedule(user, x)]:
         s.update(schedules.summary(s, mine))
-        _sched_view(user, s, mine)
+        _sched_view(user, s, mine, vis)
         out.append(s)
     return out
 
 
-def _sched_view(user, s, mine):
-    """2.30: editable/runnable für die Oberfläche; OU-Admin sieht bei zentralen Zeitplänen nur seine Ziele."""
+def _sched_view(user, s, mine, vis=None):
+    """2.30: editable/runnable für die Oberfläche; OU-Admin sieht bei zentralen Zeitplänen nur seine Ziele.
+    vis: sichtbare Sammlungen, einmal je Anfrage berechnet (2.32.5 – in der Liste nicht je Zeitplan neu)."""
     s["editable"] = access.can_edit_schedule(user, s)
     s["runnable"] = not access.scoped(user) or bool(s.get("tenant_id"))
     s["ou_edit"] = 1 if s.get("ou_edit") else 0
     if mine is not None and not s.get("tenant_id"):
-        vis = _visible_collections(user) or set()
+        if vis is None:
+            vis = _visible_collections(user) or set()
         s["targets"] = {"computers": [i for i in s["targets"]["computers"] if i in mine],
                         "collections": [c for c in s["targets"]["collections"] if c in vis or c == profiles.ALL_COMPUTERS]}
     return s

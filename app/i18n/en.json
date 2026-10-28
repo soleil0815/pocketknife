@@ -5189,5 +5189,21 @@
  "Tastenkürzel aus 2.32.3 nicht übernommen: {0}": "Shortcuts from 2.32.3 not taken over: {0}",
  "Tastenkürzel {0} ist bereits vergeben an „{1}“.": "Shortcut {0} is already used by \"{1}\".",
  "Tastenkürzel {0} ist doppelt vergeben („{1}“ und „{2}“).": "Shortcut {0} is assigned twice (\"{1}\" and \"{2}\").",
- "Tastenkürzel: immer Strg+Alt, wahlweise mit Umschalt, dazu ein Buchstabe, eine Ziffer oder F1–F12": "Shortcut: always Ctrl+Alt, optionally with Shift, plus a letter, a digit or F1–F12"
+ "Tastenkürzel: immer Strg+Alt, wahlweise mit Umschalt, dazu ein Buchstabe, eine Ziffer oder F1–F12": "Shortcut: always Ctrl+Alt, optionally with Shift, plus a letter, a digit or F1–F12",
+ "Ungültige Computer-IDs.": "Invalid computer IDs.",
+ "Windows lässt ein PowerShell-Skript nicht zu (Ausführungsrichtlinie/Signatur) – z. B. ein Skript, das dieses Skript selbst aufruft. Ausführungsrichtlinie der GPO für diesen Computer prüfen oder das Skript signieren": "Windows does not allow a PowerShell script (execution policy/signature) – e.g. a script called by this script. Check the GPO execution policy for this computer or sign the script",
+ "Dieses Gerät lehnt die Anmeldung des Dienstkontos ab; das Konto ließ sich gerade nicht per LDAP prüfen (Domänencontroller nicht erreichbar). ({0})": "This device rejects the service account logon; the account could not be checked via LDAP right now (domain controller unreachable). ({0})",
+ "Bitte Pakete auswählen.": "Please select packages.",
+ " Schon die WinRM-Sitzung läuft auf diesem Computer im eingeschränkten Sprachmodus (AppLocker/WDAC) – POCKET KNIFE kann dort nichts einrichten. Den Computer von dieser Härtung ausnehmen.": " Already the WinRM session runs in Constrained Language Mode on this computer (AppLocker/WDAC) – POCKET KNIFE cannot set anything up there. Exempt the computer from this hardening.",
+ "Dieser Computer lehnt die Anmeldung des Dienstkontos ab; das Konto ließ sich gerade nicht per LDAP prüfen (Domänencontroller nicht erreichbar). ({0})": "This computer rejects the service account logon; the account could not be checked via LDAP right now (domain controller unreachable). ({0})",
+ "lädt ihren Inhalt": null,
+ "{0} (Code {1}, Exitcode {2})": "{0} (code {1}, exit code {2})",
+ "Schließen Sie das Fenster ruhig: Das Senden an die übrigen Computer läuft weiter, solange POCKET KNIFE geöffnet ist; die Prüfung läuft auf dem Server, das Ergebnis steht im Protokoll.": "You can close this window: sending to the remaining computers continues as long as POCKET KNIFE is open; the check runs on the server, the result is in the log.",
+ "textarea, select, [contenteditable=\"\"], [contenteditable=\"true\"], .cm-editor": null,
+ "{0} ist keinem Tool mehr zugeordnet": "{0} is no longer assigned to a tool",
+ "„{0}“ für {1} öffnen?": "Open \"{0}\" for {1}?",
+ "Ctrl+Alt+B": null,
+ "POCKET KNIFE: {0}\n\n{1}": "POCKET KNIFE: {0}\n\n{1}",
+ "Relay {0}: kann nicht senden – PowerShell läuft dort im eingeschränkten Sprachmodus (AppLocker/WDAC). Anderen Computer als festes Relay eintragen.": "Relay {0}: cannot send – PowerShell runs in Constrained Language Mode there (AppLocker/WDAC). Enter another computer as a fixed relay.",
+ "' -Raw -Encoding UTF8)); if (-not $PKLoadOk) { exit 1 }; exit 0\"": null
 }

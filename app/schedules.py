@@ -439,32 +439,52 @@ def _fire_winget(s, cids, reason, user):
 
 
 # 2.31: nur bei einem echten Lauf (Termin, Zeitfenster, manuell) wecken – nicht bei jedem Heartbeat oder Nachholen
-_NO_WAKE = ("Heartbeat", "Computer wieder online", "vorgemerkte Ziele", "fehlgeschlagene Ziele", "Wiederholung")
+# 2.32.5: „Wiederholung – Lauf konnte nicht gestartet werden“ holt einen echten Termin nach – dort wird geweckt
+_NO_WAKE = ("Heartbeat", "Computer wieder online", "vorgemerkte Ziele", "fehlgeschlagene Ziele")
 WAKE_MAX = 200  # höchstens so viele Computer je Lauf wecken
+_waking = set()  # Zeitpläne, für die gerade geweckt wird (je Zeitplan nur ein Durchlauf gleichzeitig)
+_waking_lock = threading.Lock()
 
 
 def _wake_offline(s, o, ids, reason):
     if not o.get("wake_offline") or not ids or any(str(reason or "").startswith(x) for x in _NO_WAKE):
         return
+    # 2.32.5: nur wirklich ausgeschaltete Computer wecken – eingeschaltete ohne WinRM brauchen kein Magic Packet
+    off = {r["id"] for r in db.q("SELECT id FROM computers WHERE COALESCE(online, 0)=0")}
+    ids = [c for c in ids if c in off]
+    if not ids:
+        return
+    with _waking_lock:
+        if s["id"] in _waking:
+            return  # der vorige Weck-Durchlauf dieses Zeitplans läuft noch
+        _waking.add(s["id"])
 
     def run():
-        from . import tools
-        n = 0
-        for cid in list(ids)[:WAKE_MAX]:
-            c = db.q1("SELECT * FROM computers WHERE id=?", (cid,))
-            if not c:
-                continue
-            try:
-                res = tools.wake(c)
-                if res.get("exit") == 0:
-                    tools.watch_wake(c, res.get("relay") or [], "Zeitplan")
-                    n += 1
-            except Exception as e:  # noqa: BLE001
-                pklog.warn("deploy", f"Zeitplan „{s['name']}“: Wake-on-LAN für {c['name']} fehlgeschlagen: {e}", computer_id=cid)
-        if n:
-            pklog.info("deploy", f"Zeitplan „{s['name']}“ ({reason}): {n} ausgeschaltete(n) Computer per Wake-on-LAN geweckt – "
-                                 "sie werden versorgt, sobald sie hochgefahren sind.")
+        try:
+            _wake_run(s, ids, reason)
+        finally:
+            with _waking_lock:
+                _waking.discard(s["id"])
     threading.Thread(target=run, name=f"wake-sched-{s['id']}", daemon=True).start()
+
+
+def _wake_run(s, ids, reason):
+    from . import tools
+    n = 0
+    for cid in list(ids)[:WAKE_MAX]:
+        c = db.q1("SELECT * FROM computers WHERE id=?", (cid,))
+        if not c:
+            continue
+        try:
+            res = tools.wake(c)
+            if res.get("exit") == 0:
+                tools.watch_wake(c, res.get("relay") or [], "Zeitplan")
+                n += 1
+        except Exception as e:  # noqa: BLE001
+            pklog.warn("deploy", f"Zeitplan „{s['name']}“: Wake-on-LAN für {c['name']} fehlgeschlagen: {e}", computer_id=cid)
+    if n:
+        pklog.info("deploy", f"Zeitplan „{s['name']}“ ({reason}): {n} ausgeschaltete(n) Computer per Wake-on-LAN geweckt – "
+                             "sie werden versorgt, sobald sie hochgefahren sind.")
 
 
 # --- Ausführen --------------------------------------------------------------------------------

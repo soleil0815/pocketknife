@@ -18,11 +18,45 @@ on:
 permissions: {}
 
 concurrency:
-  group: release        # nie gleichzeitig mit einem Release
+  # 2.32.5: eigene Gruppe – teilte sie sich „release“ mit dem Release-Workflow, könnte GitHub einen wartenden Release
+  # (z. B. Tag) zugunsten des vom wöchentlichen Lauf gestarteten verwerfen (je Gruppe nur ein wartender Lauf)
+  group: weekly-security
   cancel-in-progress: false
 
 jobs:
+  stand:
+    # 2.32.5: Nur auf einen veröffentlichten Stand ein „-sN“ setzen. Liegt auf main eine gemergte, aber noch nicht
+    # veröffentlichte Programmversion, wäre sie sonst als Sicherheitsupdate („nichts am Programm geändert“) erschienen.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      released: ${{ steps.chk.outputs.released }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Ist die Version auf main veröffentlicht?
+        id: chk
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VER=$(tr -d ' \r\n' < VERSION)
+          if gh release view "v$VER" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "released=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "released=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Wöchentliches Sicherheitsupdate::Version $VER auf main ist noch nicht veröffentlicht – kein Sicherheitsupdate, bis sie veröffentlicht ist."
+            echo "Version **$VER** auf main ist noch nicht veröffentlicht – diesmal kein Sicherheitsupdate." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
   update:
+    needs: stand
+    if: needs.stand.outputs.released == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 150
     permissions:
