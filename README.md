@@ -201,15 +201,15 @@ Das Skript zieht das Image, nimmt die Programm-ZIP **aus dem Image** (geprüft p
 
 **Update per Knopf aus der Oberfläche (ab 2.32.9):** POCKET KNIFE bekommt dafür **keinen** Zugriff auf Docker (wer den Docker-Socket hat, ist root auf dem Host). Der Knopf **Jetzt aktualisieren** legt nur einen Auftrag in den Datenordner (`data/update/`); ein kleiner **Update-Helfer** auf dem Docker-Host schaut alle 5 Minuten nach (ohne Auftrag nur ein Zeitstempel, kein Docker-Aufruf) und führt dann genau das obige `sh update.sh --pull <Version> -y` aus – mit Prüfsumme, Sicherung der Programmdateien, Gesundheitsprüfung, **automatischer Rückkehr** zur bisherigen Version, falls die neue nicht startet, und Selbsttest. Stand und Protokoll schreibt er zurück; POCKET KNIFE zeigt sie an, auch nach dem Neustart.
 
-Einmalig einrichten, als root im Programmordner:
+**Nichts zu aktivieren:** Jedes Update mit `update.sh` (ZIP oder `--pull`, als root bzw. mit `sudo`) richtet den Helfer gleich mit ein – als systemd-Timer, sonst über `/etc/cron.d`. Nach dem ersten Update auf 2.32.9 von Hand funktioniert der Knopf also, danach geht alles aus der Oberfläche. Von Hand:
 
 ```bash
 cd /opt/pocketknife
-sudo sh update.sh --watch-install    # systemd-Timer (sonst /etc/cron.d), alle 5 Minuten
-sudo sh update.sh --watch-remove     # wieder abschalten
+sudo sh update.sh --watch-install    # einrichten (z. B. nach einem DSM-Update auf der Synology)
+sudo sh update.sh --watch-remove     # dauerhaft abschalten (PK_UPDATE_HELPER=off in der .env – spätere Updates richten ihn nicht wieder ein)
 ```
 
-- **Synology:** Systemsteuerung → Aufgabenplaner → Erstellen → Geplante Aufgabe → Benutzerdefiniertes Skript; Benutzer **root**, Zeitplan täglich, **alle 5 Minuten** wiederholen (erste Ausführung 00:00, letzte 23:59), Skript: `sh /volume1/docker/pocketknife/update.sh --watch` (Pfad anpassen). `--watch-install` zeigt das auf einer Synology auch an.
+- **Synology (DSM 7):** wie unter Linux – DSM 7 hat systemd, das Update richtet den Timer ein. Ein großes DSM-Update kann ihn entfernen; dann zeigt **Einstellungen → Wartung** „Update-Helfer meldet sich nicht mehr“, und `sudo sh update.sh --watch-install` (oder das nächste Update von Hand) richtet ihn wieder ein. Ohne systemd: Systemsteuerung → Aufgabenplaner → Erstellen → Geplante Aufgabe → Benutzerdefiniertes Skript; Benutzer **root**, täglich, **alle 5 Minuten** wiederholen, Skript: `sh /volume1/docker/pocketknife/update.sh --watch` (Pfad anpassen).
 - **Private Registry:** `docker login ghcr.io` einmal **als root** (der Helfer läuft als root), siehe oben.
 - **Container-Verwaltung (Dockhand, Watchtower …):** für POCKET KNIFE das automatische Aktualisieren abschalten – sonst tauscht sie das Image ohne Sicherung und ohne die Programmdateien auf dem Host.
 - Der Helfer vertraut dem Auftrag nicht: nur eine Versionsnummer, **nie älter** als die laufende Version (zurück nur von Hand), nur aus der Registry der `.env`. Er folgt keinen Links im Datenordner und läuft nie doppelt.

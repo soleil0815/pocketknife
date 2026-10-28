@@ -8,8 +8,8 @@
     {
      "kind": "new",
      "audience": "admin",
-     "de": "Update per Knopf: „Jetzt aktualisieren“ bei einer neuen Version – ein Helfer auf dem Docker-Host führt das Update mit Sicherung und automatischem Zurück aus (einmalig einrichten: sh update.sh --watch-install). Der Container bekommt keinen Zugriff auf Docker.",
-     "en": "Update with a button: \"Update now\" for a new version – a helper on the Docker host carries out the update with backup and automatic rollback (set up once: sh update.sh --watch-install). The container gets no access to Docker."
+     "de": "Update per Knopf: „Jetzt aktualisieren“ bei einer neuen Version – ein Helfer auf dem Docker-Host führt das Update mit Sicherung und automatischem Zurück aus. Er wird beim Update mit update.sh automatisch eingerichtet; der Container bekommt keinen Zugriff auf Docker.",
+     "en": "Update with a button: \"Update now\" for a new version – a helper on the Docker host carries out the update with backup and automatic rollback. It is set up automatically by updating with update.sh; the container gets no access to Docker."
     }
    ]
   },
