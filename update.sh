@@ -27,8 +27,9 @@
 #   → pulls the image (amd64/arm64, Docker picks the right one), takes the program ZIP contained in it (checked
 #     against its SHA-256), replaces the program files as above and starts exactly the pulled image (no build).
 #     The container then shows where it comes from (PK_IMAGE in the .env, e.g. ghcr.io/soleil0815/pocketknife:latest).
-#   Automatically: with :latest a container manager (Dockhand, Watchtower …) can pull and restart the new image
-#   itself – the program files on the host are then refreshed by the next  sh update.sh --pull  (optional).
+#   Recommended: update only this way or with the button in the web interface (see below) – not with automatic
+#   updates by Watchtower, Dockhand, Tugtainer & co.: they only swap the image (docker-compose.yml and guacd stay
+#   old, no automatic going back).
 #     Registry: PK_IMAGE_REPO in the .env (default ghcr.io/soleil0815/pocketknife). For a private registry log in
 #     once as the user that runs the update:  docker login ghcr.io -u <github user>  (token with read:packages).
 #   The ZIP way stays unchanged (e.g. without internet access).
@@ -814,7 +815,7 @@ watch_install() {
   watch_setup || exit 1
   sh "$SCRIPTDIR/update.sh" --watch || true
   say "Private registry: log in once as root:  docker login ghcr.io -u <user>  (token with read:packages)."
-  say "If a container manager (Dockhand, Watchtower …) updates POCKET KNIFE automatically, switch that off for it."
+  say "Recommended: no automatic updates of POCKET KNIFE by Watchtower, Dockhand, Tugtainer & co. – switch them off for it."
 }
 watch_remove() {
   [ "$(id -u)" = 0 ] || die "Please run as root: sudo sh update.sh --watch-remove"

@@ -2,7 +2,7 @@
 # neuesten Stand bringen (tools/pin-versions.sh --update), ohne Cache neu bauen, Selbsttest, Schwachstellen-Prüfung
 # (Trivy) – und NUR wenn alles bestanden ist: Sicherheitsupdate-Nummer (z. B. 2.29.7 → 2.29.7-s1 – gleiches Programm, nur neue Pakete), Eintrag in CHANGELOG und
 # Neuigkeiten, Commit auf main und Release starten. Der Release-Workflow baut dann amd64 und arm64, testet und prüft
-# beide noch einmal und veröffentlicht unter <Version> und :latest (Container-Verwaltungen wie Dockhand ziehen es).
+# beide noch einmal und veröffentlicht unter <Version> und :latest (installiert per Knopf „Jetzt aktualisieren“ oder update.sh --pull).
 #
 # Hat sich nichts geändert, passiert nichts. Schlägt ein Schritt fehl, wird NICHTS veröffentlicht – GitHub schickt
 # eine Mail an den Besitzer. Von Hand: Actions → Wöchentliches Sicherheitsupdate → Run workflow.

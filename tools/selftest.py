@@ -6033,6 +6033,13 @@ def _():
     dc = os.path.join(root, "docker-compose.yml")
     if os.path.exists(dc):
         assert "docker.sock" not in open(dc, encoding="utf-8").read(), "der Container bekommt nie Zugriff auf Docker"
+    # Empfehlung überall gleich: Knopf oder update.sh --pull, keine automatischen Updates durch Container-Verwaltungen
+    for doc in ("README.md", "README.en.md", os.path.join("app", "static", "help", "de.md"), os.path.join("app", "static", "help", "en.md")):
+        fp = os.path.join(root, doc)
+        if os.path.exists(fp):
+            t = open(fp, encoding="utf-8").read()
+            assert "Tugtainer" in t and "update.sh --pull" in t, doc
+            assert "Mit `:latest` kann die Container-Verwaltung das neue Image selbst" not in t and "with `:latest` a container manager" not in t, doc
 
     # --- Host-Helfer (update.sh --watch) mit einem nachgebauten docker ---
     f = os.path.join(root, "update.sh")

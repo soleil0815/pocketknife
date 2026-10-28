@@ -5262,7 +5262,6 @@
  "Auftrag abgelegt …": "Request placed …",
  "Auftrag zurücknehmen": "Withdraw request",
  "Der Auftrag wurde zurückgenommen.": "The request was withdrawn.",
- "Der Container hat keinen Zugriff auf Docker: POCKET KNIFE legt nur einen Auftrag in den Datenordner, der Update-Helfer auf dem Docker-Host führt das Update aus (sh update.sh --pull, mit Sicherung und automatischem Zurück). Eine Container-Verwaltung wie Dockhand sollte POCKET KNIFE dann nicht mehr selbst aktualisieren.": "The container has no access to Docker: POCKET KNIFE only places a request in the data folder, the update helper on the Docker host carries out the update (sh update.sh --pull, with backup and automatic rollback). A container manager such as Dockhand should then no longer update POCKET KNIFE itself.",
  "Der Update-Helfer auf dem Docker-Host hat den Auftrag seit über 30 Minuten nicht abgeholt – läuft der Timer noch?": "The update helper on the Docker host has not picked up the request for more than 30 minutes – is the timer still running?",
  "Der Update-Helfer hat den Auftrag abgelehnt.": "The update helper refused the request.",
  "Die neue Version {2} startete nicht – POCKET KNIFE ist automatisch zurück auf {1}.": "The new version {2} did not start – POCKET KNIFE went back to {1} automatically.",
@@ -5292,5 +5291,6 @@
  "Der Knopf „Jetzt aktualisieren“ erscheint hier, sobald der Update-Helfer läuft – ihn richtet das nächste Update auf dem Docker-Host automatisch mit ein:": "The \"Update now\" button appears here as soon as the update helper is running – the next update on the Docker host sets it up automatically:",
  "Noch nicht eingerichtet – das nächste Update auf dem Docker-Host richtet ihn automatisch ein:": "Not set up yet – the next update on the Docker host sets it up automatically:",
  "Der Update-Helfer auf dem Docker-Host läuft nicht – er wird beim nächsten Update auf dem Host (sudo sh update.sh --pull) automatisch eingerichtet, oder von Hand: sudo sh update.sh --watch-install.": "The update helper on the Docker host is not running – the next update on the host (sudo sh update.sh --pull) sets it up automatically, or by hand: sudo sh update.sh --watch-install.",
- "sudo sh update.sh --pull": "sudo sh update.sh --pull"
+ "sudo sh update.sh --pull": "sudo sh update.sh --pull",
+ "Der Container hat keinen Zugriff auf Docker: POCKET KNIFE legt nur einen Auftrag in den Datenordner, der Update-Helfer auf dem Docker-Host führt das Update aus (sh update.sh --pull, mit Sicherung und automatischem Zurück). Empfehlung: keine automatischen Updates durch Watchtower, Dockhand, Tugtainer & Co. – sie tauschen nur das Image, ohne guacd, docker-compose.yml und automatisches Zurück.": "The container has no access to Docker: POCKET KNIFE only places a request in the data folder, the update helper on the Docker host carries out the update (sh update.sh --pull, with backup and automatic rollback). Recommendation: no automatic updates by Watchtower, Dockhand, Tugtainer & co. – they only swap the image, without guacd, docker-compose.yml and automatic rollback."
 }
