@@ -2058,6 +2058,12 @@ def _():
         r = run("--pull")
         cr = open(os.path.join(sysr, "etc", "cron.d", "pocketknife-update")).read()
         assert r.returncode == 0 and f"*/5 * * * * root /bin/sh {os.path.realpath(inst)}/update.sh --watch" in cr, (r.stdout[-400:], cr)
+        assert "PATH=/usr/local/sbin:/usr/local/bin:" in cr and "HOME=/root" in cr, "cron kennt sonst nur /usr/bin:/bin (docker in /usr/local/bin)"
+        # 2.32.10: ein schon eingerichteter Helfer wird beim Update aufgefrischt (alte Fassung ohne PATH)
+        open(os.path.join(sysr, "etc", "cron.d", "pocketknife-update"), "w").write("*/5 * * * * root /bin/sh x --watch\n")
+        dist("2.27.1", "NEU")
+        r = run("--pull")
+        assert "PATH=" in open(os.path.join(sysr, "etc", "cron.d", "pocketknife-update")).read(), "aufgefrischt"
         open(os.path.join(inst, ".env"), "a").write("PK_UPDATE_HELPER=off\n")
         os.remove(os.path.join(sysr, "etc", "cron.d", "pocketknife-update"))
         r = run("--pull")
@@ -6046,7 +6052,7 @@ def _():
     if not os.path.exists(f) or not _sh.which("sh"):
         return  # im Container liegt update.sh nicht
     src = open(f, encoding="utf-8").read()
-    for need in ("--watch) WATCH=run", 'mktemp "./.pk-host.XXXXXX"', '[ "$(pwd -P)" = "$(canon "$D")/update" ]', "< /dev/null",
+    for need in ("--watch) WATCH=run", 'PATH="$PATH:$WATCH_PATH"', "-mmin +180", 'watch_status failed "pull"', 'mktemp "./.pk-host.XXXXXX"', '[ "$(pwd -P)" = "$(canon "$D")/update" ]', "< /dev/null",
                  "OnUnitActiveSec=5min", "/etc/cron.d/$WATCH_UNIT", "synoinfo.conf"):
         assert need in src, need
     base = tempfile.mkdtemp(prefix="pk-watch-", dir=TMP)
@@ -6080,7 +6086,7 @@ def _():
     r = run()
     k = rdk()
     assert r.returncode == 0 and k["state"] == "failed" and k["target"] == "2.32.9-s1" and k["from"] == "2.32.8" and k["by"] == "adm\\in", (k, r.stderr)
-    assert int(k["finished"]) >= int(k["started"]) > 0
+    assert int(k["finished"]) >= int(k["started"]) > 0 and k["message"] == "pull", k
     assert "pull ghcr.io/test/pocketknife:2.32.9-s1" in open(calls).read()
     assert "could not be pulled" in open(os.path.join(U, "update.log")).read()
     assert not [n for n in os.listdir(inst) if n.startswith((".pk-watch", ".pk-pull."))], os.listdir(inst)
@@ -6103,9 +6109,29 @@ def _():
     open(os.path.join(U, "request"), "w").write("version=2.32.9\n")
     r = run()
     assert r.returncode == 0 and os.path.exists(os.path.join(U, "request")), "zweiter Helfer wartet"
-    open(os.path.join(lk, "pid"), "w").write("999999")  # verwaistes Schloss
+    os.utime(lk, (_t.time() - 4 * 3600, _t.time() - 4 * 3600))  # 2.32.10: uralt – Prozessnummer inzwischen anders vergeben
     r = run()
     assert not os.path.exists(os.path.join(U, "request")) and not os.path.exists(lk), r.stderr
+    os.makedirs(lk); open(os.path.join(lk, "pid"), "w").write("999999")  # verwaistes Schloss
+    open(os.path.join(U, "request"), "w").write("version=2.32.9\n")
+    r = run()
+    assert not os.path.exists(os.path.join(U, "request")) and not os.path.exists(lk), r.stderr
+    # 2.32.10: systemd-Timer – als root, mit PATH/HOME, aufgefrischt nur bei Änderung
+    if os.geteuid() == 0:
+        sysr = env["PK_SYSROOT"]
+        os.makedirs(os.path.join(sysr, "run", "systemd", "system")); os.makedirs(os.path.join(sysr, "etc", "systemd", "system"))
+        with open(os.path.join(bind, "systemctl"), "w") as h:
+            h.write('#!/bin/sh\necho "$*" >> "$FAKE_CALLS.sysctl"\nexit 0\n')
+        os.chmod(os.path.join(bind, "systemctl"), 0o755)
+        r = _sp.run(["sh", "update.sh", "--watch-install"], cwd=inst, env=env, capture_output=True, text=True, timeout=60)
+        svc = open(os.path.join(sysr, "etc", "systemd", "system", "pocketknife-update.service")).read()
+        tim = open(os.path.join(sysr, "etc", "systemd", "system", "pocketknife-update.timer")).read()
+        assert r.returncode == 0 and "User=root" in svc and "Environment=HOME=/root" in svc and "/usr/local/bin" in svc, (r.stdout, r.stderr, svc)
+        assert f"ExecStart=/bin/sh {os.path.realpath(inst)}/update.sh --watch" in svc and "OnUnitActiveSec=5min" in tim
+        assert "enable --now pocketknife-update.timer" in open(calls + ".sysctl").read()
+        assert not os.path.exists(os.path.join(sysr, "etc", "cron.d", "pocketknife-update"))
+        r = _sp.run(["sh", "update.sh", "--watch-remove"], cwd=inst, env=env, capture_output=True, text=True, timeout=60)
+        assert not os.path.exists(os.path.join(sysr, "etc", "systemd", "system", "pocketknife-update.timer")) and "PK_UPDATE_HELPER=off" in open(os.path.join(inst, ".env")).read(), r.stdout
 
 def main():
     ok = 0

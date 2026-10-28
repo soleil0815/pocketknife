@@ -168,6 +168,6 @@ def poll():
     msg = {"done": (pklog.info, f"Update erledigt: {frm} → {to}."),
            "current": (pklog.info, f"Update: {to} ist bereits aktuell."),
            "rolledback": (pklog.error, f"Update auf {st.get('target') or '?'} fehlgeschlagen – zurück auf {to}. Protokoll: Einstellungen → Wartung."),
-           "failed": (pklog.error, f"Update auf {st.get('target') or '?'} fehlgeschlagen ({st.get('message') or 'siehe Protokoll'}). Läuft: {to}."),
+           "failed": (pklog.error, f"Update auf {st.get('target') or '?'} fehlgeschlagen ({'Image konnte nicht geladen werden – docker login als root?' if st.get('message') == 'pull' else st.get('message') or 'siehe Protokoll'}). Läuft: {to}."),
            "refused": (pklog.warn, "Update-Auftrag abgelehnt: " + {"invalid": "ungültiger Auftrag.", "older": "Version nicht neuer als die laufende."}.get(st.get("message"), st.get("message") or ""))}[st["state"]]
     msg[0]("system", msg[1], user=st.get("by") or None)

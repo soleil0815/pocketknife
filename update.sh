@@ -691,6 +691,9 @@ watch_status() {  # state message
 }
 watch() {
   YES=1
+  # started by cron/systemd: complete PATH (docker in /usr/local/bin …) and HOME (docker login of root → ~/.docker)
+  PATH="$PATH:$WATCH_PATH"; export PATH
+  if [ -z "${HOME:-}" ] || [ "$HOME" = / ]; then HOME=$(awk -F: -v u="$(id -u)" '$3 == u { print $6; exit }' /etc/passwd 2>/dev/null); HOME=${HOME:-/root}; export HOME; fi
   D=$(watch_datadir)
   [ -d "$D" ] || die "Data folder not found ($D) – PK_DATA_PATH in $SCRIPTDIR/.env?"
   WU="$D/update"
@@ -706,7 +709,8 @@ watch() {
   LOCK="$SCRIPTDIR/.pk-watch.lock"
   if ! mkdir "$LOCK" 2>/dev/null; then
     op=$(cat "$LOCK/pid" 2>/dev/null || true)
-    if [ -n "$op" ] && kill -0 "$op" 2>/dev/null; then exit 0; fi
+    # a running helper – unless the lock is older than 3 hours (process ID reused by something else after a crash)
+    if [ -n "$op" ] && kill -0 "$op" 2>/dev/null && [ -z "$(find "$LOCK" -maxdepth 0 -mmin +180 2>/dev/null)" ]; then exit 0; fi
     rm -rf "$LOCK"; mkdir "$LOCK" 2>/dev/null || exit 0
   fi
   echo $$ > "$LOCK/pid"
@@ -743,6 +747,7 @@ watch() {
   if [ "$rc" = 0 ] && grep -q "is already up to date" "$L"; then watch_status current ""
   elif [ "$rc" = 0 ]; then watch_status done ""
   elif grep -q "is running again" "$L"; then watch_status rolledback ""
+  elif grep -q "could not be pulled" "$L"; then watch_status failed "pull"
   else watch_status failed "$(grep '^ERROR:' "$L" | tail -n 1 | sed 's/^ERROR: //')"
   fi
   exit 0
@@ -753,56 +758,68 @@ watch() {
 # PK_SYSROOT only for the self-test (instead of / – nothing is written to the real /etc there).
 SYSROOT="${PK_SYSROOT:-}"
 watch_installed() { [ -f "$SYSROOT/etc/systemd/system/$WATCH_UNIT.timer" ] || [ -f "$SYSROOT/etc/cron.d/$WATCH_UNIT" ]; }
-# set up the timer; 0 = set up (or already there), 1 = not possible here (message printed)
+# PATH for the helper: cron only has /usr/bin:/bin (docker is in /usr/local/bin on a Synology, for example)
+WATCH_PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+watch_unit_service() {
+  printf '%s\n' "[Unit]" "Description=POCKET KNIFE – carry out an update requested in the web interface" "After=docker.service" "" \
+    "[Service]" "Type=oneshot" "User=root" "Environment=HOME=/root" "Environment=PATH=$WATCH_PATH" \
+    "ExecStart=/bin/sh $SCRIPTDIR/update.sh --watch"
+}
+watch_unit_timer() {
+  printf '%s\n' "[Unit]" "Description=POCKET KNIFE – look for an update request every 5 minutes" "" \
+    "[Timer]" "OnBootSec=2min" "OnUnitActiveSec=5min" "AccuracySec=30s" "" "[Install]" "WantedBy=timers.target"
+}
+watch_cron() {
+  printf '%s\n' "# POCKET KNIFE – carry out an update requested in the web interface (update.sh --watch-remove removes this)" \
+    "PATH=$WATCH_PATH" "HOME=/root" "*/5 * * * * root /bin/sh $SCRIPTDIR/update.sh --watch >/dev/null 2>&1"
+}
+# write a file only if its content differs; 0 = changed
+put_if_changed() {
+  t="$1.pk-neu"
+  cat > "$t" || { rm -f "$t"; return 1; }
+  if [ -f "$1" ] && cmp -s "$t" "$1"; then rm -f "$t"; return 1; fi
+  chmod 644 "$t" && mv -f "$t" "$1"
+}
+# set up (or refresh) the timer; 0 = set up, 1 = not possible here (message printed). Quiet if nothing changed.
 watch_setup() {
   if [ -f "$SYSROOT/etc/synoinfo.conf" ] && ! { command -v systemctl >/dev/null 2>&1 && [ -d "$SYSROOT/run/systemd/system" ]; }; then
     say "Synology: please create the task in DSM once (Control Panel → Task Scheduler → Create → Scheduled Task →"
     say "  User-defined script; user root, daily, repeat every 5 minutes; script:  sh $SCRIPTDIR/update.sh --watch)"
     return 1
   fi
-  if command -v systemctl >/dev/null 2>&1 && [ -d "$SYSROOT/run/systemd/system" ]; then
-    cat > "$SYSROOT/etc/systemd/system/$WATCH_UNIT.service" <<UNIT
-[Unit]
-Description=POCKET KNIFE – carry out an update requested in the web interface
-After=docker.service
-
-[Service]
-Type=oneshot
-ExecStart=/bin/sh $SCRIPTDIR/update.sh --watch
-UNIT
-    cat > "$SYSROOT/etc/systemd/system/$WATCH_UNIT.timer" <<UNIT
-[Unit]
-Description=POCKET KNIFE – look for an update request every 5 minutes
-
-[Timer]
-OnBootSec=2min
-OnUnitActiveSec=5min
-AccuracySec=30s
-
-[Install]
-WantedBy=timers.target
-UNIT
+  if [ ! -f "$SYSROOT/etc/cron.d/$WATCH_UNIT" ] && command -v systemctl >/dev/null 2>&1 && [ -d "$SYSROOT/run/systemd/system" ]; then
+    had=""; [ -f "$SYSROOT/etc/systemd/system/$WATCH_UNIT.timer" ] && had=1
+    ch=""
+    watch_unit_service | put_if_changed "$SYSROOT/etc/systemd/system/$WATCH_UNIT.service" && ch=1
+    watch_unit_timer | put_if_changed "$SYSROOT/etc/systemd/system/$WATCH_UNIT.timer" && ch=1
+    if [ -z "$ch" ] && [ -n "$had" ]; then return 0; fi
     if systemctl daemon-reload && systemctl enable --now "$WATCH_UNIT.timer" >/dev/null 2>&1; then
-      say "  Update helper: systemd timer $WATCH_UNIT.timer (every 5 minutes) – \"Update now\" in the web interface works."
-      [ -f "$SYSROOT/etc/synoinfo.conf" ] && say "  Synology: after a DSM update, check Settings → Maintenance; if the helper is gone, run  sh update.sh --watch-install"
+      if [ -n "$had" ]; then say "  Update helper: systemd timer $WATCH_UNIT.timer refreshed."
+      else
+        say "  Update helper: systemd timer $WATCH_UNIT.timer (every 5 minutes) – \"Update now\" in the web interface works."
+        [ -f "$SYSROOT/etc/synoinfo.conf" ] && say "  Synology: after a DSM update, check Settings → Maintenance; if the helper is gone, run  sh update.sh --watch-install"
+      fi
       return 0
     fi
+    [ -n "$had" ] && return 0
     rm -f "$SYSROOT/etc/systemd/system/$WATCH_UNIT.timer" "$SYSROOT/etc/systemd/system/$WATCH_UNIT.service"
   fi
   if [ -d "$SYSROOT/etc/cron.d" ]; then
-    printf '# POCKET KNIFE – carry out an update requested in the web interface (update.sh --watch-remove removes this)\n*/5 * * * * root /bin/sh %s/update.sh --watch >/dev/null 2>&1\n' "$SCRIPTDIR" > "$SYSROOT/etc/cron.d/$WATCH_UNIT"
-    chmod 644 "$SYSROOT/etc/cron.d/$WATCH_UNIT"
-    say "  Update helper: /etc/cron.d/$WATCH_UNIT (every 5 minutes) – \"Update now\" in the web interface works."
+    had=""; [ -f "$SYSROOT/etc/cron.d/$WATCH_UNIT" ] && had=1
+    if watch_cron | put_if_changed "$SYSROOT/etc/cron.d/$WATCH_UNIT"; then
+      if [ -n "$had" ]; then say "  Update helper: /etc/cron.d/$WATCH_UNIT refreshed."
+      else say "  Update helper: /etc/cron.d/$WATCH_UNIT (every 5 minutes) – \"Update now\" in the web interface works."; fi
+    fi
     return 0
   fi
   say "  Neither systemd nor /etc/cron.d – for \"Update now\" run  sh $SCRIPTDIR/update.sh --watch  every 5 minutes as root."
   return 1
 }
-# called by every update: set up the helper unless it is there or was switched off
+# called by every update: set up the helper – or bring an existing one up to date – unless it was switched off
 watch_auto() {
   [ "$(id -u)" = 0 ] || return 0
   [ "$(envval "$SCRIPTDIR/.env" PK_UPDATE_HELPER)" = off ] && return 0
-  watch_installed && return 0
+  if watch_installed; then watch_setup >/dev/null 2>&1 || true; return 0; fi
   info "Update from the web interface"
   watch_setup || say "  (to stop this note: PK_UPDATE_HELPER=off in the .env)"
   return 0

@@ -1039,7 +1039,8 @@ function suTime(sec) {
 }
 function suResult(st) {
   if (!st || st.state === 'running') return '';
-  const why = { invalid: tr('Ungültiger Auftrag.'), older: tr('Die Version ist nicht neuer als die laufende – zurück nur von Hand auf dem Host.') }[st.message];
+  const why = { invalid: tr('Ungültiger Auftrag.'), older: tr('Die Version ist nicht neuer als die laufende – zurück nur von Hand auf dem Host.'),
+    pull: tr('Das Image konnte nicht geladen werden – bei einem privaten Image einmal als root anmelden: sudo docker login ghcr.io') }[st.message];
   return fmtT(SU_TEXT[st.state] || '{1}', st.from || '?', st.to || '?', st.target || '?') + (why ? ' ' + why : st.message ? ` (${st.message})` : '');
 }
 function suManual(up) {
@@ -1077,6 +1078,7 @@ function suProgress(first) {
   const log = h('pre.out', { style: { maxHeight: '340px', overflow: 'auto', display: 'none' } });
   const extra = h('div.row', { style: { gap: '8px' } });
   let stop = false;
+  let gone = 0;  // Auftrag weg, Stand noch nicht da: der Helfer hat ihn gerade abgeholt – einmal mehr nachsehen
   modal(tr('Update'), h('div', msg, extra, log), [{ label: 'Schließen' }], { wide: true, onClose: () => { stop = true; } });
   const tick = async () => {
     if (stop) return;
@@ -1088,7 +1090,8 @@ function suProgress(first) {
     if (st && d.log) { log.style.display = ''; log.textContent = d.log; log.scrollTop = log.scrollHeight; }
     extra.replaceChildren();
     if (!st) {
-      if (!d.request) { msg.textContent = tr('Der Auftrag wurde zurückgenommen.'); return; }
+      if (!d.request && ++gone >= 3) { msg.textContent = tr('Der Auftrag wurde zurückgenommen.'); return; }
+      if (!d.request) { setTimeout(tick, 3000); return; }
       msg.textContent = d.request.stale ? tr('Der Update-Helfer auf dem Docker-Host hat den Auftrag seit über 30 Minuten nicht abgeholt – läuft der Timer noch?')
         : tr('Wartet auf den Update-Helfer auf dem Docker-Host (prüft alle 5 Minuten) …');
       extra.append(btn('Auftrag zurücknehmen', async () => { if (await run(() => DEL('/api/system/selfupdate'), 'Zurückgenommen')) tick(); }, { cls: 'small ghost' }));
