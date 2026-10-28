@@ -1078,12 +1078,15 @@ function suProgress(first) {
   const log = h('pre.out', { style: { maxHeight: '340px', overflow: 'auto', display: 'none' } });
   const extra = h('div.row', { style: { gap: '8px' } });
   let stop = false;
-  let gone = 0;  // Auftrag weg, Stand noch nicht da: der Helfer hat ihn gerade abgeholt – einmal mehr nachsehen
+  let gone = 0;
+  let down = 0;  // seit wann keine Antwort (Neustart)  // Auftrag weg, Stand noch nicht da: der Helfer hat ihn gerade abgeholt – einmal mehr nachsehen
   modal(tr('Update'), h('div', msg, extra, log), [{ label: 'Schließen' }], { wide: true, onClose: () => { stop = true; } });
   const tick = async () => {
     if (stop) return;
     let d;
-    try { d = await GET('/api/system/selfupdate'); } catch (e) {
+    try { d = await GET('/api/system/selfupdate'); down = 0; } catch (e) {
+      down = down || Date.now();
+      if (Date.now() - down > 15 * 60000) { msg.className = 'err-text'; msg.textContent = tr('POCKET KNIFE antwortet seit 15 Minuten nicht – bitte die Seite neu laden (und ggf. auf dem Docker-Host nachsehen: docker compose ps).'); return; }
       msg.className = 'muted'; msg.textContent = tr('POCKET KNIFE startet neu – einen Moment …'); setTimeout(tick, 3000); return;
     }
     const st = d.status && d.status.started && d.status.started >= at ? d.status : null;
@@ -1094,7 +1097,12 @@ function suProgress(first) {
       if (!d.request) { setTimeout(tick, 3000); return; }
       msg.textContent = d.request.stale ? tr('Der Update-Helfer auf dem Docker-Host hat den Auftrag seit über 30 Minuten nicht abgeholt – läuft der Timer noch?')
         : tr('Wartet auf den Update-Helfer auf dem Docker-Host (prüft alle 5 Minuten) …');
-      extra.append(btn('Auftrag zurücknehmen', async () => { if (await run(() => DEL('/api/system/selfupdate'), 'Zurückgenommen')) tick(); }, { cls: 'small ghost' }));
+      extra.append(btn('Auftrag zurücknehmen', async () => {
+        const c = await run(() => DEL('/api/system/selfupdate'));
+        if (!c) return;
+        toast(c.cancelled ? tr('Zurückgenommen') : tr('Zu spät – der Update-Helfer hat den Auftrag schon abgeholt, das Update läuft.'), c.cancelled ? 'ok' : 'err');
+        if (c.cancelled) { stop = true; msg.textContent = tr('Der Auftrag wurde zurückgenommen.'); extra.replaceChildren(); }
+      }, { cls: 'small ghost' }));
     } else if (st.state === 'running') {
       msg.className = 'muted'; msg.textContent = fmtT('Update auf {0} läuft: Image ziehen und prüfen, Programmdateien sichern, neu starten, Gesundheitscheck, Selbsttest …', st.target);
     } else {
@@ -1123,7 +1131,10 @@ function suField() {
         st.state === 'running' ? fmtT('Update auf {0} läuft …', st.target) : (st.finished ? suTime(st.finished) + ': ' : '') + suResult(st)) : null,
       h('div.row', { style: { gap: '6px', marginTop: '4px' } },
         d.latest && d.helper.active ? btn(fmtT('Jetzt auf {0} aktualisieren', d.latest), () => selfUpdate(d.latest), { cls: 'small primary', icon: 'refresh' }) : null,
-        d.request ? btn('Auftrag zurücknehmen', async () => { if (await run(() => DEL('/api/system/selfupdate'), 'Zurückgenommen')) draw(); }, { cls: 'small ghost' }) : null,
+        d.request ? btn('Auftrag zurücknehmen', async () => {
+          const c = await run(() => DEL('/api/system/selfupdate'));
+          if (c) { toast(c.cancelled ? tr('Zurückgenommen') : tr('Zu spät – der Update-Helfer hat den Auftrag schon abgeholt, das Update läuft.'), c.cancelled ? 'ok' : 'err'); draw(); }
+        }, { cls: 'small ghost' }) : null,
         d.log ? btn('Protokoll', () => showOutput(tr('Protokoll des letzten Updates'), d.log), { cls: 'small ghost' }) : null));
   };
   draw();

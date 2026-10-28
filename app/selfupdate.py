@@ -7,9 +7,10 @@ richtet jedes Update mit update.sh automatisch ein; von Hand: sh update.sh --wat
 sh update.sh --pull <Version> -y  aus – mit Sicherung der Programmdateien, Prüfsumme, Gesundheitscheck, Rückkehr zur
 vorherigen Version und Selbsttest – und schreibt Stand und Protokoll zurück in den Datenordner:
 
-  update/helper     Lebenszeichen des Host-Helfers (nur der Zeitstempel zählt)
-  update/status     state=running|done|current|failed|rolledback|refused, from, to, target, by, started, finished
-  update/update.log Ausgabe des letzten Updates
+  update/host/helper     Lebenszeichen des Host-Helfers (nur der Zeitstempel zählt)
+  update/host/status     state=running|done|current|failed|rolledback|refused, from, to, target, by, started, finished
+  update/host/update.log Ausgabe des letzten Updates
+  (2.32.10: host/ gehört root – root schreibt nie in einen Ordner des Containers; 2.32.9 schrieb direkt nach update/)
 
 Der Host-Helfer vertraut dem Auftrag nicht: nur eine Versionsnummer (oder „latest“), nie älter als die laufende
 Version, aus dem in der .env eingetragenen Registry. Er folgt keinen symbolischen Links im Ordner.
@@ -33,8 +34,17 @@ _KEY_RX = re.compile(r"^[a-z_]{1,20}$")
 _ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 
 
+HOST = "host"
+
+
 def _p(name):
     return os.path.join(UPDATE_DIR, name)
+
+
+def _hp(name):
+    """Datei des Host-Helfers: update/host/<name>; solange es die nicht gibt, die von 2.32.9 direkt in update/."""
+    p = os.path.join(UPDATE_DIR, HOST, name)
+    return p if os.path.lexists(p) else _p(name)
 
 
 def ensure_dir():
@@ -44,9 +54,9 @@ def ensure_dir():
         pass
 
 
-def _read(name, limit):
-    """Kleine Datei lesen – nie einem Link folgen (der Ordner gehört dem Container, der Host schreibt hinein)."""
-    p = _p(name)
+def _read(name, limit, host=True):
+    """Kleine Datei lesen – nie einem Link folgen."""
+    p = _hp(name) if host else _p(name)
     try:
         if os.path.islink(p) or not os.path.isfile(p):
             return None
@@ -71,7 +81,7 @@ def _kv(text):
 def helper_age():
     """Sekunden seit dem letzten Lebenszeichen des Host-Helfers (None = noch nie)."""
     try:
-        st = os.lstat(_p(HELPER))
+        st = os.lstat(_hp(HELPER))
     except OSError:
         return None
     return max(0, int(time.time() - st.st_mtime))
@@ -93,7 +103,7 @@ def read_status():
 
 
 def read_request():
-    r = _kv(_read(REQ, 1024))
+    r = _kv(_read(REQ, 1024, host=False))
     if not r.get("version"):
         return None
     try:
@@ -148,11 +158,17 @@ def request(version, user):
 
 
 def cancel(user):
+    """2.32.10: meldet, ob wirklich etwas zurückgenommen wurde – hat der Helfer den Auftrag schon abgeholt, läuft er."""
     p = _p(REQ)
-    if os.path.lexists(p):
+    done = False
+    try:
         os.remove(p)
+        done = True
+    except FileNotFoundError:
+        pass
+    if done:
         pklog.info("system", "Update-Auftrag zurückgenommen.", user=user.get("username"))
-    return state()
+    return {**state(), "cancelled": done}
 
 
 def poll():

@@ -2049,6 +2049,24 @@ def _():
     assert "PK_IMAGE=ghcr.io/test/pocketknife:latest" in rd(".env") and "PK_DNS_1=1.2.3.4" in rd(".env"), "Container zeigt die Herkunft (wie andere Container)"
     assert "pull ghcr.io/test/pocketknife:latest" in open(os.path.join(st, "calls")).read()
     assert not [n for n in os.listdir(inst) if n.startswith((".pk-pull.", ".pk-update."))], "keine temporären Ordner übrig"
+    # 2.32.10: aus der Oberfläche (PK_WATCH_RESULT) nie zurück – auch nicht über „latest“; Ergebnis als Kennwort
+    r_first = r
+    wres = os.path.join(base, "wres")
+    wenv = {**env, "PK_WATCH_RESULT": wres}
+    dist("2.27", "ALT2")
+    open(os.path.join(st, "newid"), "w").write("sha256:aelter\n")
+    r = _sp.run(["sh", "update.sh", "-y", "--pull"], cwd=inst, env=wenv, capture_output=True, text=True, timeout=120)
+    assert r.returncode != 0 and open(wres).read().strip() == "older" and rd("VERSION") == "2.27.1" and rd("run.py") == "NEU", (r.stdout[-400:], r.stderr[-300:])
+    dist("2.27.1", "NEU")
+    r = _sp.run(["sh", "update.sh", "-y", "--pull"], cwd=inst, env=wenv, capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0 and open(wres).read().strip() == "current" and rd("VERSION") == "2.27.1", r.stdout[-400:]
+    # Versions-Tag muss genau diese Version enthalten
+    r = _sp.run(["sh", "update.sh", "-y", "--pull", "2.27.7"], cwd=inst, env=env, capture_output=True, text=True, timeout=120)
+    assert r.returncode != 0 and "contains version 2.27.1" in r.stderr and rd("VERSION") == "2.27.1", r.stderr[-300:]
+    open(os.path.join(st, "newid"), "w").write("sha256:new\n")
+    src_us = open(f, encoding="utf-8").read()
+    assert 'if [ -n "${PK_WATCH_RESULT:-}" ]; then\n    # 2.32.10: from the web interface nothing beyond the update itself' in src_us, "aus der Oberfläche kein prune/Löschen"
+    r = r_first
     # 2.32.9: das Update richtet den Update-Helfer gleich mit ein (nichts zu aktivieren) – nur als root
     sysr = env["PK_SYSROOT"]
     if os.geteuid() == 0:
@@ -6003,7 +6021,8 @@ def _():
     assert ";" not in req and " " not in req.split("by=")[1].split("\n")[0], req
     assert st["request"]["version"] == newer and not st["request"]["stale"]
     su.request("latest", user)
-    assert su.cancel(user)["request"] is None
+    c1 = su.cancel(user)
+    assert c1["request"] is None and c1["cancelled"] is True and su.cancel(user)["cancelled"] is False, "zu spät = nicht zurückgenommen"
     # Stand vom Host: läuft → kein zweiter Auftrag; fertig → einmal ins Protokoll
     w = lambda n, s: open(os.path.join(su.UPDATE_DIR, n), "w").write(s)  # noqa: E731
     w("status", f"state=running\nfrom=2.32.8\ntarget={newer}\nstarted={int(_t.time())}\n")
@@ -6020,6 +6039,11 @@ def _():
     assert db.setting_raw(su.LOGGED_KEY) == "2:done"
     if n0 is not None:
         assert db.val("SELECT COUNT(*) FROM logs") == n0 + 1, "nur einmal protokolliert"
+    # 2.32.10: Dateien des Helfers in host/ gehen vor (2.32.9 schrieb direkt nach update/)
+    os.makedirs(os.path.join(su.UPDATE_DIR, "host"), exist_ok=True)
+    open(os.path.join(su.UPDATE_DIR, "host", "status"), "w").write("state=current\nto=2.32.10\nfinished=9\n")
+    assert su.read_status()["state"] == "current"
+    _sh.rmtree(os.path.join(su.UPDATE_DIR, "host"))
     w("status", "state=hacked\n")
     assert su.read_status() is None
     w("status", "state=failed\nfrom=x y\nto=<b>\nfinished=abc\n")
@@ -6052,7 +6076,7 @@ def _():
     if not os.path.exists(f) or not _sh.which("sh"):
         return  # im Container liegt update.sh nicht
     src = open(f, encoding="utf-8").read()
-    for need in ("--watch) WATCH=run", 'PATH="$PATH:$WATCH_PATH"', "-mmin +180", 'watch_status failed "pull"', 'mktemp "./.pk-host.XXXXXX"', '[ "$(pwd -P)" = "$(canon "$D")/update" ]', "< /dev/null",
+    for need in ("--watch) WATCH=run", 'PATH="$PATH:$WATCH_PATH"', "-lt 10800", 'watch_status failed "pull"', 'mktemp "./.pk-host.XXXXXX"', '[ "$(pwd -P)" = "$DP/update/host" ]', 'mv -f ../request "./.req.$$"', "< /dev/null",
                  "OnUnitActiveSec=5min", "/etc/cron.d/$WATCH_UNIT", "synoinfo.conf"):
         assert need in src, need
     base = tempfile.mkdtemp(prefix="pk-watch-", dir=TMP)
@@ -6070,11 +6094,16 @@ def _():
     env = {**os.environ, "PATH": bind + ":" + os.environ.get("PATH", ""), "FAKE_CALLS": calls, "PK_SYSROOT": tempfile.mkdtemp(dir=TMP)}
     run = lambda: _sp.run(["sh", "update.sh", "--watch"], cwd=inst, env=env, capture_output=True, text=True, timeout=60)  # noqa: E731
     U = os.path.join(data, "update")
-    rdk = lambda: dict(l.split("=", 1) for l in open(os.path.join(U, "status")).read().splitlines() if "=" in l)  # noqa: E731
+    H = os.path.join(U, "host")  # 2.32.10: root schreibt nur in seinen eigenen Ordner
+    rdk = lambda: dict(l.split("=", 1) for l in open(os.path.join(H, "status")).read().splitlines() if "=" in l)  # noqa: E731
+    # Dateien von 2.32.9 direkt in update/ werden aufgeräumt
+    for n in ("status", "helper", "update.log"):
+        open(os.path.join(U, n), "w").write("alt\n")
     # ohne Auftrag: nur Lebenszeichen, kein docker
     r = run()
-    assert r.returncode == 0 and os.path.exists(os.path.join(U, "helper")) and not os.path.exists(calls), r.stderr
-    assert oct(os.stat(os.path.join(U, "helper")).st_mode & 0o777) == "0o644"
+    assert r.returncode == 0 and os.path.exists(os.path.join(H, "helper")) and not os.path.exists(calls), r.stderr
+    assert oct(os.stat(os.path.join(H, "helper")).st_mode & 0o777) == "0o644" and os.stat(H).st_uid == os.geteuid()
+    assert not [n for n in ("status", "helper", "update.log") if os.path.exists(os.path.join(U, n))], os.listdir(U)
     # ungültiger Auftrag / älter → abgelehnt, Auftrag weg, nichts gezogen
     for body, why in (("version=1.0; reboot\n", "invalid"), ("version=2.32.7\n", "older"), ("version=2.32.8\n", "older")):
         open(os.path.join(U, "request"), "w").write(body)
@@ -6088,14 +6117,32 @@ def _():
     assert r.returncode == 0 and k["state"] == "failed" and k["target"] == "2.32.9-s1" and k["from"] == "2.32.8" and k["by"] == "adm\\in", (k, r.stderr)
     assert int(k["finished"]) >= int(k["started"]) > 0 and k["message"] == "pull", k
     assert "pull ghcr.io/test/pocketknife:2.32.9-s1" in open(calls).read()
-    assert "could not be pulled" in open(os.path.join(U, "update.log")).read()
+    assert "could not be pulled" in open(os.path.join(H, "update.log")).read()
     assert not [n for n in os.listdir(inst) if n.startswith((".pk-watch", ".pk-pull."))], os.listdir(inst)
-    assert not [n for n in os.listdir(U) if n.startswith(".pk-host.")], os.listdir(U)
+    assert not [n for n in os.listdir(H) if n.startswith((".pk-host.", ".req."))], os.listdir(H)
     # Link als Auftrag: entfernt, nie gelesen
     os.symlink(os.path.join(inst, ".env"), os.path.join(U, "request"))
     os.remove(calls)
     r = run()
     assert r.returncode == 0 and not os.path.lexists(os.path.join(U, "request")) and not os.path.exists(calls)
+    # host/ durch einen Link ersetzt → nicht benutzt (nichts landet woanders)
+    _sh.rmtree(H)
+    elsewhere = os.path.join(base, "woanders1"); os.makedirs(elsewhere)
+    os.symlink(elsewhere, H)
+    r = run()
+    assert r.returncode != 0 and not os.listdir(elsewhere), (r.stderr, os.listdir(elsewhere))
+    os.remove(H)
+    if os.geteuid() == 0:  # host/ gehört jemand anderem (vom Container angelegt) → nicht benutzt
+        os.makedirs(H); os.chown(H, 65534, 65534)
+        r = run()
+        assert r.returncode != 0 and "does not belong" in r.stderr and not os.listdir(H), r.stderr
+        os.rmdir(H)
+    # abgebrochenes Update (Neustart des Hosts): „läuft“ wird zu „fehlgeschlagen (interrupted)“
+    os.makedirs(H, exist_ok=True)
+    open(os.path.join(H, "status"), "w").write("state=running\nfrom=2.32.8\ntarget=2.32.9\nby=adm\nstarted=5\n")
+    r = run()
+    k = rdk()
+    assert k["state"] == "failed" and k["message"] == "interrupted" and k["target"] == "2.32.9" and k["started"] == "5", k
     # Ordner durch einen Link ersetzt → nicht benutzt (nichts landet woanders)
     _sh.rmtree(U)
     elsewhere = os.path.join(base, "woanders"); os.makedirs(elsewhere)
