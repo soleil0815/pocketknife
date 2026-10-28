@@ -897,6 +897,7 @@ def api_tool_run(tid: int, data: dict = Body(...), user=U):
     res = _act(tools.run, t, cid)
     pklog.info("tool", f"Tool '{t['name']}' auf {name} ausgeführt (Exitcode {res['exit']}, {res['seconds']} s).",
                user=user["username"], computer_id=cid)
+    tools.scan_after(t, cid, user["username"], res.get("ok", not res["exit"]), res)  # 2.32.7: wie im Auftrag
     return res
 
 

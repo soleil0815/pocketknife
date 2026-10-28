@@ -44,7 +44,14 @@ $pkLui = @(Get-CimInstance Win32_Process -Filter "Name='LogonUI.exe'" | ForEach-
 $pkQ = @{}
 $pkQo = @()
 try { $pkQo = @(& (Join-Path $env:SystemRoot 'System32\quser.exe') 2>$null) } catch {}
-foreach ($l in @($pkQo | Select-Object -Skip 1)) { if ("$l" -match '^\s*>?\S+\s+(?:\S+\s+)?(\d+)\s+(\S+)') { $pkQ[[int]$matches[1]] = $matches[2] } }
+# ID steht rechtsbündig unter „ID“ (Kopfzeile in jeder Sprache) – ab dort lesen, Benutzer-/Sitzungsnamen davor egal
+$pkIp = -1
+if ($pkQo.Count) { $pkIp = ("" + $pkQo[0]).IndexOf(' ID ') }
+foreach ($l in @($pkQo | Select-Object -Skip 1)) {
+  $t = "" + $l
+  if ($pkIp -gt 4 -and $t.Length -gt $pkIp) { $t = $t.Substring($pkIp - 4) } elseif ($t -match '^\s*>?\S+\s+(?:\S+\s+)?(\d+\s+\S+.*)$') { $t = $matches[1] }
+  if ($t -match '^\s*(\d+)\s+(\S+)') { $pkQ[[int]$matches[1]] = $matches[2] }
+}
 $pkSt = @{}
 $pkExp = @(Get-CimInstance Win32_Process -Filter "Name='explorer.exe'" | ForEach-Object {
   $o = Invoke-CimMethod -InputObject $_ -MethodName GetOwner

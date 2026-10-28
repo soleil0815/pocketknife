@@ -261,12 +261,10 @@ def clean_extras(d):
             raise ValueError("Dateien aus dem Repository: bitte einen Pfad im Repository angeben (z. B. Tools\\iperf).")
         rp = "\\".join(parts)
         # Mandanten-Ordner nie: dort dürfen OU-Admins Dateien ablegen – ein Tool läuft für alle mit dem Dienstkonto
-        low = rp.lower() + "\\"
-        for t in db.q("SELECT name, repo_folder FROM tenants WHERE COALESCE(repo_folder, '') != ''"):
-            tf = str(t["repo_folder"]).replace("/", "\\").strip("\\").lower() + "\\"
-            if low.startswith(tf) or tf.startswith(low):
-                raise ValueError(f"Dateien aus dem Repository: „{rp}“ gehört zum Mandanten „{t['name']}“ (bzw. enthält seinen "
-                                 "Ordner) – Tools dürfen keine Dateien aus Mandanten-Ordnern verwenden.")
+        bad = tenant_conflict(rp)
+        if bad:
+            raise ValueError(f"Dateien aus dem Repository: „{rp}“ gehört zum Mandanten „{bad}“ (bzw. enthält seinen "
+                             "Ordner) – Tools dürfen keine Dateien aus Mandanten-Ordnern verwenden.")
         try:
             kind = remote.repo_stat(rp)
         except remote.RemoteError as e:
@@ -301,6 +299,23 @@ def clean_extras(d):
             raise ValueError(f"Zeitlimit: 10 bis {MAX_TIMEOUT} Sekunden.")
         d["timeout_s"] = to
     d["success_codes"] = ",".join(str(c) for c in parse_codes(d.get("success_codes"))) if str(d.get("success_codes") or "").strip() else None
+
+
+def _rkey(p):
+    return "\\".join(x for x in str(p or "").replace("/", "\\").lower().split("\\") if x not in ("", "."))
+
+
+def tenant_conflict(rp):
+    """Name des Mandanten, dessen Repository-Ordner rp enthält oder in rp liegt – sonst None. 2.32.7: auch vor jedem
+    Lauf geprüft (ein Mandant kann den Ordner nach dem Speichern des Tools bekommen haben)."""
+    k = _rkey(rp)
+    if not k:
+        return None
+    for t in db.q("SELECT name, repo_folder FROM tenants WHERE COALESCE(repo_folder, '') != ''"):
+        o = _rkey(t["repo_folder"])
+        if o and (k == o or k.startswith(o + "\\") or o.startswith(k + "\\")):
+            return t["name"]
+    return None
 
 
 def parse_codes(v):
@@ -366,7 +381,11 @@ $of = $f + '.out'
 [System.IO.File]::WriteAllText($f, '@echo off' + [Environment]::NewLine + {util.psq(cd)} + {util.psq(b)}, {util.PS_CMD_ENCODING})
 & cmd.exe /d /c ('"' + $f + '" > "' + $of + '" 2>&1')
 $code = $LASTEXITCODE
-if (Test-Path -LiteralPath $of) {{ Get-Content -LiteralPath $of -Encoding Oem | ForEach-Object {{ "$_" }} }}
+if (Test-Path -LiteralPath $of) {{
+  $pkEnc = 'UTF8'
+  if (([string](Get-Content -LiteralPath $of -Raw -Encoding UTF8)) -match '\\uFFFD') {{ $pkEnc = 'Oem' }}
+  Get-Content -LiteralPath $of -Encoding $pkEnc | ForEach-Object {{ "$_" }}
+}}
 Remove-Item $f, $of -Force -ErrorAction SilentlyContinue
 'PKEXIT:' + $code
 """
@@ -382,22 +401,28 @@ def run(tool, cid):
     rp = tool.get("repo_path")
     note = ""
     if rp:
-        # 2.32.7: Dateien kopiert POCKET KNIFE selbst über die Admin-Freigabe – auf dem Client liegt kein Kennwort, und
-        # es gibt kein Double-Hop-Problem (eine WinRM-Sitzung kommt nicht an weitere Freigaben)
-        kind = remote.repo_stat(rp)
-        if kind is None:
-            raise ValueError(f"Dateien aus dem Repository: „{rp}“ gibt es nicht (mehr).")
-        if kind == "file":
-            parent, _, fn = rp.rpartition("\\")
-            remote.copy_package(parent, host, name, single_file=fn)
-        else:
-            remote.copy_package(rp, host, name)
-        note = f"Dateien aus dem Repository: {rp}"
+        bad = tenant_conflict(rp)
+        if bad:
+            raise ValueError(f"Dateien aus dem Repository: „{rp}“ gehört inzwischen zum Mandanten „{bad}“ – das Tool läuft "
+                             "nicht (Dateien aus Mandanten-Ordnern könnten dessen Admins ändern). Bitte im Tool einen anderen "
+                             "Ordner wählen.")
     try:
+        if rp:
+            # 2.32.7: Dateien kopiert POCKET KNIFE selbst über die Admin-Freigabe – auf dem Client liegt kein Kennwort,
+            # und es gibt kein Double-Hop-Problem (eine WinRM-Sitzung kommt nicht an weitere Freigaben)
+            kind = remote.repo_stat(rp)
+            if kind is None:
+                raise ValueError(f"Dateien aus dem Repository: „{rp}“ gibt es nicht (mehr).")
+            if kind == "file":
+                parent, _, fn = rp.rpartition("\\")
+                remote.copy_package(parent, host, name, single_file=fn)
+            else:
+                remote.copy_package(rp, host, name)
+            note = f"Dateien aus dem Repository: {rp}"
         res = _run(tool, c, host, name, bool(rp))
     finally:
-        if rp and tool["run_as"] != "system":
-            remote.remove_package_copy(host, name)  # bei SYSTEM räumt run_as_system den Arbeitsordner selbst auf
+        if rp:
+            remote.remove_package_copy(host, name)  # immer – auch nach einer abgebrochenen Kopie (doppelt schadet nicht)
     codes = parse_codes(tool.get("success_codes"))
     res["ok"] = res["exit"] in codes
     if note:
@@ -413,7 +438,9 @@ def _run(tool, c, host, name, with_files):
     t0 = time.time()
     timeout = int(tool.get("timeout_s") or DEFAULT_TIMEOUT)
     workdir = f"C:\\Windows\\Temp\\PocketKnife\\{name}" if with_files else None
-    if tool["run_as"] == "system":
+    # 2.32.7: mit Dateien auch als Dienstkonto über den Rahmen (eigener Prozess) – nur so wird das Programm beim Zeitlimit
+    # beendet und der Ordner lässt sich danach löschen (WinRM bricht nur das Warten ab)
+    if tool["run_as"] == "system" or with_files:
         # Als SYSTEM über eine temporäre geplante Aufgabe (wie bei Bereitstellungen)
         b64 = base64.b64encode(script.replace("\r\n", "\n").encode("utf-8")).decode()
         if tool["type"] == "powershell":
@@ -426,7 +453,11 @@ def _run(tool, c, host, name, with_files):
                     f"$txt = '@echo off' + [Environment]::NewLine + [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{b64}')).Replace(\"`n\", \"`r`n\")\n"
                     f"[System.IO.File]::WriteAllText($cf, $txt, {util.PS_CMD_ENCODING})\n"
                     f"PK-Run 'cmd.exe' ('/c \"' + $cf + '\"')")
-        code, out = remote.run_as_system(host, body, name, timeout_s=timeout)
+        try:
+            code, out = remote.run_as_system(host, body, name, timeout_s=timeout,
+                                             run_as="system" if tool["run_as"] == "system" else "deploy")
+        except remote.RemoteTimeout:
+            raise remote.RemoteTimeout(f"Zeitlimit von {remote.dur_text(timeout)} überschritten – abgebrochen.")
         hard = ""
         if code not in parse_codes(tool.get("success_codes")):
             code, hard = remote.apply_hard(code, out)  # 2.32.5: gehärtetes Windows im Klartext
@@ -446,10 +477,9 @@ def _run(tool, c, host, name, with_files):
                   " | Out-String -Width 220 -Stream\n'PKEXIT:' + $global:pkErr")
         try:
             out, err, _ = remote.ps(host, ps, timeout=timeout)
-        except remote.RemoteError as e:
-            if "Zeitüberschreitung" in str(e) or "timed out" in str(e).lower():
-                raise remote.RemoteError(f"Zeitlimit von {timeout} Sekunden überschritten.")
-            raise
+        except remote.RemoteTimeout:
+            raise remote.RemoteTimeout(f"Zeitlimit von {remote.dur_text(timeout)} überschritten – POCKET KNIFE wartet nicht "
+                                       "länger; der Befehl kann auf dem Computer noch weiterlaufen.")
         code = 0
         m = re.search(r"PKEXIT:(-?\d+)\s*$", out.strip())
         if m:
@@ -764,6 +794,20 @@ _jlock = _th.Lock()
 _jpool = _TPE(max_workers=8, thread_name_prefix="tool")
 
 
+def scan_after(tool, cid, user, ok, res):
+    """2.32.7: Danach scannen (Standard: nicht) – läuft gerade ein Scan, wird er danach nachgeholt."""
+    sa = tool.get("scan_after") or "never"
+    if not (sa == "always" or (sa == "success" and ok)):
+        return
+    from . import inventory, profiles
+    prof = (profiles.get(tool["scan_profile_id"]) if tool.get("scan_profile_id") else None) or profiles.default()
+    try:
+        inventory.queue_scan(cid, user, prof["id"], follow=True)
+        res["output"] = (res.get("output") or "") + f"\n\nDanach: Scan mit „{prof['name']}“ gestartet."
+    except Exception as e:  # noqa: BLE001
+        res["output"] = (res.get("output") or "") + f"\n\nDanach scannen nicht möglich: {e}"
+
+
 def start_job(tool, ids, user):
     from . import pklog
     jid = secrets.token_hex(6)
@@ -786,16 +830,7 @@ def start_job(tool, ids, user):
             status = "Fehler"
         pklog.info("tool", f"Tool '{tool['name']}' auf {t['name']}: {status} (Exitcode {res['exit']}).",
                    user=user, computer_id=cid)
-        # 2.32.7: Danach scannen (Standard: nicht) – läuft gerade ein Scan, wird er danach nachgeholt
-        sa = tool.get("scan_after") or "never"
-        if sa == "always" or (sa == "success" and status == "OK"):
-            from . import inventory, profiles
-            prof = (profiles.get(tool["scan_profile_id"]) if tool.get("scan_profile_id") else None) or profiles.default()
-            try:
-                inventory.queue_scan(cid, user, prof["id"], follow=True)
-                res["output"] = (res.get("output") or "") + f"\n\nDanach: Scan mit „{prof['name']}“ gestartet."
-            except Exception as e:  # noqa: BLE001
-                res["output"] = (res.get("output") or "") + f"\n\nDanach scannen nicht möglich: {e}"
+        scan_after(tool, cid, user, status == "OK", res)
         t["res"], t["status"] = res, status  # erst jetzt fertig (die Oberfläche fragt den Stand ab)
     for cid in ids:
         _jpool.submit(one, cid)

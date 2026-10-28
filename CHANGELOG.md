@@ -1,7 +1,7 @@
 # Änderungen
 
 ## pocketknife-2.32.7 (28.10.2026)
-- **Neu – Tools mit Dateien aus dem Repository:** Im Tool einen Ordner oder eine Datei aus dem Repository wählen (z. B. iperf). POCKET KNIFE kopiert sie vor dem Ausführen selbst auf den Computer, der Befehl läuft in diesem Ordner, danach wird aufgeräumt – als Dienstkonto und als SYSTEM. Kein Zugriff des Computers auf Freigaben nötig (ein Aufruf wie `\\server\freigabe\programm.exe` scheitert in einer WinRM-Sitzung grundsätzlich), keine Kennwörter auf dem Client. Mandanten-Ordner sind nicht wählbar
+- **Neu – Tools mit Dateien aus dem Repository:** Im Tool einen Ordner oder eine Datei aus dem Repository wählen (z. B. iperf). POCKET KNIFE kopiert sie vor dem Ausführen selbst auf den Computer, der Befehl läuft in diesem Ordner, danach wird aufgeräumt – als Dienstkonto und als SYSTEM. Kein Zugriff des Computers auf Freigaben nötig (ein Aufruf wie `\\server\freigabe\programm.exe` scheitert in einer WinRM-Sitzung grundsätzlich), keine Kennwörter auf dem Client. Mandanten-Ordner sind nicht wählbar – auch nicht nachträglich: Bekommt ein Mandant den Ordner später, läuft das Tool nicht mehr, und ein Mandant bekommt keinen Ordner, den ein Tool benutzt. Mit Dateien läuft ein Tool auch als Dienstkonto als eigener Prozess, damit das Zeitlimit das Programm wirklich beendet; der Ordner wird in jedem Fall aufgeräumt
 - **Neu – Danach scannen:** Ein Tool kann danach scannen – *Nach Erfolg* oder *Immer*, mit wählbarem Scanprofil. Standard: nicht scannen
 - **Neu – Zeitlimit und Erfolgscodes je Tool** (leer = 30 Minuten bzw. 0)
 - **Behoben – Umlaute in der Ausgabe von CMD-Tools und Befehl-Schritten:** „ausf?hren“ statt „ausführen“ – die Ausgabe von cmd.exe wird jetzt in der Konsolen-Codepage gelesen

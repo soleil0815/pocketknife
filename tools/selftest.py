@@ -5730,23 +5730,22 @@ def _():
         for lang, active, disc in (("de", "Aktiv", "Getr."), ("en", "Active", "Disc")):
             q = os.path.join(d, "System32", "quser.exe")
             with open(q, "w") as fh:
+                row = lambda u, sn, i, st: f" {u:<22}{sn:<19}{i:>2}  {st:<6}  {'.':>9}  28.10.2026 08:00\n"  # noqa: E731
                 fh.write("#!/bin/sh\ncat <<'X'\n"
-                         " USERNAME              SESSIONNAME        ID  STATE   IDLE TIME  LOGON TIME\n"
-                         f" max                   console             1  {active}      .      28.10.2026 08:00\n"
-                         f" eva                                       2  {disc}       5      28.10.2026 07:00\n"
-                         f" tom                   rdp-tcp#0           3  {active}      .      28.10.2026 09:00\n"
-                         f" ugo                                       4  {disc}       9      28.10.2026 06:00\n"
-                         f" ugo                   rdp-tcp#1           5  {active}      .      28.10.2026 10:00\n"
-                         "X\n")
+                         + f" {'USERNAME':<22}{'SESSIONNAME':<19}{'ID':>2}  {'STATE':<6}  {'IDLE TIME':>9}  LOGON TIME\n"
+                         + row("max", "console", 1, active) + row("eva", "", 2, disc) + row("tom", "rdp-tcp#0", 3, active)
+                         + row("ugo", "", 4, disc) + row("ugo", "rdp-tcp#1", 5, active)
+                         # Benutzername mit Leerzeichen und Ziffer: darf keine andere Sitzung überschreiben
+                         + row("team 2 lager", "", 6, disc) + "X\n")
             os.chmod(q, 0o755)
             mocks = ("$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'\n"
                      f"$env:SystemRoot = '{d}'\n"
                      "function Get-CimInstance { param($ClassName, $Filter)\n"
                      "  if ($ClassName -eq 'Win32_ComputerSystem') { return @{ UserName = 'FIRMA\\max' } }\n"
                      "  if ($Filter -match 'LogonUI') { return @(@{ SessionId = 3 }) }\n"
-                     "  if ($Filter -match 'explorer') { return @(1, 2, 3, 4, 5 | ForEach-Object { @{ SessionId = $_ } }) } }\n"
+                     "  if ($Filter -match 'explorer') { return @(1, 2, 3, 4, 5, 6 | ForEach-Object { @{ SessionId = $_ } }) } }\n"
                      "function Invoke-CimMethod { param($InputObject, $MethodName)\n"
-                     "  $n = @{ 1 = 'max'; 2 = 'eva'; 3 = 'tom'; 4 = 'ugo'; 5 = 'ugo' }[[int]$InputObject.SessionId]\n"
+                     "  $n = @{ 1 = 'max'; 2 = 'eva'; 3 = 'tom'; 4 = 'ugo'; 5 = 'ugo'; 6 = 'lager2' }[[int]$InputObject.SessionId]\n"
                      "  @{ Domain = 'FIRMA'; User = $n } }\n")
             sf = os.path.join(d, "lo.ps1")
             with open(sf, "w", encoding="utf-8-sig") as fh:
@@ -5755,8 +5754,8 @@ def _():
                                capture_output=True, text=True, timeout=120, env={**os.environ, "TERM": "dumb"})
             out = r.stdout + r.stderr
             assert "Cannot" not in out and "Methodenaufruf" not in out, out
-            assert remote.parse_states(out) == {"FIRMA\\eva": "disconnected", "FIRMA\\tom": "locked"}, (lang, out)
-            assert "PKUSERS:FIRMA\\max, FIRMA\\eva, FIRMA\\tom, FIRMA\\ugo" in out, out
+            assert remote.parse_states(out) == {"FIRMA\\eva": "disconnected", "FIRMA\\tom": "locked", "FIRMA\\lager2": "disconnected"}, (lang, out)
+            assert "PKUSERS:FIRMA\\max, FIRMA\\eva, FIRMA\\tom, FIRMA\\ugo, FIRMA\\lager2" in out, out
     finally:
         shutil.rmtree(d, ignore_errors=True)
 
@@ -5801,20 +5800,73 @@ def _():
         remote.ps = ps
         t = {"id": 7, "name": "IPERF", "type": "cmd", "script": "iperf3.exe -c pve", "run_as": "service", "repo_path": "Tools\\iperf",
              "timeout_s": 90, "success_codes": "0,3010", "scan_after": "never", "scan_profile_id": None}
+        # 2.32.7: mit Dateien läuft auch das Dienstkonto über den Rahmen (eigener Prozess, Zeitlimit auf dem Client)
+        sysc = []
+        remote.run_as_system = lambda host, body, name, timeout_s=0, run_as="system", **kw: (
+            sysc.append((name, timeout_s, run_as, body)) or (3010, "> x\nAusgabe\nExitcode: 3010"))
         r = tools.run(t, c)
         assert r["exit"] == 3010 and r["ok"] is True and "Tools\\iperf" in r["output"], r
         assert calls[0][0] == "copy" and calls[0][1] == "Tools\\iperf" and calls[-1] == ("rm", calls[0][2]), calls
-        assert f'cd /d "C:\\Windows\\Temp\\PocketKnife\\{calls[0][2]}"' in seen["script"], seen["script"][:400]
-        assert seen["timeout"] == 90 and "-Encoding Oem" in seen["script"], "CMD-Ausgabe in der Konsolen-Codepage"
+        assert sysc[-1][:3] == (calls[0][2], 90, "deploy") and "pk_tool.cmd" in sysc[-1][3], sysc[-1][:3]
         calls.clear()
         r = tools.run(dict(t, repo_path="Tools\\x.exe", type="powershell", script="Get-Item ."), c)
-        assert calls[0] == ("copy", "Tools", calls[0][2], "x.exe") and "Set-Location -LiteralPath" in seen["script"], (calls, seen["script"][:300])
-        # SYSTEM: gleicher Name für Kopie und Lauf, Aufräumen durch run_as_system
+        assert calls[0] == ("copy", "Tools", calls[0][2], "x.exe") and "PK-RunPs1" in sysc[-1][3], calls
+        # ohne Dateien: Dienstkonto direkt über WinRM, Arbeitsordner nicht nötig, Zeitlimit an WinRM
+        r = tools.run(dict(t, repo_path=None), c)
+        assert r["exit"] == 3010 and seen["timeout"] == 90 and "cd /d" not in seen["script"] and "\\uFFFD" in seen["script"], seen["script"][:300]
+        # SYSTEM: gleicher Name für Kopie und Lauf; aufgeräumt wird immer
         calls.clear()
         remote.run_as_system = lambda host, body, name, timeout_s=0, **kw: (calls.append(("sys", name, timeout_s)) or (1, "> x\nExitcode: 1"))
         r = tools.run(dict(t, run_as="system"), c)
-        assert calls[0][0] == "copy" and calls[1] == ("sys", calls[0][2], 90) and not any(x[0] == "rm" for x in calls), calls
+        assert calls[0][0] == "copy" and calls[1] == ("sys", calls[0][2], 90) and calls[-1] == ("rm", calls[0][2]), calls
         assert r["ok"] is False
+        # Kopie bricht ab → trotzdem aufräumen
+        calls.clear()
+        def boom(folder, host, name, single_file=None):
+            calls.append(("copy", folder, name, single_file))
+            raise remote.RemoteError("Verbindung abgebrochen")
+        remote.copy_package = boom
+        try:
+            tools.run(t, c)
+            raise AssertionError("Fehler erwartet")
+        except remote.RemoteError:
+            pass
+        assert calls[-1] == ("rm", calls[0][2]), calls
+        remote.copy_package = lambda folder, host, name, single_file=None: calls.append(("copy", folder, name, single_file))
+        # Zeitlimit: eigene Meldung in Sekunden
+        def slow(host, script, timeout=None, **kw):
+            raise remote.RemoteTimeout("WinRM: keine Antwort")
+        remote.ps = slow
+        try:
+            tools.run(dict(t, repo_path=None, timeout_s=45), c)
+            raise AssertionError("Zeitlimit erwartet")
+        except remote.RemoteTimeout as e:
+            assert "45 Sekunden" in str(e), e
+        remote.ps = ps
+        # Mandant bekommt den Ordner NACH dem Speichern des Tools → Tool läuft nicht mehr
+        t2 = db.ex("INSERT INTO tenants(name, repo_folder, created_at) VALUES('T-HK7b', 'tools', ?)", (util.now(),))
+        try:
+            calls.clear()
+            try:
+                tools.run(t, c)
+                raise AssertionError("Mandanten-Ordner nicht erkannt")
+            except ValueError as e:
+                assert "T-HK7b" in str(e)
+            assert not [x for x in calls if x[0] == "copy"], "nichts kopiert"
+        finally:
+            db.ex("DELETE FROM tenants WHERE id=?", (t2,))
+        # und umgekehrt: ein Mandant kann keinen Ordner bekommen, den ein Tool benutzt
+        from app import repofiles
+        tt = db.ex("INSERT INTO tools(name, type, script, run_as, repo_path) VALUES('HK7-Tool', 'cmd', 'x', 'service', 'Tools\\iperf')")
+        try:
+            for f in ("Tools", "tools\\IPERF", "Tools\\iperf\\sub"):
+                try:
+                    repofiles.check_tenant_folder(f)
+                    raise AssertionError(("Tool-Ordner als Mandantenordner", f))
+                except repofiles.RepoError as e:
+                    assert "HK7-Tool" in str(e)
+        finally:
+            db.ex("DELETE FROM tools WHERE id=?", (tt,))
         # Danach scannen: Standard nie; „Nach Erfolg“ nur bei OK; „Immer“ immer
         scans = []
         inventory.queue_scan = lambda cid, user=None, profile_id=None, follow=False: scans.append((cid, profile_id, follow)) or True
@@ -5834,7 +5886,9 @@ def _():
         remote.repo_stat, remote.copy_package, remote.remove_package_copy, remote.ps, remote.run_as_system, inventory.queue_scan = orig
         db.ex("DELETE FROM tenants WHERE id=?", (tid,))
         db.ex("DELETE FROM computers WHERE id=?", (c,))
-    assert "-Encoding $(if ($File -match 'cmd\\.exe$') { 'Oem' } else { 'UTF8' })" in remote.WRAPPER
+    assert "-match '\\uFFFD') { $pkEnc = 'Oem' }" in remote.WRAPPER, "erst UTF-8, bei Ersatzzeichen OEM"
+    msrc = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "main.py"), encoding="utf-8").read()
+    assert "tools.scan_after(t, cid" in msrc, "Danach scannen auch beim Einzelaufruf"
     js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
     assert "repo_path: repo.value" in js and "scan_after: scanAfter.value" in js and "tool.scan_after || 'never'" in js
 

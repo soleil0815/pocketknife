@@ -5237,5 +5237,11 @@
  "Zeitlimit: 10 bis {0} Sekunden.": "Time limit: 10 to {0} seconds.",
  "Zeitlimit: bitte Sekunden als Zahl angeben.": "Time limit: please enter seconds as a number.",
  "Zeitüberschreitung": null,
- "cd /d \"{0}\"\r\n": null
+ "cd /d \"{0}\"\r\n": null,
+ "WinRM: keine Antwort von {0} nach {1} – Aufruf abgebrochen.": "WinRM: no answer from {0} after {1} – call aborted.",
+ "Zeitüberschreitung nach {0}.": "Timeout after {0}.",
+ "Der Ordner „{0}“ überschneidet sich mit den Dateien des Tools „{1}“ ({2}) – als Mandantenordner nicht möglich.": "The folder \"{0}\" overlaps with the files of tool \"{1}\" ({2}) – not possible as a tenant folder.",
+ "Dateien aus dem Repository: „{0}“ gehört inzwischen zum Mandanten „{1}“ – das Tool läuft nicht (Dateien aus Mandanten-Ordnern könnten dessen Admins ändern). Bitte im Tool einen anderen Ordner wählen.": "Files from the repository: \"{0}\" now belongs to tenant \"{1}\" – the tool does not run (its admins could change files in tenant folders). Please choose another folder in the tool.",
+ "Zeitlimit von {0} überschritten – POCKET KNIFE wartet nicht länger; der Befehl kann auf dem Computer noch weiterlaufen.": "Time limit of {0} exceeded – POCKET KNIFE no longer waits; the command may keep running on the computer.",
+ "Zeitlimit von {0} überschritten – abgebrochen.": "Time limit of {0} exceeded – aborted."
 }
