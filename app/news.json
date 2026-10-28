@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.32.4",
+   "date": "2026-10-28",
+   "items": [
+    {
+     "kind": "improved",
+     "audience": "all",
+     "de": "Tastenkürzel direkt im Tool festlegen: Kombination drücken (Strg+Alt + Buchstabe, Ziffer oder F-Taste) – schon vergebene Kürzel werden sofort angezeigt. Eingebaute Tools haben Vorgaben wie Strg+Alt+P für Ping.",
+     "en": "Set keyboard shortcuts right in the tool: press the combination (Ctrl+Alt + letter, digit or F key) – shortcuts already in use are shown immediately. Built-in tools have defaults such as Ctrl+Alt+P for Ping."
+    }
+   ]
+  },
+  {
    "version": "2.32.3",
    "date": "2026-10-28",
    "items": [

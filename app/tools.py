@@ -74,65 +74,132 @@ SEED = [
 ]
 
 
-# 2.32.3: Tastenkürzel Strg+Alt+1 … 9 und 0 je Benutzer – Ziel ist ein eingebautes oder eigenes Tool
-HOTKEY_SLOTS = tuple("1234567890")
+# 2.32.4: Tastenkürzel gehören zum Tool (für alle gleich, wie Menüeinträge): beim eigenen Tool im Tool-Dialog,
+# bei eingebauten Tools unter Tools → „Tastenkürzel …“ (mit sinnvollen Vorgaben). Immer Strg+Alt, wahlweise mit
+# Umschalt, dazu A–Z, 0–9 oder F1–F12. Gespeichert in einer festen Schreibweise, z. B. „Ctrl+Alt+P“.
 BUILTIN_KEYS = ("ping", "rdpweb", "vncweb", "wake", "power", "abort", "gpupdate", "winget", "scan",
                 "diskusage", "files", "eventlog")
-_HOTKEY_RE = re.compile(r"^(tool:[1-9]\d{0,9}|builtin:[a-z]{2,20})$")
+BUILTIN_NAMES = {"ping": "Ping & Ports", "rdpweb": "Remotedesktop im Browser", "vncweb": "VNC im Browser",
+                 "wake": "Wake-on-LAN", "power": "Neustart / Herunterfahren …", "abort": "Neustart/Herunterfahren abbrechen",
+                 "gpupdate": "gpupdate /force", "winget": "winget prüfen / nachinstallieren", "scan": "Scannen mit Profil …",
+                 "diskusage": "Speicherplatz analysieren …", "files": "Dateien (Explorer) …", "eventlog": "Ereignisanzeige …"}
+BUILTIN_HOTKEY_DEFAULTS = {"ping": "Ctrl+Alt+P", "rdpweb": "Ctrl+Alt+R", "vncweb": "Ctrl+Alt+V", "wake": "Ctrl+Alt+W",
+                           "power": "Ctrl+Alt+N", "gpupdate": "Ctrl+Alt+G", "files": "Ctrl+Alt+D", "eventlog": "Ctrl+Alt+E"}
+HOTKEY_RE = re.compile(r"^Ctrl\+Alt\+(Shift\+)?([A-Z]|[0-9]|F[1-9]|F1[0-2])$")
 
 
-def _uname(user):
-    return (user.get("username") or "").strip().lower()
-
-
-def hotkeys(user):
-    """{"1": "tool:5", "2": "builtin:ping", …} – nur gültige Einträge (gelöschte Tools fallen weg)."""
-    raw = db.val("SELECT value FROM user_prefs WHERE username=? AND key='tool_hotkeys'", (_uname(user),))
-    try:
-        d = json.loads(raw) if raw else {}
-    except ValueError:
-        d = {}
-    if not d or not isinstance(d, dict):
-        return {}
-    ids = {r["id"] for r in db.q("SELECT id FROM tools")}
-    out = {}
-    for k, v in (d.items() if isinstance(d, dict) else ()):
-        if k in HOTKEY_SLOTS and isinstance(v, str) and _HOTKEY_RE.match(v):
-            if (v.startswith("tool:") and int(v[5:]) in ids) or v[8:] in BUILTIN_KEYS:
-                out[k] = v
+def norm_hotkey(v):
+    """Schreibweise vereinheitlichen; "" = kein Kürzel; ValueError bei allem anderen."""
+    t = re.sub(r"\s+", "", str(v or ""))
+    if not t:
+        return ""
+    parts = [x for x in t.split("+") if x]
+    alias = {"strg": "ctrl", "control": "ctrl", "umschalt": "shift", "umsch": "shift"}
+    mods = {alias.get(x.lower(), x.lower()) for x in parts[:-1]}
+    key = parts[-1].upper() if parts else ""
+    if not mods <= {"ctrl", "alt", "shift"} or len(mods) != len(parts) - 1 or not {"ctrl", "alt"} <= mods:
+        raise ValueError("Tastenkürzel: immer Strg+Alt, wahlweise mit Umschalt, dazu ein Buchstabe, eine Ziffer oder F1–F12")
+    out = "Ctrl+Alt+" + ("Shift+" if "shift" in mods else "") + key
+    if not HOTKEY_RE.match(out):
+        raise ValueError("Tastenkürzel: immer Strg+Alt, wahlweise mit Umschalt, dazu ein Buchstabe, eine Ziffer oder F1–F12")
     return out
 
 
-def save_hotkeys(user, data):
+def builtin_hotkeys():
+    """{"ping": "Ctrl+Alt+P", …} – Vorgaben, überschrieben durch die Einstellung (leer = bewusst ohne Kürzel)."""
+    out = dict(BUILTIN_HOTKEY_DEFAULTS)
+    try:
+        saved = json.loads(db.setting_raw("builtin_hotkeys") or "{}")
+    except (ValueError, TypeError):
+        saved = {}
+    for k, v in (saved.items() if isinstance(saved, dict) else ()):
+        if k in BUILTIN_KEYS:
+            try:
+                out[k] = norm_hotkey(v)
+            except ValueError:
+                pass
+    return {k: v for k, v in out.items() if v}
+
+
+def hotkey_owner(combo, ref=None):
+    """Name dessen, der combo schon hat (außer ref selbst, z. B. "tool:5" oder "builtin:ping") – sonst None."""
+    if not combo:
+        return None
+    for k, v in builtin_hotkeys().items():
+        if v == combo and ref != f"builtin:{k}":
+            return BUILTIN_NAMES.get(k, k)
+    for r in db.q("SELECT id, name FROM tools WHERE hotkey=?", (combo,)):
+        if ref != f"tool:{r['id']}":
+            return r["name"]
+    return None
+
+
+def check_hotkey(combo, ref=None):
+    owner = hotkey_owner(combo, ref)
+    if owner:
+        raise ValueError(f"Tastenkürzel {combo.replace('Ctrl', 'Strg').replace('Shift', 'Umschalt')} ist bereits vergeben an „{owner}“.")
+
+
+def save_builtin_hotkeys(data):
     if not isinstance(data, dict):
         raise ValueError("Ungültige Tastenkürzel")
-    out, seen = {}, set()
-    for k, v in data.items():
-        if v in (None, ""):
+    cur = builtin_hotkeys()
+    new = {}
+    for k in BUILTIN_KEYS:
+        new[k] = norm_hotkey(data[k]) if k in data else cur.get(k, "")
+    seen = {}
+    for k, v in new.items():
+        if not v:
             continue
-        if k not in HOTKEY_SLOTS or not isinstance(v, str) or not _HOTKEY_RE.match(v):
-            raise ValueError("Ungültiges Tastenkürzel")
-        if v.startswith("builtin:") and v[8:] not in BUILTIN_KEYS:
-            raise ValueError("Unbekanntes eingebautes Tool")
-        if v.startswith("tool:") and not db.q1("SELECT id FROM tools WHERE id=?", (int(v[5:]),)):
-            raise ValueError("Tool nicht gefunden")
         if v in seen:
-            raise ValueError("Ein Tool kann nur ein Tastenkürzel haben")
-        seen.add(v)
-        out[k] = v
-    db.ex("INSERT INTO user_prefs(username, key, value, at) VALUES(?, 'tool_hotkeys', ?, ?) ON CONFLICT(username, key) "
-          "DO UPDATE SET value=excluded.value, at=excluded.at", (_uname(user), json.dumps(out), util.now()))
-    return hotkeys(user)
+            raise ValueError(f"Tastenkürzel {v.replace('Ctrl', 'Strg').replace('Shift', 'Umschalt')} ist doppelt vergeben "
+                             f"(„{BUILTIN_NAMES[seen[v]]}“ und „{BUILTIN_NAMES[k]}“).")
+        seen[v] = k
+        t = db.q1("SELECT name FROM tools WHERE hotkey=?", (v,))
+        if t:
+            raise ValueError(f"Tastenkürzel {v.replace('Ctrl', 'Strg').replace('Shift', 'Umschalt')} ist bereits vergeben an „{t['name']}“.")
+    db.set_setting("builtin_hotkeys", json.dumps(new))
+    return builtin_hotkeys()
+
+
+def _migrate_user_hotkeys():
+    """2.32.3 speicherte Strg+Alt+Ziffer je Benutzer – einmalig ans Tool übernehmen, soweit frei."""
+    if db.setting_raw("hotkeys_migrated"):
+        return
+    try:
+        rows = db.q("SELECT username, value FROM user_prefs WHERE key='tool_hotkeys' ORDER BY at")
+    except Exception:
+        rows = []
+    for r in rows:
+        try:
+            d = json.loads(r["value"] or "{}")
+        except ValueError:
+            continue
+        for slot, ref in (d.items() if isinstance(d, dict) else ()):
+            if slot not in "1234567890" or len(slot) != 1 or not isinstance(ref, str):
+                continue
+            combo = f"Ctrl+Alt+{slot}"
+            if hotkey_owner(combo):
+                continue
+            if ref.startswith("tool:") and ref[5:].isdigit():  # eingebaute Tools haben jetzt eigene Vorgaben
+                db.ex("UPDATE tools SET hotkey=? WHERE id=? AND COALESCE(hotkey, '')=''", (combo, int(ref[5:])))
+    db.set_setting("hotkeys_migrated", "1")
 
 
 def init():
     db.conn().executescript(SCHEMA)
+    if "hotkey" not in {r["name"] for r in db.q("PRAGMA table_info(tools)")}:
+        db.ex("ALTER TABLE tools ADD COLUMN hotkey TEXT")
     if not db.val("SELECT value FROM settings WHERE key='tools_seeded'"):
         if not db.val("SELECT COUNT(*) FROM tools", default=0):
             for i, (folder, name, typ, script, run_as, confirm, desc) in enumerate(SEED):
                 db.ex("INSERT INTO tools(name, folder, type, script, run_as, confirm, description, sort, created_at) "
                       "VALUES(?,?,?,?,?,?,?,?,?)", (name, folder, typ, script, run_as, confirm, desc, i, util.now()))
         db.ex("INSERT OR REPLACE INTO settings(key, value) VALUES('tools_seeded', '1')")
+    try:
+        _migrate_user_hotkeys()
+    except Exception as e:  # pragma: no cover
+        pklog.warn("tool", f"Tastenkürzel aus 2.32.3 nicht übernommen: {e}")
 
 
 def validate(d):

@@ -250,7 +250,7 @@ def api_logout(request: Request, response: Response):
 def api_me(user=U):
     me = {"username": user["username"], "display_name": user["display_name"], "app": config.APP_NAME,
           "version": config.VERSION, "idle_minutes": auth.idle_minutes(), "scoped": access.scoped(user),
-          "hotkeys": _hotkeys(user)}
+}
     if access.scoped(user):
         # OU-Admin: die Oberfläche blendet alles aus, was nur Hauptadmins dürfen (der Server sperrt es ohnehin)
         me["tenants"] = [{"id": t["id"], "name": t["name"], "allow_packages": bool(t.get("allow_packages")),
@@ -261,23 +261,6 @@ def api_me(user=U):
             t["allow_scripts"] = access.may_script(user, t["id"])
         me["computers"] = len(access.computer_ids(user))
     return me
-
-
-def _hotkeys(user):
-    try:
-        return tools.hotkeys(user)
-    except Exception as e:  # Tastenkürzel dürfen die Anmeldung nie verhindern
-        pklog.warn("system", f"Tastenkürzel von {user.get('username')} nicht lesbar: {e}")
-        return {}
-
-
-@app.put("/api/me/hotkeys")
-def api_me_hotkeys(data: dict = Body(default={}), user=U):
-    """2.32.3: eigene Tastenkürzel für Tools (Strg+Alt+1 … 0)."""
-    try:
-        return {"hotkeys": tools.save_hotkeys(user, (data or {}).get("hotkeys") or {})}
-    except ValueError as e:
-        _err(e)
 
 
 @app.get("/api/news")
@@ -833,16 +816,27 @@ def api_secrets(cid: int, what: str, user=U):
 
 
 # --- Tools ---------------------------------------------------
-TOOL_FIELDS = ["name", "folder", "type", "script", "run_as", "confirm", "description"]
+TOOL_FIELDS = ["name", "folder", "type", "script", "run_as", "confirm", "description", "hotkey"]
 
 
 @app.get("/api/tools")
 def api_tools(user=U):
     return {"tools": db.q("SELECT * FROM tools ORDER BY folder COLLATE NOCASE, sort, name COLLATE NOCASE"),
-            "types": tools.TYPES, "run_as": tools.RUN_AS}
+            "types": tools.TYPES, "run_as": tools.RUN_AS, "builtin_hotkeys": tools.builtin_hotkeys()}
 
 
-def _tool_values(data):
+@app.put("/api/tools-hotkeys")
+def api_tools_hotkeys(data: dict = Body(default={}), user=U):
+    """2.32.4: Tastenkürzel der eingebauten Tools (für alle gleich)."""
+    try:
+        out = tools.save_builtin_hotkeys((data or {}).get("builtin") or {})
+    except ValueError as e:
+        _err(e)
+    pklog.info("tool", "Tastenkürzel der eingebauten Tools geändert.", user=user["username"])
+    return {"builtin_hotkeys": out}
+
+
+def _tool_values(data, tid=None):
     d = {k: data.get(k) for k in TOOL_FIELDS}
     d["name"] = (d["name"] or "").strip()
     d["folder"] = (d["folder"] or "").strip().upper()[:60]
@@ -850,6 +844,8 @@ def _tool_values(data):
     d["confirm"] = 1 if d.get("confirm") else 0
     try:
         tools.validate(d)
+        d["hotkey"] = tools.norm_hotkey(d.get("hotkey")) or None
+        tools.check_hotkey(d["hotkey"], f"tool:{tid}" if tid else None)
     except ValueError as e:
         _err(e)
     return d
@@ -866,7 +862,7 @@ def api_tool_create(data: dict = Body(...), user=U):
 
 @app.put("/api/tools/{tid}")
 def api_tool_update(tid: int, data: dict = Body(...), user=U):
-    d = _tool_values(data)
+    d = _tool_values(data, tid)
     db.ex(f"UPDATE tools SET {', '.join(k + '=?' for k in TOOL_FIELDS)} WHERE id=?", tuple(d[k] for k in TOOL_FIELDS) + (tid,))
     pklog.info("tool", f"Tool '{d['name']}' geändert.", user=user["username"])
     return {"ok": True}
