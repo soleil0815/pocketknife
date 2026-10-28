@@ -1093,6 +1093,7 @@ async function route() {
   const gen = (S.nav = (S.nav || 0) + 1);
   clearTimers();
   closeMenu(); closeCtx();
+  S.toolTargets = null;  // Tastenkürzel: Ziele setzt die jeweilige Ansicht (Computerliste, Computerseite)
   const { parts, params } = parseHash();
   const view = (isOU() && OU_HIDDEN.has(parts[0])) ? VIEWS.dashboard : (VIEWS[parts[0]] || VIEWS.dashboard);
   document.querySelectorAll('[data-nav]').forEach((a) => {
@@ -1379,10 +1380,10 @@ async function scanSubItems(getIds) {
 async function toolSubItems(getTargets) {
   const data = await GET('/api/tools');
   const exec = (fn) => async () => { const t = await getTargets(); if (!t.length) { toast('Keine Computer', 'err'); return; } fn(t); };
-  const items = BUILTIN_TOOLS.filter((b) => b.key !== 'scan').map((b) => ({ label: b.name, icon: b.icon, onClick: exec((t) => runBuiltin(b, t)) }));
+  const items = BUILTIN_TOOLS.filter((b) => b.key !== 'scan').map((b) => ({ label: b.name, icon: b.icon, hint: hotkeyOf(`builtin:${b.key}`), onClick: exec((t) => runBuiltin(b, t)) }));
   const folders = {};
   data.tools.forEach((t) => (folders[t.folder || ''] = folders[t.folder || ''] || []).push(t));
-  const toolItem = (t) => ({ label: t.name, icon: t.type === 'url' ? 'net' : 'terminal', hint: t.run_as === 'system' ? 'SYSTEM' : '', onClick: exec((x) => runTool(t, x)) });
+  const toolItem = (t) => ({ label: t.name, icon: t.type === 'url' ? 'net' : 'terminal', hint: [t.run_as === 'system' ? 'SYSTEM' : '', hotkeyOf(`tool:${t.id}`)].filter(Boolean).join(' · '), onClick: exec((x) => runTool(t, x)) });
   const names = Object.keys(folders).filter(Boolean).sort((a, b) => a.localeCompare(b, 'de'));
   if (names.length || folders['']) items.push('-');
   names.forEach((n) => items.push({ label: n, icon: 'folder', sub: folders[n].map(toolItem) }));
@@ -1706,6 +1707,7 @@ async function viewComputers(_parts, params) {
   const bScan = btn('Scannen ▾', (e) => scanMenu(e.currentTarget, t.selectedIds()), { icon: 'refresh', title: 'Mit Scanprofil scannen' });
   const bDeploy = btn('Bereitstellen …', () => deployDlg({ computerIds: t.selectedIds() }), { icon: 'send', cls: 'primary' });
   const bTools = btn('Tools ▾', (e) => toolsMenu(e.currentTarget, targetsOf(t.selected())), { icon: 'terminal' });
+  S.toolTargets = () => targetsOf(t.selected());
   const bCsv = btn('CSV', () => downloadText(`computer_${localDate()}.csv`, tableCsv(t, t.filtered())), { icon: 'download', cls: 'ghost', title: 'Gefilterte Liste als CSV speichern' });
   const editColl = current && !current.builtin && current.editable !== false ? btn('Sammlung bearbeiten', () => collectionDlg(current), { icon: 'edit', cls: 'ghost' }) : null;
   const addMembers = current && current.type === 'static' ? btn('Mitglieder …', () => collectionDlg(current), { icon: 'stat', cls: 'ghost', title: 'Computer zu dieser statischen Sammlung hinzufügen oder entfernen' }) : null;
@@ -2261,6 +2263,7 @@ async function viewComputer(parts, params) {
   const e = c.extra || {};
   const n = c.counts || {};
   const more = btn('Tools ▾', (e) => toolsMenu(e.currentTarget, [{ id, name: c.name, online: c.online }]), { icon: 'terminal' });
+  S.toolTargets = () => [{ id, name: c.name, online: c.online }];
   $('#topbar').replaceChildren(
     h('div.pc-title', h('div.pc-icon', icon('pc'), h('span.dot', { class: c.addr_problem ? 'warn' : (c.online ? 'on' : 'off') })),
       h('div', h('h1', c.name), h('small.muted', `${c.dns_name || ''}${c.resolved_ip ? ` (${c.resolved_ip})` : ''} · ${c.addr_problem ? tr('Adresse nicht bestätigt') : (c.online ? 'online' : 'offline')} · letzter Scan ${relTime(c.last_scan)}`))),
@@ -5951,8 +5954,7 @@ const BUILTIN_TOOLS = [
   { key: 'rdpweb', name: 'Remotedesktop im Browser', icon: 'monitor' },
   { key: 'vncweb', name: 'VNC im Browser', icon: 'monitor' },
   { key: 'wake', name: 'Wake-on-LAN', icon: 'play' },
-  { key: 'restart', name: 'Neustart (60 s)', icon: 'refresh', confirm: true, action: true },
-  { key: 'shutdown', name: 'Herunterfahren (60 s)', icon: 'x', confirm: true, action: true },
+  { key: 'power', name: 'Neustart / Herunterfahren …', icon: 'power', confirm: true, action: true },
   { key: 'abort', name: 'Neustart/Herunterfahren abbrechen', icon: 'x', action: true },
   { key: 'gpupdate', name: 'gpupdate /force', icon: 'refresh', action: true },
   { key: 'winget', name: 'winget prüfen / nachinstallieren', icon: 'box' },
@@ -5961,6 +5963,103 @@ const BUILTIN_TOOLS = [
   { key: 'files', name: 'Dateien (Explorer) …', icon: 'folder', view: 'files' },
   { key: 'eventlog', name: 'Ereignisanzeige …', icon: 'log', view: 'eventlog' },
 ];
+// 2.32.3: Tastenkürzel für Tools – Strg+Alt+1 … 9 und 0, je Benutzer (gespeichert auf dem Server). Gilt für die
+// markierten Computer der Computerliste bzw. den geöffneten Computer. Taste über e.code (Ziffernreihe und Ziffernblock),
+// damit AltGr-Zeichen ({ [ ] } ² ³) beim Tippen in Feldern nie ein Tool starten: in Eingabefeldern, Dialogen und Menüs
+// sind die Kürzel aus.
+const HOTKEY_SLOTS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'];
+const hkLabel = (slot) => `Strg+Alt+${slot}`;
+function hotkeyOf(ref) {
+  const hk = (S.me && S.me.hotkeys) || {};
+  const slot = Object.keys(hk).find((k) => hk[k] === ref);
+  return slot ? hkLabel(slot) : '';
+}
+function hotkeySlot(e) {
+  if (!e.ctrlKey || !e.altKey || e.shiftKey || e.metaKey || e.repeat) return null;
+  const m = /^(?:Digit|Numpad)([0-9])$/.exec(e.code || '');
+  return m ? m[1] : null;
+}
+async function hotkeyRun(slot) {
+  const ref = ((S.me && S.me.hotkeys) || {})[slot];
+  if (!ref) { toast(`${hkLabel(slot)} ist keinem Tool zugeordnet – unter Tools → „Tastenkürzel …“ festlegen`, 'err'); return; }
+  const targets = S.toolTargets ? S.toolTargets() : [];
+  if (!targets.length) { toast('Bitte zuerst Computer markieren (Computerliste) oder einen Computer öffnen', 'err'); return; }
+  let name, exec, asks;
+  if (ref.startsWith('builtin:')) {
+    const b = BUILTIN_TOOLS.find((x) => x.key === ref.slice(8));
+    if (!b) return;
+    name = b.name; asks = !!b.confirm || ['scan', 'wake', 'power'].includes(b.key); exec = () => runBuiltin(b, targets);
+  } else {
+    const data = await GET('/api/tools');
+    const t = data.tools.find((x) => `tool:${x.id}` === ref);
+    if (!t) { toast('Das Tool zu diesem Tastenkürzel gibt es nicht mehr', 'err'); return; }
+    name = t.name; asks = !!t.confirm; exec = () => runTool(t, targets);
+  }
+  // Mehrere Computer: immer nachfragen (ein Tastendruck soll nie unbemerkt viele Computer treffen)
+  if (targets.length > 1 && !asks && !(await confirmDlg(`„${name}“ auf ${targets.length} Computern ausführen?`, 'Ausführen'))) return;
+  if (targets.length === 1) toast(`${hkLabel(slot)}: ${name} – ${targets[0].name}`, 'ok');
+  await exec();
+}
+document.addEventListener('keydown', (e) => {
+  const slot = hotkeySlot(e);
+  if (!slot || !S.me) return;
+  const el = e.target;
+  if (el && el.closest && el.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"], .cm-editor')) return;
+  if (document.querySelector('#modal-root .backdrop') || openMenu || ctxMenu) return;
+  e.preventDefault();
+  hotkeyRun(slot).catch((x) => toast(x.message || String(x), 'err'));
+});
+
+// 2.32.3: Neustart oder Herunterfahren, Wartezeit wählbar (0 = sofort … 24 h)
+function powerDialog(targets) {
+  const act = sel([['restart', 'Neustart'], ['shutdown', 'Herunterfahren']], 'restart');
+  const num = h('input', { type: 'number', min: '0', max: '1440', step: '1', value: '60', style: { width: '110px' } });
+  const unit = sel([['1', 'Sekunden'], ['60', 'Minuten']], '1');
+  const who = targets.length === 1 ? targets[0].name : `${targets.length} Computern`;
+  modal('Neustart / Herunterfahren', h('div.form',
+    field('Aktion', act),
+    field('Wartezeit', h('div.row', num, unit), 'Angemeldete Benutzer sehen solange eine Meldung von Windows (Text unter Einstellungen → Zeitpläne & Leistung). 0 = sofort, dabei werden offene Programme ohne Rückfrage geschlossen. Bis zum Ablauf lässt es sich mit „Neustart/Herunterfahren abbrechen“ stoppen.')), [
+    { label: 'Abbrechen' },
+    { label: 'Ausführen', cls: 'primary', onClick: async () => {
+      const n = Number(num.value);
+      const secs = Math.round(n * Number(unit.value));
+      if (num.value === '' || !Number.isFinite(n) || n < 0 || secs > 86400) { toast('Wartezeit: 0 Sekunden bis 24 Stunden', 'err'); return false; }
+      const what = act.value === 'restart' ? 'Neustart' : 'Herunterfahren';
+      if (!(await confirmDlg(`${what} auf ${who} ${secs === 0 ? 'sofort' : `in ${fmtDelay(secs)}`}?`, what, true))) return false;
+      runDialog(`${what} (${secs === 0 ? 'sofort' : fmtDelay(secs)})`, targets,
+        (t) => POST(`/api/computers/${t.id}/action`, { action: act.value, seconds: secs }).then((r) => ({ exit: 0, output: r.output || 'Ausgeführt.' })));
+      return true;
+    } }]);
+}
+function fmtDelay(s) {
+  if (s % 3600 === 0) return s === 3600 ? '1 Stunde' : `${s / 3600} Stunden`;
+  if (s % 60 === 0 && s >= 120) return `${s / 60} Minuten`;
+  return s === 1 ? '1 Sekunde' : `${s} Sekunden`;
+}
+
+async function hotkeysDlg(onSaved) {
+  const data = await GET('/api/tools');
+  const opts = [['', '—'], ...BUILTIN_TOOLS.map((b) => [`builtin:${b.key}`, `${b.name} (eingebaut)`]),
+    ...data.tools.map((t) => [`tool:${t.id}`, (t.folder ? t.folder + ' › ' : '') + t.name])];
+  const cur = { ...((S.me && S.me.hotkeys) || {}) };
+  const sels = {};
+  const grid = h('div.form', HOTKEY_SLOTS.map((slot) => field(hkLabel(slot), (sels[slot] = sel(opts, cur[slot] || '')))));
+  modal('Meine Tastenkürzel', h('div',
+    h('p.muted.small', 'Startet das Tool für die markierten Computer der Computerliste oder den geöffneten Computer. Bei mehreren Computern fragt POCKET KNIFE vorher nach. Die Kürzel gelten nur für dich und folgen dir auf jeden Rechner; in Eingabefeldern und Dialogen sind sie aus.'), grid), [
+    { label: 'Abbrechen' },
+    { label: 'Speichern', cls: 'primary', onClick: async () => {
+      const hk = {};
+      for (const slot of HOTKEY_SLOTS) if (sels[slot].value) hk[slot] = sels[slot].value;
+      const vals = Object.values(hk);
+      if (new Set(vals).size !== vals.length) { toast('Ein Tool kann nur ein Tastenkürzel haben', 'err'); return false; }
+      const r = await run(() => PUT('/api/me/hotkeys', { hotkeys: hk }), 'Tastenkürzel gespeichert');
+      if (r === undefined) return false;
+      S.me.hotkeys = r.hotkeys;
+      if (onSaved) onSaved();
+      return true;
+    } }]);
+}
+
 let openMenu = null;
 function closeMenu() { if (openMenu) { openMenu.remove(); openMenu = null; document.removeEventListener('mousedown', menuOutside, true); document.removeEventListener('keydown', menuKey, true); } }
 function menuKey(e) { if (e.key === 'Escape' && openMenu) { e.stopPropagation(); e.preventDefault(); closeMenu(); } }
@@ -5984,7 +6083,7 @@ async function toolsMenu(anchor, targets) {
     const f = q.value.trim().toLowerCase();
     const els = [];
     const bi = BUILTIN_TOOLS.filter((b) => !f || b.name.toLowerCase().includes(f));
-    bi.forEach((b) => els.push(item(b.name, b.icon, () => runBuiltin(b, targets))));
+    bi.forEach((b) => els.push(item(b.name, b.icon, () => runBuiltin(b, targets), hotkeyOf(`builtin:${b.key}`))));
     if (bi.length) els.push(h('div.tmenu-sep'));
     for (const name of Object.keys(folders).sort((a, b) => (a === '' ? 1 : b === '' ? -1 : a.localeCompare(b, 'de')))) {
       const tools = folders[name].filter((t) => !f || t.name.toLowerCase().includes(f) || name.toLowerCase().includes(f));
@@ -5996,7 +6095,7 @@ async function toolsMenu(anchor, targets) {
       }
       if (isOpen) {
         tools.forEach((t) => els.push(h('div', { class: name ? 'tmenu-indent' : '' },
-          item(t.name, t.type === 'url' ? 'net' : t.type === 'cmd' ? 'terminal' : 'terminal', () => runTool(t, targets), t.run_as === 'system' ? 'SYSTEM' : ''))));
+          item(t.name, t.type === 'url' ? 'net' : 'terminal', () => runTool(t, targets), [t.run_as === 'system' ? 'SYSTEM' : '', hotkeyOf(`tool:${t.id}`)].filter(Boolean).join(' · ')))));
       }
     }
     els.push(h('div.tmenu-sep'), h('button.tmenu-item', { type: 'button', onclick: () => { closeMenu(); go('#/tools'); } },
@@ -6042,6 +6141,7 @@ async function runBuiltin(b, targets) {
     return;
   }
   if (b.key === 'wake') { wakeDialog(targets); return; }
+  if (b.key === 'power') { powerDialog(targets); return; }
   if (b.confirm && !(await confirmDlg(`„${b.name}“ auf ${targets.length === 1 ? targets[0].name : targets.length + ' Computern'} ausführen?`, 'Ausführen', true))) return;
   const exec = b.action
     ? (t) => POST(`/api/computers/${t.id}/action`, { action: b.key }).then((r) => ({ exit: 0, output: r.output || 'Ausgeführt.' }))
@@ -6208,6 +6308,7 @@ async function viewTools() {
       const n = (prompt('Name des neuen Ordners') || '').trim();
       if (n) { toolDlg(null, n.toUpperCase()); }
     }, { icon: 'folder' }),
+    btn('Tastenkürzel …', () => hotkeysDlg(() => draw()), { icon: 'key', title: 'Eigene Tastenkürzel Strg+Alt+1 … 0 für Tools' }),
     isOU() ? null : btn('Neues Tool', () => toolDlg(null), { icon: 'plus', cls: 'primary' }));
   const data = await GET('/api/tools');
   const q = h('input', { type: 'search', placeholder: 'Filtern …' });
@@ -6216,14 +6317,14 @@ async function viewTools() {
   try { closed = new Set(JSON.parse(localStorage.getItem('pk-tools-closed') || '[]')); } catch (e) { /* egal */ }
   const saveClosed = () => { try { localStorage.setItem('pk-tools-closed', JSON.stringify([...closed])); } catch (e) { /* egal */ } };
   const typeIcon = (t) => (t.type === 'url' ? 'net' : 'terminal');
-  const row = (ic, name, type, runas, desc, onClick, cls = '') => h('div.trow', { class: cls, onclick: onClick, ondblclick: onClick },
-    h('span.tname', h('span.ic', { 'data-ic': ic }, icon(ic)), h('span', name)), h('span.muted', type), h('span.muted', runas), h('span.muted.trunc', desc));
+  const row = (ic, name, type, runas, desc, onClick, cls = '', hk = '') => h('div.trow', { class: cls, onclick: onClick, ondblclick: onClick },
+    h('span.tname', h('span.ic', { 'data-ic': ic }, icon(ic)), h('span', name), hk ? h('kbd.hk', { title: 'Mein Tastenkürzel' }, hk) : null), h('span.muted', type), h('span.muted', runas), h('span.muted.trunc', desc));
   function draw() {
     const f = q.value.trim().toLowerCase();
     const els = [h('div.trow.thead', h('span', 'Name'), h('span', 'Typ'), h('span', 'Ausführung'), h('span', 'Beschreibung'))];
     for (const b of BUILTIN_TOOLS) {
       if (f && !b.name.toLowerCase().includes(f)) continue;
-      els.push(row(b.icon, b.name, 'eingebaut', b.key.endsWith('web') || b.view ? 'im Browser' : b.action ? 'Dienstkonto' : 'POCKET KNIFE', BUILTIN_DESC[b.key] || '', null, 'builtin'));
+      els.push(row(b.icon, b.name, 'eingebaut', b.key.endsWith('web') || b.view ? 'im Browser' : b.action ? 'Dienstkonto' : 'POCKET KNIFE', BUILTIN_DESC[b.key] || '', null, 'builtin', hotkeyOf(`builtin:${b.key}`)));
     }
     els.push(h('div.tsep'));
     const folders = {};
@@ -6239,7 +6340,7 @@ async function viewTools() {
       }
       if (open) {
         list.forEach((t) => els.push(row(typeIcon(t), t.name, data.types[t.type], t.type === 'url' ? 'im Browser' : data.run_as[t.run_as],
-          t.description || t.script.split('\n')[0], () => toolDlg(t), fn ? 'tchild' : '')));
+          t.description || t.script.split('\n')[0], () => toolDlg(t), fn ? 'tchild' : '', hotkeyOf(`tool:${t.id}`))));
       }
     }
     box.replaceChildren(...els);
@@ -6252,8 +6353,7 @@ async function viewTools() {
 }
 const BUILTIN_DESC = {
   ping: 'DNS, ICMP und Ports (WinRM, SMB, RDP, RPC) prüfen', rdpweb: 'RDP-Sitzung im Browser-Tab', vncweb: 'VNC-Sitzung im Browser-Tab',
-  wake: 'Magic Packet über einen Computer im selben Subnetz', restart: 'Neustart mit 60 s Vorwarnung',
-  shutdown: 'Herunterfahren mit 60 s Vorwarnung', abort: 'geplanten Neustart abbrechen', gpupdate: 'Gruppenrichtlinien neu anwenden', scan: 'Scan mit wählbarem Scanprofil',
+  wake: 'Magic Packet über einen Computer im selben Subnetz', power: 'Neustart oder Herunterfahren, Wartezeit wählbar (sofort bis 24 h)', abort: 'geplanten Neustart abbrechen', gpupdate: 'Gruppenrichtlinien neu anwenden', scan: 'Scan mit wählbarem Scanprofil',
   diskusage: 'Ordnergrößen als Ringdiagramm, mit Zoom in die Ebenen',
   files: 'Dateien auf dem Client durchsuchen, kopieren, verschieben, löschen, herunter- und hochladen',
   eventlog: 'Windows-Ereignisprotokolle im Browser ansehen',

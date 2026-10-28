@@ -41,6 +41,23 @@ def render(tpl, sekunden=None, minuten=None, benutzer=None, absender=None):
     return clean(out, 500) or clean(re.sub(r"\{(\w+)\}", lambda m: vals.get(m.group(1), ""), DEFAULTS["step"]), 500)
 
 
+# 2.32.3: Neustart/Herunterfahren mit wählbarer Zeit – der Standardtext nennt dann Minuten bzw. „jetzt“
+# (ein eigener Text aus den Einstellungen gilt unverändert)
+DELAY_DEFAULTS = {
+    "restart": ("{absender}: Neustart jetzt.", "{absender}: Neustart in {minuten} Minuten."),
+    "shutdown": ("{absender}: Herunterfahren jetzt.", "{absender}: Herunterfahren in {minuten} Minuten."),
+}
+MAX_DELAY = 24 * 3600
+
+
+def text_delay(kind, sekunden):
+    """Meldung für Neustart/Herunterfahren aus dem Computer-Menü mit beliebiger Wartezeit (0 … 24 h)."""
+    s = int(sekunden)
+    if clean(db.setting(KEYS[kind]), MAX_TEXT) or 0 < s < 120:
+        return text(kind, sekunden=s)
+    return render(DELAY_DEFAULTS[kind][0 if s == 0 else 1], s, round(s / 60, 1))
+
+
 def text(kind, sekunden=None, minuten=None, benutzer=None):
     """Fertiger Meldungstext für einen Anlass („restart“, „shutdown“, „deploy“, „step“, „kiosk“)."""
     if sekunden is not None and minuten is None:
