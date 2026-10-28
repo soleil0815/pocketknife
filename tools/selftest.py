@@ -3186,7 +3186,7 @@ def _():
     from app import main as _m
     admin = {"username": "haupt", "scope": None}
     old_repo = db.setting("repo_path")
-    db.set_setting("repo_path", "\\\\boss\\PACKAGES")
+    db.set_setting("repo_path", "\\\\fs01\\PAKETE")
     col = db.ex("INSERT INTO collections(name, type, match, filters) VALUES('Exp-Buchhaltung','dynamic','all','{\"type\":\"group\",\"match\":\"all\",\"items\":[]}')")
     prof = db.val("SELECT id FROM scan_profiles ORDER BY id LIMIT 1")
     prof_name = db.val("SELECT name FROM scan_profiles WHERE id=?", (prof,))
@@ -3203,7 +3203,7 @@ def _():
     try:
         a = mk({"name": "Exp-7zip", "version": "24.08", "rescan_profile_id": prof, "conditions": conds, "steps": {"main": [
             {"type": "install", "source": "file", "folder": "7zip\\24.08", "install_file": "7z.msi", "install_type": "msi"},
-            {"type": "powershell", "script": "& \\\\boss\\PACKAGES\\tools\\fix.ps1\nWrite-Output ok"},
+            {"type": "powershell", "script": "& \\\\fs01\\PAKETE\\tools\\fix.ps1\nWrite-Output ok"},
             {"type": "scan", "profile_id": prof}]}})
         b = mk({"name": "Exp-Bundle", "steps": {"main": [{"type": "nested", "package_id": a},
                                                          {"type": "command", "command": "echo hallo", "conditions": conds}]}})
@@ -3317,9 +3317,9 @@ def _():
         o_login = _m.config.repo_login
         _m.config.repo_login = lambda: "FIRMA\\svc-repo"
         try:
-            msg = _m._repo_err(ou, Exception("SMB-Anmeldung an BOSS als svc-repo abgelehnt: \\\\Boss\\packages\\x"))
-            assert "boss" not in msg.lower() and "svc-repo" not in msg and "packages" not in msg.lower(), msg
-            assert _m._repo_err(admin, Exception("\\\\boss\\PACKAGES")) == "\\\\boss\\PACKAGES", "Hauptadmins sehen alles"
+            msg = _m._repo_err(ou, Exception("SMB-Anmeldung an FS01 als svc-repo abgelehnt: \\\\fs01\\pakete\\x"))
+            assert "fs01" not in msg.lower() and "svc-repo" not in msg and "pakete" not in msg.lower(), msg
+            assert _m._repo_err(admin, Exception("\\\\fs01\\PAKETE")) == "\\\\fs01\\PAKETE", "Hauptadmins sehen alles"
         finally:
             _m.config.repo_login = o_login
         assert access.ROUTES[("POST", "/api/packages/import")] is access._p_build

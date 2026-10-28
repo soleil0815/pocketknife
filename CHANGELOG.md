@@ -5,6 +5,7 @@
 - **Neu – Danach scannen:** Ein Tool kann danach scannen – *Nach Erfolg* oder *Immer*, mit wählbarem Scanprofil. Standard: nicht scannen
 - **Neu – Zeitlimit und Erfolgscodes je Tool** (leer = 30 Minuten bzw. 0)
 - **Behoben – Umlaute in der Ausgabe von CMD-Tools und Befehl-Schritten:** „ausf?hren“ statt „ausführen“ – die Ausgabe von cmd.exe wird jetzt in der Konsolen-Codepage gelesen
+- **Hilfe und Handbuch:** Bildschirmfotos neu mit durchgehend neutralen Beispielnamen (Domäne firma.local, Computer PC-0001 …, Netz 10.0.10.x)
 - **Selbsttest:** Dateien kopieren/Arbeitsordner/Aufräumen (Dienstkonto und SYSTEM), Mandanten-Ordner gesperrt, Erfolgscodes, Zeitlimit, Danach scannen (Standard aus), Konsolen-Codepage
 
 ## pocketknife-2.32.6 (28.10.2026)
