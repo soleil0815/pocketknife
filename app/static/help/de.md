@@ -951,12 +951,15 @@ Nur bei **Pakete verteilen**: bei Fehler die weiteren Pakete auslassen, erfolgre
 
 Computer auswählen → **Tools ▾** oder Rechtsklick → Tools.
 
+**Tastenkürzel (ab 2.32.3):** Unter **Tools → Tastenkürzel …** legst du für bis zu zehn Tools (eingebaute und eigene) die Kürzel **Strg+Alt+1 … 9** und **Strg+Alt+0** fest. Sie starten das Tool für die markierten Computer der Computerliste oder für den geöffneten Computer; bei mehreren Computern fragt POCKET KNIFE vorher nach. Die Kürzel gelten nur für dich und folgen dir auf jeden Rechner. In Eingabefeldern, Dialogen und geöffneten Menüs sind sie aus – AltGr-Zeichen wie `{ [ ] }` starten also nie ein Tool. Menüs und die Tools-Seite zeigen das Kürzel neben dem Tool.
+
 | Eingebaut | |
 |---|---|
 | Ping & Ports | Erreichbarkeit und offene Ports |
 | Remotedesktop / VNC im Browser | Fernsitzung in einem eigenen Tab |
 | Wake-on-LAN | über einen erreichbaren Computer im selben Subnetz (Relay), mehrfach, mit Prüfung, ob er aufwacht – siehe unten |
-| Neustart / Herunterfahren / Abbrechen | mit 60 Sekunden Vorwarnung |
+| Neustart / Herunterfahren … | ab 2.32.3 in einem Dialog: Neustart oder Herunterfahren wählen und die Wartezeit angeben (Sekunden oder Minuten, 0 = sofort bis 24 Stunden, Standard 60 Sekunden). Angemeldete Benutzer sehen solange die Meldung von Windows; der Standardtext nennt bei längeren Zeiten Minuten, ein eigener Text unter **Einstellungen → Zeitpläne & Leistung** gilt unverändert. Bei „sofort“ schließt Windows offene Programme ohne Rückfrage |
+| Neustart/Herunterfahren abbrechen | stoppt einen angekündigten Neustart bzw. ein Herunterfahren, solange die Wartezeit läuft |
 | gpupdate /force | Gruppenrichtlinien aktualisieren |
 | winget prüfen / nachinstallieren | stellt winget bereit, wo es fehlt |
 | Scannen mit Profil | sofortiger Scan |

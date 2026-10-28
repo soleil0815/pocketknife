@@ -233,6 +233,10 @@ CREATE INDEX IF NOT EXISTS ix_pkg_ident_v ON pkg_ident(kind, value);
 
 -- 2.28: Neuigkeiten in der App – je Benutzer die zuletzt angesehene Version
 CREATE TABLE IF NOT EXISTS news_seen(username TEXT PRIMARY KEY, version TEXT, at TEXT);
+
+-- 2.32.3: Einstellungen je Benutzer (z. B. Tastenkürzel für Tools) – folgen ihm auf jeden Rechner
+CREATE TABLE IF NOT EXISTS user_prefs(username TEXT NOT NULL, key TEXT NOT NULL, value TEXT, at TEXT,
+  PRIMARY KEY(username, key));
 """
 
 DEFAULT_SETTINGS = {

@@ -370,6 +370,7 @@ select.small-select { padding: 2px 4px; font-size: 12px; }
 .trow.thead { background: var(--panel-2); font-size: 12px; color: var(--muted); font-weight: 600; cursor: default; }
 .trow.builtin { cursor: default; }
 .trow.tchild .tname { padding-left: 22px; }
+kbd.hk { margin-left: 8px; padding: 0 5px; border: 1px solid var(--line); border-radius: 4px; font: 11px var(--mono, monospace); color: var(--muted); white-space: nowrap; }
 .trow .tname { display: flex; align-items: center; gap: 7px; min-width: 0; }
 .trow .tname > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .trow .caret { width: 10px; color: var(--muted); }

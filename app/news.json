@@ -2,6 +2,24 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.32.3",
+   "date": "2026-10-28",
+   "items": [
+    {
+     "kind": "new",
+     "audience": "all",
+     "de": "Tastenkürzel für Tools: Unter Tools → „Tastenkürzel …“ legst du Strg+Alt+1 … 0 auf deine wichtigsten Tools – sie starten für die markierten Computer oder den geöffneten Computer.",
+     "en": "Keyboard shortcuts for tools: under Tools → \"Keyboard shortcuts …\" assign Ctrl+Alt+1 … 0 to your most important tools – they start for the selected computers or the open computer."
+    },
+    {
+     "kind": "improved",
+     "audience": "all",
+     "de": "„Neustart / Herunterfahren …“: Aktion wählen und die Wartezeit angeben – von sofort bis 24 Stunden.",
+     "en": "\"Restart / Shut down …\": choose the action and enter the delay – from immediately up to 24 hours."
+    }
+   ]
+  },
+  {
    "version": "2.32.2",
    "date": "2026-10-27",
    "items": [

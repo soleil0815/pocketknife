@@ -249,7 +249,8 @@ def api_logout(request: Request, response: Response):
 @app.get("/api/me")
 def api_me(user=U):
     me = {"username": user["username"], "display_name": user["display_name"], "app": config.APP_NAME,
-          "version": config.VERSION, "idle_minutes": auth.idle_minutes(), "scoped": access.scoped(user)}
+          "version": config.VERSION, "idle_minutes": auth.idle_minutes(), "scoped": access.scoped(user),
+          "hotkeys": _hotkeys(user)}
     if access.scoped(user):
         # OU-Admin: die Oberfläche blendet alles aus, was nur Hauptadmins dürfen (der Server sperrt es ohnehin)
         me["tenants"] = [{"id": t["id"], "name": t["name"], "allow_packages": bool(t.get("allow_packages")),
@@ -260,6 +261,23 @@ def api_me(user=U):
             t["allow_scripts"] = access.may_script(user, t["id"])
         me["computers"] = len(access.computer_ids(user))
     return me
+
+
+def _hotkeys(user):
+    try:
+        return tools.hotkeys(user)
+    except Exception as e:  # Tastenkürzel dürfen die Anmeldung nie verhindern
+        pklog.warn("system", f"Tastenkürzel von {user.get('username')} nicht lesbar: {e}")
+        return {}
+
+
+@app.put("/api/me/hotkeys")
+def api_me_hotkeys(data: dict = Body(default={}), user=U):
+    """2.32.3: eigene Tastenkürzel für Tools (Strg+Alt+1 … 0)."""
+    try:
+        return {"hotkeys": tools.save_hotkeys(user, (data or {}).get("hotkeys") or {})}
+    except ValueError as e:
+        _err(e)
 
 
 @app.get("/api/news")
@@ -1327,8 +1345,17 @@ def api_action(cid: int, data: dict = Body(...), user=U):
         raise HTTPException(404)
     act = data.get("action")
     from . import rebootmsg
-    cmds = {"restart": "& shutdown.exe /r /t 60 /c " + util.psq(rebootmsg.text("restart", sekunden=60)),
-            "shutdown": "& shutdown.exe /s /t 60 /c " + util.psq(rebootmsg.text("shutdown", sekunden=60)),
+    # 2.32.3: Wartezeit wählbar (0 = sofort … 24 h, Standard 60 s). /t > 0 schließt Programme ohnehin erzwungen (/f);
+    # bei 0 ausdrücklich /f, sonst hält ein Programm mit ungespeicherten Daten den Neustart auf
+    try:
+        secs = int(data.get("seconds", 60))
+    except (TypeError, ValueError):
+        _err("Ungültige Wartezeit")
+    if not 0 <= secs <= rebootmsg.MAX_DELAY:
+        _err("Die Wartezeit muss zwischen 0 Sekunden und 24 Stunden liegen.")
+    force = " /f" if secs == 0 else ""
+    cmds = {"restart": f"& shutdown.exe /r /t {secs}{force} /c " + util.psq(rebootmsg.text_delay("restart", secs)),
+            "shutdown": f"& shutdown.exe /s /t {secs}{force} /c " + util.psq(rebootmsg.text_delay("shutdown", secs)),
             "abort": "shutdown.exe /a",
             # 2.32: das normale „gpupdate /force“ (Computer- und Benutzerrichtlinien). Fragt gpupdate nach Abmelden oder
             # Neustart (z. B. Ordnerumleitung, Softwareinstallation), antwortet „N“ – sonst hinge der Aufruf ohne Konsole
@@ -1339,7 +1366,8 @@ def api_action(cid: int, data: dict = Body(...), user=U):
         out, err, _ = remote.ps(c["dns_name"] or c["name"], cmds[act])
     except remote.RemoteError as e:
         _err(e)
-    pklog.info("system", f"Aktion '{act}' auf {c['name']} ausgeführt.", user=user["username"], computer_id=cid)
+    when = (" sofort" if secs == 0 else f" in {secs} s") if act in ("restart", "shutdown") else ""
+    pklog.info("system", f"Aktion '{act}'{when} auf {c['name']} ausgeführt.", user=user["username"], computer_id=cid)
     return {"output": (out + "\n" + err).strip()}
 
 

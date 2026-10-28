@@ -951,12 +951,15 @@ Only for **Deploy packages**: skip the remaining packages on error, do not re-se
 
 Select computers → **Tools ▾** or right-click → Tools.
 
+**Keyboard shortcuts (from 2.32.3):** Under **Tools → Keyboard shortcuts …** you assign **Ctrl+Alt+1 … 9** and **Ctrl+Alt+0** to up to ten tools (built-in and your own). They start the tool for the selected computers in the computer list or for the open computer; with several computers POCKET KNIFE asks first. The shortcuts apply to you only and follow you to every machine. They are off in input fields, dialogs and open menus – AltGr characters such as `{ [ ] }` never start a tool. Menus and the Tools page show the shortcut next to the tool.
+
 | Built-in | |
 |---|---|
 | Ping & Ports | reachability and open ports |
 | Remote Desktop / VNC in browser | remote session in a separate tab |
 | Wake-on-LAN | via a reachable computer in the same subnet (relay), several times, checking whether it wakes up – see below |
-| Restart / Shut down / Cancel | with a 60-second warning |
+| Restart / Shut down … | from 2.32.3 in one dialog: choose restart or shutdown and enter the delay (seconds or minutes, 0 = immediately up to 24 hours, default 60 seconds). Signed-in users see the Windows message during that time; for longer delays the default text states minutes, a custom text under **Settings → Schedules & performance** applies unchanged. With "immediately" Windows closes open programs without asking |
+| Cancel restart/shutdown | stops an announced restart or shutdown while the delay is running |
 | gpupdate /force | refresh group policies |
 | Check / install winget | provides winget where it is missing |
 | Scan with profile | immediate scan |

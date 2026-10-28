@@ -5413,6 +5413,68 @@ def _():
     finally:
         shutil.rmtree(d, ignore_errors=True)
 
+
+@test("2.32.3 Tastenkürzel für Tools: je Benutzer, nur Strg+Alt+1 … 0, ein Tool nur einmal, gelöschte Tools fallen weg; im Browser über e.code, nie in Eingabefeldern/Dialogen, bei mehreren Computern Rückfrage")
+def _():
+    from app import db, tools
+    tools.init()
+    t1 = db.ex("INSERT INTO tools(name, type, script, run_as) VALUES('HK-Test', 'powershell', 'hostname', 'service')")
+    t2 = db.ex("INSERT INTO tools(name, type, script, run_as) VALUES('HK-Test 2', 'cmd', 'ver', 'service')")
+    a, b = {"username": "HK-Anna"}, {"username": "hk-bernd"}
+    try:
+        assert tools.save_hotkeys(a, {"1": f"tool:{t1}", "2": "builtin:ping", "3": ""}) == {"1": f"tool:{t1}", "2": "builtin:ping"}
+        assert tools.hotkeys({"username": "hk-anna"}) == {"1": f"tool:{t1}", "2": "builtin:ping"}, "Benutzername ohne Groß/Klein"
+        assert tools.hotkeys(b) == {}, "je Benutzer"
+        for bad in ({"11": "builtin:ping"}, {"a": "builtin:ping"}, {"1": "builtin:format"}, {"1": "tool:999999"},
+                    {"1": f"tool:{t1}", "2": f"tool:{t1}"}, {"1": "tool:1; DROP"}, {"1": 5}, ["1"]):
+            try:
+                tools.save_hotkeys(b, bad)
+                raise AssertionError(("angenommen", bad))
+            except ValueError:
+                pass
+        tools.save_hotkeys(b, {"0": f"tool:{t2}"})
+        db.ex("DELETE FROM tools WHERE id=?", (t2,))
+        assert tools.hotkeys(b) == {}, "gelöschtes Tool fällt weg"
+    finally:
+        db.ex("DELETE FROM tools WHERE id IN (?, ?)", (t1, t2))
+        db.ex("DELETE FROM user_prefs WHERE username LIKE 'hk-%'")
+    js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
+    import re as _re
+    bi = set(_re.findall(r"\{ key: '([a-z]+)', name:", js[js.index("const BUILTIN_TOOLS"):js.index("let openMenu")]))
+    assert bi == set(tools.BUILTIN_KEYS), ("eingebaute Tools in Oberfläche und Server gleich", bi ^ set(tools.BUILTIN_KEYS))
+    for need in ("/^(?:Digit|Numpad)([0-9])$/.exec(e.code", "closest('input, textarea, select", "#modal-root .backdrop",
+                 "targets.length > 1 && !asks", "S.toolTargets = null;", "PUT('/api/me/hotkeys'"):
+        assert need in js, need
+    msrc = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "main.py"), encoding="utf-8").read()
+    assert '"hotkeys": _hotkeys(user)' in msrc and '@app.put("/api/me/hotkeys")' in msrc
+
+
+@test("2.32.3 Neustart/Herunterfahren: Aktion und Wartezeit wählbar (0 = sofort mit /f … 24 h), Meldungstext passend, eigener Text bleibt")
+def _():
+    from app import db, rebootmsg, main
+    import inspect
+    old = {k: db.setting(rebootmsg.KEYS[k]) for k in ("restart", "shutdown")}
+    try:
+        for k in ("restart", "shutdown"):
+            db.set_setting(rebootmsg.KEYS[k], "")
+        assert rebootmsg.text_delay("restart", 60).endswith("Neustart in 60 Sekunden.")
+        assert rebootmsg.text_delay("shutdown", 0).endswith("Herunterfahren jetzt.")
+        assert rebootmsg.text_delay("restart", 900).endswith("Neustart in 15 Minuten.")
+        assert rebootmsg.text_delay("restart", 90).endswith("Neustart in 90 Sekunden.")
+        db.set_setting(rebootmsg.KEYS["restart"], "Bitte speichern – {minuten} min")
+        assert rebootmsg.text_delay("restart", 900).endswith("Bitte speichern – 15 min"), "eigener Text bleibt"
+    finally:
+        for k, v in old.items():
+            db.set_setting(rebootmsg.KEYS[k], v or "")
+    src = inspect.getsource(main.api_action)
+    for need in ('secs = int(data.get("seconds", 60))', "0 <= secs <= rebootmsg.MAX_DELAY", 'force = " /f" if secs == 0 else ""',
+                 "shutdown.exe /r /t {secs}{force} /c", "shutdown.exe /s /t {secs}{force} /c"):
+        assert need in src, need
+    assert rebootmsg.MAX_DELAY == 86400
+    js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
+    assert "{ action: act.value, seconds: secs }" in js and "secs > 86400" in js and "key: 'power'" in js
+    assert "Neustart (60 s)" not in js and "key: 'shutdown'" not in js
+
 def main():
     ok = 0
     for name, fn in RESULTS:

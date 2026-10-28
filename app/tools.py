@@ -74,6 +74,57 @@ SEED = [
 ]
 
 
+# 2.32.3: Tastenkürzel Strg+Alt+1 … 9 und 0 je Benutzer – Ziel ist ein eingebautes oder eigenes Tool
+HOTKEY_SLOTS = tuple("1234567890")
+BUILTIN_KEYS = ("ping", "rdpweb", "vncweb", "wake", "power", "abort", "gpupdate", "winget", "scan",
+                "diskusage", "files", "eventlog")
+_HOTKEY_RE = re.compile(r"^(tool:[1-9]\d{0,9}|builtin:[a-z]{2,20})$")
+
+
+def _uname(user):
+    return (user.get("username") or "").strip().lower()
+
+
+def hotkeys(user):
+    """{"1": "tool:5", "2": "builtin:ping", …} – nur gültige Einträge (gelöschte Tools fallen weg)."""
+    raw = db.val("SELECT value FROM user_prefs WHERE username=? AND key='tool_hotkeys'", (_uname(user),))
+    try:
+        d = json.loads(raw) if raw else {}
+    except ValueError:
+        d = {}
+    if not d or not isinstance(d, dict):
+        return {}
+    ids = {r["id"] for r in db.q("SELECT id FROM tools")}
+    out = {}
+    for k, v in (d.items() if isinstance(d, dict) else ()):
+        if k in HOTKEY_SLOTS and isinstance(v, str) and _HOTKEY_RE.match(v):
+            if (v.startswith("tool:") and int(v[5:]) in ids) or v[8:] in BUILTIN_KEYS:
+                out[k] = v
+    return out
+
+
+def save_hotkeys(user, data):
+    if not isinstance(data, dict):
+        raise ValueError("Ungültige Tastenkürzel")
+    out, seen = {}, set()
+    for k, v in data.items():
+        if v in (None, ""):
+            continue
+        if k not in HOTKEY_SLOTS or not isinstance(v, str) or not _HOTKEY_RE.match(v):
+            raise ValueError("Ungültiges Tastenkürzel")
+        if v.startswith("builtin:") and v[8:] not in BUILTIN_KEYS:
+            raise ValueError("Unbekanntes eingebautes Tool")
+        if v.startswith("tool:") and not db.q1("SELECT id FROM tools WHERE id=?", (int(v[5:]),)):
+            raise ValueError("Tool nicht gefunden")
+        if v in seen:
+            raise ValueError("Ein Tool kann nur ein Tastenkürzel haben")
+        seen.add(v)
+        out[k] = v
+    db.ex("INSERT INTO user_prefs(username, key, value, at) VALUES(?, 'tool_hotkeys', ?, ?) ON CONFLICT(username, key) "
+          "DO UPDATE SET value=excluded.value, at=excluded.at", (_uname(user), json.dumps(out), util.now()))
+    return hotkeys(user)
+
+
 def init():
     db.conn().executescript(SCHEMA)
     if not db.val("SELECT value FROM settings WHERE key='tools_seeded'"):
