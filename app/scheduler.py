@@ -233,6 +233,10 @@ def tick():
         _last["update_check"] = time.time()
         from . import news
         _bg("update_check", news.check)  # fragt selbst nur einmal täglich bei GitHub (CHECK_HOURS)
+    if _due("selfupdate", 1):
+        _last["selfupdate"] = time.time()
+        from . import selfupdate
+        _bg("selfupdate", selfupdate.poll)  # 2.32.9: Ergebnis des Updates über die Oberfläche ins Protokoll
     if _due("repo_idents", 10):
         _last["repo_idents"] = time.time()
         from . import repofiles

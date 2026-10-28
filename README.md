@@ -199,6 +199,22 @@ Das Skript zieht das Image, nimmt die Programm-ZIP **aus dem Image** (geprüft p
 
 **Woher das Image kommt:** Bei jeder Version baut GitHub (Workflow `.github/workflows/release.yml`) das Image für amd64 und arm64, lässt den Selbsttest in beiden laufen, prüft beide mit **Trivy** auf bekannte Schwachstellen und lädt es nur dann hoch (zusätzlich montags automatisch mit aktualisierten Paketen – „Wöchentliches Sicherheitsupdate“); dazu ein Release mit der ZIP-Datei und ihrer Prüfsumme. Ausgelöst wird es mit einem Tag `v<Version>`, der zur Datei `VERSION` passen muss. Jeder Push und Pull Request baut und testet zusätzlich (`test.yml`), ohne etwas zu veröffentlichen.
 
+**Update per Knopf aus der Oberfläche (ab 2.32.9):** POCKET KNIFE bekommt dafür **keinen** Zugriff auf Docker (wer den Docker-Socket hat, ist root auf dem Host). Der Knopf **Jetzt aktualisieren** legt nur einen Auftrag in den Datenordner (`data/update/`); ein kleiner **Update-Helfer** auf dem Docker-Host schaut jede Minute nach und führt dann genau das obige `sh update.sh --pull <Version> -y` aus – mit Prüfsumme, Sicherung der Programmdateien, Gesundheitsprüfung, **automatischer Rückkehr** zur bisherigen Version, falls die neue nicht startet, und Selbsttest. Stand und Protokoll schreibt er zurück; POCKET KNIFE zeigt sie an, auch nach dem Neustart.
+
+Einmalig einrichten, als root im Programmordner:
+
+```bash
+cd /opt/pocketknife
+sudo sh update.sh --watch-install    # systemd-Timer (sonst /etc/cron.d), jede Minute
+sudo sh update.sh --watch-remove     # wieder abschalten
+```
+
+- **Synology:** Systemsteuerung → Aufgabenplaner → Erstellen → Geplante Aufgabe → Benutzerdefiniertes Skript; Benutzer **root**, Zeitplan täglich, **jede Minute** wiederholen (erste Ausführung 00:00, letzte 23:59), Skript: `sh /volume1/docker/pocketknife/update.sh --watch` (Pfad anpassen). `--watch-install` zeigt das auf einer Synology auch an.
+- **Private Registry:** `docker login ghcr.io` einmal **als root** (der Helfer läuft als root), siehe oben.
+- **Container-Verwaltung (Dockhand, Watchtower …):** für POCKET KNIFE das automatische Aktualisieren abschalten – sonst tauscht sie das Image ohne Sicherung und ohne die Programmdateien auf dem Host.
+- Der Helfer vertraut dem Auftrag nicht: nur eine Versionsnummer, **nie älter** als die laufende Version (zurück nur von Hand), nur aus der Registry der `.env`. Er folgt keinen Links im Datenordner und läuft nie doppelt.
+- In der Oberfläche: **Neuigkeiten → Version … ist verfügbar → Jetzt aktualisieren**, oder **Einstellungen → Wartung → Neuigkeiten und Updates → Update aus der Oberfläche** (dort auch Stand des Helfers, Ergebnis und Protokoll des letzten Updates). Nur Hauptadmins.
+
 **Umstieg von Versionsordnern:** Wer mit `update.sh` aus 2.23.3/2.24 aktualisiert hat, hat Unterordner wie `pocketknife-2.24/`. Läuft POCKET KNIFE noch aus so einem Ordner, übernimmt das Skript dessen `.env` in den Programmordner, startet von dort und bietet an, die Versionsordner zu löschen. Liegt das neue Skript noch nicht im Programmordner: `unzip -oj pocketknife-2.24.1.zip pocketknife/update.sh -d /opt/pocketknife`. `-y` beantwortet alle Fragen mit „ja“.
 
 Wie bisher geht es auch von Hand:
