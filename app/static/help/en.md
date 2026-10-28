@@ -951,7 +951,7 @@ Only for **Deploy packages**: skip the remaining packages on error, do not re-se
 
 Select computers → **Tools ▾** or right-click → Tools.
 
-**Keyboard shortcuts (from 2.32.3):** Under **Tools → Keyboard shortcuts …** you assign **Ctrl+Alt+1 … 9** and **Ctrl+Alt+0** to up to ten tools (built-in and your own). They start the tool for the selected computers in the computer list or for the open computer; with several computers POCKET KNIFE asks first. The shortcuts apply to you only and follow you to every machine. They are off in input fields, dialogs and open menus – AltGr characters such as `{ [ ] }` never start a tool. Menus and the Tools page show the shortcut next to the tool.
+**Keyboard shortcuts (from 2.32.4):** Every tool can have a shortcut – always **Ctrl+Alt**, optionally with **Shift**, plus a letter, a digit or F1–F12. For your own tools you set it in the tool: open the tool, click the **Keyboard shortcut** field and press the combination (Backspace or Delete removes it). If it is already taken, the tool that has it is shown right below. The built-in tools have defaults (e.g. Ctrl+Alt+P Ping & ports, Ctrl+Alt+R Remote desktop, Ctrl+Alt+E Event log, Ctrl+Alt+N Restart/Shut down) which you can change or remove under **Tools → Keyboard shortcuts …**; that is also where you find the overview of all shortcuts. A shortcut starts the tool for the selected computers in the computer list or for the open computer; with several computers POCKET KNIFE asks first. The shortcuts apply to all users. They are off in input fields, dialogs and open menus – AltGr characters such as `{ [ ] } @ €` never start a tool. Menus and the Tools page show the shortcut next to the tool.
 
 | Built-in | |
 |---|---|

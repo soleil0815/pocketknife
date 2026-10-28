@@ -5414,40 +5414,68 @@ def _():
         shutil.rmtree(d, ignore_errors=True)
 
 
-@test("2.32.3 Tastenkürzel für Tools: je Benutzer, nur Strg+Alt+1 … 0, ein Tool nur einmal, gelöschte Tools fallen weg; im Browser über e.code, nie in Eingabefeldern/Dialogen, bei mehreren Computern Rückfrage")
+@test("2.32.4 Tastenkürzel gehören zum Tool: im Tool festlegen (Strg+Alt [+Umschalt] + A–Z/0–9/F1–F12), eingebaute Tools mit Vorgaben, schon vergebene Kürzel werden erkannt (mit Namen), Kürzel aus 2.32.3 übernommen; im Browser über e.code, nie in Eingabefeldern/Dialogen, bei mehreren Computern Rückfrage")
 def _():
-    from app import db, tools
+    from fastapi import HTTPException
+    from app import db, main, tools
     tools.init()
+    n = tools.norm_hotkey
+    assert n("Strg+Alt+p") == "Ctrl+Alt+P" and n("ctrl + alt + shift + 5") == "Ctrl+Alt+Shift+5" and n("Ctrl+Alt+F12") == "Ctrl+Alt+F12"
+    assert n("Alt+Strg+Umschalt+x") == "Ctrl+Alt+Shift+X" and n("") == "" and n(None) == ""
+    for bad in ("Ctrl+P", "Alt+P", "Ctrl+Alt+F13", "Ctrl+Alt+Ä", "Ctrl+Alt+Shift", "Ctrl+Ctrl+P", "Ctrl+Alt+Win+P", "Ctrl+Alt+Entf"):
+        try:
+            n(bad)
+            raise AssertionError(("angenommen", bad))
+        except ValueError:
+            pass
+    old = db.setting_raw("builtin_hotkeys")
     t1 = db.ex("INSERT INTO tools(name, type, script, run_as) VALUES('HK-Test', 'powershell', 'hostname', 'service')")
-    t2 = db.ex("INSERT INTO tools(name, type, script, run_as) VALUES('HK-Test 2', 'cmd', 'ver', 'service')")
-    a, b = {"username": "HK-Anna"}, {"username": "hk-bernd"}
     try:
-        assert tools.save_hotkeys(a, {"1": f"tool:{t1}", "2": "builtin:ping", "3": ""}) == {"1": f"tool:{t1}", "2": "builtin:ping"}
-        assert tools.hotkeys({"username": "hk-anna"}) == {"1": f"tool:{t1}", "2": "builtin:ping"}, "Benutzername ohne Groß/Klein"
-        assert tools.hotkeys(b) == {}, "je Benutzer"
-        for bad in ({"11": "builtin:ping"}, {"a": "builtin:ping"}, {"1": "builtin:format"}, {"1": "tool:999999"},
-                    {"1": f"tool:{t1}", "2": f"tool:{t1}"}, {"1": "tool:1; DROP"}, {"1": 5}, ["1"]):
+        db.set_setting("builtin_hotkeys", "")
+        assert tools.builtin_hotkeys()["ping"] == "Ctrl+Alt+P", "Vorgabe"
+        # eigenes Tool: Kürzel von Ping → abgelehnt mit Namen
+        try:
+            main._tool_values({"name": "X", "type": "cmd", "script": "ver", "run_as": "service", "hotkey": "Strg+Alt+P"})
+            raise AssertionError("doppelt angenommen")
+        except HTTPException as e:
+            assert "Ping & Ports" in e.detail and "Strg+Alt+P" in e.detail, e.detail
+        d = main._tool_values({"name": "X", "type": "cmd", "script": "ver", "run_as": "service", "hotkey": "strg+alt+shift+k"}, t1)
+        assert d["hotkey"] == "Ctrl+Alt+Shift+K"
+        db.ex("UPDATE tools SET hotkey='Ctrl+Alt+Shift+K' WHERE id=?", (t1,))
+        assert main._tool_values({"name": "X", "type": "cmd", "script": "ver", "run_as": "service", "hotkey": "Ctrl+Alt+Shift+K"}, t1)["hotkey"], \
+            "das eigene Kürzel beim Speichern desselben Tools ist kein Konflikt"
+        assert main._tool_values({"name": "X", "type": "cmd", "script": "ver", "run_as": "service", "hotkey": ""})["hotkey"] is None
+        assert tools.hotkey_owner("Ctrl+Alt+Shift+K") == "HK-Test"
+        # eingebaute: doppelt / an eigenes Tool vergeben → abgelehnt; leer = bewusst ohne Kürzel
+        for bad in ({"ping": "Ctrl+Alt+R"}, {"wake": "Ctrl+Alt+Shift+K"}):
             try:
-                tools.save_hotkeys(b, bad)
+                tools.save_builtin_hotkeys(bad)
                 raise AssertionError(("angenommen", bad))
-            except ValueError:
-                pass
-        tools.save_hotkeys(b, {"0": f"tool:{t2}"})
-        db.ex("DELETE FROM tools WHERE id=?", (t2,))
-        assert tools.hotkeys(b) == {}, "gelöschtes Tool fällt weg"
+            except ValueError as e:
+                assert "Strg+Alt" in str(e)
+        out = tools.save_builtin_hotkeys({"ping": "", "abort": "Strg+Alt+P"})
+        assert "ping" not in out and out["abort"] == "Ctrl+Alt+P" and out["rdpweb"] == "Ctrl+Alt+R"
+        # Übernahme aus 2.32.3 (Strg+Alt+Ziffer je Benutzer) – nur frei und nur für eigene Tools
+        db.ex("UPDATE tools SET hotkey=NULL WHERE id=?", (t1,))
+        db.ex("INSERT OR REPLACE INTO user_prefs(username, key, value, at) VALUES('hk-alt', 'tool_hotkeys', ?, '2026-10-28')",
+              (json.dumps({"1": f"tool:{t1}", "2": "builtin:ping"}),))
+        db.ex("DELETE FROM settings WHERE key='hotkeys_migrated'")
+        tools._migrate_user_hotkeys()
+        assert db.val("SELECT hotkey FROM tools WHERE id=?", (t1,)) == "Ctrl+Alt+1" and db.setting_raw("hotkeys_migrated") == "1"
+        tools._migrate_user_hotkeys()  # einmalig – zweiter Lauf ändert nichts
     finally:
-        db.ex("DELETE FROM tools WHERE id IN (?, ?)", (t1, t2))
+        db.ex("DELETE FROM tools WHERE id=?", (t1,))
         db.ex("DELETE FROM user_prefs WHERE username LIKE 'hk-%'")
+        db.set_setting("builtin_hotkeys", old)
     js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
     import re as _re
-    bi = set(_re.findall(r"\{ key: '([a-z]+)', name:", js[js.index("const BUILTIN_TOOLS"):js.index("let openMenu")]))
-    assert bi == set(tools.BUILTIN_KEYS), ("eingebaute Tools in Oberfläche und Server gleich", bi ^ set(tools.BUILTIN_KEYS))
-    for need in ("/^(?:Digit|Numpad)([0-9])$/.exec(e.code", "closest('input, textarea, select", "#modal-root .backdrop",
-                 "targets.length > 1 && !asks", "S.toolTargets = null;", "PUT('/api/me/hotkeys'"):
+    blk = js[js.index("const BUILTIN_TOOLS"):js.index("let HK = null")]
+    bi = dict(_re.findall(r"\{ key: '([a-z]+)', name: '([^']+)'", blk))
+    assert bi == tools.BUILTIN_NAMES, ("eingebaute Tools in Oberfläche und Server gleich", set(bi.items()) ^ set(tools.BUILTIN_NAMES.items()))
+    for need in ("/^Key([A-Z])$/.exec(e.code", "closest('input, textarea, select", "#modal-root .backdrop", "targets.length > 1 && !asks",
+                 "S.toolTargets = null;", "PUT('/api/tools-hotkeys'", "hotkey: hk.value", "hotkey: '' });", "Bereits vergeben an"):
         assert need in js, need
-    msrc = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "main.py"), encoding="utf-8").read()
-    assert '"hotkeys": _hotkeys(user)' in msrc and '@app.put("/api/me/hotkeys")' in msrc
-
+    assert "me/hotkeys" not in js
 
 @test("2.32.3 Neustart/Herunterfahren: Aktion und Wartezeit wählbar (0 = sofort mit /f … 24 h), Meldungstext passend, eigener Text bleibt")
 def _():

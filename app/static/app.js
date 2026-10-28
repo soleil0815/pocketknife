@@ -1278,6 +1278,7 @@ function renderLogin(msg = '') {
       try {
         S.me = await api('/api/login', { method: 'POST', body: { username: user.value, password: pass.value } });
         S.me = await GET('/api/me');
+        toolsData().catch(() => {});  // Tastenkürzel
         IDLE.last = Date.now(); IDLE.sent = Date.now();
         renderShell();
         route();
@@ -1378,7 +1379,7 @@ async function scanSubItems(getIds) {
 }
 
 async function toolSubItems(getTargets) {
-  const data = await GET('/api/tools');
+  const data = await toolsData();
   const exec = (fn) => async () => { const t = await getTargets(); if (!t.length) { toast('Keine Computer', 'err'); return; } fn(t); };
   const items = BUILTIN_TOOLS.filter((b) => b.key !== 'scan').map((b) => ({ label: b.name, icon: b.icon, hint: hotkeyOf(`builtin:${b.key}`), onClick: exec((t) => runBuiltin(b, t)) }));
   const folders = {};
@@ -5963,52 +5964,92 @@ const BUILTIN_TOOLS = [
   { key: 'files', name: 'Dateien (Explorer) …', icon: 'folder', view: 'files' },
   { key: 'eventlog', name: 'Ereignisanzeige …', icon: 'log', view: 'eventlog' },
 ];
-// 2.32.3: Tastenkürzel für Tools – Strg+Alt+1 … 9 und 0, je Benutzer (gespeichert auf dem Server). Gilt für die
-// markierten Computer der Computerliste bzw. den geöffneten Computer. Taste über e.code (Ziffernreihe und Ziffernblock),
-// damit AltGr-Zeichen ({ [ ] } ² ³) beim Tippen in Feldern nie ein Tool starten: in Eingabefeldern, Dialogen und Menüs
-// sind die Kürzel aus.
-const HOTKEY_SLOTS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'];
-const hkLabel = (slot) => `Strg+Alt+${slot}`;
-function hotkeyOf(ref) {
-  const hk = (S.me && S.me.hotkeys) || {};
-  const slot = Object.keys(hk).find((k) => hk[k] === ref);
-  return slot ? hkLabel(slot) : '';
+// 2.32.4: Tastenkürzel gehören zum Tool (für alle gleich): beim eigenen Tool im Tool-Dialog festlegen, bei eingebauten
+// Tools unter Tools → „Tastenkürzel …“ (mit Vorgaben). Immer Strg+Alt (+ Umschalt) und A–Z, 0–9 oder F1–F12; schon
+// vergebene Kürzel werden sofort angezeigt. Gilt für die markierten Computer der Computerliste bzw. den geöffneten
+// Computer. Taste über e.code (unabhängig vom Tastaturlayout); in Eingabefeldern, Dialogen und Menüs sind die Kürzel
+// aus – AltGr-Zeichen beim Tippen ({ [ ] } @ €) starten also nie ein Tool.
+let HK = null;
+function hkSet(data) {
+  const map = {}, byRef = {};
+  Object.entries(data.builtin_hotkeys || {}).forEach(([k, c]) => { map[c] = `builtin:${k}`; byRef[`builtin:${k}`] = c; });
+  (data.tools || []).forEach((t) => { if (t.hotkey) { map[t.hotkey] = `tool:${t.id}`; byRef[`tool:${t.id}`] = t.hotkey; } });
+  HK = { map, byRef, tools: data.tools || [] };
+  return data;
 }
-function hotkeySlot(e) {
-  if (!e.ctrlKey || !e.altKey || e.shiftKey || e.metaKey || e.repeat) return null;
-  const m = /^(?:Digit|Numpad)([0-9])$/.exec(e.code || '');
-  return m ? m[1] : null;
+async function toolsData() { return hkSet(await GET('/api/tools')); }
+const hkText = (c) => (c || '').replace('Ctrl', PK_LANG === 'en' ? 'Ctrl' : 'Strg').replace('Shift', PK_LANG === 'en' ? 'Shift' : 'Umschalt');
+function hotkeyOf(ref) { return HK && HK.byRef[ref] ? hkText(HK.byRef[ref]) : ''; }
+function hkOwnerName(ref) {
+  if (!ref) return '';
+  if (ref.startsWith('builtin:')) { const b = BUILTIN_TOOLS.find((x) => x.key === ref.slice(8)); return b ? tr(b.name) : ref; }
+  const t = HK && HK.tools.find((x) => `tool:${x.id}` === ref);
+  return t ? t.name : ref;
 }
-async function hotkeyRun(slot) {
-  const ref = ((S.me && S.me.hotkeys) || {})[slot];
-  if (!ref) { toast(`${hkLabel(slot)} ist keinem Tool zugeordnet – unter Tools → „Tastenkürzel …“ festlegen`, 'err'); return; }
+function comboOf(e) {
+  if (!e.ctrlKey || !e.altKey || e.metaKey) return null;
+  let m, k = null;
+  if ((m = /^Key([A-Z])$/.exec(e.code || ''))) k = m[1];
+  else if ((m = /^(?:Digit|Numpad)([0-9])$/.exec(e.code || ''))) k = m[1];
+  else if (/^F([1-9]|1[0-2])$/.test(e.code || '')) k = e.code;
+  return k ? `Ctrl+Alt+${e.shiftKey ? 'Shift+' : ''}${k}` : null;
+}
+async function hotkeyRun(ref, combo) {
   const targets = S.toolTargets ? S.toolTargets() : [];
-  if (!targets.length) { toast('Bitte zuerst Computer markieren (Computerliste) oder einen Computer öffnen', 'err'); return; }
+  if (!targets.length) { toast(`${hkText(combo)}: bitte zuerst Computer markieren (Computerliste) oder einen Computer öffnen`, 'err'); return; }
   let name, exec, asks;
   if (ref.startsWith('builtin:')) {
     const b = BUILTIN_TOOLS.find((x) => x.key === ref.slice(8));
     if (!b) return;
-    name = b.name; asks = !!b.confirm || ['scan', 'wake', 'power'].includes(b.key); exec = () => runBuiltin(b, targets);
+    name = tr(b.name); asks = !!b.confirm || ['scan', 'wake', 'power'].includes(b.key); exec = () => runBuiltin(b, targets);
   } else {
-    const data = await GET('/api/tools');
+    const data = await toolsData();
     const t = data.tools.find((x) => `tool:${x.id}` === ref);
     if (!t) { toast('Das Tool zu diesem Tastenkürzel gibt es nicht mehr', 'err'); return; }
     name = t.name; asks = !!t.confirm; exec = () => runTool(t, targets);
   }
   // Mehrere Computer: immer nachfragen (ein Tastendruck soll nie unbemerkt viele Computer treffen)
   if (targets.length > 1 && !asks && !(await confirmDlg(`„${name}“ auf ${targets.length} Computern ausführen?`, 'Ausführen'))) return;
-  if (targets.length === 1) toast(`${hkLabel(slot)}: ${name} – ${targets[0].name}`, 'ok');
+  if (targets.length === 1) toast(`${hkText(combo)}: ${name} – ${targets[0].name}`, 'ok');
   await exec();
 }
 document.addEventListener('keydown', (e) => {
-  const slot = hotkeySlot(e);
-  if (!slot || !S.me) return;
+  const combo = comboOf(e);
+  if (!combo || e.repeat || !S.me) return;
   const el = e.target;
   if (el && el.closest && el.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"], .cm-editor')) return;
   if (document.querySelector('#modal-root .backdrop') || openMenu || ctxMenu) return;
+  if (!HK) { toolsData().catch(() => {}); return; }
+  const ref = HK.map[combo];
+  if (!ref) return;
   e.preventDefault();
-  hotkeyRun(slot).catch((x) => toast(x.message || String(x), 'err'));
+  hotkeyRun(ref, combo).catch((x) => toast(x.message || String(x), 'err'));
 });
+
+// Eingabe eines Tastenkürzels: Kombination einfach drücken; Rück/Entf löscht; schon vergeben → Hinweis mit Namen
+function hkInput(value, ref) {
+  let cur = value || '';
+  const inp = h('input.hk-in', { readonly: true, placeholder: 'Tastenkombination drücken …', title: 'Strg+Alt (+ Umschalt) + Buchstabe, Ziffer oder F1–F12 drücken; Rücktaste/Entf entfernt das Kürzel' });
+  const warn = h('div.hint.hk-warn');
+  const owner = () => (cur && HK && HK.map[cur] && HK.map[cur] !== ref ? hkOwnerName(HK.map[cur]) : '');
+  function upd(msg) {
+    inp.value = hkText(cur);
+    const o = owner();
+    warn.textContent = msg || (o ? `⚠ Bereits vergeben an „${o}“` : '');
+    warn.classList.toggle('bad', !!(msg || o));
+  }
+  inp.addEventListener('keydown', (e) => {
+    if (e.key === 'Tab' || e.key === 'Escape') return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.key === 'Backspace' || e.key === 'Delete') { cur = ''; upd(); return; }
+    const c = comboOf(e);
+    if (c) { cur = c; upd(); } else if (!['Control', 'Alt', 'Shift', 'AltGraph', 'Meta', 'OS'].includes(e.key)) upd('Nur Strg+Alt (+ Umschalt) mit Buchstabe, Ziffer oder F1–F12');
+  });
+  const clear = h('button.ghost', { type: 'button', title: 'Kürzel entfernen', onclick: () => { cur = ''; upd(); } }, icon('x'));
+  upd();
+  return { el: h('div', h('div.row', { style: { gap: '4px' } }, inp, clear), warn), get value() { return cur; }, conflict: owner };
+}
 
 // 2.32.3: Neustart oder Herunterfahren, Wartezeit wählbar (0 = sofort … 24 h)
 function powerDialog(targets) {
@@ -6038,26 +6079,28 @@ function fmtDelay(s) {
 }
 
 async function hotkeysDlg(onSaved) {
-  const data = await GET('/api/tools');
-  const opts = [['', '—'], ...BUILTIN_TOOLS.map((b) => [`builtin:${b.key}`, `${b.name} (eingebaut)`]),
-    ...data.tools.map((t) => [`tool:${t.id}`, (t.folder ? t.folder + ' › ' : '') + t.name])];
-  const cur = { ...((S.me && S.me.hotkeys) || {}) };
-  const sels = {};
-  const grid = h('div.form', HOTKEY_SLOTS.map((slot) => field(hkLabel(slot), (sels[slot] = sel(opts, cur[slot] || '')))));
-  modal('Meine Tastenkürzel', h('div',
-    h('p.muted.small', 'Startet das Tool für die markierten Computer der Computerliste oder den geöffneten Computer. Bei mehreren Computern fragt POCKET KNIFE vorher nach. Die Kürzel gelten nur für dich und folgen dir auf jeden Rechner; in Eingabefeldern und Dialogen sind sie aus.'), grid), [
+  const data = await toolsData();
+  const ins = {};
+  const rows = BUILTIN_TOOLS.map((b) => field(b.name, (ins[b.key] = hkInput(data.builtin_hotkeys[b.key] || '', `builtin:${b.key}`)).el));
+  const own = data.tools.filter((t) => t.hotkey).sort((a, b) => a.hotkey.localeCompare(b.hotkey));
+  const ownList = own.length
+    ? h('div.form', own.map((t) => field((t.folder ? t.folder + ' › ' : '') + t.name, h('div.row', h('kbd.hk', hkText(t.hotkey)),
+      h('a', { href: '#', onclick: (e) => { e.preventDefault(); closeModals(); toolDlg(t); } }, 'bearbeiten')))))
+    : h('p.muted.small', 'Noch keine eigenen Tools mit Tastenkürzel – das Kürzel legst du im Tool selbst fest (Tool öffnen → „Tastenkürzel“).');
+  modal('Tastenkürzel', h('div',
+    h('p.muted.small', 'Strg+Alt (+ Umschalt) mit Buchstabe, Ziffer oder F1–F12. Ein Kürzel startet das Tool für die markierten Computer der Computerliste oder den geöffneten Computer; bei mehreren Computern fragt POCKET KNIFE vorher nach. Die Kürzel gelten für alle Benutzer; in Eingabefeldern und Dialogen sind sie aus.'),
+    h('h3', 'Eingebaute Tools'), h('div.form', rows),
+    h('h3', 'Eigene Tools'), ownList), [
     { label: 'Abbrechen' },
-    { label: 'Speichern', cls: 'primary', onClick: async () => {
-      const hk = {};
-      for (const slot of HOTKEY_SLOTS) if (sels[slot].value) hk[slot] = sels[slot].value;
-      const vals = Object.values(hk);
-      if (new Set(vals).size !== vals.length) { toast('Ein Tool kann nur ein Tastenkürzel haben', 'err'); return false; }
-      const r = await run(() => PUT('/api/me/hotkeys', { hotkeys: hk }), 'Tastenkürzel gespeichert');
+    isOU() ? null : { label: 'Speichern', cls: 'primary', onClick: async () => {
+      const bi = {};
+      BUILTIN_TOOLS.forEach((b) => { bi[b.key] = ins[b.key].value; });
+      const r = await run(() => PUT('/api/tools-hotkeys', { builtin: bi }), 'Tastenkürzel gespeichert');
       if (r === undefined) return false;
-      S.me.hotkeys = r.hotkeys;
+      await toolsData();
       if (onSaved) onSaved();
       return true;
-    } }]);
+    } }].filter(Boolean), { wide: true });
 }
 
 let openMenu = null;
@@ -6071,7 +6114,7 @@ async function toolsMenu(anchor, targets) {
   if (S.menuLoading) return; // Doppelklick: nicht zwei Menüs öffnen
   S.menuLoading = true;
   let data;
-  try { data = await GET('/api/tools'); } finally { S.menuLoading = false; }
+  try { data = await toolsData(); } finally { S.menuLoading = false; }
   const q = h('input', { type: 'search', placeholder: 'Tool suchen …' });
   const list = h('div.tmenu-list');
   const item = (label, ic, onClick, sub) => h('button.tmenu-item', { type: 'button', onclick: () => { closeMenu(); onClick(); } },
@@ -6308,9 +6351,9 @@ async function viewTools() {
       const n = (prompt('Name des neuen Ordners') || '').trim();
       if (n) { toolDlg(null, n.toUpperCase()); }
     }, { icon: 'folder' }),
-    btn('Tastenkürzel …', () => hotkeysDlg(() => draw()), { icon: 'key', title: 'Eigene Tastenkürzel Strg+Alt+1 … 0 für Tools' }),
+    btn('Tastenkürzel …', () => hotkeysDlg(() => route()), { icon: 'key', title: 'Tastenkürzel aller Tools – eigene Tools bekommen ihr Kürzel im Tool selbst' }),
     isOU() ? null : btn('Neues Tool', () => toolDlg(null), { icon: 'plus', cls: 'primary' }));
-  const data = await GET('/api/tools');
+  const data = await toolsData();
   const q = h('input', { type: 'search', placeholder: 'Filtern …' });
   const box = h('div.ttree');
   let closed = new Set();
@@ -6360,7 +6403,7 @@ const BUILTIN_DESC = {
 };
 
 async function toolDlg(tool, presetFolder) {
-  const data = await GET('/api/tools');
+  const data = await toolsData();
   const isNew = !tool;
   tool = tool || { name: '', folder: presetFolder || '', type: 'powershell', script: '', run_as: 'service', confirm: 0, description: '' };
   const name = h('input', { value: tool.name });
@@ -6371,6 +6414,7 @@ async function toolDlg(tool, presetFolder) {
   const script = h('textarea.mono', { rows: 12, value: tool.script, spellcheck: 'false' });
   const desc = h('input', { value: tool.description || '' });
   const confirm = h('input', { type: 'checkbox', checked: !!tool.confirm });
+  const hk = hkInput(tool.hotkey || '', isNew ? null : `tool:${tool.id}`);
   const hint = h('div.hint');
   const runRow = field('Ausführen als', runAs, 'Dienstkonto: direkt über WinRM, schnell. SYSTEM: über eine geplante Aufgabe, z. B. für SFC oder Dinge, die als Computerkonto laufen müssen.');
   const toggle = () => {
@@ -6385,17 +6429,20 @@ async function toolDlg(tool, presetFolder) {
   const form = h('div.form', field('Name', name), field('Ordner', combo(folder, folders, { width: '100%' })),
     field('Typ', type), runRow, h('label', 'Befehl / URL'), script, hint,
     field('Beschreibung', desc), field('Rückfrage', h('label.chk', confirm, 'vor dem Ausführen bestätigen (für ändernde Aktionen)')),
+    field('Tastenkürzel', hk.el, 'Startet das Tool für die markierten Computer bzw. den geöffneten Computer.'),
     h('div.full.muted.small', 'Variablen: $(Computer) $(Host) $(IP) $(MAC) $(User) $(Domain)'));
   toggle();
   const buttons = [{ label: 'Abbrechen' }];
   if (!isNew) {
     buttons.unshift({ label: 'Löschen', cls: 'danger', onClick: async () => { if (!(await confirmDlg(`Tool „${tool.name}“ löschen?`, 'Löschen', true))) return false; await DEL(`/api/tools/${tool.id}`); toast('Gelöscht', 'ok'); route(); } });
-    buttons.splice(1, 0, { label: 'Als Kopie speichern', onClick: async () => { await POST('/api/tools', { ...collect(), name: name.value + ' (Kopie)' }); toast('Kopie angelegt', 'ok'); route(); } });
+    buttons.splice(1, 0, { label: 'Als Kopie speichern', onClick: async () => { await POST('/api/tools', { ...collect(), name: name.value + ' (Kopie)', hotkey: '' }); toast('Kopie angelegt', 'ok'); route(); } });
   }
   function collect() {
-    return { name: name.value, folder: folder.value, type: type.value, run_as: runAs.value, script: script.value, description: desc.value, confirm: confirm.checked };
+    return { name: name.value, folder: folder.value, type: type.value, run_as: runAs.value, script: script.value, description: desc.value, confirm: confirm.checked, hotkey: hk.value };
   }
-  buttons.push({ label: 'Speichern', cls: 'primary', onClick: async () => { if (isNew) await POST('/api/tools', collect()); else await PUT(`/api/tools/${tool.id}`, collect()); toast('Gespeichert', 'ok'); route(); } });
+  buttons.push({ label: 'Speichern', cls: 'primary', onClick: async () => {
+    if (hk.conflict()) { toast(`Tastenkürzel ${hkText(hk.value)} ist bereits vergeben an „${hk.conflict()}“`, 'err'); return false; }
+    if (isNew) await POST('/api/tools', collect()); else await PUT(`/api/tools/${tool.id}`, collect()); toast('Gespeichert', 'ok'); route(); } });
   modal(isNew ? 'Neues Tool' : `Tool: ${tool.name}`, form, buttons, { wide: true, sticky: true });
 }
 
@@ -7958,6 +8005,7 @@ window.addEventListener('hashchange', route);
     S.me = await api('/api/me');
     renderShell();
     route();
+    toolsData().catch(() => {});  // Tastenkürzel
   } catch (e) {
     if (!S.me) renderLogin();
   }

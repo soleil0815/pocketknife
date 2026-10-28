@@ -1,5 +1,9 @@
 # Änderungen
 
+## pocketknife-2.32.4 (28.10.2026)
+- **Geändert – Tastenkürzel gehören zum Tool:** Statt zehn fester Plätze je Benutzer bekommt jedes Tool sein eigenes Kürzel: Strg+Alt (wahlweise + Umschalt) und ein Buchstabe, eine Ziffer oder F1–F12. Bei eigenen Tools im Tool-Dialog („Tastenkürzel“: Kombination drücken), bei eingebauten Tools unter **Tools → Tastenkürzel …** – dort mit Vorgaben (Strg+Alt+P Ping & Ports, R Remotedesktop, V VNC, W Wake-on-LAN, N Neustart/Herunterfahren, G gpupdate, D Dateien, E Ereignisanzeige) und der Übersicht aller Kürzel. Schon vergebene Kürzel werden sofort mit dem Namen des Tools angezeigt und nicht gespeichert. Gilt für alle Benutzer; die Ziffern-Kürzel aus 2.32.3 werden für eigene Tools übernommen, soweit frei
+- **Selbsttest:** Schreibweise und erlaubte Kombinationen, Konflikte mit Namen (eigene und eingebaute Tools), Vorgaben, Übernahme aus 2.32.3
+
 ## pocketknife-2.32.3 (28.10.2026)
 - **Neu – Tastenkürzel für Tools:** Unter **Tools → Tastenkürzel …** bis zu zehn Tools (eingebaute und eigene) auf **Strg+Alt+1 … 0** legen. Das Kürzel startet das Tool für die markierten Computer der Computerliste oder den geöffneten Computer; bei mehreren Computern fragt POCKET KNIFE vorher nach. Je Benutzer gespeichert (folgt auf jeden Rechner); in Eingabefeldern, Dialogen und Menüs aus, AltGr-Zeichen starten nie ein Tool. Menüs und die Tools-Seite zeigen das Kürzel an
 - **Geändert – Neustart/Herunterfahren mit Wartezeit:** Das Tool heißt jetzt „Neustart / Herunterfahren …“ und fragt, ob neu gestartet oder heruntergefahren werden soll und nach welcher Zeit (0 = sofort bis 24 Stunden, Standard 60 Sekunden). Der Standardtext der Windows-Meldung nennt bei längeren Zeiten Minuten; ein eigener Text gilt unverändert. Bei „sofort“ schließt Windows offene Programme ohne Rückfrage
