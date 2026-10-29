@@ -225,11 +225,11 @@ Ohne Internet geht es auch: die Images aus dem Archiv des Releases laden (siehe 
 
 ### Schritt 2: Ordner und Dateien anlegen
 
-Alles liegt in **einem** Ordner, z. B. `/opt/pocketknife` (auf einem NAS z. B. `/volume1/docker/pocketknife`). Dorthin kommen nur drei Dateien – das Programm selbst steckt im Image. Am einfachsten holen Sie sie aus dem Image der neuesten Version (bei einer privaten Registry vorher einmal `docker login ghcr.io -u <GitHub-Benutzer>`, Kennwort = Token mit `read:packages`):
+Alles liegt in **einem** Ordner, z. B. `/opt/pocketknife` (auf einem NAS z. B. `/volume1/docker/pocketknife`). Dorthin kommen nur drei Dateien – das Programm selbst steckt im Image. Am einfachsten holen Sie sie aus dem Image der neuesten Version (bei einer privaten Registry vorher einmal `sudo docker login ghcr.io -u <GitHub-Benutzer>`, Kennwort = Token mit `read:packages`):
 
 ```bash
 mkdir -p /opt/pocketknife && cd /opt/pocketknife
-docker run --rm --entrypoint sh ghcr.io/soleil0815/pocketknife:latest -c 'cd /opt/pocketknife/host && tar cf - .' | tar xf -
+sudo sh -c 'docker pull ghcr.io/soleil0815/pocketknife:latest && docker run --rm --entrypoint sh ghcr.io/soleil0815/pocketknife:latest -c "cd /opt/pocketknife/host && tar cf - ." | tar xf -'
 cp .env.example .env
 ```
 
@@ -390,13 +390,14 @@ sudo sh update.sh latest        # wieder „immer die neueste“
 
 Bis 2.32 wurde die Programm-ZIP auf dem Host entpackt. Das ist nicht mehr nötig – so stellen Sie um:
 
-1. Das neue `update.sh` holen (das alte kennt den neuen Weg nicht) und einmal ausführen – es stellt auf das fertige Image um, legt die neue `docker-compose.yml` hin (die alte bleibt als `docker-compose.yml.alt`) und entfernt den Update-Helfer aus 2.32.9–2.32.12, falls eingerichtet:
+1. Das neue `update.sh` aus dem Image holen und einmal ausführen (das alte kennt den neuen Weg nicht – es würde wie früher vor Ort bauen) – es stellt auf das fertige Image um, legt die neue `docker-compose.yml` hin (die alte bleibt als `docker-compose.yml.alt`) und entfernt den Update-Helfer aus 2.32.9–2.32.12, falls eingerichtet:
 
 ```bash
 cd /opt/pocketknife
-docker run --rm --entrypoint cat ghcr.io/soleil0815/pocketknife:latest /opt/pocketknife/host/update.sh > update.sh.neu && mv update.sh.neu update.sh
-sudo sh update.sh
+sudo sh -c 'docker pull ghcr.io/soleil0815/pocketknife:latest && docker run --rm --entrypoint cat ghcr.io/soleil0815/pocketknife:latest /opt/pocketknife/host/update.sh > update.sh.neu && sh update.sh.neu'
 ```
+
+Alles in einem Befehl als root: Schlägt das Laden des Images fehl (z. B. `denied` – dann zuerst `sudo docker login ghcr.io -u <GitHub-Benutzer>`), passiert nichts weiter. Das neue Skript legt sich am Ende selbst als `update.sh` ab; die Datei `update.sh.neu` entfernt `--cleanup`.
 
 2. Aufräumen – zeigt, was weg kann, und fragt nach:
 
