@@ -350,7 +350,9 @@ def winget_candidates(s, cids=None, online_only=True):
     rows = db.q(f"""SELECT DISTINCT s.computer_id, s.winget_id FROM software s JOIN computers c ON c.id = s.computer_id
                     WHERE s.outdated = 1 AND s.winget_id IS NOT NULL AND COALESCE(s.winget_sure, 1) = 1
                       {"AND c.online = 1 AND c.winrm = 1" if online_only else ""}
-                      AND (c.os_build IS NULL OR c.os_build = '' OR CAST(c.os_build AS INTEGER) >= 17763)
+                      AND (c.os_build IS NULL OR c.os_build = '' OR CAST(c.os_build AS INTEGER) >= 17763
+                           OR lower(s.winget_id) IN (SELECT lower(winget_id) FROM winget_cache
+                                                     WHERE status = 'ok' AND package_id IS NOT NULL))
                       AND c.id IN ({q})""", tuple(targets))
     only = _ids(w["ids"]) if w["mode"] == "specific" else set()
     excl = _ids(w["exclude"])
@@ -412,23 +414,35 @@ def _fire_winget(s, cids, reason, user):
                   (s["id"], cid, now, "Offline – Updates folgen, sobald der Computer online ist"))
     first = None
     n = 0
+    from . import wingetcache
     for wid, ids in sorted(winget_candidates(s, [c for c in targets if c in online]).items()):
-        try:
-            pkg = deploy.adhoc_winget(wid, "upgrade", s["winget"].get("scope") or None)
-            pkg["name"] = f"Auto-Update {wid}"
-            pkg["tenant_id"] = s.get("tenant_id")
-            did = deploy.create(pkg, ids, user or "Zeitplan", source="schedule", name=f"{s['name']}: {wid}",
-                                schedule_id=s["id"], start_now=False, target_label=target_label(s))
-            for r in db.q("SELECT computer_id FROM deployment_targets WHERE deployment_id=?", (did,)):
-                db.ex("""INSERT INTO schedule_targets(schedule_id, computer_id, status, deployment_id, pending, message)
-                         VALUES(?,?,?,?,0,?) ON CONFLICT(schedule_id, computer_id) DO UPDATE SET status=excluded.status,
-                         deployment_id=excluded.deployment_id, pending=0, pending_since=NULL, message=excluded.message""",
-                      (s["id"], r["computer_id"], "queued", did, f"winget upgrade {wid} (#{did})"))
-            deploy.start(did, checked=True)
-            first = first or did
-            n += 1
-        except Exception as e:
-            pklog.warn("deploy", f"Zeitplan „{s['name']}“ – {wid}: {e}")
+        # 2.35: Computer ohne winget aus dem winget-Cache (gleiche winget-ID im Paket – „läuft schon“/Fehlversuche zählen mit)
+        wg, cache, _skip, ce = wingetcache.split(wid, ids)
+        for kind, part in (("cache", cache), ("winget", wg)):
+            if not part:
+                continue
+            try:
+                if kind == "cache":
+                    row, pkg = wingetcache.package_for(ce)
+                    pkg = dict(pkg, name=f"Auto-Update {wid} (winget-Cache)", tenant_id=s.get("tenant_id"))
+                    pid, what = row["id"], f"Cache {ce['version']}"
+                else:
+                    pkg = deploy.adhoc_winget(wid, "upgrade", s["winget"].get("scope") or None)
+                    pkg["name"] = f"Auto-Update {wid}"
+                    pkg["tenant_id"] = s.get("tenant_id")
+                    pid, what = None, "winget upgrade"
+                did = deploy.create(pkg, part, user or "Zeitplan", source="schedule", name=f"{s['name']}: {wid}",
+                                    schedule_id=s["id"], start_now=False, target_label=target_label(s), package_id=pid)
+                for r in db.q("SELECT computer_id FROM deployment_targets WHERE deployment_id=?", (did,)):
+                    db.ex("""INSERT INTO schedule_targets(schedule_id, computer_id, status, deployment_id, pending, message)
+                             VALUES(?,?,?,?,0,?) ON CONFLICT(schedule_id, computer_id) DO UPDATE SET status=excluded.status,
+                             deployment_id=excluded.deployment_id, pending=0, pending_since=NULL, message=excluded.message""",
+                          (s["id"], r["computer_id"], "queued", did, f"{what} {wid} (#{did})"))
+                deploy.start(did, checked=True)
+                first = first or did
+                n += 1
+            except Exception as e:
+                pklog.warn("deploy", f"Zeitplan „{s['name']}“ – {wid}: {e}")
     # Vorgemerkte, inzwischen online Ziele ohne (weitere) Updates: Merker entfernen
     db.ex(f"""UPDATE schedule_targets SET pending=0, pending_since=NULL, message='Keine veraltete Software'
               WHERE schedule_id=? AND pending=1 AND computer_id IN ({','.join('?' * len(online & targets)) or 'NULL'})""",

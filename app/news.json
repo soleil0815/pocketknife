@@ -2,6 +2,24 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.35.0",
+   "date": "2026-10-29",
+   "items": [
+    {
+     "kind": "new",
+     "audience": "admin",
+     "de": "winget-Cache (Software → winget-Cache …): Computer ohne winget (z. B. Server 2016) bekommen Updates aus dem Repository – POCKET KNIFE lädt die aktuelle Version ausgewählter Programme selbst und baut das Paket dazu.",
+     "en": "winget cache (Software → winget cache …): computers without winget (e.g. Server 2016) get updates from the repository – POCKET KNIFE downloads the current version of selected programs itself and builds the package."
+    },
+    {
+     "kind": "new",
+     "audience": "admin",
+     "de": "Im Cache liegt je Programm immer nur die aktuelle Version; Entfernen oder Löschen des Pakets räumt Ordner und Paket mit weg.",
+     "en": "The cache only ever holds the current version of each program; removing it or deleting the package cleans up folder and package as well."
+    }
+   ]
+  },
+  {
    "version": "2.34.0",
    "date": "2026-10-29",
    "items": [

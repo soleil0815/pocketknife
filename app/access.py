@@ -459,6 +459,7 @@ ROUTES = {
     ("GET", "/api/software/detail"): OPEN,
     ("POST", "/api/software/update"): OPEN,
     ("GET", "/api/winget/status"): OPEN,
+    ("GET", "/api/wingetcache/ready"): OPEN,      # 2.35: nur welche winget-IDs bereitliegen (Knopf „Aktualisieren“)
     ("GET", "/api/winget/search"): OPEN,
     # Pakete: alle sehen und verteilen (zentrale und die anderer Mandanten); ändern nur eigene, nur mit Freigabe
     ("GET", "/api/packages"): OPEN,

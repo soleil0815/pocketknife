@@ -5965,10 +5965,12 @@ def _():
     assert int(_re.search(r"const WINGET_MIN_BUILD = (\d+);", js).group(1)) == deploy.WINGET_MIN_BUILD, "JS und Server gleiche Grenze"
     sv = js[js.index("if (cat === 'software') {"):]
     sv = sv[:sv.index("return wrapT(t);\n  }")]
-    assert "const wok = wingetOk(c);" in sv and "wok && r.outdated && r.winget_id ? btn('Aktualisieren'" in sv and "wok ? data.filter" in sv
-    assert "c.outdated && wingetOk(c)" in js[js.index("async function updateOutdated("):js.index("async function scanSubItems(")]
+    # 2.35: ohne winget nur, was im winget-Cache bereitliegt
+    assert "const wok = wingetOk(c);" in sv and "const upOk = (r) => wok || wcHas(r.winget_id);" in sv
+    assert "r.outdated && r.winget_id && upOk(r) ? btn('Aktualisieren'" in sv and "s.outdated && s.winget_id && upOk(s)" in sv
+    assert "c.outdated && (wingetOk(c) || wcHas(wid))" in js[js.index("async function updateOutdated("):js.index("async function scanSubItems(")]
     sd = js[js.index("async function softwareDlg(sw)"):]
-    assert "c.outdated && wingetOk(c)" in sd[:sd.index("modal(sw.name")]
+    assert "c.outdated && (wingetOk(c) || wcHas(sw.winget_id))" in sd[:sd.index("modal(sw.name")] and sd.index("await wcReady();") < sd.index("const t = table(")
     from app import main as _m
     import inspect
     assert "c.os_build" in inspect.getsource(_m.api_software_detail), "Build für die Anzeige"
@@ -6063,6 +6065,190 @@ def _():
     assert "localStorage" not in dlg, "Verlauf nicht speichern (Kennwörter)"
     assert "{ key: 'command', name: 'Befehl ausführen …', icon: 'terminal', main: true }" in js and "if (b.key === 'command') { commandDlg(targets); return; }" in js
     assert "const isNew = !tool || !tool.id;" in js
+
+
+def _mszip(data, chunk=32768):
+    """MSZIP wie die Windows Compression API (für den Selbsttest des winget-Caches)."""
+    import zlib as _z
+    out, prev, first = [], b"", 0
+    for i in range(0, len(data), chunk):
+        part = data[i:i + chunk]
+        c = _z.compressobj(9, _z.DEFLATED, -15, 9, zdict=prev[-32768:]) if prev else _z.compressobj(9, _z.DEFLATED, -15, 9)
+        z = b"CK" + c.compress(part) + c.flush()
+        out.append(len(z).to_bytes(4, "little") + z)
+        first = first or len(part)
+        prev += part
+    return bytes.fromhex("0a51e5c01800") + b"\x00\x02" + len(data).to_bytes(8, "little") + first.to_bytes(8, "little") + b"".join(out)
+
+
+@test("2.35 winget-Cache: Manifest wie winget laden (MSZIP, Prüfsummen), Installer wählen, ins Repository, Paket erzeugen, neue Version ersetzt alte, Entfernen räumt auf, Computer ohne winget bekommen das Paket")
+def _():
+    import hashlib as _h, io as _io, sqlite3 as _sq, tempfile as _tf, json as _j
+    from app import wingetcache as wc, winget, remote, deploy, main as _m, schedules, config
+    # MSZIP: mehrere Stücke mit Wörterbuch, kaputte Daten werden abgelehnt
+    raw = ("vD:\n" + "".join(f"- v: '1.{i}'\n  rP: manifests/t/x/{i}.yaml\n  s256H: {'a' * 64}\n" for i in range(3000))).encode()
+    assert len(raw) > 70000 and wc.mszip_decompress(_mszip(raw)) == raw
+    must_fail(wc.mszip_decompress, b"PK\x03\x04" + b"0" * 40, contains="MSZIP")
+    bad = bytearray(_mszip(raw)); bad[8] ^= 1
+    must_fail(wc.mszip_decompress, bytes(bad))
+    # Installer wählen und Schalter
+    man = {"PackageIdentifier": "Test.App", "PackageVersion": "1.0", "PackageName": "Test App", "InstallerType": "msi",
+           "Scope": "machine", "InstallerSwitches": {"Custom": "REBOOT=ReallySuppress"},
+           "Installers": [{"Architecture": "x86", "InstallerUrl": "https://dl.example.test/app-x86.msi", "InstallerSha256": "00"},
+                          {"Architecture": "x64", "InstallerLocale": "en-US", "InstallerUrl": "https://dl.example.test/app-en.msi", "InstallerSha256": "00"},
+                          {"Architecture": "x64", "InstallerLocale": "de-DE", "InstallerUrl": "https://dl.example.test/app-de.msi", "InstallerSha256": "00",
+                           "AppsAndFeaturesEntries": [{"DisplayName": "Test App 1.0 (x64)", "DisplayVersion": "1.0.0"}],
+                           "ProductCode": "{11111111-2222-3333-4444-555555555555}"},
+                          {"Architecture": "x64", "Scope": "user", "InstallerType": "exe", "InstallerUrl": "https://dl.example.test/u.exe", "InstallerSha256": "00"}],
+           "ExpectedReturnCodes": [{"InstallerReturnCode": 1638, "ReturnResponse": "alreadyInstalled"}, {"InstallerReturnCode": 5, "ReturnResponse": "blockedByPolicy"}]}
+    i = wc.choose(man, "x64", "machine", "de-DE")
+    assert i["InstallerUrl"].endswith("app-de.msi"), i
+    assert wc.choose(man, "x64", "machine", "fr-FR")["InstallerUrl"].endswith("app-en.msi"), "sonst en-US"
+    assert wc.choose(man, "x86", "machine", "de-DE")["InstallerUrl"].endswith("x86.msi")
+    p = wc.plan(man, i)
+    assert p["install_type"] == "msi" and p["arguments"] == "REBOOT=ReallySuppress ALLUSERS=1" and p["success_codes"] == "0,3010,1641,1638", p
+    assert p["detect_name"] == "Test App * (x64)" and p["detect_version"] == "1.0.0" and p["product_code"].startswith("{1111"), p
+    inno = {"PackageName": "I", "PackageVersion": "2", "Installers": [{"Architecture": "x64", "InstallerType": "inno", "InstallerUrl": "https://x/i.exe"}]}
+    assert wc.plan(inno, wc.choose(inno))["arguments"] == "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /ALLUSERS"
+    nsis = {"Installers": [{"Architecture": "x64", "InstallerType": "nullsoft", "InstallerSwitches": {"Silent": "/S /Q"}}]}
+    assert wc.plan(nsis, wc.choose(nsis))["arguments"] == "/S /Q", "Schalter aus dem Manifest gehen vor"
+    exe = {"Installers": [{"Architecture": "x64", "InstallerType": "exe"}]}
+    must_fail(wc.plan, exe, wc.choose(exe), contains="stille Installation")
+    must_fail(wc.choose, {"Installers": [{"Architecture": "x64", "InstallerType": "msix"}, {"Architecture": "x64", "InstallerType": "zip", "NestedInstallerType": "msi"}]},
+              contains="Kein passender Installer")
+    must_fail(wc.choose, {"Installers": [{"Architecture": "arm64", "InstallerType": "msi"}]}, "x64", contains="Kein passender")
+    assert wc._file_name("https://x/dl?id=5", "Test.App", "1.0", "msi") == "Test.App_1.0.msi"
+    assert wc._file_name("https://x/a/My%20Setup.msi", "T", "1", "msi") == "My_Setup.msi"
+    assert wc.os_ok({"os_version": "10.0.14393", "os_build": "14393.6897"}, "10.0.0.0")
+    assert not wc.os_ok({"os_version": "6.3.9600", "os_build": "9600"}, "10.0.0.0") and wc.os_ok({}, "10.0.17763.0")
+    assert not wc.os_ok({"os_version": "10.0.14393", "os_build": "14393"}, "10.0.17763.0")
+    # --- Ende zu Ende mit nachgebautem winget-Server und lokalem Repository
+    root = _tf.mkdtemp(prefix="pk-wc-", dir=TMP)
+    old_repo, old_idx = db.setting("repo_path"), None
+    db.set_setting("repo_path", root)
+    ip = winget.index_path()
+    if os.path.exists(ip):
+        old_idx = open(ip, "rb").read()
+    files = {}
+
+    def publish(ver, inst_bytes, sha=None):
+        mf = (f"PackageIdentifier: Test.App\nPackageVersion: '{ver}'\nPackageName: Test App\nPublisher: Test\n"
+              f"MinimumOSVersion: 10.0.0.0\nInstallers:\n- Architecture: x64\n  InstallerType: inno\n  Scope: machine\n"
+              f"  InstallerUrl: https://dl.example.test/testapp-{ver}.exe\n"
+              f"  InstallerSha256: {sha or _h.sha256(inst_bytes).hexdigest().upper()}\nManifestType: merged\n").encode()
+        rp = f"manifests/t/Test/App/{ver}/abc.yaml"
+        vd = _mszip(f"sV: 1.0\nvD:\n- v: '{ver}'\n  rP: {rp}\n  s256H: {_h.sha256(mf).hexdigest()}\n".encode())
+        hx = _h.sha256(vd).hexdigest()
+        files.update({f"{wc.BASE}/packages/Test.App/{hx[:8]}/versionData.mszyml": vd, f"{wc.BASE}/{rp}": mf,
+                      f"https://dl.example.test/testapp-{ver}.exe": inst_bytes})
+        con = _sq.connect(ip)
+        con.execute("DROP TABLE IF EXISTS packages")
+        con.execute("CREATE TABLE packages(rowid INTEGER PRIMARY KEY, id TEXT, name TEXT, moniker TEXT, latest_version TEXT, arp_min_version TEXT, arp_max_version TEXT, hash BLOB)")
+        con.execute("INSERT INTO packages(id, name, latest_version, hash) VALUES('Test.App', 'Test App', ?, ?)", (ver, bytes.fromhex(hx)))
+        con.commit(); con.close()
+
+    class _R(_io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+    calls = []
+
+    def fake_open(req, timeout=0):
+        u = req.full_url
+        calls.append(u)
+        if u not in files:
+            raise OSError(f"404 {u}")
+        return _R(files[u])
+    old_open = wc.proxy.urlopen
+    wc.proxy.urlopen = fake_open
+    cmp_ = db.ex("INSERT INTO computers(name, os_build, os_version) VALUES('PC-ALT2', '14393.6897', '10.0.14393')")
+    cnew = db.ex("INSERT INTO computers(name, os_build, os_version) VALUES('PC-NEU2', '26100.4061', '10.0.26100')")
+    c81 = db.ex("INSERT INTO computers(name, os_build, os_version) VALUES('PC-ALT3', '9600', '6.3.9600')")
+    eid = None
+    try:
+        publish("1.0", b"MZ-eins" * 1000)
+        eid = wc.add("test.app", "x64", "selftest")
+        must_fail(wc.add, "Test.App", "x64", contains="schon im Cache")
+        e = wc.refresh_entry(eid)
+        assert e["status"] == "ok" and e["version"] == "1.0" and e["winget_id"] == "Test.App", dict(e)
+        assert e["folder"] == "winget-cache\\Test.App\\1.0" and e["file"] == "testapp-1.0.exe"
+        assert open(os.path.join(root, "winget-cache", "Test.App", "1.0", "testapp-1.0.exe"), "rb").read() == b"MZ-eins" * 1000
+        assert not [f for f in os.listdir(os.path.join(root, "winget-cache", "Test.App", "1.0")) if f.endswith(".pk-part")]
+        pk = db.q1("SELECT * FROM packages WHERE id=?", (e["package_id"],))
+        st = _j.loads(pk["steps"])["main"][0]
+        assert pk["name"] == "Test App (winget-Cache)" and pk["version"] == "1.0" and pk["winget_id"] == "Test.App" and pk["type"] == "custom"
+        assert st["install_type"] == "exe" and st["folder"] == "winget-cache\\Test.App\\1.0" and st["install_file"] == "testapp-1.0.exe"
+        assert st["arguments"] == "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /ALLUSERS" and st["detect_name"] == "Test App"
+        n = len(calls)
+        assert wc.refresh_entry(eid)["status"] == "ok" and not any("testapp" in u for u in calls[n:]), "gleiche Version: nicht neu laden"
+        # neue Version: laden, Paket umstellen (gleiche ID), alte Version weg
+        publish("1.1", b"MZ-zwei" * 1000)
+        e2 = wc.refresh_entry(eid)
+        assert e2["version"] == "1.1" and e2["package_id"] == e["package_id"], dict(e2)
+        assert sorted(os.listdir(os.path.join(root, "winget-cache", "Test.App"))) == ["1.1"], "nur die aktuelle Version im Cache"
+        assert _j.loads(db.val("SELECT steps FROM packages WHERE id=?", (e["package_id"],)))["main"][0]["install_file"] == "testapp-1.1.exe"
+        # Hersteller tauscht die Datei: Prüfsumme falsch → nichts übernehmen, alte bleibt
+        publish("1.2", b"MZ-drei" * 1000, sha="0" * 64)
+        e3 = wc.refresh_entry(eid)
+        assert e3["status"] == "error" and "Prüfsumme" in e3["message"] and e3["version"] == "1.1", dict(e3)
+        assert sorted(os.listdir(os.path.join(root, "winget-cache", "Test.App"))) == ["1.1"]
+        assert not [f for f in os.listdir(config.WINGET_DIR) if f.endswith(".part")], "keine Reste vom Download"
+        db.ex("UPDATE winget_cache SET status='ok' WHERE id=?", (eid,))
+        # Aufteilen: neue Windows per winget, alte aus dem Cache, zu alte (Mindestversion) auslassen
+        wg, cache, skip, ce = wc.split("test.app", [cmp_, cnew, c81])
+        assert wg == [cnew] and cache == [cmp_] and skip == [c81] and ce["id"] == eid, (wg, cache, skip)
+        assert "test.app" in _m.api_wc_ready({"username": "ou", "scope": [1]})["ids"]
+        assert ("GET", "/api/wingetcache/ready") in _m.access.ROUTES and ("GET", "/api/wingetcache") not in _m.access.ROUTES
+        try:
+            _m.api_wc_list({"username": "ou", "scope": [1]})
+            raise AssertionError("OU-Admin darf den Cache nicht verwalten")
+        except _m.HTTPException as x:
+            assert x.status_code == 403
+        made = []
+        old_create = deploy.create
+        deploy.create = lambda pkg, ids, user, *a, **k: (made.append((pkg.get("type"), list(ids), k.get("package_id"))) or len(made))
+        try:
+            r = _m.api_deploy({"winget_id": "Test.App", "action": "upgrade", "computer_ids": [cmp_, cnew]}, {"username": "haupt", "scope": None})
+            assert ("custom", [cmp_], e["package_id"]) in made and ("winget", [cnew], None) in made and r["cache_id"], (made, r)
+            made.clear()
+            r = _m.api_deploy({"winget_id": "Test.App", "action": "upgrade", "computer_ids": [cmp_]}, {"username": "haupt", "scope": None})
+            assert made == [("custom", [cmp_], e["package_id"])] and r.get("cache"), made
+        finally:
+            deploy.create = old_create
+        # Entfernen: wird es noch benutzt, sagt es wo; sonst Paket und Ordner weg
+        sid = db.ex("INSERT INTO schedules(name, packages) VALUES('WC-Test', ?)", (_j.dumps([e["package_id"]]),))
+        must_fail(wc.remove, eid, "selftest", contains="Zeitplan")
+        db.ex("DELETE FROM schedules WHERE id=?", (sid,))
+        os.makedirs(os.path.join(root, "winget-cache", "Fremd.Rest", "9"))
+        os.makedirs(os.path.join(root, "Anderes"))
+        assert wc.orphans() == ["Fremd.Rest"]
+        # Paket in der Paketliste löschen → Eintrag und Ordner auch weg
+        _m.api_package_delete(e["package_id"], {"username": "haupt", "scope": None})
+        assert not wc.entry(eid) and not os.path.exists(os.path.join(root, "winget-cache", "Test.App")), "beim Löschen des Pakets aufräumen"
+        eid = None
+        assert wc.cleanup("selftest") == ["Fremd.Rest"] and os.path.isdir(os.path.join(root, "Anderes")), "nur im Cache-Ordner aufräumen"
+        # Ordner nur bei leerem Cache änderbar, nie in einem Mandanten-Ordner
+        must_fail(wc.set_folder, "..\\x", contains="Ordner")
+        assert wc.set_folder("winget-cache") == "winget-cache"
+    finally:
+        wc.proxy.urlopen = old_open
+        if eid:
+            try:
+                wc.remove(eid, "selftest")
+            except Exception:
+                db.ex("DELETE FROM winget_cache WHERE id=?", (eid,))
+        db.ex("DELETE FROM packages WHERE name='Test App (winget-Cache)'")
+        db.ex("DELETE FROM computers WHERE id IN (?,?,?)", (cmp_, cnew, c81))
+        db.set_setting("repo_path", old_repo or "")
+        if old_idx is not None:
+            open(ip, "wb").write(old_idx)
+        elif os.path.exists(ip):
+            os.remove(ip)
+        winget.load()
+    js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
+    assert "async function viewWingetCache()" in js and "/api/wingetcache/ready" in js
 
 
 def main():

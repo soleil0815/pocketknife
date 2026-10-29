@@ -8,3 +8,4 @@ smbprotocol>=1.13
 pyspnego[kerberos]>=0.10
 cryptography>=42
 websockets>=12
+PyYAML>=6.0.2      # 2.35: winget-Manifeste (winget-Cache)

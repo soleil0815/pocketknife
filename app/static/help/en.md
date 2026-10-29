@@ -666,6 +666,19 @@ The older **Ignore** in a program's details only removes its winget mapping; the
 
 The winget mapping takes variants such as ESR, beta or language versions into account. Uncertain mappings are not updated automatically.
 
+## winget cache – updates for computers without winget {#winget-cache}
+
+winget exists only from Windows 10 1809 / Windows Server 2019. For older systems (e.g. Server 2016, 2012 R2) POCKET KNIFE keeps the **current version** of selected programs in the repository – without building packages yourself: **Software → winget cache …** (main admins only).
+
+- **Add:** **Add …** (search the winget catalog) or **From inventory …** – lists programs with a reliable winget match that are installed on computers without winget, outdated ones first.
+- **Load:** POCKET KNIFE fetches the manifest from the winget catalog just like winget (checked with the checksums from the index), picks the matching installer (architecture, for all users, preferred language), downloads it, checks its SHA-256 and stores it under `winget-cache\<winget ID>\<version>\` in the repository. A normal package "<name> (winget-Cache)" is created from it with silent switches, success codes and detection ("already installed").
+- **Silent switches:** from the manifest; if missing, POCKET KNIFE uses the same defaults as winget – MSI: `/qn /norestart` (plus `ALLUSERS=1`), Inno Setup: `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /ALLUSERS`, Nullsoft: `/S`, WiX Burn: `/quiet /norestart`. Plain EXE installers without details, MSIX, ZIP and Store packages are not possible ("Not possible", with the reason) – create your own package for them.
+- **Keep current:** once a day (settings → "Automatic") or **Check all**. When a new version appears it is downloaded, the package is switched over and the old version is deleted – only the current version of each program stays in the cache. If the checksum does not match (the vendor replaced the file), the previous version stays and the entry shows "Error".
+- **Use:** **Update** in the software overview, in the computer view and the schedule "winget updates" automatically use the cache package for computers without winget; all others still use winget. The clients need neither winget nor internet. If an installer requires a newer Windows (MinimumOSVersion in the manifest), the computer is skipped.
+- **Clean up:** **Remove** deletes entry, package and folder (if the package is still used in a schedule, another package or the kiosk, POCKET KNIFE says where). Deleting the package in the package list removes entry and folder as well. **Clean up …** deletes folders in the cache folder that no longer belong to an entry – the cache never touches other repository folders.
+- **Dependencies** (e.g. a Visual C++ runtime) are shown as a hint on the entry – add them to the cache as well.
+- **Settings:** folder in the repository (only while the cache is empty, never inside a tenant folder), preferred language, largest file (default 2048 MB), check automatically every day. The POCKET KNIFE server needs access to `cdn.winget.microsoft.com` and the vendors' download addresses (as for the winget index, via the proxy if set).
+
 # Packages {#packages}
 
 A package consists of **steps** in three sections:
@@ -918,7 +931,7 @@ POCKET KNIFE manages Windows Server just like workstations – via WinRM, which 
 - **Virtual machines:** the scan detects Hyper-V, VMware, KVM/QEMU (e.g. Proxmox), Nutanix AHV, Xen, VirtualBox, Parallels and cloud VMs (field "Virtualization"). On VMs and servers without a monitor there is no longer a warning about displays.
 - **Terminal servers:** on servers POCKET KNIFE reads the winget version from the registry instead of going through all user profiles – the scan stays fast even with many profiles.
 - **Server Core:** without Explorer, POCKET KNIFE detects signed-in users via `quser` (name without domain).
-- **Older servers:** Windows Server 2012 R2 (PowerShell 4) and 2016 are scanned; what is missing there (e.g. `Get-LocalUser`, Defender) is replaced by older methods or left empty. **winget exists only from Windows 10 1809 / Server 2019:** on older systems POCKET KNIFE still shows outdated programs but offers no winget "Update" (schedules and deployments skip these computers or report "Skipped"), and the kiosk shows no packages that install via winget there. Update such programs with your own package from the repository.
+- **Older servers:** Windows Server 2012 R2 (PowerShell 4) and 2016 are scanned; what is missing there (e.g. `Get-LocalUser`, Defender) is replaced by older methods or left empty. **winget exists only from Windows 10 1809 / Server 2019:** on older systems POCKET KNIFE still shows outdated programs but offers no winget "Update" (schedules and deployments skip these computers or report "Skipped"), and the kiosk shows no packages that install via winget there. Since 2.35 the [winget cache](#winget-cache) updates such programs – or your own package from the repository.
 
 ## POCKET KNIFE restarted during a deployment {#deploy-restart}
 

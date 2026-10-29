@@ -1,5 +1,13 @@
 # Änderungen
 
+## pocketknife-2.35.0 (29.10.2026)
+- **Neu – winget-Cache (Software → winget-Cache …):** Für Computer, auf denen winget nicht läuft (vor Windows 10 1809 / Server 2019), hält POCKET KNIFE die aktuelle Version ausgewählter Programme im Repository bereit – ohne selbst Pakete zu bauen. Programme aufnehmen per Suche im winget-Katalog oder „Aus dem Bestand …“ (installiert auf Computern ohne winget, veraltete zuerst). POCKET KNIFE lädt das Manifest wie winget selbst (Index v2: `versionData.mszyml` und Manifest, beides mit Prüfsumme), wählt den Installer (Architektur, für alle Benutzer, bevorzugte Sprache), lädt ihn, prüft die SHA-256 und legt ihn unter `winget-cache\<winget-ID>\<Version>\` ab. Daraus entsteht ein Paket „<Name> (winget-Cache)“ mit stillen Schaltern (aus dem Manifest, sonst die winget-Standards für MSI, Inno Setup, Nullsoft, WiX-Burn), Erfolgscodes und Erkennung. MSIX, ZIP, Store-Pakete und EXE-Installer ohne Schalter: „Nicht möglich“ mit Grund
+- **Neu – immer nur die aktuelle Version:** täglich (oder „Alle prüfen“) auf neue Versionen prüfen; neue Version laden, Paket umstellen, alte löschen. Falsche Prüfsumme → nichts übernommen, die bisherige bleibt
+- **Neu – Aktualisieren ohne winget:** Softwareübersicht, Computeransicht und Zeitplan „winget-Updates“ nehmen für Computer ohne winget automatisch das Paket aus dem Cache (alle anderen weiter per winget); verlangt der Installer ein neueres Windows, wird der Computer ausgelassen
+- **Neu – kein Müll:** Entfernen löscht Eintrag, Paket und Ordner (wird das Paket noch verwendet, steht da wo); wird das Paket in der Paketliste gelöscht, verschwinden Eintrag und Ordner mit; „Aufräumen …“ löscht verwaiste Ordner im Cache-Ordner – nie außerhalb
+- **Abhängigkeit:** PyYAML (Manifeste lesen) – fest in `requirements.lock`, Grenze in `requirements.caps`
+- **Selbsttest:** MSZIP, Installer-Wahl und Schalter, Laden mit nachgebautem winget-Server ins Repository, neue Version ersetzt alte, falsche Prüfsumme, Aufteilen nach Windows-Version, Bereitstellung aus dem Cache, Entfernen und Aufräumen, nur Hauptadmins
+
 ## pocketknife-2.34.0 (29.10.2026)
 Windows Server – was dort anders ist (neues Hilfe-Kapitel „Windows Server“):
 - **Neu – Rückfrage vor Neustart/Herunterfahren von Servern:** Sind Server oder Domänencontroller unter den Zielen, nennt der Dialog sie samt Zahl der angemeldeten Benutzer und führt erst nach dem Häkchen „Ja, auch die Server“ bzw. „… Domänencontroller“ aus (Rolle aus dem Scan, sonst aus dem Betriebssystem)
