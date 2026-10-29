@@ -257,7 +257,7 @@ def search(cid, path, q, limit=300, seconds=300, user_key=None):
             if i < 0:
                 raise FileError(util.first_line(err, "Keine Antwort vom Computer erhalten.")[:400])
             import json
-            data = json.loads(out[i + 7:].strip().splitlines()[0])
+            data = json.loads((out[i + 7:].strip().splitlines() or ["{}"])[0])
             if data.get("error") == "notfound":
                 raise FileError("Nicht gefunden.")
             if data.get("error"):

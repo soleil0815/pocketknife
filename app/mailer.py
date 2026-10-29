@@ -226,7 +226,7 @@ def _connect(s, password, log):
             c = smtplib.SMTP(s["host"], s["port"], timeout=timeout, local_hostname=helo)
         log.append(f"Verbunden mit {s['host']}:{s['port']}{' (SSL/TLS)' if s['security'] == 'ssl' else ''}")
         code, resp = c.ehlo()
-        log.append(f"EHLO {helo} → {code} {_r(resp).splitlines()[0] if resp else ''}")
+        log.append(f"EHLO {helo} → {code} {util.first_line(_r(resp)) if resp else ''}")
         if s["security"] == "starttls":
             if not c.has_extn("starttls"):
                 c.quit()

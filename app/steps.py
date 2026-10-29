@@ -397,9 +397,9 @@ def step_title(st, packages=None):
     if t == "uninstall":
         return f"Deinstallieren: {st['match_name']}" + (f" {st['match_version']}" if st.get("match_version") else "")
     if t == "command":
-        return "Befehl: " + st["command"].splitlines()[0][:60]
+        return "Befehl: " + ((st.get("command") or "").splitlines() or [""])[0][:60]
     if t == "powershell":
-        return "PowerShell: " + st["script"].splitlines()[0][:60]
+        return "PowerShell: " + ((st.get("script") or "").splitlines() or [""])[0][:60]
     if t == "nested":
         n = (packages or {}).get(st["package_id"]) or db.val("SELECT name FROM packages WHERE id=?", (st["package_id"],), "?")
         return f"Paket: {n}"

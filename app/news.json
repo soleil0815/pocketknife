@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.32.11",
+   "date": "2026-10-29",
+   "items": [
+    {
+     "kind": "fixed",
+     "audience": "all",
+     "de": "Angemeldete Benutzer abfragen ergab bei manchen Computern einen internen Fehler (wenn alle Sitzungen aktiv waren).",
+     "en": "Querying signed-in users gave an internal error on some computers (when all sessions were active)."
+    }
+   ]
+  },
+  {
    "version": "2.32.10",
    "date": "2026-10-29",
    "items": [
