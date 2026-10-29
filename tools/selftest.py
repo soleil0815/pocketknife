@@ -5872,6 +5872,14 @@ exit 0
     r = run("-y")
     assert r.returncode == 0 and rd("update.sh").endswith("# aus dem Image\n")
 
+
+@test("2.33.3 Sammlungsbaum: je Ebene alphabetisch (Ordner zuerst), AD und Standard oben, Standard-Sammlungen in fester Reihenfolge")
+def _():
+    js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
+    i = js.index("const byParent = {};")
+    seg = js[i:i + 900]
+    assert "v.sort(" in seg and "deCmp(a.name, b.name)" in seg and "a.builtin === 1 && b.builtin === 1 ? 0" in seg, "Baum sortiert"
+
 def main():
     ok = 0
     for name, fn in RESULTS:

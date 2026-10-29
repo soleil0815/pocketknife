@@ -1488,6 +1488,11 @@ async function viewComputers(_parts, params) {
     canNew ? h('button.ghost.small', { title: 'Neue Sammlung', onclick: () => collectionDlg(null) }, icon('plus')) : null), h('div.tree-filter', filterIn), treeBody);
   const byParent = {};
   cols.forEach((c) => (byParent[c.parent_id || 0] = byParent[c.parent_id || 0] || []).push(c));
+  // 2.33.3: je Ebene alphabetisch – oben wie bisher erst AD, dann Standard, dann eigene; Ordner vor Sammlungen
+  const treeRank = (c) => (c.builtin === 2 || c.ad_kind ? 0 : c.builtin === 1 ? 1 : 2);
+  // (die Standard-Sammlungen behalten ihre feste Reihenfolge: Alle Computer, Online, Offline …)
+  Object.values(byParent).forEach((v) => v.sort((a, b) => treeRank(a) - treeRank(b)
+    || (a.builtin === 1 && b.builtin === 1 ? 0 : (a.type === 'folder' ? 0 : 1) - (b.type === 'folder' ? 0 : 1) || deCmp(a.name, b.name))));
   const openState = (() => { try { return JSON.parse(localStorage.getItem('pk-tree-open') || '{}'); } catch (e) { return {}; } })();
   const saveOpen = () => { try { localStorage.setItem('pk-tree-open', JSON.stringify(openState)); } catch (e) { /* egal */ } };
   let selId = cid;
