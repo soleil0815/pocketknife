@@ -1,5 +1,10 @@
 # Änderungen
 
+## pocketknife-2.33.1 (29.10.2026)
+- **Behoben – Umstieg von der ZIP-Installation:** Der Befehl zum Holen des neuen `update.sh` lief ohne `sudo` – ohne Docker-Rechte (oder ohne Anmeldung an der Registry) entstand eine leere `update.sh.neu`, und danach lief weiter das alte Skript (es baut wie früher vor Ort). Jetzt ein einziger Befehl als root: Image laden, Skript holen, ausführen – schlägt ein Schritt fehl, passiert nichts weiter. Das neue Skript legt sich am Ende selbst als `update.sh` ab. Ebenso bei der Installation
+- **Behoben – Release:** `.env.example` fehlte bei den Dateien des Releases (`dist/*` erfasst keine Dateien mit Punkt am Anfang)
+- **Selbsttest:** Umstieg mit `update.sh.neu` neben dem alten Skript; Anleitungen ohne den fehleranfälligen Zwischenschritt; `.env.example` im Release
+
 ## pocketknife-2.33.0 (29.10.2026)
 Updates so, wie Docker-Nutzer es gewohnt sind – das Programm steckt komplett im Image:
 - **Neu – Update mit einer Container-Verwaltung:** Dockhand, Watchtower, Tugtainer & Co. oder `docker compose pull && docker compose up -d` aktualisieren POCKET KNIFE gefahrlos – vor dem Start einer neuen Version sichert POCKET KNIFE seine Datenbank selbst (wie bisher). Empfehlung: Update-Zeit nachts

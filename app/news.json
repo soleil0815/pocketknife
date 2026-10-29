@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.33.1",
+   "date": "2026-10-29",
+   "items": [
+    {
+     "kind": "fixed",
+     "audience": "admin",
+     "de": "Anleitung zum Umstieg und zur Installation: ein einziger Befehl als root, der nichts weiter tut, wenn das Image nicht geladen werden kann (bisher konnte eine leere update.sh.neu entstehen).",
+     "en": "Switching and installation guide: a single command as root that does nothing further if the image cannot be pulled (previously an empty update.sh.neu could be created)."
+    }
+   ]
+  },
+  {
    "version": "2.33.0",
    "date": "2026-10-29",
    "items": [

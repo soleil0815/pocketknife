@@ -5641,6 +5641,7 @@ def _():
         rel = open(os.path.join(wfd, "release.yml"), encoding="utf-8").read()
         assert "git archive" not in rel and ".zip" not in rel, "Release ohne Programm-ZIP"
         assert "imagetools create" in rel and "docker/guacd.txt" in rel and "docker save" in rel and "tar.gz" in rel
+        assert "dist/* dist/.env.example" in rel, "dist/* erfasst .env.example nicht (Punkt am Anfang)"
         assert rel.index("- name: Bauen und hochladen") < rel.index("- name: guacd unter eigenem Namen") < rel.index("- name: Release anlegen")
         wk = open(os.path.join(wfd, "weekly.yml"), encoding="utf-8").read()
         assert "docker/guacd.txt" in wk and "docker-compose.yml" not in wk.split("Etwas geändert?")[1].split("Schwachstellen")[0]
@@ -5856,6 +5857,15 @@ exit 0
     assert "kept: " in r.stdout and "pocketknife-2.23.3" in r.stdout, "Versionsordner mit Datenbank bleibt"
     assert "image rm pocketknife:local" in open(os.path.join(st, "calls")).read()
     assert "pocketknife:latest" not in [x.split()[-1] for x in open(os.path.join(st, "calls")).read().splitlines() if x.startswith("image rm")]
+    # 2.33.1: Umstieg – das neue Skript läuft als update.sh.neu (das alte liegt noch als update.sh da) und legt sich selbst ab
+    w(os.path.join(st, "host", "update.sh"), open(f, encoding="utf-8").read())
+    _sh.copy(f, os.path.join(inst, "update.sh.neu")); w(os.path.join(inst, "update.sh"), "#!/bin/sh\n# POCKET KNIFE – update (since 2.24.1: alt)\n")
+    r = _sp.run(["sh", "update.sh.neu", "-y"], cwd=inst, env=env, capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0 and rd("update.sh") == open(f, encoding="utf-8").read(), r.stdout[-400:]
+    for doc in ("README.md", "README.en.md", os.path.join("app", "static", "help", "de.md"), os.path.join("app", "static", "help", "en.md")):
+        t_ = open(os.path.join(root, doc), encoding="utf-8").read()
+        assert "> update.sh.neu && mv" not in t_ and "&& sh update.sh.neu'" in t_ and "sudo sh -c 'docker pull" in t_, ("Umstieg in einem Befehl als root", doc)
+    os.remove(os.path.join(inst, "update.sh.neu"))
     # 10. update.sh nimmt sich selbst aus dem Image (neue Datei per mv – das laufende Skript bleibt unberührt)
     w(os.path.join(st, "host", "update.sh"), open(f, encoding="utf-8").read() + "\n# aus dem Image\n")
     r = run("-y")

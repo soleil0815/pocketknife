@@ -144,9 +144,9 @@ The detailed step-by-step guide – Docker host, ports, every line of the `.env`
 
 ```bash
 mkdir -p /opt/pocketknife && cd /opt/pocketknife
-docker login ghcr.io -u <GitHub user>       # only for a private registry; password = token with read:packages
+sudo docker login ghcr.io -u <GitHub user>  # only for a private registry; password = token with read:packages
 # take the three files for the host from the image (or download them in the browser from the release)
-docker run --rm --entrypoint sh ghcr.io/soleil0815/pocketknife:latest -c 'cd /opt/pocketknife/host && tar cf - .' | tar xf -
+sudo sh -c 'docker pull ghcr.io/soleil0815/pocketknife:latest && docker run --rm --entrypoint sh ghcr.io/soleil0815/pocketknife:latest -c "cd /opt/pocketknife/host && tar cf - ." | tar xf -'
 cp .env.example .env
 nano .env                 # required: PK_DOMAIN, PK_NETBIOS, PK_DNS_1, PK_LDAP_SERVERS, PK_ACCESS_GROUP, PK_PUBLIC_HOSTNAME
 docker compose up -d      # pulls the ready-made images (amd64/arm64) and starts
@@ -193,13 +193,14 @@ sudo sh update.sh latest        # back to "always the newest"
 
 Up to 2.32 the program ZIP was unpacked on the host. That is no longer needed – switch like this:
 
-1. Get the new `update.sh` (the old one does not know the new way) and run it once – it switches to the ready-made image, puts the new `docker-compose.yml` in place (the old one stays as `docker-compose.yml.alt`) and removes the update helper of 2.32.9–2.32.12 if it was set up:
+1. Take the new `update.sh` from the image and run it once (the old one does not know the new way – it would build locally as before) – it switches to the ready-made image, puts the new `docker-compose.yml` in place (the old one stays as `docker-compose.yml.alt`) and removes the update helper of 2.32.9–2.32.12 if it was set up:
 
 ```bash
 cd /opt/pocketknife
-docker run --rm --entrypoint cat ghcr.io/soleil0815/pocketknife:latest /opt/pocketknife/host/update.sh > update.sh.neu && mv update.sh.neu update.sh
-sudo sh update.sh
+sudo sh -c 'docker pull ghcr.io/soleil0815/pocketknife:latest && docker run --rm --entrypoint cat ghcr.io/soleil0815/pocketknife:latest /opt/pocketknife/host/update.sh > update.sh.neu && sh update.sh.neu'
 ```
+
+Everything in one command as root: if pulling the image fails (e.g. `denied` – then first `sudo docker login ghcr.io -u <GitHub user>`), nothing else happens. At the end the new script puts itself in place as `update.sh`; `--cleanup` removes the file `update.sh.neu`.
 
 2. Clean up – shows what can go and asks:
 
