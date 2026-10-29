@@ -70,6 +70,7 @@ while [ $# -gt 0 ]; do
     --watch) WATCH=run ;;
     --watch-install) WATCH=install ;;
     --watch-remove) WATCH=remove ;;
+    --watch-auto) WATCH=auto ;;   # used by update.sh itself after replacing itself
     --keep) shift ;;   # formerly: keep old version folders – since 2.24.1 there is only one program folder
     -h|--help) sed -n '2,48p' "$0"; exit 0 ;;
     *) ARG="$1" ;;
@@ -343,6 +344,11 @@ from_zip() {
   if [ -n "$OLDVER" ] && [ "$OLDVER" != "?" ] && [ "$OLDVER" != "$NEWVER" ] && ver_lt "$NEWVER" "$OLDVER"; then
     say "  CAUTION: $NEWVER is OLDER than the current version $OLDVER (downgrade)."
   fi
+  # 2.32.10: requested in the web interface (watch mode) – only ever forward, never the same or an older version
+  if [ -n "${PK_WATCH_RESULT:-}" ]; then
+    if [ "$OLDVER" = "$NEWVER" ]; then say "POCKET KNIFE $NEWVER is already up to date."; result current; exit 0; fi
+    if [ "$OLDVER" = "?" ] || ! ver_lt "$OLDVER" "$NEWVER"; then result older; die "$NEWVER is not newer than $OLDVER – an update from the web interface never goes back (by hand on the host only)."; fi
+  fi
   echo
   ask "Update to POCKET KNIFE $NEWVER now?" || { say "Cancelled – nothing changed."; exit 0; }
 
@@ -487,6 +493,7 @@ from_zip() {
       fi
       [ -n "$UNFINISHED" ] || rm -f "$MARK"   # still unfinished: .pk-vorher/ keeps the last GOOD version
       say "Previous version $OLDVER is running again."
+      result rolledback
       say "If the new version already extended the database and the old one shows errors: Settings → Backup →"
       say "backup \"vor-$NEWVER\" (README: restore)."
     fi
@@ -513,12 +520,17 @@ from_zip() {
   fi
 
   cleanup
-  watch_auto   # 2.32.9: "Update now" in the web interface works from now on
   # Finally replace the update script itself (new file via mv – the running script stays untouched)
   if [ -f "$SRC/update.sh" ]; then
     cp "$SRC/update.sh" "$INST/update.sh.neu" && chmod +x "$INST/update.sh.neu" && mv "$INST/update.sh.neu" "$INST/update.sh"
   fi
+  # Update helper ("Update now"): set up or refresh with the NEW script – its unit/cron text is the current one
+  # (only if it knows --watch-auto: an older script would take the option for a folder)
+  if grep -q -- '--watch-auto) WATCH=auto' "$INST/update.sh" 2>/dev/null; then sh "$INST/update.sh" --watch-auto || true
+  else watch_auto
+  fi
   info "Done: POCKET KNIFE $NEWVER is running from $INST."
+  result done
   if [ -n "${MOVEHINT:-}" ]; then
     MH=$(dirname "$MOVEHINT")
     say "Tip: database and backups are still in the old version folder $MH; it is therefore never cleaned up."
@@ -571,6 +583,12 @@ cleanup() {
     if [ -n "$skip" ]; then say "  kept: $d ($skip)"; continue; fi
     printf '%s\n' "$d" >> "$TMP/del"
   done
+  if [ -n "${PK_WATCH_RESULT:-}" ]; then
+    # 2.32.10: from the web interface nothing beyond the update itself – no deleting folders, no docker image prune
+    # (that would also remove unused images of other containers on the host)
+    say "  (requested in the web interface: old folders and images stay – clean up by hand with  sh update.sh --pull)"
+    return 0
+  fi
   if [ -s "$TMP/del" ]; then
     say "  Old version folders (no longer needed – the program runs from $INST, the previous state is in .pk-vorher/):"
     while IFS= read -r d; do say "    $d ($(tr -d ' \r\n' < "$d/VERSION"))"; done < "$TMP/del"
@@ -605,6 +623,7 @@ from_registry() {
     say "  - not logged in to the (private) registry – once, as the user running this update:"
     say "      docker login ${REPO%%/*} -u <user>     (password: token with the right read:packages)"
     say "  - version \"$TAG\" does not exist, or no internet access (then: sh update.sh pocketknife-<version>.zip)"
+    result pull
     exit 1
   fi
   # Exactly this image from now on (by digest – the tag may move later)
@@ -629,6 +648,8 @@ from_registry() {
   IMGVER=$(docker image inspect "$PULLREF" --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' 2>/dev/null || true)
   ZIPVER=$(basename "$Z" .zip); ZIPVER=${ZIPVER#pocketknife-}
   if [ -n "$IMGVER" ] && [ "$IMGVER" != "$ZIPVER" ]; then rm -rf "$PD"; die "Image ($IMGVER) and program ZIP ($ZIPVER) do not match."; fi
+  # 2.32.10: a version tag must contain exactly that version (a moved or wrong tag is not installed)
+  if [ -n "${PULLTAG:-}" ] && [ "$PULLTAG" != latest ] && [ "$PULLTAG" != "$ZIPVER" ]; then rm -rf "$PD"; die "The image $REPO:$PULLTAG contains version $ZIPVER – not installed."; fi
   say "  Program ZIP $(basename "$Z") checked (SHA-256)."
   RUNIMG=$(docker inspect pocketknife --format '{{.Image}}' 2>/dev/null || true)
   NEWIMG=$(docker image inspect "$PULLREF" --format '{{.Id}}' 2>/dev/null || true)
@@ -648,11 +669,13 @@ from_registry() {
       printf 'Waiting for the start '
       wait_healthy || say "WARNING: POCKET KNIFE does not report as healthy – see: docker compose logs pocketknife"
       watch_auto
+      result current
       exit 0
     fi
     say ""
     say "POCKET KNIFE $ZIPVER is already up to date (exactly this image is running)."
     watch_auto
+    result current
     exit 0
   fi
   from_zip "$Z"
@@ -661,11 +684,14 @@ from_registry() {
 # --------------------------------------------------------------------------------------------------------------
 # Since 2.32.9: update requested in the web interface (Settings → Maintenance / "Update now")
 #   The container never gets access to Docker. It only puts a request into <data>/update/request; this helper runs
-#   on the host every 5 minutes (sh update.sh --watch-install sets it up) and carries out  update.sh --pull <version> -y
-#   – with the usual backup, checksum, health check, automatic going back and self-test – and writes the state and
-#   the log back into <data>/update/. The request is not trusted: only a version number (or "latest"), never older than
-#   the running version; the folder belongs to the container, so nothing in it is followed as a link and every file is
-#   written as a new file (mktemp + mv).
+#   on the host every 5 minutes (set up by every update) and carries out  update.sh --pull <version> -y  – with the
+#   usual backup, checksum, health check, automatic going back and self-test – and writes state and log into
+#   <data>/update/host/.
+#   2.32.10: <data>/update/ belongs to the container, so root never writes there: it writes only into host/, a folder
+#   owned by root (the container cannot add, swap or link anything inside it). The request is first MOVED into host/
+#   (a rename never follows a link) and only read there. It is not trusted: only a version number (or "latest"), and
+#   update.sh itself refuses anything that is not newer than the running version (PK_WATCH_RESULT = watch mode).
+#   The result comes from update.sh as a token in a file of root (not from the log, which contains container output).
 # --------------------------------------------------------------------------------------------------------------
 WATCH_UNIT="pocketknife-update"
 watch_datadir() {
@@ -676,7 +702,9 @@ watch_datadir() {
   fi
   printf '%s' "$D"
 }
-# write a file into the update folder: new file next to it, then rename (never through a link planted there)
+# update.sh in watch mode: write the result token for the helper (file of root, outside the data folder)
+result() { if [ -n "${PK_WATCH_RESULT:-}" ]; then printf '%s\n' "$1" > "$PK_WATCH_RESULT" || true; fi; }
+# write a file into host/ (the current folder, owned by root): new file, then rename
 watch_put() {
   t=$(mktemp "./.pk-host.XXXXXX") || return 1
   cat > "$t" && chmod 644 "$t" && mv -f "$t" "./$1" || { rm -f "$t"; return 1; }
@@ -686,36 +714,69 @@ watch_status() {  # state message
     printf 'from=%s\nto=%s\ntarget=%s\nby=%s\n' "${W_FROM:-}" "$(tr -d ' \r\n' < "$SCRIPTDIR/VERSION" 2>/dev/null || true)" "${W_REQ:-}" "${W_BY:-}"
     printf 'started=%s\n' "${W_START:-}"
     [ "$1" = running ] || printf 'finished=%s\n' "$(date +%s)"
-    printf 'message=%s\n' "$(printf '%s' "${2:-}" | tr -d '\r\n' | cut -c1-280)"
+    printf 'message=%s\n' "$(printf '%s' "${2:-}" | tr -cd 'A-Za-z0-9 ._:/()=+,-' | cut -c1-280)"
   } | watch_put status
+}
+watch_end() {  # EXIT trap
+  [ -n "${CP:-}" ] && kill "$CP" 2>/dev/null
+  # killed in the middle (reboot, kill): never leave "running" behind
+  if [ -n "${W_RUNNING:-}" ]; then watch_status failed "interrupted" || true; fi
+  rm -f "${L:-/nonexistent}" "${RES:-/nonexistent}" "./.req.$$"
+  rm -rf "$LOCK"
 }
 watch() {
   YES=1
+  # started by cron/systemd: complete PATH (docker in /usr/local/bin …) and HOME (docker login of root → ~/.docker)
+  PATH="$PATH:$WATCH_PATH"; export PATH
+  if [ -z "${HOME:-}" ] || [ "$HOME" = / ]; then HOME=$(awk -F: -v u="$(id -u)" '$3 == u { print $6; exit }' /etc/passwd 2>/dev/null); HOME=${HOME:-/root}; export HOME; fi
   D=$(watch_datadir)
   [ -d "$D" ] || die "Data folder not found ($D) – PK_DATA_PATH in $SCRIPTDIR/.env?"
+  DP=$(cd "$D" && pwd -P) || die "Data folder not readable: $D"
   WU="$D/update"
   if [ -L "$WU" ]; then die "$WU is a symbolic link – not used."; fi
   if [ ! -d "$WU" ]; then
     mkdir -p "$WU" && chown "$(stat -c '%u:%g' "$D")" "$WU" 2>/dev/null || true
   fi
-  # work INSIDE the folder (relative names from here on): even if it were swapped for a link later, every file stays
-  # in exactly this folder
   cd "$WU" 2>/dev/null || exit 0
-  [ "$(pwd -P)" = "$(canon "$D")/update" ] || die "$WU does not resolve to $(canon "$D")/update – not used."
+  [ "$(pwd -P)" = "$DP/update" ] || die "$WU does not resolve to $DP/update – not used."
+  # host/: only root writes here – create it, and never use one that belongs to someone else or is a link
+  [ -d host ] || [ -L host ] || mkdir -m 755 host 2>/dev/null || true
+  [ -d host ] && [ ! -L host ] || die "$WU/host is missing or not a folder – not used."
+  cd host || exit 0
+  [ "$(pwd -P)" = "$DP/update/host" ] || die "$WU/host does not resolve to $DP/update/host – not used."
+  [ "$(stat -c '%u' .)" = "$(id -u)" ] || die "$WU/host does not belong to $(id -un) – not used (delete it; the helper creates it again)."
+  chmod 755 . 2>/dev/null || true
   # one helper at a time (an update takes a few minutes, the timer may start again meanwhile)
   LOCK="$SCRIPTDIR/.pk-watch.lock"
   if ! mkdir "$LOCK" 2>/dev/null; then
     op=$(cat "$LOCK/pid" 2>/dev/null || true)
-    if [ -n "$op" ] && kill -0 "$op" 2>/dev/null; then exit 0; fi
+    la=$(( $(date +%s) - $(stat -c '%Y' "$LOCK" 2>/dev/null || date +%s) ))
+    # a running helper – unless the lock is older than 3 hours (process ID reused by something else after a crash)
+    if [ -n "$op" ] && kill -0 "$op" 2>/dev/null && [ "$la" -lt 10800 ]; then exit 0; fi
     rm -rf "$LOCK"; mkdir "$LOCK" 2>/dev/null || exit 0
   fi
   echo $$ > "$LOCK/pid"
-  trap 'rm -rf "$LOCK"' EXIT
+  trap 'watch_end' EXIT
+  trap 'exit 1' INT TERM HUP
   printf 'seen=%s\n' "$(date +%s)" | watch_put helper || true
-  R="request"
-  [ -f "$R" ] && [ ! -L "$R" ] || { [ -L "$R" ] && rm -f "$R"; exit 0; }
-  REQTXT=$(head -c 1024 "$R" 2>/dev/null || true)
-  rm -f "$R"   # taken – also if it is invalid (never twice)
+  # keep its own timer/cron entry up to date (only writes if something changed – e.g. after an update by the old helper)
+  ( cd "$SCRIPTDIR" && watch_auto ) >/dev/null 2>&1 || true
+  # files of 2.32.9 directly in update/ (written there by root) – no longer used
+  rm -f ../status ../update.log ../helper 2>/dev/null || true
+  # the last helper was killed in the middle of an update → say so (otherwise "running" forever)
+  if grep -q '^state=running' status 2>/dev/null; then
+    W_REQ=$(sed -n 's/^target=//p' status | head -n 1); W_FROM=$(sed -n 's/^from=//p' status | head -n 1)
+    W_BY=$(sed -n 's/^by=//p' status | head -n 1); W_START=$(sed -n 's/^started=//p' status | head -n 1)
+    watch_status failed "interrupted" || true
+  fi
+  # take the request: rename it into host/ (same file system; a rename never follows a link), only then look at it
+  [ -e ../request ] || [ -L ../request ] || exit 0
+  mv -f ../request "./.req.$$" 2>/dev/null || exit 0
+  RQ="./.req.$$"
+  REQTXT=""
+  # a regular file of the container (never a link, a FIFO or a hard link to a file of someone else)
+  if [ -f "$RQ" ] && [ ! -L "$RQ" ] && [ "$(stat -c '%u' "$RQ")" = "$(stat -c '%u' ..)" ]; then REQTXT=$(head -c 1024 "$RQ" 2>/dev/null || true); fi
+  rm -f "$RQ"   # taken – also if it is invalid (never twice)
   W_REQ=$(printf '%s\n' "$REQTXT" | sed -n 's/^version=//p' | head -n 1 | tr -d ' \r')
   W_BY=$(printf '%s\n' "$REQTXT" | sed -n 's/^by=//p' | head -n 1 | tr -cd 'A-Za-z0-9._@\\-' | cut -c1-64)
   W_FROM=$(tr -d ' \r\n' < "$SCRIPTDIR/VERSION" 2>/dev/null || echo "?")
@@ -726,25 +787,31 @@ watch() {
   if [ "$W_REQ" != latest ] && [ "$W_FROM" != "?" ] && ! ver_lt "$W_FROM" "$W_REQ"; then
     watch_status refused "older"; exit 0   # not newer than the running version – going back only by hand on the host
   fi
+  W_RUNNING=1
   watch_status running ""
-  L=$(mktemp "$SCRIPTDIR/.pk-watch-log.XXXXXX") || { watch_status failed "cannot create a log file in $SCRIPTDIR"; exit 1; }
-  trap 'rm -rf "$LOCK"; rm -f "$L"; [ -n "${CP:-}" ] && kill "$CP" 2>/dev/null' EXIT
+  L=$(mktemp "$SCRIPTDIR/.pk-watch-log.XXXXXX") || { watch_status failed "no log file"; W_RUNNING=""; exit 1; }
+  RES=$(mktemp "$SCRIPTDIR/.pk-watch-result.XXXXXX") || { watch_status failed "no result file"; W_RUNNING=""; exit 1; }
   # show progress in the web interface (as long as it is running)
-  ( while :; do sleep 5; tail -c 32768 "$L" 2>/dev/null | watch_put update.log || true; done ) &
+  ( trap - EXIT; while :; do sleep 5; tail -c 32768 "$L" 2>/dev/null | watch_put update.log || true; done ) &
   CP=$!
   set +e
-  if [ "$W_REQ" = latest ]; then sh "$SCRIPTDIR/update.sh" --pull -y < /dev/null > "$L" 2>&1
-  else sh "$SCRIPTDIR/update.sh" --pull "$W_REQ" -y < /dev/null > "$L" 2>&1
+  if [ "$W_REQ" = latest ]; then PK_WATCH_RESULT="$RES" sh "$SCRIPTDIR/update.sh" --pull -y < /dev/null > "$L" 2>&1
+  else PK_WATCH_RESULT="$RES" sh "$SCRIPTDIR/update.sh" --pull "$W_REQ" -y < /dev/null > "$L" 2>&1
   fi
   rc=$?
   set -e
   kill "$CP" 2>/dev/null || true; wait "$CP" 2>/dev/null || true; CP=""
   tail -c 32768 "$L" | watch_put update.log || true
-  if [ "$rc" = 0 ] && grep -q "is already up to date" "$L"; then watch_status current ""
-  elif [ "$rc" = 0 ]; then watch_status done ""
-  elif grep -q "is running again" "$L"; then watch_status rolledback ""
-  else watch_status failed "$(grep '^ERROR:' "$L" | tail -n 1 | sed 's/^ERROR: //')"
-  fi
+  tok=$(head -n 1 "$RES" 2>/dev/null | tr -cd 'a-z')
+  W_RUNNING=""
+  case "$tok" in
+    done) if [ "$rc" = 0 ]; then watch_status done ""; else watch_status failed "exit $rc"; fi ;;
+    current) watch_status current "" ;;
+    rolledback) watch_status rolledback "" ;;
+    older) watch_status refused "older" ;;
+    pull) watch_status failed "pull" ;;
+    *) watch_status failed "$(grep '^ERROR:' "$L" | tail -n 1 | sed 's/^ERROR: //')" ;;
+  esac
   exit 0
 }
 
@@ -753,56 +820,68 @@ watch() {
 # PK_SYSROOT only for the self-test (instead of / – nothing is written to the real /etc there).
 SYSROOT="${PK_SYSROOT:-}"
 watch_installed() { [ -f "$SYSROOT/etc/systemd/system/$WATCH_UNIT.timer" ] || [ -f "$SYSROOT/etc/cron.d/$WATCH_UNIT" ]; }
-# set up the timer; 0 = set up (or already there), 1 = not possible here (message printed)
+# PATH for the helper: cron only has /usr/bin:/bin (docker is in /usr/local/bin on a Synology, for example)
+WATCH_PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+watch_unit_service() {
+  printf '%s\n' "[Unit]" "Description=POCKET KNIFE – carry out an update requested in the web interface" "After=docker.service" "" \
+    "[Service]" "Type=oneshot" "User=root" "Environment=HOME=/root" "Environment=PATH=$WATCH_PATH" \
+    "ExecStart=/bin/sh $SCRIPTDIR/update.sh --watch"
+}
+watch_unit_timer() {
+  printf '%s\n' "[Unit]" "Description=POCKET KNIFE – look for an update request every 5 minutes" "" \
+    "[Timer]" "OnBootSec=2min" "OnUnitActiveSec=5min" "AccuracySec=30s" "" "[Install]" "WantedBy=timers.target"
+}
+watch_cron() {
+  printf '%s\n' "# POCKET KNIFE – carry out an update requested in the web interface (update.sh --watch-remove removes this)" \
+    "PATH=$WATCH_PATH" "HOME=/root" "*/5 * * * * root /bin/sh $SCRIPTDIR/update.sh --watch >/dev/null 2>&1"
+}
+# write a file only if its content differs; 0 = changed
+put_if_changed() {
+  t="$1.pk-neu"
+  cat > "$t" || { rm -f "$t"; return 1; }
+  if [ -f "$1" ] && cmp -s "$t" "$1"; then rm -f "$t"; return 1; fi
+  chmod 644 "$t" && mv -f "$t" "$1"
+}
+# set up (or refresh) the timer; 0 = set up, 1 = not possible here (message printed). Quiet if nothing changed.
 watch_setup() {
   if [ -f "$SYSROOT/etc/synoinfo.conf" ] && ! { command -v systemctl >/dev/null 2>&1 && [ -d "$SYSROOT/run/systemd/system" ]; }; then
     say "Synology: please create the task in DSM once (Control Panel → Task Scheduler → Create → Scheduled Task →"
     say "  User-defined script; user root, daily, repeat every 5 minutes; script:  sh $SCRIPTDIR/update.sh --watch)"
     return 1
   fi
-  if command -v systemctl >/dev/null 2>&1 && [ -d "$SYSROOT/run/systemd/system" ]; then
-    cat > "$SYSROOT/etc/systemd/system/$WATCH_UNIT.service" <<UNIT
-[Unit]
-Description=POCKET KNIFE – carry out an update requested in the web interface
-After=docker.service
-
-[Service]
-Type=oneshot
-ExecStart=/bin/sh $SCRIPTDIR/update.sh --watch
-UNIT
-    cat > "$SYSROOT/etc/systemd/system/$WATCH_UNIT.timer" <<UNIT
-[Unit]
-Description=POCKET KNIFE – look for an update request every 5 minutes
-
-[Timer]
-OnBootSec=2min
-OnUnitActiveSec=5min
-AccuracySec=30s
-
-[Install]
-WantedBy=timers.target
-UNIT
+  if [ ! -f "$SYSROOT/etc/cron.d/$WATCH_UNIT" ] && command -v systemctl >/dev/null 2>&1 && [ -d "$SYSROOT/run/systemd/system" ]; then
+    had=""; [ -f "$SYSROOT/etc/systemd/system/$WATCH_UNIT.timer" ] && had=1
+    ch=""
+    watch_unit_service | put_if_changed "$SYSROOT/etc/systemd/system/$WATCH_UNIT.service" && ch=1
+    watch_unit_timer | put_if_changed "$SYSROOT/etc/systemd/system/$WATCH_UNIT.timer" && ch=1
+    if [ -z "$ch" ] && [ -n "$had" ]; then return 0; fi
     if systemctl daemon-reload && systemctl enable --now "$WATCH_UNIT.timer" >/dev/null 2>&1; then
-      say "  Update helper: systemd timer $WATCH_UNIT.timer (every 5 minutes) – \"Update now\" in the web interface works."
-      [ -f "$SYSROOT/etc/synoinfo.conf" ] && say "  Synology: after a DSM update, check Settings → Maintenance; if the helper is gone, run  sh update.sh --watch-install"
+      if [ -n "$had" ]; then say "  Update helper: systemd timer $WATCH_UNIT.timer refreshed."
+      else
+        say "  Update helper: systemd timer $WATCH_UNIT.timer (every 5 minutes) – \"Update now\" in the web interface works."
+        [ -f "$SYSROOT/etc/synoinfo.conf" ] && say "  Synology: after a DSM update, check Settings → Maintenance; if the helper is gone, run  sh update.sh --watch-install"
+      fi
       return 0
     fi
+    [ -n "$had" ] && return 0
     rm -f "$SYSROOT/etc/systemd/system/$WATCH_UNIT.timer" "$SYSROOT/etc/systemd/system/$WATCH_UNIT.service"
   fi
   if [ -d "$SYSROOT/etc/cron.d" ]; then
-    printf '# POCKET KNIFE – carry out an update requested in the web interface (update.sh --watch-remove removes this)\n*/5 * * * * root /bin/sh %s/update.sh --watch >/dev/null 2>&1\n' "$SCRIPTDIR" > "$SYSROOT/etc/cron.d/$WATCH_UNIT"
-    chmod 644 "$SYSROOT/etc/cron.d/$WATCH_UNIT"
-    say "  Update helper: /etc/cron.d/$WATCH_UNIT (every 5 minutes) – \"Update now\" in the web interface works."
+    had=""; [ -f "$SYSROOT/etc/cron.d/$WATCH_UNIT" ] && had=1
+    if watch_cron | put_if_changed "$SYSROOT/etc/cron.d/$WATCH_UNIT"; then
+      if [ -n "$had" ]; then say "  Update helper: /etc/cron.d/$WATCH_UNIT refreshed."
+      else say "  Update helper: /etc/cron.d/$WATCH_UNIT (every 5 minutes) – \"Update now\" in the web interface works."; fi
+    fi
     return 0
   fi
   say "  Neither systemd nor /etc/cron.d – for \"Update now\" run  sh $SCRIPTDIR/update.sh --watch  every 5 minutes as root."
   return 1
 }
-# called by every update: set up the helper unless it is there or was switched off
+# called by every update: set up the helper – or bring an existing one up to date – unless it was switched off
 watch_auto() {
   [ "$(id -u)" = 0 ] || return 0
   [ "$(envval "$SCRIPTDIR/.env" PK_UPDATE_HELPER)" = off ] && return 0
-  watch_installed && return 0
+  if watch_installed; then watch_setup >/dev/null 2>&1 || true; return 0; fi
   info "Update from the web interface"
   watch_setup || say "  (to stop this note: PK_UPDATE_HELPER=off in the .env)"
   return 0
@@ -836,6 +915,7 @@ case "$WATCH" in
   run) watch ;;
   install) watch_install; exit 0 ;;
   remove) watch_remove; exit 0 ;;
+  auto) watch_auto; exit 0 ;;
 esac
 
 if [ -n "$PULL" ]; then

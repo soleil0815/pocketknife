@@ -2,6 +2,24 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.32.10",
+   "date": "2026-10-29",
+   "items": [
+    {
+     "kind": "security",
+     "audience": "admin",
+     "de": "Update per Knopf abgesichert: Der Update-Helfer auf dem Docker-Host schreibt nur noch in einen eigenen Ordner, aus der Oberfläche geht es nie auf eine ältere Version, und er räumt dabei nichts anderes auf.",
+     "en": "Update button hardened: the update helper on the Docker host only writes into its own folder, updates from the web interface never go to an older version, and it does not clean up anything else."
+    },
+    {
+     "kind": "fixed",
+     "audience": "admin",
+     "de": "Update-Helfer findet Docker und die Registry-Anmeldung auch unter cron/systemd (z. B. Synology); klare Meldung, wenn das Image nicht geladen werden kann; ein abgebrochenes Update bleibt nicht auf „läuft“ stehen.",
+     "en": "Update helper finds Docker and the registry login under cron/systemd too (e.g. Synology); clear message if the image cannot be pulled; an interrupted update no longer stays on \"running\"."
+    }
+   ]
+  },
+  {
    "version": "2.32.9",
    "date": "2026-10-28",
    "items": [
