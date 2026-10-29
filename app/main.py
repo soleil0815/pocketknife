@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 
 from . import (access, backup, clientfiles, loadstats, integrity, kiosk, news, pkgexport, repofiles, sso, customreports, mailer, notify, diskusage, kerberos, presence, tls, actions, ad, auth, guard, profiles, remote_desktop, scanners, tools, uninstall, collections_, config, db, deploy, inventory, pklog, remote, reports, scheduler,
-               schedules, steps, util, winget)
+               schedules, steps, util, winget, wingetcache)
 
 
 @asynccontextmanager
@@ -43,6 +43,7 @@ async def lifespan(_app):
                              "langes, zufälliges Kennwort setzen und die Benachrichtigung „Notfallzugang benutzt“ einschalten.")
     tools.init()
     uninstall.init()
+    wingetcache.init()
     winget.load()
     deploy.recover()
     if config.HTTPS:
@@ -1774,23 +1775,30 @@ def api_software_update(data: dict = Body(...), user=U):
     groups, skipped = {}, []
     for n in names:
         rows = db.q("""SELECT s.computer_id, s.winget_id FROM software s JOIN computers c ON c.id=s.computer_id
-                       WHERE s.name=? AND s.winget_id IS NOT NULL AND (s.outdated=1 OR ?)
-                       AND (c.os_build IS NULL OR c.os_build='' OR CAST(c.os_build AS INTEGER) >= ?)""",
-                    (n, 1 if only else 0, deploy.WINGET_MIN_BUILD))
+                       WHERE s.name=? AND s.winget_id IS NOT NULL AND (s.outdated=1 OR ?)""",
+                    (n, 1 if only else 0))
         rows = [r for r in rows if (not only or r["computer_id"] in only) and (mine is None or r["computer_id"] in mine)]
         if not rows:
             skipped.append(n)
         for r in rows:
             groups.setdefault(r["winget_id"], set()).add(r["computer_id"])
-    out = []
+    out, n, no_wg = [], 0, 0
     for wid, cids in groups.items():
+        # 2.35: ohne winget (vor 1809 / Server 2019) aus dem winget-Cache, sonst auslassen
+        wg, cache, skip, ce = wingetcache.split(wid, sorted(cids))
+        no_wg += len(skip)
         try:
-            pkg = deploy.adhoc_winget(wid, "upgrade")
-            pkg["name"] = f"Aktualisieren: {wid}"
-            out.append(deploy.create(pkg, sorted(cids), user["username"]))
+            if cache:
+                row, cpkg = wingetcache.package_for(ce)
+                out.append(deploy.create(cpkg, cache, user["username"], package_id=row["id"]))
+            if wg:
+                pkg = deploy.adhoc_winget(wid, "upgrade")
+                pkg["name"] = f"Aktualisieren: {wid}"
+                out.append(deploy.create(pkg, wg, user["username"]))
         except ValueError as e:
             _err(e)
-    return {"deployments": out, "skipped": skipped, "computers": sum(len(v) for v in groups.values())}
+        n += len(wg) + len(cache)
+    return {"deployments": out, "skipped": skipped, "computers": n, "no_winget": no_wg}
 
 
 # --- Ausnahmen der Aktualitätsprüfung -------------------------------------------------------
@@ -1878,6 +1886,123 @@ def api_software_override(data: dict = Body(...), user=U):
     pklog.info("winget", f"Zuordnung für '{name}' geändert: {wid or '-'}{' (ignoriert)' if ignore else ''}",
                user=user["username"])
     return {"ok": True}
+
+
+# --- 2.35: winget-Cache (nur Hauptadmins; „ready“ für alle – zeigt nur, welche winget-IDs bereitliegen) ----------
+def _wc_main(user):
+    if access.scoped(user):
+        raise HTTPException(403, "Nur für Hauptadmins.")
+
+
+def _wc_view():
+    pk = {r["id"]: r["name"] for r in db.q("SELECT id, name FROM packages WHERE id IN (SELECT package_id FROM winget_cache)")}
+    rows = []
+    for e in wingetcache.entries():
+        d = dict(e)
+        d["status_text"] = wingetcache.STATUS.get(e["status"], e["status"])
+        d["package_name"] = pk.get(e["package_id"])
+        rows.append(d)
+    return {"entries": rows, "folder": wingetcache.folder_root(), "locale": db.setting("winget_cache_locale"),
+            "max_mb": db.setting("winget_cache_max_mb"), "auto": db.setting("winget_cache_auto"),
+            "archs": wingetcache.ARCHS, **wingetcache.status()}
+
+
+@app.get("/api/wingetcache")
+def api_wc_list(user=U):
+    _wc_main(user)
+    return _wc_view()
+
+
+@app.get("/api/wingetcache/ready")
+def api_wc_ready(user=U):
+    return {"ids": sorted(wingetcache.ready())}
+
+
+@app.get("/api/wingetcache/suggest")
+def api_wc_suggest(user=U):
+    """Vorschläge: winget-IDs, die auf Computern ohne winget installiert sind (veraltete zuerst), noch nicht im Cache."""
+    _wc_main(user)
+    have = {e["winget_id"].lower() for e in wingetcache.entries()}
+    rows = db.q(f"""SELECT s.winget_id, MAX(s.name) name, COUNT(DISTINCT s.computer_id) n, SUM(s.outdated) outdated
+                    FROM software s JOIN computers c ON c.id=s.computer_id
+                    WHERE s.winget_id IS NOT NULL AND COALESCE(s.excluded, 0)=0 AND COALESCE(s.winget_sure, 1)=1
+                      AND c.os_build IS NOT NULL AND c.os_build != '' AND CAST(c.os_build AS INTEGER) < {deploy.WINGET_MIN_BUILD}
+                    GROUP BY lower(s.winget_id) ORDER BY SUM(s.outdated) DESC, n DESC, name COLLATE NOCASE LIMIT 200""")
+    return {"items": [r for r in rows if r["winget_id"].lower() not in have]}
+
+
+@app.post("/api/wingetcache")
+def api_wc_add(data: dict = Body(...), user=U):
+    _wc_main(user)
+    ids, errors = [], []
+    for wid in (data.get("winget_ids") or [data.get("winget_id")])[:100]:
+        try:
+            ids.append(wingetcache.add(wid, data.get("arch") or "x64", user["username"]))
+        except wingetcache.CacheError as e:
+            errors.append(f"{wid}: {e}")
+    if not ids and errors:
+        _err("; ".join(errors[:5]))
+    # läuft schon eine Prüfung, nimmt sie neue Einträge am Ende mit
+    scheduler._bg("wingetcache", lambda: wingetcache.refresh_all(user["username"], ids=set(ids)))
+    return {"ids": ids, "errors": errors, **_wc_view()}
+
+
+@app.post("/api/wingetcache/refresh")
+def api_wc_refresh(data: dict = Body(default={}), user=U):
+    _wc_main(user)
+    ids = {int(x) for x in (data or {}).get("ids") or [] if str(x).isdigit()} or None
+    if wingetcache.status()["running"]:
+        _err("Der winget-Cache wird gerade geprüft – bitte warten.")
+    scheduler._bg("wingetcache", lambda: wingetcache.refresh_all(user["username"], ids=ids, force=bool((data or {}).get("force"))))
+    return {"ok": True}
+
+
+@app.delete("/api/wingetcache/{eid}")
+def api_wc_remove(eid: int, user=U):
+    _wc_main(user)
+    try:
+        return {**wingetcache.remove(eid, user["username"]), **_wc_view()}
+    except wingetcache.CacheError as e:
+        _err(e)
+
+
+@app.put("/api/wingetcache/settings")
+def api_wc_settings(data: dict = Body(...), user=U):
+    _wc_main(user)
+    try:
+        if "folder" in data:
+            wingetcache.set_folder(data.get("folder"), user["username"])
+        if "locale" in data:
+            loc = str(data.get("locale") or "").strip()
+            if not re.match(r"^[a-zA-Z]{2,3}(-[A-Za-z0-9]{2,8})?$", loc):
+                raise wingetcache.CacheError("Sprache als Kürzel angeben, z. B. de-DE oder en-US.")
+            db.set_setting("winget_cache_locale", loc)
+        if "max_mb" in data:
+            mb = int(data.get("max_mb") or 0)
+            if not 16 <= mb <= 20000:
+                raise wingetcache.CacheError("Größte Installer-Datei: 16 bis 20000 MB.")
+            db.set_setting("winget_cache_max_mb", mb)
+        if "auto" in data:
+            db.set_setting("winget_cache_auto", 1 if data.get("auto") else 0)
+    except (ValueError, wingetcache.CacheError, repofiles.RepoError) as e:
+        _err(e)
+    pklog.info("winget", "Einstellungen des winget-Caches geändert.", user=user["username"])
+    return _wc_view()
+
+
+@app.get("/api/wingetcache/orphans")
+def api_wc_orphans(user=U):
+    _wc_main(user)
+    try:
+        return {"folders": wingetcache.orphans(), "folder": wingetcache.folder_root()}
+    except Exception as e:
+        _err(e)
+
+
+@app.post("/api/wingetcache/cleanup")
+def api_wc_cleanup(user=U):
+    _wc_main(user)
+    return {"removed": wingetcache.cleanup(user["username"])}
 
 
 # --- winget ---------------------------------------------------------------------------
@@ -2325,8 +2450,13 @@ def api_package_delete(pid: int, user=U):
     used = [r["name"] for r in db.q("SELECT name, packages FROM schedules") if pid in json.loads(r["packages"] or "[]")]
     if used:
         _err("Das Paket wird in Zeitplänen verwendet: " + ", ".join(used))
+    try:
+        wingetcache.check_package_delete(pid)  # 2.35: Cache-Ordner noch von einer Bereitstellung gebraucht?
+    except wingetcache.CacheError as e:
+        _err(e)
     db.ex("DELETE FROM packages WHERE id=?", (pid,))
     repofiles.forget_idents(pid)
+    wingetcache.package_deleted(pid, user["username"])  # 2.35: Paket aus dem winget-Cache → Ordner und Eintrag mit weg
     return {"ok": True}
 
 
@@ -2647,8 +2777,18 @@ def api_deploy(data: dict = Body(...), user=U):
         elif data.get("winget_bootstrap"):
             did = deploy.create(deploy.adhoc_bootstrap(), ids, user["username"], sched or None, target_label=label)
         elif data.get("winget_id"):
-            pkg = deploy.adhoc_winget(data["winget_id"].strip(), data.get("action") or "upgrade")
-            did = deploy.create(pkg, ids, user["username"], sched or None, target_label=label)
+            wid, act = data["winget_id"].strip(), data.get("action") or "upgrade"
+            wg, cache, skip, ce = wingetcache.split(wid, sorted(set(ids))) if act == "upgrade" else (ids, [], [], None)
+            did = None
+            if cache:
+                # 2.35: Computer ohne winget bekommen das Paket aus dem winget-Cache
+                row, cpkg = wingetcache.package_for(ce)
+                did = deploy.create(cpkg, cache, user["username"], sched or None, package_id=row["id"], target_label=label)
+            if wg or not cache:
+                pkg = deploy.adhoc_winget(wid, act)
+                did2 = deploy.create(pkg, wg or ids, user["username"], sched or None, target_label=label)
+                return {"id": did2, "cache_id": did, "skipped": len(skip) if wg else 0}
+            return {"id": did, "cache": True, "skipped": len(skip)}
         else:
             _err("Paket oder winget-ID angeben")
     except ValueError as e:
@@ -3328,7 +3468,9 @@ INTERNAL_SETTINGS = {"ldap_cert_fingerprint", "ldap_cert_fingerprints", "ldap_ce
                      "ad_last_sync", "ad_last_status", "ad_sync_minutes", "ad_remove_missing", "ad_auto_sync",
                      "ad_sync_disabled", "ad_ou_collections", "ad_group_collections",
                      "proxy_url", "proxy_user", "proxy_clients",
-                     "update_check_enabled", "update_repo"}  # 2.28: nur über /api/system/updates (geprüft)  # Proxy: nur über /api/system/proxy (geprüft, Kennwort im Tresor)
+                     "update_check_enabled", "update_repo",
+                     # 2.35: winget-Cache nur über /api/wingetcache/settings (Ordner geprüft: eigener, leerer Ordner)
+                     "winget_cache_folder", "winget_cache_locale", "winget_cache_max_mb", "winget_cache_auto"}  # 2.28: nur über /api/system/updates (geprüft)  # Proxy: nur über /api/system/proxy (geprüft, Kennwort im Tresor)
 def rebootmsg_clean(v, limit):
     from . import rebootmsg
     return rebootmsg.clean(v, limit)

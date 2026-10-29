@@ -249,6 +249,12 @@ def tick():
     if db.setting("winget_auto_refresh") and _due("winget", db.setting("winget_refresh_hours") * 60):
         _last["winget"] = time.time()
         _bg("winget", winget.refresh)
+    if db.setting("winget_cache_auto") and _due("wingetcache", 24 * 60):
+        # 2.35: winget-Cache einmal täglich auf neue Versionen prüfen (nur wenn Einträge da sind)
+        _last["wingetcache"] = time.time()
+        from . import wingetcache
+        if db.val("SELECT COUNT(*) FROM winget_cache", default=0):
+            _bg("wingetcache", wingetcache.refresh_all)
     if _due("client_cleanup", 5) and db.val("SELECT COUNT(*) FROM client_cleanup", default=0):
         # Reste unterbrochener Läufe (Neustart von POCKET KNIFE) auf erreichbaren Computern entfernen
         _last["client_cleanup"] = time.time()
@@ -281,6 +287,7 @@ def start():
     if st["updated"]:
         age = time.time() - time.mktime(time.strptime(st["updated"], "%Y-%m-%d %H:%M:%S"))
         _last["winget"] = time.time() - age
+    _last["wingetcache"] = time.time() - (24 * 60 - 30) * 60  # 2.35: erste Prüfung des winget-Caches 30 Minuten nach dem Start
     threading.Thread(target=_loop, name="scheduler", daemon=True).start()
 
 

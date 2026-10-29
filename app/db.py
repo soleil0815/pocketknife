@@ -125,6 +125,13 @@ CREATE TABLE IF NOT EXISTS update_rules(
 CREATE TABLE IF NOT EXISTS winget_overrides(
   name TEXT PRIMARY KEY COLLATE NOCASE, winget_id TEXT, ignore INTEGER DEFAULT 0);
 
+-- 2.35: winget-Cache (aktuelle Installer ausgewählter winget-Pakete im Repository, für Computer ohne winget)
+CREATE TABLE IF NOT EXISTS winget_cache(
+  id INTEGER PRIMARY KEY, winget_id TEXT NOT NULL UNIQUE COLLATE NOCASE, arch TEXT DEFAULT 'x64',
+  scope TEXT DEFAULT 'machine', status TEXT DEFAULT 'new', message TEXT, name TEXT, version TEXT, folder TEXT,
+  file TEXT, size INTEGER, sha256 TEXT, installer_type TEXT, min_os TEXT, package_id INTEGER, detect_version TEXT,
+  checked_at TEXT, updated_at TEXT, created_at TEXT, created_by TEXT);
+
 CREATE TABLE IF NOT EXISTS disk_usage(
   id INTEGER PRIMARY KEY, computer_id INTEGER REFERENCES computers(id) ON DELETE CASCADE, path TEXT, ts TEXT,
   total INTEGER, seconds INTEGER, created_by TEXT, json TEXT);
@@ -277,6 +284,10 @@ DEFAULT_SETTINGS = {
     "winget_scope": "machine",
     "winget_bootstrap": 1,
     "winget_bootstrap_folder": "",
+    "winget_cache_folder": "winget-cache",   # 2.35: winget-Cache im Repository (für Computer ohne winget)
+    "winget_cache_locale": "de-DE",
+    "winget_cache_max_mb": 2048,
+    "winget_cache_auto": 1,                  # täglich auf neue Versionen prüfen
     "rule_retry_hours": 24,
     "repo_path": "",
     "log_retention_days": 90,
@@ -457,6 +468,7 @@ MIGRATIONS = [
     ("computers", "scan_allowed", "INTEGER DEFAULT 1"),
     ("scan_history", "profile_name", "TEXT"),
     ("software", "winget_sure", "INTEGER DEFAULT 1"),
+    ("winget_cache", "detect_version", "TEXT"),
     ("software", "excluded", "INTEGER DEFAULT 0"),
     ("scan_profiles", "scanner_types", "TEXT"),
     ("scan_profiles", "builtin_key", "TEXT"),

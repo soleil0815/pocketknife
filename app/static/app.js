@@ -1368,7 +1368,7 @@ async function viewDashboard() {
 
 // winget läuft erst ab Windows 10 1809 / Windows Server 2019 (Build 17763) – wie deploy.WINGET_MIN_BUILD
 const WINGET_MIN_BUILD = 17763;
-const WINGET_NA = 'winget gibt es erst ab Windows 10 1809 / Windows Server 2019 – veraltete Programme hier mit einem eigenen Paket aktualisieren.';
+const WINGET_NA = 'winget gibt es erst ab Windows 10 1809 / Windows Server 2019 – veraltete Programme hier über den winget-Cache (Software → winget-Cache …) oder ein eigenes Paket aktualisieren.';
 const wingetOk = (c) => !c || !c.os_build || !(Number(c.os_build) < WINGET_MIN_BUILD);
 
 async function updateOutdated(wid, computerIds = null) {
@@ -1379,7 +1379,8 @@ async function updateOutdated(wid, computerIds = null) {
     ids = [];
     for (const n of names) {
       const det = await GET('/api/software/detail?name=' + encodeURIComponent(n));
-      det.computers.filter((c) => c.outdated && wingetOk(c)).forEach((c) => ids.push(c.id));
+      await wcReady();
+      det.computers.filter((c) => c.outdated && (wingetOk(c) || wcHas(wid))).forEach((c) => ids.push(c.id));
     }
   }
   ids = [...new Set(ids)];
@@ -2560,7 +2561,10 @@ async function pcCategory(c, cat) {
   const wrapT = (t) => h('div.pc-table', t.el);
   if (cat === 'software') {
     const wok = wingetOk(c);
-    const outdated = wok ? data.filter((s) => s.outdated) : [];
+    if (!wok) await wcReady();
+    // 2.35: ohne winget – aktualisierbar, was im winget-Cache bereitliegt
+    const upOk = (r) => wok || wcHas(r.winget_id);
+    const outdated = data.filter((s) => s.outdated && s.winget_id && upOk(s));
     const instDate = (r) => {
       const d = /^(\d{4})(\d{2})(\d{2})$/.exec(r.install_date || '');
       const date = d ? `${d[1]}-${d[2]}-${d[3]}` : '';
@@ -2569,7 +2573,7 @@ async function pcCategory(c, cat) {
     };
     const t = tbl([
       { key: 'act', label: 'Aktion', nosort: true, noFilter: true, render: (r) => h('div.row', { style: { flexWrap: 'nowrap' } },
-        wok && r.outdated && r.winget_id ? btn('Aktualisieren', () => updateOutdated(r.winget_id, [id]), { cls: 'small' }) : null,
+        r.outdated && r.winget_id && upOk(r) ? btn('Aktualisieren', () => updateOutdated(r.winget_id, [id]), { cls: 'small', title: wok ? '' : 'aus dem winget-Cache' }) : null,
         btn('Deinstallieren', () => uninstallDlg([{ ...r, computer: c.name }]), { cls: 'small danger' })) },
       { key: 'name', label: 'Name' }, { key: 'version', label: 'Version' }, { key: 'publisher', label: 'Hersteller' },
       { key: 'installed', label: 'Installiert (Datum & Zeit)', value: instDate, render: (r) => fmtDate(instDate(r)) },
@@ -2584,7 +2588,7 @@ async function pcCategory(c, cat) {
       { key: 'winget_latest', label: 'Aktuell', render: (r) => (r.outdated ? h('span.badge.warn', r.winget_latest) : (r.winget_latest || '')) },
     ], data, { sort: 'name', noun: 'Programme', selectable: true, id: (r) => r.id,
       onContext: (r, e, selRows) => contextMenu(e.clientX, e.clientY, [
-        wok && r.outdated && r.winget_id && selRows.length === 1 ? { label: 'Aktualisieren', icon: 'refresh', onClick: () => updateOutdated(r.winget_id, [id]) } : null,
+        r.outdated && r.winget_id && upOk(r) && selRows.length === 1 ? { label: 'Aktualisieren', icon: 'refresh', onClick: () => updateOutdated(r.winget_id, [id]) } : null,
         { label: selRows.length > 1 ? `${selRows.length} Programme deinstallieren …` : 'Jetzt deinstallieren …', icon: 'trash', onClick: () => uninstallDlg(selRows.map((x) => ({ ...x, computer: c.name }))) },
         selRows.length === 1 ? { label: 'Deinstallationspaket erstellen …', icon: 'box', onClick: () => uninstallPackageFrom(r) } : null,
         selRows.length === 1 && r.winget_id ? { label: 'Paket aus winget anlegen …', icon: 'box', onClick: () => packageDlg(null, { winget_id: r.winget_id, name: r.name }) } : null,
@@ -2608,7 +2612,7 @@ async function pcCategory(c, cat) {
         go(`#/computer/${id}?cat=deployments`);
       }, { cls: 'primary' }));
     }
-    if (!wok && data.some((s) => s.outdated)) return h('div', h('p.muted.small', WINGET_NA), wrapT(t));
+    if (!wok && data.some((s) => s.outdated && !upOk(s))) return h('div', h('p.muted.small', WINGET_NA), wrapT(t));
     return wrapT(t);
   }
   if (cat === 'services') {
@@ -2821,7 +2825,8 @@ async function viewSoftware(_p, params) {
     if (!(await confirmDlg(`${todo.length} Programm(e) auf ${n} Installation(en) per winget aktualisieren?`, 'Aktualisieren'))) return;
     const r = await run(() => POST('/api/software/update', { names: todo.map((x) => x.name) }));
     if (!r) return;
-    toast(`${r.deployments.length} Bereitstellung(en) für ${r.computers} Computer gestartet` + (r.skipped.length ? ` – ohne veraltete Installation: ${r.skipped.length}` : ''), 'ok');
+    toast(`${r.deployments.length} Bereitstellung(en) für ${r.computers} Computer gestartet` + (r.skipped.length ? ` – ohne veraltete Installation: ${r.skipped.length}` : '')
+      + (r.no_winget ? ` – ohne winget und nicht im winget-Cache: ${r.no_winget}` : ''), 'ok');
     go(r.deployments.length === 1 ? `#/deployment/${r.deployments[0]}` : '#/deployments');
   }
   const bUpd = btn('Auswahl aktualisieren', () => updateSelected(t.selected()), { icon: 'refresh', cls: 'primary', title: 'Veraltete Installationen der ausgewählten Programme per winget aktualisieren' });
@@ -2830,7 +2835,8 @@ async function viewSoftware(_p, params) {
   t.actions.append(bUpd);
   const csel = sel(collectionOptions(cols), cid, { onchange: (e) => go(`#/software?c=${e.target.value}${onlyOut ? '&outdated=1' : ''}`) });
   const ochk = h('label.chk', h('input', { type: 'checkbox', checked: onlyOut, onchange: (e) => go(`#/software?c=${cid}${e.target.checked ? '&outdated=1' : ''}`) }), 'nur veraltete');
-  t.actions.append(csel, ochk, btn('Ausnahmen …', () => exclusionsDlg(), { cls: 'small', icon: 'list', title: 'Programme, die nicht auf Aktualität geprüft werden' }));
+  t.actions.append(csel, ochk, btn('Ausnahmen …', () => exclusionsDlg(), { cls: 'small', icon: 'list', title: 'Programme, die nicht auf Aktualität geprüft werden' }),
+    isOU() ? null : btn('winget-Cache …', () => go('#/wingetcache'), { cls: 'small', icon: 'db', title: 'Installer für Computer ohne winget im Repository bereithalten' }));
   setContent(h('div', { style: { height: '100%', display: 'flex' } }, h('div.pane.card', t.el)));
 }
 
@@ -2911,17 +2917,18 @@ async function exclusionsDlg() {
 async function softwareDlg(sw) {
   const sw0 = sw;
   const d = await GET('/api/software/detail?name=' + encodeURIComponent(sw.name));
+  await wcReady();
   const ov = d.override || {};
   const wid = h('input', { value: ov.winget_id || sw.winget_id || '', placeholder: 'z.B. Mozilla.Firefox' });
   const ign = h('input', { type: 'checkbox', checked: !!ov.ignore });
   const t = table([
     { key: 'name', label: 'Computer', render: (r) => h('a', { href: `#/computer/${r.id}` }, r.name) },
     { key: 'version', label: 'Version' }, { key: 'arch', label: 'Arch.' }, { key: 'scope', label: 'Bereich' },
-    { key: 'outdated', label: 'Status', render: (r) => (r.outdated ? h('span.row', h('span.badge.warn', 'veraltet'), wingetOk(r) ? null : h('span.badge', { title: WINGET_NA }, 'ohne winget')) : r.winget_id ? h('span.badge.ok', 'aktuell') : '') },
+    { key: 'outdated', label: 'Status', render: (r) => (r.outdated ? h('span.row', h('span.badge.warn', 'veraltet'), wingetOk(r) ? null : wcHas(r.winget_id) ? h('span.badge.info', { title: 'Wird aus dem winget-Cache aktualisiert' }, 'aus Cache') : h('span.badge', { title: WINGET_NA }, 'ohne winget')) : r.winget_id ? h('span.badge.ok', 'aktuell') : '') },
     { key: 'online', label: 'Online', render: (r) => h('span.dot', { class: r.online ? 'on' : 'off' }) },
   ], d.computers, { selectable: true, noun: 'Computer', fill: false });
   t.el.querySelector('.tbl-scroll').style.maxHeight = '320px';
-  const outIds = d.computers.filter((c) => c.outdated && wingetOk(c)).map((c) => c.id);
+  const outIds = d.computers.filter((c) => c.outdated && (wingetOk(c) || wcHas(sw.winget_id))).map((c) => c.id);
   modal(sw.name, h('div',
     h('div.form', field('winget-ID (Zuordnung)', h('div.row', wid, btn('Suchen', () => wingetPicker((id) => (wid.value = id)), { cls: 'small' })),
       'Automatisch ermittelt. Hier manuell festlegen, falls die Zuordnung falsch ist.'),
@@ -2975,6 +2982,118 @@ function wingetPicker(onPick) {
       if (r && !r.length) list.replaceChildren(h('div.muted', 'Nichts gefunden (ist der winget-Index geladen?)'));
     }, 250);
   });
+}
+
+// ---------------------------------------------------------------------------
+// 2.35: winget-Cache – aktuelle Installer ausgewählter winget-Pakete im Repository (für Computer ohne winget)
+// ---------------------------------------------------------------------------
+let WC_READY = null;  // { ids: Set, at } – welche winget-IDs im Cache bereitliegen (für „Aktualisieren“ ohne winget)
+async function wcReady(fresh = false) {
+  if (!fresh && WC_READY && Date.now() - WC_READY.at < 60000) return WC_READY.ids;
+  try { WC_READY = { ids: new Set((await GET('/api/wingetcache/ready')).ids || []), at: Date.now() }; } catch (e) { WC_READY = { ids: new Set(), at: Date.now() }; }
+  return WC_READY.ids;
+}
+const wcHas = (wid) => !!(wid && WC_READY && WC_READY.ids.has(String(wid).toLowerCase()));
+
+async function viewWingetCache() {
+  if (isOU()) { setTop('winget-Cache', ''); setContent(h('div.empty', 'Nur für Hauptadmins.')); return; }
+  setTop('winget-Cache', 'Aktuelle Installer ausgewählter winget-Pakete im Repository – für Computer, auf denen winget nicht läuft',
+    btn('Aus dem Bestand …', () => wcSuggestDlg(), { icon: 'list', title: 'Programme, die auf Computern ohne winget installiert sind' }),
+    btn('Hinzufügen …', () => wingetPicker(async (id) => { const r = await run(() => POST('/api/wingetcache', { winget_id: id })); if (r) { toast(`${id} aufgenommen – wird geladen`, 'ok'); route(); } }), { icon: 'plus', cls: 'primary' }));
+  const d = await GET('/api/wingetcache');
+  const badge = (r) => h('span.badge', { class: { ok: 'ok', error: 'err', unsupported: 'warn', checking: 'info', new: 'info' }[r.status] || '', title: r.message || '' }, tr(r.status_text));
+  const t = table([
+    { key: 'winget_id', label: 'winget-ID', cls: 'mono' },
+    { key: 'name', label: 'Name' },
+    { key: 'version', label: 'Version im Cache' },
+    { key: 'status', label: 'Status', render: badge, value: (r) => r.status_text },
+    { key: 'message', label: 'Hinweis', cls: 'trunc', title: (r) => r.message || '' },
+    { key: 'installer_type', label: 'Installer' },
+    { key: 'arch', label: 'Arch.' },
+    { key: 'size', label: 'Größe', cls: 'right', render: (r) => (r.size ? fmtBytes(r.size) : ''), sort: (r) => r.size || 0 },
+    { key: 'min_os', label: 'Mindest-Windows', hidden: true },
+    { key: 'folder', label: 'Ordner', cls: 'mono trunc', hidden: true, title: (r) => (r.folder ? `${r.folder}\\${r.file || ''}` : '') },
+    { key: 'package_name', label: 'Paket', render: (r) => (r.package_id ? h('a', { href: `#/packages?q=${encodeURIComponent(r.package_name || '')}` }, r.package_name || `#${r.package_id}`) : '') },
+    { key: 'checked_at', label: 'Geprüft', render: (r) => h('span', { title: fmtDate(r.checked_at) }, relTime(r.checked_at)) },
+    { key: 'updated_at', label: 'Neue Version seit', hidden: true, render: (r) => fmtDate(r.updated_at) },
+  ], d.entries, { id: (r) => r.id, noun: 'Programme', sort: 'winget_id', selectable: true, empty: 'Noch keine Programme im Cache – „Hinzufügen …“ oder „Aus dem Bestand …“.',
+    onContext: (r, e, selRows) => contextMenu(e.clientX, e.clientY, [
+      { label: 'Jetzt prüfen', icon: 'refresh', onClick: () => wcRefresh(selRows.map((x) => x.id)) },
+      { label: 'Neu laden (Datei erneut herunterladen)', icon: 'refresh', onClick: () => wcRefresh(selRows.map((x) => x.id), true) },
+      '-',
+      { label: selRows.length > 1 ? `${selRows.length} entfernen …` : 'Entfernen …', icon: 'trash', onClick: () => wcRemove(selRows) },
+    ]) });
+  t.actions.append(
+    btn('Alle prüfen', () => wcRefresh(null), { icon: 'refresh', disabled: d.running || !d.entries.length }),
+    btn('Entfernen …', () => wcRemove(t.selected()), { icon: 'trash', cls: 'danger' }),
+    btn('Aufräumen …', () => wcCleanupDlg(), { icon: 'x', title: 'Ordner im Cache, zu denen kein Eintrag mehr gehört' }),
+    btn('Einstellungen …', () => wcSettingsDlg(d), { icon: 'gear' }));
+  const info = h('p.muted.small', { style: { margin: '8px 2px 0' } },
+    d.running ? `Wird gerade geprüft: ${d.current || '…'} – ` : '',
+    `Ordner im Repository: ${d.folder} · `, d.auto ? 'täglich automatisch geprüft · ' : 'nur von Hand geprüft · ',
+    'Computer ohne winget (vor Windows 10 1809 / Server 2019) bekommen beim Aktualisieren automatisch das Paket aus dem Cache; alle anderen weiter per winget. Je Programm liegt nur die aktuelle Version im Cache.');
+  setContent(h('div', { style: { height: '100%', display: 'flex', flexDirection: 'column' } }, h('div.pane.card', t.el), info));
+  if (d.running || d.entries.some((x) => x.status === 'checking' || x.status === 'new')) {
+    const hh = location.hash;
+    setTimeout(() => { if (location.hash === hh && !document.querySelector('#modal-root .backdrop')) route(); }, 4000);
+  }
+}
+async function wcRefresh(ids, force = false) {
+  const r = await run(() => POST('/api/wingetcache/refresh', { ids: ids || [], force }));
+  if (r) { toast('Prüfung gestartet', 'ok'); setTimeout(() => route(), 800); }
+}
+async function wcRemove(rows) {
+  if (!rows.length) { toast('Bitte Programme auswählen', 'err'); return; }
+  if (!(await confirmDlg(`${rows.length === 1 ? rows[0].winget_id : `${rows.length} Programme`} aus dem Cache entfernen? Das Paket und der Ordner im Repository werden gelöscht.`, 'Entfernen', true))) return;
+  for (const x of rows) if (await run(() => DEL(`/api/wingetcache/${x.id}`)) === undefined) break;
+  route();
+}
+async function wcSuggestDlg() {
+  const d = await GET('/api/wingetcache/suggest');
+  const t = table([
+    { key: 'winget_id', label: 'winget-ID', cls: 'mono' }, { key: 'name', label: 'Name' },
+    { key: 'n', label: 'Computer ohne winget', cls: 'right' },
+    { key: 'outdated', label: 'davon veraltet', cls: 'right', render: (r) => (r.outdated ? h('span.badge.warn', String(r.outdated)) : '0') },
+  ], d.items, { id: (r) => r.winget_id, selectable: true, noun: 'Programme', fill: false, key: 'wc-suggest', empty: 'Keine Vorschläge – auf Computern ohne winget sind keine weiteren Programme mit winget-Zuordnung installiert.' });
+  t.el.querySelector('.tbl-scroll').style.maxHeight = '380px';
+  modal('Aus dem Bestand übernehmen', h('div', h('p.muted.small', { style: { marginTop: 0 } }, 'Programme mit sicherer winget-Zuordnung, die auf Computern ohne winget installiert sind – veraltete zuerst.'), t.el), [
+    { label: 'Abbrechen' },
+    { label: 'Übernehmen', cls: 'primary', onClick: async () => {
+      const ids = t.selectedIds();
+      if (!ids.length) { toast('Bitte Programme auswählen', 'err'); return false; }
+      const r = await run(() => POST('/api/wingetcache', { winget_ids: ids }));
+      if (!r) return false;
+      toast(`${r.ids.length} Programm(e) aufgenommen – werden geladen`, 'ok');
+      if (r.errors && r.errors.length) toast(r.errors.join('; '), 'err');
+      route();
+      return true;
+    } }], { wide: true });
+}
+async function wcCleanupDlg() {
+  const d = await run(() => GET('/api/wingetcache/orphans'));
+  if (!d) return;
+  if (!d.folders.length) { toast('Nichts aufzuräumen – im Cache liegt nur, was zu den Einträgen gehört.', 'ok'); return; }
+  if (!(await confirmDlg(`Diese Ordner in „${d.folder}“ gehören zu keinem Eintrag mehr und werden gelöscht: ${d.folders.join(', ')}`, 'Löschen', true))) return;
+  const r = await run(() => POST('/api/wingetcache/cleanup', {}));
+  if (r) { toast(`${r.removed.length} Ordner gelöscht`, 'ok'); route(); }
+}
+function wcSettingsDlg(d) {
+  const folder = h('input', { value: d.folder, disabled: d.entries.length > 0 });
+  const loc = h('input', { value: d.locale || 'de-DE', style: { width: '120px' } });
+  const mb = h('input', { type: 'number', min: '16', max: '20000', value: d.max_mb || 2048, style: { width: '120px' } });
+  const auto = h('input', { type: 'checkbox', checked: !!d.auto });
+  modal('winget-Cache – Einstellungen', h('div.form',
+    field('Ordner im Repository', folder, d.entries.length ? 'Lässt sich nur ändern, solange der Cache leer ist.' : 'Eigener Ordner, nicht in einem Mandanten-Ordner. Andere Ordner fasst der Cache nie an.'),
+    field('Sprache', loc, 'Bevorzugte Sprache des Installers (z. B. de-DE), sonst en-US.'),
+    field('Größte Datei', h('div.row', mb, h('span.muted', 'MB')), 'Größere Installer werden nicht geladen.'),
+    field('Automatisch', h('label.chk', auto, 'täglich auf neue Versionen prüfen'))), [
+    { label: 'Abbrechen' },
+    { label: 'Speichern', cls: 'primary', onClick: async () => {
+      const body = { locale: loc.value, max_mb: mb.value, auto: auto.checked };
+      if (!d.entries.length) body.folder = folder.value;
+      if (await run(() => PUT('/api/wingetcache/settings', body)) === undefined) return false;
+      toast('Gespeichert', 'ok'); route();
+    } }]);
 }
 
 // ---------------------------------------------------------------------------
@@ -6892,7 +7011,7 @@ async function scanProfileDlg(ids) {
 // ---------------------------------------------------------------------------
 const HELP_FOR = { dashboard: 'overview', computers: 'computers', computer: 'computerview', software: 'software', packages: 'packages',
   deployments: 'deployments', deployment: 'deployments', schedules: 'schedules', rules: 'schedules', scanners: 'scanning', tools: 'tools',
-  reports: 'reports', logs: 'reports', settings: 'settings', kiosk: 'kiosk', repository: 'repository' };
+  reports: 'reports', logs: 'reports', settings: 'settings', kiosk: 'kiosk', repository: 'repository', wingetcache: 'winget-cache' };
 const HELP_PDF = { de: 'POCKET-KNIFE-Handbuch.pdf', en: 'POCKET-KNIFE-Manual.pdf' };
 let HELP_CACHE = null;
 
@@ -8160,7 +8279,7 @@ const VIEWS = {
   dashboard: viewDashboard, computers: viewComputers, computer: viewComputer, software: viewSoftware,
   help: viewHelp, packages: viewPackages, schedules: viewSchedules, deployments: viewDeployments, deployment: viewDeployment, rules: () => go('#/schedules'),
   reports: viewReports, logs: viewLogs, settings: viewSettings, tools: viewTools, scanners: viewScanners, diskusage: viewDiskUsage,
-  files: viewFiles, eventlog: viewEventLog, kiosk: viewKiosk, repository: viewRepository,
+  files: viewFiles, eventlog: viewEventLog, kiosk: viewKiosk, repository: viewRepository, wingetcache: viewWingetCache,
 };
 
 // ---------------------------------------------------------------------------

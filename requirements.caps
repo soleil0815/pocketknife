@@ -23,6 +23,7 @@ pydantic>=2.14.1,<3
 pydantic_core>=2.50.1,<3
 pypsrp>=0.9.1,<0.10
 pyspnego>=0.12.4,<0.13
+PyYAML>=6.0.3,<7
 requests>=2.34.2,<3
 smbprotocol>=1.17.0,<2
 starlette>=1.10.0,<2
