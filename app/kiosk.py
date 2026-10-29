@@ -162,9 +162,13 @@ def _detect(row):
 
 
 def _needs_winget(row):
-    """Installiert das Paket (auch) per winget? Auf Windows vor 1809 / Server 2019 ginge das nicht."""
+    """Braucht das Paket winget (Installieren oder Deinstallieren per winget)? Auf Windows vor 1809 / Server 2019
+    ginge das nicht."""
+    if not row:
+        return False
     p = steps.normalize(deploy.row_to_package(row))
-    return any(s.get("type") == "install" and s.get("source") == "winget" for _k, s in steps.iter_steps(p))
+    return (row.get("type") == "winget"
+            or any(s.get("source") == "winget" and s.get("type") in ("install", "uninstall") for _k, s in steps.iter_steps(p)))
 
 
 def _installed(row, software):
@@ -232,7 +236,8 @@ def catalog(cid, username=None):
             inst = (inst or True) if rs["action"] == "install" else None
         out.append({"package_id": it["package_id"], "name": it["name"], "version": it["version"] or "",
                     "category": it["category"] or "", "description": it["k_description"] or it["description"] or "",
-                    "approval": bool(it["approval"]), "can_uninstall": bool(it["uninstall_package_id"]),
+                    "approval": bool(it["approval"]), "can_uninstall": bool(it["uninstall_package_id"]) and (wok or not _needs_winget(
+                        db.q1("SELECT * FROM packages WHERE id=?", (it["uninstall_package_id"],)))),
                     "icon": icon_url(it["package_id"], it["icon_at"]),
                     "installed": bool(inst), "installed_version": inst if isinstance(inst, str) else "",
                     "request": rs})
@@ -309,8 +314,10 @@ def request(user, ip, cid, pid, action):
         raise KioskError("Diese Software ist für Ihren Computer nicht freigegeben.")
     if not _group_ok(user["username"], item_groups(it)):
         raise KioskError("Diese Software ist für Sie nicht freigegeben.")
-    if action == "install" and not deploy.winget_ok(c["os_build"]) and _needs_winget(db.q1("SELECT * FROM packages WHERE id=?", (pid,)) or {}):
-        raise KioskError("Diese Software wird per winget installiert – das gibt es erst ab Windows 10 1809 / Windows Server 2019.")
+    if not deploy.winget_ok(c["os_build"]):
+        upid = pid if action == "install" else it["uninstall_package_id"]
+        if upid and _needs_winget(db.q1("SELECT * FROM packages WHERE id=?", (upid,)) or {}):
+            raise KioskError("Diese Software wird per winget installiert – das gibt es erst ab Windows 10 1809 / Windows Server 2019.")
     if action == "uninstall" and not it["uninstall_package_id"]:
         raise KioskError("Diese Software lässt sich im Kiosk nicht deinstallieren.")
     check_computer(user["username"], ip, cid)

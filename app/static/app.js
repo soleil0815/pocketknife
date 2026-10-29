@@ -6147,9 +6147,16 @@ function powerDialog(targets) {
       h('b', dcs.length ? fmtT('Darunter {0} Domänencontroller', dcs.length) : fmtT('Darunter {0} Server', servers.length)),
       h('div.small', { style: { margin: '4px 0' } }, servers.slice(0, 12).map((x) => `${x.name}${x.role === 'dc' ? ' (' + tr('Domänencontroller') + ')' : ''}${x.users ? ' · ' + fmtT('{0} angemeldet', x.users) : ''}`).join(', ')
         + (servers.length > 12 ? ` … (+${servers.length - 12})` : '')),
-      users ? h('div.small', fmtT('Insgesamt {0} angemeldete Benutzer auf diesen Servern – ihre Sitzungen werden beendet.', users)) : null,
+      users ? h('div.small', fmtT('Laut letztem Stand {0} angemeldete Benutzer auf diesen Servern – ihre Sitzungen werden beendet.', users)) : null,
       h('label.chk', { style: { marginTop: '6px' } }, sure, dcs.length ? tr('Ja, auch die Domänencontroller') : tr('Ja, auch die Server'))));
-  }).catch(() => { servers = []; });
+  }).catch(() => {
+    // Prüfung fehlgeschlagen: vorsichtshalber wie mit Servern – nur mit Häkchen ausführen
+    servers = [{ unknown: true }];
+    warn.replaceChildren(h('div.news-up.sec', { style: { marginBottom: '10px' } },
+      h('b', 'Nicht geprüft, ob Server oder Domänencontroller dabei sind'),
+      h('div.small', { style: { margin: '4px 0' } }, 'Die Prüfung ist fehlgeschlagen. Bitte die Ziele selbst kontrollieren.'),
+      h('label.chk', { style: { marginTop: '6px' } }, sure, 'Ziele geprüft – trotzdem ausführen')));
+  });
   modal('Neustart / Herunterfahren', h('div', warn, h('div.form',
     field('Aktion', act),
     field('Wartezeit', h('div.row', num, unit), 'Angemeldete Benutzer sehen solange eine Meldung von Windows (Text unter Einstellungen → Zeitpläne & Leistung). 0 = sofort, dabei werden offene Programme ohne Rückfrage geschlossen. Bis zum Ablauf lässt es sich mit „Neustart/Herunterfahren abbrechen“ stoppen.'))), [

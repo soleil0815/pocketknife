@@ -5932,13 +5932,26 @@ def _():
     vm = vm[:vm.index("\n}\n")]
     assert vm.index("'VMware'") < vm.index("'Hyper-V'") and "'KVM/QEMU" in vm and "Proxmox" in vm and "HypervisorPresent" not in vm.replace("(HypervisorPresent", ""), "Hersteller/Modell, nicht HypervisorPresent"
     wg = ps[ps.index("if ($os.ProductType -eq 1) {\n  try { $ai = Get-AppxPackage"):ps.index("$e.pending_reboot")]
+    assert "^(Applications|InboxApplications|S-1-.*)$" in wg, "nicht EndOfLife/Staged"
     assert "AppxAllUserStore" in wg and "-Recurse -Depth" not in wg and "Get-AppxPackage -AllUsers" in wg.split("} else {")[0], "Server: Registry statt alle Profile"
     disp = ps[ps.index("PKS 'displays'"):ps.index("# @module environment")]
     assert "nicht unterst|not supported|8004100C" in disp and "{ throw }" in disp
     blk = ps[ps.index("# @sessions-begin"):ps.index("# @sessions-end")]
     assert "Server Core" in blk and "$pkExp.Count -eq 0 -and $pkQo.Count -gt 1" in blk
-    from app import inventory
+    from app import inventory, remote as _r
     assert "virtual" in inventory.MODULE_EXTRA["computer"]
+    lo = _r.LOGGEDON_PS[_r.LOGGEDON_PS.index("@sessions-end"):]
+    assert "$u += $pkExp" not in lo and ".Split('\\')[-1] -eq $x" in lo, "quser-Namen nicht doppelt zu DOMÄNE\\name"
+    # power-check: alle Ziele, auch über 5000; Fehler der Prüfung = vorsichtshalber Häkchen verlangen
+    import inspect as _insp
+    assert "[:5000]" not in _insp.getsource(_m.api_power_check)
+    a2 = _db.ex("INSERT INTO computers(name, extra, current_user) VALUES('SRV-PC2', ?, 'FIRMA\\a,FIRMA\\b')", (_j.dumps({"product_type": 3}),))
+    try:
+        r = _m.api_power_check({"ids": [a2]}, {"username": "haupt", "scope": None})
+        assert r["servers"] == [{"id": a2, "name": "SRV-PC2", "role": "server", "users": 2}], r
+    finally:
+        _db.ex("DELETE FROM computers WHERE id=?", (a2,))
+    assert "servers = [{ unknown: true }];" in pdl, "Prüfung fehlgeschlagen: nicht ohne Rückfrage"
 
 @test("2.34 Ältere Windows ohne winget (vor 1809 / Server 2019): kein winget-Aktualisieren, Kiosk bietet winget-Pakete dort nicht an, Hinweis statt „fehlt“")
 def _():
@@ -5947,6 +5960,7 @@ def _():
     root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
     ok = deploy.winget_ok
     assert ok(None) and ok("") and ok("17763") and ok(26100) and ok("x") and not ok("14393") and not ok(9600), "Build-Grenze"
+    assert not ok("14393.6897") and ok("17763.1") and ok("26100.4061"), "Scan speichert Build.UBR"
     js = open(os.path.join(root, "app", "static", "app.js"), encoding="utf-8").read()
     assert int(_re.search(r"const WINGET_MIN_BUILD = (\d+);", js).group(1)) == deploy.WINGET_MIN_BUILD, "JS und Server gleiche Grenze"
     sv = js[js.index("if (cat === 'software') {"):]
@@ -5960,7 +5974,7 @@ def _():
     assert "c.os_build" in inspect.getsource(_m.api_software_detail), "Build für die Anzeige"
     # Kiosk: winget-Paket auf Server 2016 nicht anbieten, eigenes Paket schon
     db.set_setting("kiosk_enabled", 1)
-    cid = db.ex("INSERT INTO computers(name, online, winrm, current_user, os_build) VALUES('PC-ALT1', 1, 1, 'FIRMA\\nutzer', '14393')")
+    cid = db.ex("INSERT INTO computers(name, online, winrm, current_user, os_build) VALUES('PC-ALT1', 1, 1, 'FIRMA\\nutzer', '14393.6897')")
     pk = {}
     for name, st in (("WG Tool", {"type": "install", "source": "winget", "winget_id": "Mozilla.Firefox"}),
                      ("Eigen Tool", {"type": "command", "command": "cmd /c exit 0"})):
@@ -5975,7 +5989,13 @@ def _():
         names = {i["name"] for i in kiosk.catalog(cid)}
         assert "Eigen Tool" in names and "WG Tool" not in names, names
         must_fail(kiosk.request, {"username": "nutzer", "display_name": "N"}, "?", cid, pk["WG Tool"], "install", contains="1809")
-        db.ex("UPDATE computers SET os_build='19045' WHERE id=?", (cid,))
+        # Deinstallieren per winget: auf alten Systemen nicht angeboten
+        kiosk.save_item(pk["Eigen Tool"], {"enabled": True, "approval": 0, "uninstall_package_id": pk["WG Tool"]})
+        it = {i["name"]: i for i in kiosk.catalog(cid)}
+        assert db.val("SELECT uninstall_package_id FROM kiosk_items WHERE package_id=?", (pk["Eigen Tool"],)) == pk["WG Tool"]
+        assert it["Eigen Tool"]["can_uninstall"] is False, it["Eigen Tool"]
+        must_fail(kiosk.request, {"username": "nutzer", "display_name": "N"}, "?", cid, pk["Eigen Tool"], "uninstall", contains="1809")
+        db.ex("UPDATE computers SET os_build='19045.5011' WHERE id=?", (cid,))
         assert "WG Tool" in {i["name"] for i in kiosk.catalog(cid)}
     finally:
         kiosk._logged_on = old
@@ -5993,8 +6013,8 @@ def _():
     root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
     t = tools.adhoc_tool({"type": "powershell", "script": "Get-Service Spooler\r\nGet-Date\n\n"})
     assert t["type"] == "powershell" and t["run_as"] == "service" and t["script"] == "Get-Service Spooler\r\nGet-Date", t["script"]
-    assert t["name"].startswith("Befehl: Get-Service Spooler") and t["name"].endswith("…") and not t["repo_path"] and t["scan_after"] == "never"
-    assert tools.adhoc_tool({"type": "cmd", "script": "ipconfig", "run_as": "system"})["name"] == "Befehl: ipconfig"
+    assert t["name"] == "Befehl (PowerShell)" and not t["repo_path"] and t["scan_after"] == "never", "Name ohne Befehlstext"
+    assert tools.adhoc_tool({"type": "cmd", "script": "ipconfig", "run_as": "system"})["name"] == "Befehl (CMD als SYSTEM)"
     for bad, txt in (({"type": "url", "script": "http://x"}, "PowerShell oder CMD"), ({"type": "cmd", "script": "  \n "}, "Befehl eingeben"),
                      ({"type": "cmd", "script": "x", "run_as": "root"}, "Ausführung"),
                      ({"type": "cmd", "script": "x" * (tools.ADHOC_MAX + 1)}, "zu lang"),
@@ -6011,17 +6031,21 @@ def _():
     c = db.ex("INSERT INTO computers(name, dns_name) VALUES('CMD-PC1', 'cmd-pc1.firma.local')")
     old_ps, logs = remote.ps, []
     old_info = pklog.info
-    remote.ps = lambda host, script, timeout=None, **kw: ("Spooler Running\nPKEXIT:0", "", False)
+    runs = []
+    remote.ps = lambda host, script, timeout=None, **kw: (runs.append(host) or ("Spooler Running\nPKEXIT:0", "", False))
     pklog.info = lambda cat, msg, **kw: logs.append(msg)
     try:
-        r = _m.api_tool_command({"type": "powershell", "script": "Get-Service Spooler", "ids": [c]}, {"username": "haupt", "scope": None})
+        r = _m.api_tool_command({"type": "powershell", "script": "net user x Geheim123 /add\nGet-Service Spooler", "ids": [c, c]},
+                                {"username": "haupt", "scope": None})
         for _ in range(100):
             j = tools.job(r["job"])
             if all(x["res"] for x in j["targets"]):
                 break
             _t.sleep(0.05)
         assert j["targets"][0]["status"] == "OK" and "Spooler Running" in j["targets"][0]["res"]["output"], j
-        assert any("Get-Service Spooler" in m and "gestartet" in m for m in logs), logs
+        assert any("gestartet" in m and "nicht protokolliert" in m for m in logs), logs
+        assert not any("Geheim123" in m or "net user" in m for m in logs), ("Befehlstext im Protokoll", logs)
+        assert len(j["targets"]) == 1 and len(runs) == 1, ("doppelte ID doppelt ausgeführt", runs)
     finally:
         remote.ps, pklog.info = old_ps, old_info
         db.ex("DELETE FROM computers WHERE id=?", (c,))

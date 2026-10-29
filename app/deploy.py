@@ -90,7 +90,7 @@ WINGET_MIN_BUILD = 17763  # winget läuft ab Windows 10 1809 / Windows Server 20
 def winget_ok(os_build):
     """Läuft winget auf diesem Build? Unbekannt (noch nicht gescannt) zählt als ja – der Client prüft selbst (9010)."""
     try:
-        b = int(str(os_build or "").strip() or 0)
+        b = int(str(os_build or "").strip().split(".")[0] or 0)  # Scan speichert „14393.6897“ (Build.UBR)
     except ValueError:
         return True
     return b == 0 or b >= WINGET_MIN_BUILD

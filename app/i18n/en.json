@@ -5345,5 +5345,11 @@
  "Befehl zu lang (höchstens {0} Zeichen) – dafür besser ein Tool oder Paket anlegen.": "Command too long (at most {0} characters) – better create a tool or package for it.",
  "Befehl: {0}{1}": "Command: {0}{1}",
  "Ctrl+Alt+C": "Ctrl+Alt+C",
- "Typ: PowerShell oder CMD.": "Type: PowerShell or CMD."
+ "Typ: PowerShell oder CMD.": "Type: PowerShell or CMD.",
+ "{0} auf {1} Computer(n) gestartet ({2} Zeile(n), Text nicht protokolliert).": "{0} started on {1} computer(s) ({2} line(s), text not logged).",
+ "Die Prüfung ist fehlgeschlagen. Bitte die Ziele selbst kontrollieren.": "The check failed. Please check the targets yourself.",
+ "Laut letztem Stand {0} angemeldete Benutzer auf diesen Servern – ihre Sitzungen werden beendet.": "As last known, {0} signed-in users on these servers – their sessions will be ended.",
+ "Nicht geprüft, ob Server oder Domänencontroller dabei sind": "Not checked whether servers or domain controllers are included",
+ "Ziele geprüft – trotzdem ausführen": "Targets checked – run anyway",
+ "Befehl ({0}{1})": "Command ({0}{1})"
 }
