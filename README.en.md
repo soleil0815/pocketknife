@@ -145,7 +145,7 @@ The detailed step-by-step guide – Docker host, ports, every line of the `.env`
 ```bash
 mkdir -p /opt/pocketknife && cd /opt/pocketknife
 sudo docker login ghcr.io -u <GitHub user>  # only for a private registry; password = token with read:packages
-# take the three files for the host from the image (or download them in the browser from the release)
+# take the three files for the host from the image (or download them in the browser from the release: save env.example as .env.example)
 sudo sh -c 'docker pull ghcr.io/soleil0815/pocketknife:latest && docker run --rm --entrypoint sh ghcr.io/soleil0815/pocketknife:latest -c "cd /opt/pocketknife/host && tar cf - ." | tar xf -'
 cp .env.example .env
 nano .env                 # required: PK_DOMAIN, PK_NETBIOS, PK_DNS_1, PK_LDAP_SERVERS, PK_ACCESS_GROUP, PK_PUBLIC_HOSTNAME

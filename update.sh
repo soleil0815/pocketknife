@@ -353,8 +353,10 @@ cleanup() {
   D=$(envval .env PK_DATA_PATH); D=$(resolve "$INST" "${D:-./data}")
   B=$(envval .env PK_BACKUP_PATH); B=$(resolve "$INST" "${B:-$D-backup}")
   R=$(envval .env PK_REPO_MOUNT); R=$(resolve "$INST" "${R:-./repo}")
-  { printf '%s\n%s\n%s\n' "$D" "$B" "$R"; command -v docker >/dev/null 2>&1 && mounts; } | while IFS= read -r p; do
-    [ -n "$p" ] && { canon "$p"; echo; }
+  # (2.33.2: every loop body ends with a command that succeeds – under "set -e" a loop whose last command failed,
+  # e.g. "[ -n "" ] && …" for the empty line docker prints, ended the script without a word)
+  { printf '%s\n%s\n%s\n' "$D" "$B" "$R"; if command -v docker >/dev/null 2>&1; then mounts; fi; } | while IFS= read -r p; do
+    if [ -n "$p" ]; then canon "$p"; echo; fi
   done > "$T/protect"
   for n in .env docker-compose.yml docker-compose.override.yml docker-compose.yml.alt update.sh .env.example; do canon "$INST/$n"; echo; done >> "$T/protect"
   : > "$T/del"
@@ -395,7 +397,9 @@ cleanup() {
     say "  No longer needed (the program lives in the image; data, backups, .env and docker-compose.yml stay):"
     while IFS= read -r p; do say "    $p"; done < "$T/del"
     if ask "  Delete these?"; then
-      while IFS= read -r p; do rm -rf -- "$p" && say "    deleted: $p"; done < "$T/del"
+      while IFS= read -r p; do
+        if rm -rf -- "$p"; then say "    deleted: $p"; else say "    could not delete: $p"; fi
+      done < "$T/del"
     else
       say "  Nothing deleted."
     fi
@@ -408,7 +412,9 @@ cleanup() {
     if [ -n "$OLDIMG" ]; then
       say "  Old images of locally built versions: $(printf '%s' "$OLDIMG" | tr '\n' ' ')"
       if ask "  Remove them?"; then
-        printf '%s\n' "$OLDIMG" | while IFS= read -r i; do docker image rm "$i" >/dev/null 2>&1 && say "    removed: $i"; done
+        printf '%s\n' "$OLDIMG" | while IFS= read -r i; do
+          if docker image rm "$i" >/dev/null 2>&1; then say "    removed: $i"; else say "    still in use: $i"; fi
+        done
       fi
     fi
   fi
