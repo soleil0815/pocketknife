@@ -221,33 +221,33 @@ POCKET KNIFE besteht aus zwei Containern: **pocketknife** (Programm und Weboberf
 | Dateiserver mit dem Repository | 445 TCP | Installationsdateien |
 | Internet (optional) | 443 TCP | fertiges Image (`ghcr.io`), winget-Index (`cdn.winget.microsoft.com`), Hinweis auf neue Versionen (`api.github.com`) |
 
-Ohne Internet geht es auch: Image selbst bauen (siehe unten) und den winget-Index offline hochladen.
+Ohne Internet geht es auch: die Images aus dem Archiv des Releases laden (siehe [Update](#update)) und den winget-Index offline hochladen.
 
 ### Schritt 2: Ordner und Dateien anlegen
 
-Alles liegt in **einem** Ordner, z. B. `/opt/pocketknife` (auf einem NAS z. B. `/volume1/docker/pocketknife`). Die Programm-ZIP `pocketknife-<Version>.zip` gehört zu jedem Release (mit Prüfsumme in `pocketknife-<Version>.zip.sha256`); sie entpackt in einen Ordner `pocketknife`:
+Alles liegt in **einem** Ordner, z. B. `/opt/pocketknife` (auf einem NAS z. B. `/volume1/docker/pocketknife`). Dorthin kommen nur drei Dateien – das Programm selbst steckt im Image. Am einfachsten holen Sie sie aus dem Image der neuesten Version (bei einer privaten Registry vorher einmal `docker login ghcr.io -u <GitHub-Benutzer>`, Kennwort = Token mit `read:packages`):
 
 ```bash
-cd /opt
-unzip pocketknife-2.30.zip        # ergibt /opt/pocketknife
-cd /opt/pocketknife
+mkdir -p /opt/pocketknife && cd /opt/pocketknife
+docker run --rm --entrypoint sh ghcr.io/soleil0815/pocketknife:latest -c 'cd /opt/pocketknife/host && tar cf - .' | tar xf -
 cp .env.example .env
 ```
+
+Alternativ laden Sie `docker-compose.yml`, `.env.example` und `update.sh` im Browser vom Release herunter (mit Prüfsummen in `pocketknife-<Version>.sha256`).
 
 Danach sieht der Ordner so aus – `data/` und `data-backup/` entstehen beim ersten Start von selbst:
 
 ```
 /opt/pocketknife/
-├── docker-compose.yml     startet beide Container – wird nie bearbeitet
+├── docker-compose.yml     startet beide Container – wird nicht bearbeitet
 ├── .env.example           Vorlage
 ├── .env                   Ihre Einstellungen
-├── update.sh              für spätere Updates
-├── …                      Programmdateien (das Programm selbst steckt im Image)
+├── update.sh              Update von Hand (optional)
 ├── data/                  Datenbank, Protokolle, Zertifikat, Schlüssel
 └── data-backup/           automatische Sicherungen
 ```
 
-> **Wichtig:** `docker-compose.yml` und `.env` müssen im **selben Ordner** liegen – die Compose-Datei liest die `.env` von dort. Die `docker-compose.yml` bitte nicht ändern: Updates ersetzen sie, Ihre Werte gehören in die `.env`.
+> **Wichtig:** `docker-compose.yml` und `.env` müssen im **selben Ordner** liegen – die Compose-Datei liest die `.env` von dort. Die `docker-compose.yml` bitte nicht ändern: Ihre Werte gehören in die `.env`, eigene Ergänzungen in eine `docker-compose.override.yml`.
 
 ### Schritt 3: Die .env ausfüllen
 
@@ -303,7 +303,7 @@ docker compose exec -T -e HOME=/nonexistent pocketknife \
   python3 -I /opt/pocketknife/tools/selftest.py | tail -n 1
 ```
 
-**Image:** Standard ist das fertige Image `ghcr.io/soleil0815/pocketknife:latest`. Bei einer Version bleiben: `PK_IMAGE=ghcr.io/soleil0815/pocketknife:<Version>` in der `.env`. Ohne Internet oder mit eigenem Code: im Programmordner `docker build -t pocketknife:local .` und `PK_IMAGE=pocketknife:local`.
+**Image:** Standard ist das fertige Image `ghcr.io/soleil0815/pocketknife:latest` (dazu `…/pocketknife-guacd:latest`). Bei einer Version bleiben: `sudo sh update.sh <Version>`. Ohne Internet: das Archiv aus dem Release, siehe [Update](#update).
 
 ### Schritt 5: Erste Anmeldung
 
@@ -319,8 +319,8 @@ Container-Verwaltungen arbeiten mit derselben `docker-compose.yml`. Darauf kommt
 - **Pfade absolut angeben**, z. B. `PK_DATA_PATH=/volume1/docker/pocketknife/data` – so ist eindeutig, wo die Daten liegen.
 - **Rechte:** Der Dienst läuft im Container als Benutzer mit der ID 10001. Auf einem normalen Linux-Server übergibt er sich Daten- und Sicherungsordner beim Start selbst. Ein eingebundener Repository-Ordner (`PK_REPO_MOUNT`) muss für ihn **lesbar** sein. Auf einem NAS mit eigenen Freigabe-Rechten (z. B. Synology) reicht das nicht – siehe den nächsten Abschnitt.
 - **Port:** Ist 8443 belegt (z. B. durch eine andere Anwendung auf dem NAS), `PK_PORT` ändern.
-- **Updates:** nicht über die Container-Verwaltung, sondern per Knopf **Jetzt aktualisieren** oder `sudo sh update.sh --pull` (siehe [Update](#update)); automatisches Aktualisieren für POCKET KNIFE dort abschalten.
-- **Ältere Compose-Versionen** (wie sie manche NAS-Pakete mitbringen) melden doppelte DNS-Einträge als Fehler. Seit 2.30 ist der zweite DNS-Server echt optional; mit einer älteren `docker-compose.yml` die neue aus der Programm-ZIP nehmen.
+- **Updates:** einfach über die Container-Verwaltung, am besten nachts (siehe [Update](#update)). Vor dem Start einer neuen Version sichert POCKET KNIFE die Datenbank selbst.
+- **Ältere Compose-Versionen** (wie sie manche NAS-Pakete mitbringen) melden doppelte DNS-Einträge als Fehler. Seit 2.30 ist der zweite DNS-Server echt optional; mit einer älteren `docker-compose.yml` die aktuelle nehmen (siehe Schritt 2).
 
 ### Auf einem NAS (z. B. Synology) {#setup-nas}
 
@@ -362,69 +362,51 @@ PK_GID=100
 
 ## Update {#update}
 
-Am einfachsten (ab 2.24.1) aktualisieren Sie **immer im selben Ordner**: ZIP in den Programmordner legen und dort aufrufen:
+Ab 2.33 aktualisiert man POCKET KNIFE wie jeden anderen Container – das Programm steckt komplett im Image, auf dem Host liegen nur `docker-compose.yml`, `.env` und die Daten. **Vor dem Start einer neuen Version sichert POCKET KNIFE seine Datenbank selbst** (Sicherung „vor-<Version>“, siehe [Sicherung](#backup)) und erweitert sie danach bei Bedarf – egal, wer das Image getauscht hat.
+
+**Mit einer Container-Verwaltung (empfohlen):** Dockhand, Watchtower, Tugtainer & Co. aktualisieren beide Container (`pocketknife` und `pocketknife-guacd`), sobald ein neues Image da ist. Stellen Sie die Update-Zeit möglichst **nachts** ein – ein Neustart mitten in einer Verteilung unterbricht sie (POCKET KNIFE räumt danach auf, siehe [Neustart während einer Bereitstellung](#deploy-restart)). Jeden Montag erscheint ein Sicherheitsupdate (`<Version>-s<n>`: gleiches Programm, aktualisierte Pakete).
+
+**Von Hand** im Ordner mit der `docker-compose.yml`:
+
+```bash
+sudo sh update.sh               # neueste Version (bzw. die in der .env festgelegte)
+sudo sh update.sh 2.33.1        # bestimmte Version – wird in der .env festgelegt
+sudo sh update.sh latest        # wieder „immer die neueste“
+```
+
+`update.sh` merkt sich die laufenden Images, zieht die neuen (POCKET KNIFE und guacd), startet und wartet auf den Gesundheitscheck. Startet die neue Version nicht, bietet es an, die vorherige wieder zu starten – ohne Download. Bringt das neue Image eine neuere `docker-compose.yml` mit, legt es sie hin und behält die bisherige als `docker-compose.yml.alt`. Es entpackt nichts und baut nichts. `-y` beantwortet alle Fragen mit „ja“. Ganz ohne Skript geht es auch: `docker compose pull && docker compose up -d`.
+
+**docker-compose.yml:** Sie ändert sich nur selten. Braucht eine neue Version eine neuere Datei, zeigt POCKET KNIFE Hauptadmins in der Seitenleiste **⚠ Hinweis** – ein `sudo sh update.sh` legt sie dann hin (wer nur mit einer Container-Verwaltung arbeitet, holt sie wie bei der Installation aus dem Image). guacd kommt seit 2.33 als `ghcr.io/soleil0815/pocketknife-guacd` – dieselbe offizielle Version, von POCKET KNIFE geprüft und mit den Sicherheitsupdates veröffentlicht; die Datei muss sich dafür nicht mehr ändern.
+
+**Bei einer Version bleiben oder zurückgehen:** `sudo sh update.sh <Version>` (oder in der `.env` `PK_IMAGE=ghcr.io/soleil0815/pocketknife:<Version>` und `PK_GUACD_IMAGE=ghcr.io/soleil0815/pocketknife-guacd:<Version>`, dann `docker compose up -d`). Hat die neuere Version die Datenbank schon erweitert, die Sicherung „vor-<neuere Version>“ zurückspielen (siehe [Sicherung](#backup)). Startet eine ältere Version auf einer Datenbank, die schon eine neuere benutzt hat, sagt POCKET KNIFE das in der Seitenleiste.
+
+**Ohne Internet:** Jedes Release enthält je Plattform ein Archiv beider Images (`pocketknife-<Version>-amd64.tar.gz`, `-arm64.tar.gz`, Prüfsummen in `pocketknife-<Version>.sha256`). Auf den Docker-Host kopieren und `sudo sh update.sh pocketknife-<Version>-amd64.tar.gz` – lädt die Images (`docker load`), prüft die Prüfsumme, legt die Version in der `.env` fest und startet.
+
+**Private Registry:** einmal auf dem Docker-Host als der Benutzer, der die Updates ausführt (bei `sudo` root, bei einer Container-Verwaltung deren Benutzer), anmelden: `docker login ghcr.io -u <GitHub-Benutzer>`, Kennwort = **persönliches Zugriffstoken** mit `read:packages`. Das Token steht nicht in der `.env`.
+
+**Woher die Images kommen:** Bei jeder Version baut GitHub (Workflow `.github/workflows/release.yml`) das Image für amd64 und arm64, lässt den Selbsttest in beiden laufen, prüft beide mit **Trivy** auf bekannte Schwachstellen und veröffentlicht es nur dann – zusammen mit guacd unter eigenem Namen; zusätzlich montags mit aktualisierten Paketen („Wöchentliches Sicherheitsupdate“).
+
+### Umstieg von einer Installation mit der Programm-ZIP (bis 2.32) {#update-migrate}
+
+Bis 2.32 wurde die Programm-ZIP auf dem Host entpackt. Das ist nicht mehr nötig – so stellen Sie um:
+
+1. Das neue `update.sh` holen (das alte kennt den neuen Weg nicht) und einmal ausführen – es stellt auf das fertige Image um, legt die neue `docker-compose.yml` hin (die alte bleibt als `docker-compose.yml.alt`) und entfernt den Update-Helfer aus 2.32.9–2.32.12, falls eingerichtet:
 
 ```bash
 cd /opt/pocketknife
-sh update.sh pocketknife-2.24.1.zip
+docker run --rm --entrypoint cat ghcr.io/soleil0815/pocketknife:latest /opt/pocketknife/host/update.sh > update.sh.neu && mv update.sh.neu update.sh
+sudo sh update.sh
 ```
 
-Nach der Bestätigung (**y**/N – die Meldungen des Skripts sind englisch, `j` geht ebenfalls) ersetzt das Skript die Programmdateien im selben Ordner – `.env`, Datenbank (`data/`), Sicherungen (`data-backup/`) und Repository (`repo/`) bleiben unangetastet, ein neuer Versionsordner entsteht nicht. Die bisherigen Programmdateien liegen bis zum nächsten Update in `.pk-vorher/`. Dann baut es, startet neu, wartet auf den sauberen Start und führt den Selbsttest aus; schlägt der Bau fehl oder startet die neue Version nicht, kehrt es (auf Nachfrage) zum bisherigen Stand zurück; bricht es mitten im Tausch ab (Strg+C, volle Platte), legt es die bisherigen Dateien automatisch zurück. Bei derselben Version noch einmal bleibt `.pk-vorher/` unverändert. Zum Schluss räumt es – jeweils mit Nachfrage – Versionsordner früherer Updates (`pocketknife-2.23.3/`, `pocketknife-2.24/`), das ZIP und nicht mehr benutzte Docker-Images auf; Ordner mit Datenbank, Sicherungen oder Repository werden nie gelöscht – auch nicht, wenn darin noch Dateien in `data/`, `data-backup/` oder `repo/` liegen. Läuft POCKET KNIFE noch aus einem solchen Versionsordner, übernimmt das Skript dessen `.env` in den Programmordner. Liegt das neue Skript noch nicht im Programmordner: `unzip -oj pocketknife-2.24.1.zip pocketknife/update.sh -d /opt/pocketknife`.
-
-**Mit fertigem Image aus der Registry (ab 2.27.1):** Statt die ZIP-Datei zu holen und das Image auf dem Docker-Host zu bauen, lädt `update.sh` das fertige Image aus der GitHub Container Registry – für **amd64 und arm64**, Docker wählt das passende:
+2. Aufräumen – zeigt, was weg kann, und fragt nach:
 
 ```bash
-cd /opt/pocketknife
-sh update.sh --pull            # neueste Version
-sh update.sh --pull 2.27.1     # bestimmte Version
+sudo sh update.sh --cleanup
 ```
 
-Das Skript zieht das Image, nimmt die Programm-ZIP **aus dem Image** (geprüft per SHA-256, Version von Image und ZIP müssen übereinstimmen), tauscht die Programmdateien wie beim ZIP-Weg und startet **genau dieses Image** (per Digest, ohne Bauen) – mit Gesundheitsprüfung, Selbsttest und Rückweg wie oben. Der Container läuft danach – wie andere Container – unter dem Namen aus der Registry, z. B. `ghcr.io/soleil0815/pocketknife:latest` (eingetragen als `PK_IMAGE` in der `.env`; der ZIP-Weg baut wieder lokal als `pocketknife:local`). Für den Rückweg behält es das bisherige Image als `pocketknife:previous`; zurück geht es dann ohne Bauen und ohne Internet. Läuft schon genau dieses Image, meldet es „already up to date“.
+Gelöscht werden nur bekannte Programmdateien früherer Versionen (`app/`, `tools/`, `Dockerfile`, `.pk-vorher/`, alte ZIPs, Versionsordner wie `pocketknife-2.24/` …) und der Ordner `data/update/` des früheren Helfers. **Nie** Datenbank, Sicherungen, Repository, `.env` oder `docker-compose.yml` – auch nicht, wenn ein Ordner über einen Link auf sie zeigt oder in einem Versionsordner noch Daten liegen. Danach bleiben `docker-compose.yml`, `.env`, `update.sh` und Ihre Datenordner.
 
-- **Registry:** Standard `ghcr.io/soleil0815/pocketknife`; eine eigene (z. B. ein Fork oder eine Spiegel-Registry) in der `.env` mit `PK_IMAGE_REPO=ghcr.io/<besitzer>/pocketknife`.
-- **Private Registry:** einmal auf dem Docker-Host als der Benutzer, der das Update ausführt (meist root), anmelden: `docker login ghcr.io -u <GitHub-Benutzer>`, Kennwort = **persönliches Zugriffstoken** mit dem Recht `read:packages` (bei einem fein granularen Token: Zugriff auf das Repository, „Packages: Read“). Docker merkt sich die Anmeldung; das Token steht nicht in der `.env`.
-- **Ohne Internet** oder bei einer eigenen Änderung am Code bleibt der ZIP-Weg wie bisher (baut lokal).
-- Der erste Wechsel auf 2.27.1 geht mit der ZIP-Datei (das alte `update.sh` kennt `--pull` noch nicht); danach genügt `--pull`.
-
-**Woher das Image kommt:** Bei jeder Version baut GitHub (Workflow `.github/workflows/release.yml`) das Image für amd64 und arm64, lässt den Selbsttest in beiden laufen, prüft beide mit **Trivy** auf bekannte Schwachstellen und lädt es nur dann hoch (zusätzlich montags automatisch mit aktualisierten Paketen – „Wöchentliches Sicherheitsupdate“ als `<Version>-s<n>`, z. B. 2.29.7-s1: gleiches Programm, nur neue Pakete; installiert per Knopf oder `update.sh --pull`); dazu ein Release mit der ZIP-Datei und ihrer Prüfsumme. Ausgelöst wird es mit einem Tag `v<Version>`, der zur Datei `VERSION` passen muss. Jeder Push und Pull Request baut und testet zusätzlich (`test.yml`), ohne etwas zu veröffentlichen.
-
-**Update per Knopf aus der Oberfläche (ab 2.32.9):** POCKET KNIFE bekommt dafür **keinen** Zugriff auf Docker (wer den Docker-Socket hat, ist root auf dem Host). Der Knopf **Jetzt aktualisieren** legt nur einen Auftrag in den Datenordner (`data/update/`); ein kleiner **Update-Helfer** auf dem Docker-Host schaut alle 5 Minuten nach (ohne Auftrag nur ein Zeitstempel, kein Docker-Aufruf) und führt dann genau das obige `sh update.sh --pull <Version> -y` aus – mit Prüfsumme, Sicherung der Programmdateien, Gesundheitsprüfung, **automatischer Rückkehr** zur bisherigen Version, falls die neue nicht startet, und Selbsttest. Stand und Protokoll schreibt er in einen eigenen Ordner (`data/update/host/`, gehört root – in Ordner des Containers schreibt er nie); POCKET KNIFE zeigt sie an, auch nach dem Neustart. Aus der Oberfläche gibt es nur das Update selbst: nie eine ältere Version, kein Aufräumen alter Ordner oder Images.
-
-**Nichts zu aktivieren:** Jedes Update mit `update.sh` (ZIP oder `--pull`, als root bzw. mit `sudo`) richtet den Helfer gleich mit ein – als systemd-Timer, sonst über `/etc/cron.d`. Nach dem ersten Update auf 2.32.9 von Hand funktioniert der Knopf also, danach geht alles aus der Oberfläche. Von Hand:
-
-```bash
-cd /opt/pocketknife
-sudo sh update.sh --watch-install    # einrichten (z. B. nach einem DSM-Update auf der Synology)
-sudo sh update.sh --watch-remove     # dauerhaft abschalten (PK_UPDATE_HELPER=off in der .env – spätere Updates richten ihn nicht wieder ein)
-```
-
-- **Synology (DSM 7):** wie unter Linux – DSM 7 hat systemd, das Update richtet den Timer ein. Ein großes DSM-Update kann ihn entfernen; dann zeigt **Einstellungen → Wartung** „Update-Helfer meldet sich nicht mehr“, und `sudo sh update.sh --watch-install` (oder das nächste Update von Hand) richtet ihn wieder ein. Ohne systemd: Systemsteuerung → Aufgabenplaner → Erstellen → Geplante Aufgabe → Benutzerdefiniertes Skript; Benutzer **root**, täglich, **alle 5 Minuten** wiederholen, Skript: `sh /volume1/docker/pocketknife/update.sh --watch` (Pfad anpassen).
-- **Private Registry:** `docker login ghcr.io` einmal **als root** (der Helfer läuft als root), siehe oben.
-- **Empfehlung: Updates nur per Knopf **Jetzt aktualisieren** in POCKET KNIFE oder mit `sudo sh update.sh --pull` – keine automatischen Updates durch Watchtower, Dockhand, Tugtainer & Co.** Die tauschen nur das POCKET-KNIFE-Image: `docker-compose.yml` und guacd (Fernsitzungen) bleiben auf dem alten Stand, eine Version, die nicht startet, bleibt stehen (kein automatisches Zurück), und der Neustart kommt irgendwann – auch mitten in einer Verteilung. Die Datenbank wäre zwar sicher (POCKET KNIFE sichert sie bei jedem Versionswechsel vor dem Start), alles andere aber nicht.
-- Der Helfer vertraut dem Auftrag nicht: nur eine Versionsnummer, **nie älter** als die laufende Version (zurück nur von Hand), nur aus der Registry der `.env`. Er folgt keinen Links im Datenordner und läuft nie doppelt.
-- In der Oberfläche: **Neuigkeiten → Version … ist verfügbar → Jetzt aktualisieren**, oder **Einstellungen → Wartung → Neuigkeiten und Updates → Update aus der Oberfläche** (dort auch Stand des Helfers, Ergebnis und Protokoll des letzten Updates). Nur Hauptadmins.
-
-Von Hand geht es wie bisher – entpacken und im neuen Ordner mit dem alten als Parameter aufrufen:
-
-```bash
-cd /opt/pocketknife
-unzip pocketknife-2.24.1.zip && mv pocketknife pocketknife-2.24.1
-cd pocketknife-2.24.1
-./update.sh /opt/pocketknife
-```
-
-Zurück zum vorigen Stand von Hand: die Dateien aus `.pk-vorher/` in den Programmordner zurückkopieren und `docker compose up -d` (lokal gebaut: vorher `docker build -t pocketknife:local .`).
-
-Laufen beim Update noch Bereitstellungen, werden sie unterbrochen; POCKET KNIFE räumt danach auf den Computern auf und wartet dabei noch laufende Installer ab (siehe [Neustart während einer Bereitstellung](#deploy-restart)).
-
-**Feste Versionen (reproduzierbarer Build):** Basis-Image mit exakter Python-Version und Digest, Debian-Pakete über einen festen Stand von snapshot.debian.org und alle Python-Pakete samt Abhängigkeiten stehen in `Dockerfile`, `requirements.lock`, `build-requirements.txt` und `docker/apt-*.txt`. Ein Neubau ergibt damit immer dasselbe Image. Festschreiben bzw. bewusst aktualisieren:
-
-```bash
-./tools/pin-versions.sh           # Versionen des gebauten Images festschreiben
-./tools/pin-versions.sh --update  # neueste Versionen laden und festschreiben
-```
-
-Das Werkzeug baut danach zur Kontrolle komplett neu und führt den Selbsttest aus. Ist `requirements.lock` leer, baut das Image nach den Mindestversionen in `requirements.txt` und weist darauf hin.
+3. Ab jetzt nach Belieben mit der Container-Verwaltung oder `sudo sh update.sh` aktualisieren.
 
 ## Erste Schritte {#firststeps}
 
@@ -448,7 +430,7 @@ Fast jede Seite hat oben rechts ein **?**, das direkt zum passenden Kapitel dies
 
 Unter der Versionsnummer links oben steht nach einem Update dezent **Neu** – bei Sicherheitsupdates **Neu · Sicherheit** mit rotem Punkt. Ein Klick öffnet die Neuigkeiten: je Version kurze Punkte, gekennzeichnet als **Sicherheit**, **Neu**, **Verbessert** oder **Behoben** (Sicherheit immer oben). Danach verschwindet der Hinweis; die Neuigkeiten bleiben über **Neuigkeiten** an derselben Stelle erreichbar. POCKET KNIFE merkt sich je Benutzer, was er gesehen hat – wer mehrere Updates verpasst hat, sieht alle seither. Alle Einzelheiten stehen weiterhin im CHANGELOG.
 
-**Neue Version verfügbar** (nur Hauptadmins): Der POCKET-KNIFE-Server fragt einmal täglich bei GitHub nach dem neuesten Release – nie der Browser, und über den Proxyserver, falls eingetragen. Gibt es eine neuere Version, steht dort **↑ 2.28.1 verfügbar** (rot, wenn sie Sicherheitsupdates enthält). Der Klick zeigt ihre Neuigkeiten und – ist der Update-Helfer auf dem Docker-Host eingerichtet – den Knopf **Jetzt aktualisieren**, sonst den Befehl für das Update auf dem Docker-Host (`sh update.sh --pull`, siehe [Update](#update)); im Protokoll steht es einmal.
+**Neue Version verfügbar** (nur Hauptadmins): Der POCKET-KNIFE-Server fragt einmal täglich bei GitHub nach dem neuesten Release – nie der Browser, und über den Proxyserver, falls eingetragen. Gibt es eine neuere Version, steht dort **↑ 2.28.1 verfügbar** (rot, wenn sie Sicherheitsupdates enthält). Der Klick zeigt ihre Neuigkeiten und wie Sie aktualisieren (Container-Verwaltung oder `sudo sh update.sh`, siehe [Update](#update)); im Protokoll steht es einmal. Ebenfalls hier, als **⚠ Hinweis**: eine zu alte `docker-compose.yml` oder eine Datenbank, die schon von einer neueren Version benutzt wurde.
 
 Einstellungen unter **Einstellungen → Wartung → Neuigkeiten und Updates**:
 
@@ -1361,7 +1343,7 @@ Zurück auf NTLM: in derselben Auswahl „NTLM“ wählen und speichern.
 
 | Meldung | Lösung |
 |---|---|
-| Kerberos-Bibliotheken fehlen | Image neu laden bzw. bauen (`sh update.sh --pull` oder `update.sh` mit der ZIP-Datei) |
+| Kerberos-Bibliotheken fehlen | Image neu laden (`sudo sh update.sh`) |
 | Kein KDC gefunden / nicht erreichbar | DNS-SRV-Einträge prüfen oder `PK_KDC` setzen; Firewall Port 88 |
 | Uhrzeit weicht ab (Clock skew) | NTP auf dem Docker-Host einrichten |
 | Kein Dienstprinzipalname (SPN) | Computer per DNS-Namen ansprechen, DNS-Eintrag und Computerkonto prüfen |
@@ -1417,6 +1399,8 @@ Die Zuordnung bleibt **nur in Ihrer Datenbank**. Nennt Ihnen jemand einen Platzh
 - **Arbeitsordner auf den Clients** (`C:\Windows\Temp\PocketKnife`): Rechte nur für SYSTEM und Administratoren. Hat ein Benutzer den Ordner vorab selbst angelegt, wird er beiseitegeschoben und neu angelegt (Hinweis im Protokoll).
 - **Repository als Ordner** im Container nur unter `/repo` (`PK_REPO_MOUNT`) – das Datenverzeichnis lässt sich nicht als Repository eintragen.
 - CSV-Exporte entschärfen Werte, die Excel als Formel ausführen würde.
+
+## Sicherung {#backup}
 
 **Sicherung:** POCKET KNIFE sichert sich selbst – unter **Einstellungen → Sicherung**:
 

@@ -1,5 +1,17 @@
 # Änderungen
 
+## pocketknife-2.33.0 (29.10.2026)
+Updates so, wie Docker-Nutzer es gewohnt sind – das Programm steckt komplett im Image:
+- **Neu – Update mit einer Container-Verwaltung:** Dockhand, Watchtower, Tugtainer & Co. oder `docker compose pull && docker compose up -d` aktualisieren POCKET KNIFE gefahrlos – vor dem Start einer neuen Version sichert POCKET KNIFE seine Datenbank selbst (wie bisher). Empfehlung: Update-Zeit nachts
+- **Neu – guacd als eigenes Image** `ghcr.io/soleil0815/pocketknife-guacd` (dieselbe offizielle, auf ihren Digest festgelegte Version, mit den Sicherheitsupdates veröffentlicht) – die `docker-compose.yml` muss sich dafür nicht mehr ändern. Festgelegt in `docker/guacd.txt`
+- **Neu – Stand der docker-compose.yml:** `PK_COMPOSE_VERSION` in der Datei; ist sie älter als das Programm erwartet, zeigt POCKET KNIFE Hauptadmins einen Hinweis. Das Image bringt die passende Datei mit
+- **Neu – Datenbank einer neueren Version:** Startet eine ältere Version auf einer Datenbank, die schon eine neuere benutzt hat, nennt POCKET KNIFE die Sicherung „vor-<Version>“ zum Zurückspielen (Sicherheitsupdates derselben Version zählen nicht)
+- **Neu – update.sh** aktualisiert nur noch die Container: merkt sich die laufenden Images, zieht die neuen, legt eine neuere `docker-compose.yml` aus dem Image hin (die alte bleibt als `.alt`), wartet auf den Gesundheitscheck und startet bei einem Fehler die vorherigen Images wieder – ohne Download. `sudo sh update.sh <Version>` legt eine Version fest, `latest` hebt das auf. Ohne Internet: `sudo sh update.sh pocketknife-<Version>-amd64.tar.gz` (Archiv beider Images aus dem Release, Prüfsumme). Keine ZIP, kein Entpacken, kein Bauen
+- **Neu – sudo sh update.sh --cleanup:** entfernt, was ältere Versionen im Ordner hinterlassen haben (Programmdateien, `.pk-vorher/`, ZIPs, Versionsordner, Ordner des früheren Update-Helfers) – nie Datenbank, Sicherungen, Repository, `.env` oder `docker-compose.yml`, auch nicht über Links
+- **Entfernt – Programm-ZIP und Update-Knopf:** Releases enthalten keine Programm-ZIP mehr (dafür `docker-compose.yml`, `.env.example`, `update.sh`, Archive für ohne Internet); der Knopf „Jetzt aktualisieren“ und der Update-Helfer auf dem Host (2.32.9–2.32.12) sind ausgebaut – `update.sh` entfernt den Timer des Helfers selbst
+- **Hilfe und README:** Installation und Update neu, Umstieg von einer Installation mit der Programm-ZIP Schritt für Schritt
+- **Selbsttest:** update.sh (Umstieg, Version festlegen, Rückweg, neuere docker-compose.yml, ohne Internet, anderer Ordner, Timer des Helfers, --cleanup mit Links und Versionsordnern mit Daten, Selbsterneuerung), Stand der docker-compose.yml, Datenbank einer neueren Version, Release ohne ZIP
+
 ## pocketknife-2.32.12 (29.10.2026)
 - **Behoben – Knopf „Jetzt aktualisieren“ fehlte (Update-Helfer: „host does not belong to root“):** Beim Start übergibt POCKET KNIFE den Datenordner dem Dienstbenutzer (chown) – seit 2.32.10 auch `data/update/host/`, den Ordner, der root gehören muss. Nach jedem Neustart lehnte der Helfer ihn deshalb ab und meldete sich nicht mehr. Jetzt lässt der Start diesen Ordner aus, und der Helfer übernimmt einen Ordner, den der Container besitzt, selbst wieder (nur der Ordner selbst wird umgestellt, sein Inhalt nur gelöscht – keinem Link wird gefolgt)
 - **Selbsttest:** Start lässt `update/host` beim Übergeben aus; Helfer übernimmt einen Ordner des Containers (Links darin werden gelöscht, nie verfolgt), lehnt einen Ordner eines Dritten ab

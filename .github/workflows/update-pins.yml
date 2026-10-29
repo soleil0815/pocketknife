@@ -59,7 +59,7 @@ jobs:
           if git diff --quiet; then echo "Alles ist schon aktuell – nichts zu tun." >> "$GITHUB_STEP_SUMMARY"; exit 0; fi
           BR="versionen-$(date -u +%Y%m%d-%H%M)"
           git switch -c "$BR"
-          git add -A Dockerfile requirements.lock requirements.caps build-requirements.txt docker/apt-build.txt docker/apt-runtime.txt docker-compose.yml
+          git add -A Dockerfile requirements.lock requirements.caps build-requirements.txt docker/apt-build.txt docker/apt-runtime.txt docker/guacd.txt
           git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
             commit -qm "Versionen aktualisiert (tools/pin-versions.sh --update)"
           git push -q "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$BR"

@@ -2,6 +2,24 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.33.0",
+   "date": "2026-10-29",
+   "items": [
+    {
+     "kind": "new",
+     "audience": "admin",
+     "de": "Updates wie bei jedem Container: mit einer Container-Verwaltung wie Dockhand (am besten nachts) oder sudo sh update.sh. Auf dem Host liegen nur noch docker-compose.yml, .env und die Daten – das Programm steckt im Image, die Programm-ZIP gibt es nicht mehr.",
+     "en": "Updates like any container: with a container manager such as Dockhand (preferably at night) or sudo sh update.sh. The host only holds docker-compose.yml, .env and the data – the program lives in the image, there is no program ZIP any more."
+    },
+    {
+     "kind": "improved",
+     "audience": "admin",
+     "de": "guacd kommt als eigenes, mit den Sicherheitsupdates veröffentlichtes Image; POCKET KNIFE meldet, wenn die docker-compose.yml zu alt ist oder die Datenbank schon von einer neueren Version benutzt wurde. Umstieg: einmal sudo sh update.sh, dann sudo sh update.sh --cleanup (siehe Hilfe → Update).",
+     "en": "guacd comes as its own image published with the security updates; POCKET KNIFE reports if the docker-compose.yml is too old or the database was already used by a newer version. Switching: once sudo sh update.sh, then sudo sh update.sh --cleanup (see Help → Update)."
+    }
+   ]
+  },
+  {
    "version": "2.32.12",
    "date": "2026-10-29",
    "items": [

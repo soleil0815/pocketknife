@@ -174,17 +174,33 @@ def due(now=None):
     return (db.setting_raw("backup_last_auto") or "")[:10] != now.strftime("%Y-%m-%d")
 
 
+# 2.33: Die Datenbank stammt von einer neueren Version (zurück auf eine ältere ohne die Sicherung „vor-…“) – Hinweis
+NEWER_DB = None
+
+
+def _base(v):
+    """2.32.12-s3 → 2.32.12 (ein Sicherheitsupdate ändert die Datenbank nicht)."""
+    return str(v or "").split("-s")[0]
+
+
 def before_update():
     """Beim Start nach einem Versionswechsel einmal sichern – vor den Datenbank-Migrationen,
     also wirklich der Stand vor dem Update."""
+    global NEWER_DB
     if not os.path.exists(config.DB_PATH):
         return
     try:
         c = sqlite3.connect(config.DB_PATH, timeout=30)
-        rows = dict(c.execute("SELECT key, value FROM settings WHERE key IN ('last_version', 'backup_enabled')").fetchall())
+        rows = dict(c.execute("SELECT key, value FROM settings WHERE key IN ('last_version', 'backup_enabled', 'db_version_max')").fetchall())
         c.close()
     except sqlite3.Error:
         return
+    from . import util
+    top = rows.get("db_version_max") or rows.get("last_version") or ""
+    NEWER_DB = top if top and util.vcmp(_base(top), _base(config.VERSION)) > 0 else None
+    if NEWER_DB:
+        print(f"POCKET KNIFE {config.VERSION}: Die Datenbank wurde schon von Version {NEWER_DB} benutzt. Läuft etwas nicht, "
+              f"die Sicherung „vor-{NEWER_DB}“ zurückspielen (Hilfe → Sicherung) oder wieder {NEWER_DB} starten.", flush=True)
     if rows.get("last_version") == config.VERSION or str(rows.get("backup_enabled", "1")) in ("0", "False", "false"):
         return
     try:
@@ -194,4 +210,8 @@ def before_update():
 
 
 def mark_version():
+    from . import util
     db.set_setting("last_version", config.VERSION)
+    top = db.setting_raw("db_version_max")
+    if not top or util.vcmp(config.VERSION, top) > 0:
+        db.set_setting("db_version_max", config.VERSION)  # höchste Version, die diese Datenbank benutzt hat

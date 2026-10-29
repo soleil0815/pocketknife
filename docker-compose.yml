@@ -1,13 +1,15 @@
 # POCKET KNIFE - all adjustable values are in the .env
-# This file does NOT need to be edited when changing versions.
+# This file does NOT need to be edited when changing versions. Install: put it next to the .env, docker compose up -d.
+# Update: a container manager (Dockhand, Watchtower …) or "docker compose pull && docker compose up -d" or "sudo sh update.sh".
+# Before starting a new version, POCKET KNIFE backs up its database itself.
+# PK_COMPOSE_VERSION below: the state of this file – if the program needs a newer one, it says so (sudo sh update.sh
+# puts the new one in place and keeps the old one as docker-compose.yml.alt). Own changes: docker-compose.override.yml.
 name: pocketknife
 
 services:
   pocketknife:
-    # Since 2.28.2: by default the ready-made image from the GitHub Container Registry (amd64/arm64). Update with the
-    # button "Update now" in POCKET KNIFE or "sudo sh update.sh --pull" – not with automatic updates by Watchtower,
-    # Dockhand, Tugtainer & co. (they only swap this image; guacd below and this file stay old); to stay on a version: PK_IMAGE=ghcr.io/soleil0815/pocketknife:2.28.2 in the .env.
-    # Built locally (ZIP update, no internet): PK_IMAGE=pocketknife:local – update.sh sets that itself.
+    # Ready-made image from the GitHub Container Registry (amd64/arm64). To stay on a version:
+    # PK_IMAGE=ghcr.io/soleil0815/pocketknife:2.33.0 in the .env (sudo sh update.sh 2.33.0 sets it).
     image: ${PK_IMAGE:-ghcr.io/soleil0815/pocketknife:latest}
     container_name: pocketknife
     restart: unless-stopped
@@ -32,6 +34,7 @@ services:
     env_file: .env
     environment:
       TZ: ${PK_TIMEZONE:-Europe/Berlin}
+      PK_COMPOSE_VERSION: "2"
     ports:
       - "${PK_PORT:-8443}:${PK_PORT:-8443}"
     volumes:
@@ -54,8 +57,9 @@ services:
   # Apache Guacamole – provides RDP/VNC for the remote sessions in the browser.
   # Reachable internally only (no published port); connects directly to the clients (3389/5900).
   guacd:
-    # Pinned exactly (version + digest); update with tools/pin-versions.sh --update
-    image: guacamole/guacd:1.6.0@sha256:8974eaa9ba32f713daf311e7cc8cd7e4cdfba1edea39eed75524e78ef4b08f4f
+    # Since 2.33: the official guacd, checked and published by POCKET KNIFE under its own name (updated every week like
+    # POCKET KNIFE itself) – this file no longer changes for a guacd update. Same version: PK_GUACD_IMAGE=…:2.33.0
+    image: ${PK_GUACD_IMAGE:-ghcr.io/soleil0815/pocketknife-guacd:latest}
     container_name: pocketknife-guacd
     restart: unless-stopped
     # guacd already runs as its own user in the official image; additionally no privilege escalation

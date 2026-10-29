@@ -597,8 +597,12 @@ def _():
         assert need in names, f"{need} fehlt in requirements.lock"
     rt = [ln for ln in open(os.path.join(root, "docker", "apt-runtime.txt"), encoding="utf-8") if ln.strip() and not ln.startswith("#")]
     assert rt and all("=" in ln for ln in rt), "Debian-Pakete ohne Version"
+    # 2.33: guacd fest in docker/guacd.txt (Version + Digest) – veröffentlicht als …/pocketknife-guacd, die
+    # docker-compose.yml nennt nur noch diesen Namen (ändert sich für ein guacd-Update nicht)
+    g = open(os.path.join(root, "docker", "guacd.txt"), encoding="utf-8").read()
+    assert re.fullmatch(r"guacamole/guacd:[\w.]+@sha256:[0-9a-f]{64}\n", g), "guacd ohne Digest"
     dc = open(os.path.join(root, "docker-compose.yml"), encoding="utf-8").read()
-    assert re.search(r"image: guacamole/guacd:[\w.]+@sha256:[0-9a-f]{64}", dc), "guacd ohne Digest"
+    assert "image: ${PK_GUACD_IMAGE:-ghcr.io/soleil0815/pocketknife-guacd:latest}" in dc and "guacamole/guacd" not in dc
 
 
 @test("2.14.3 Tabellen: Spaltenbreite, Reihenfolge (auch ans Ende) und Sichtbarkeit werden gemerkt")
@@ -1774,30 +1778,6 @@ def _():
     assert 'request.url.path.startswith("/static/")' in src and 'resp.headers["Cache-Control"] = "no-cache"' in src
 
 
-@test("2.23.3/2.24.1 update.sh: Update aus dem ZIP im selben Ordner mit Nachfrage und Rückfall; Aufräumen schont Daten/Repository (auch Standardpfade, Symlinks, eingebundene Ordner)")
-def _():
-    import shutil as _sh
-    import subprocess as _sp
-    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
-    f = os.path.join(root, "update.sh")
-    if not os.path.exists(f):
-        return  # im Container liegt update.sh nicht (nur im Versionsordner)
-    src = open(f, encoding="utf-8").read()
-    if _sh.which("dash"):
-        assert _sp.run(["dash", "-n", f]).returncode == 0, "update.sh muss mit /bin/sh (dash) laufen"
-    for need in ("Update to POCKET KNIFE $NEWVER now?", 'if ! docker build -t "$LOCAL_IMAGE" .', "wait_healthy",
-                 "tools/selftest.py", "PK_DATA_PATH PK_REPO_MOUNT PK_BACKUP_PATH", "restore_prev", "envval()",
-                 'INST="$SCRIPTDIR"', ".pk-vorher", "PROGRAM_ITEMS=",
-                 "mounts >> \"$TMP/protect\"", "canon()", "env_set()", "exit 130"):
-        assert need in src, need
-    assert ". \"$OLD/.env\"" not in src and "source " not in src, ".env wird gelesen, nie ausgeführt"
-    assert "sed -i" not in src, "Pfade nie per sed einsetzen (| & \\ im Pfad)"
-    assert not os.path.exists(os.path.join(root, "--help")), "keine versehentlich erzeugte Datei „--help“ im Projekt"
-    di = open(os.path.join(root, ".dockerignore"), encoding="utf-8").read()
-    for x in ("data/", "data-backup/", "repo/", ".pk-vorher/", "pocketknife-*/", "*.zip"):
-        assert x in di, f".dockerignore: {x} (sonst wandern Datenbank/Repository/alte Stände in jeden Build)"
-
-
 @test("2.23.4 Oberfläche nach dem Update garantiert neu: Skripte und Stylesheets tragen die Version (app.js?v=…)")
 def _():
     from app import config
@@ -1885,301 +1865,6 @@ def _():
     assert 'PK-Run "$env:SystemRoot\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" ((\'-NoLogo -NonInteractive -NoProfile -ExecutionPolicy Bypass -File' in w
 
 
-@test("2.24.4 update.sh: Abbruch mitten im Tausch legt automatisch zurück; .pk-vorher bleibt bei Wiederholung; Ordner mit Sicherungen/Datenbank werden nie gelöscht; nur bekannte Programmdateien")
-def _():
-    import shutil as _sh
-    import subprocess as _sp
-    import zipfile as _z
-    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
-    f = os.path.join(root, "update.sh")
-    if not os.path.exists(f) or not _sh.which("sh"):
-        return  # im Container liegt update.sh nicht
-    src = open(f, encoding="utf-8").read()
-    for need in ("trap 'on_exit' EXIT", "STAGE=swap", "docker compose up -d || UPOK=\"\"", ".pk-update-unvollstaendig",
-                 "umask 077", "data-backup repo", "PROGRAM_ITEMS="):
-        assert need in src, need
-    base = tempfile.mkdtemp(prefix="pk-upd-", dir=TMP)
-    bind, st = os.path.join(base, "bin"), os.path.join(base, "st")
-    os.makedirs(bind); os.makedirs(st)
-    with open(os.path.join(bind, "docker"), "w") as h:
-        h.write('#!/bin/sh\nst="$FAKE_STATE"\ncase "$1" in\n info|image) exit 0 ;;\n'
-                ' inspect) case "$*" in *working_dir*) cat "$st/running" 2>/dev/null; exit 0 ;; *Health*) echo healthy; exit 0 ;; esac; exit 0 ;;\n'
-                ' compose) case "$2" in up) pwd > "$st/running"; cat VERSION > "$st/runver"; exit 0 ;; exec) echo ok; exit 0 ;; esac; exit 0 ;;\nesac\nexit 0\n')
-    with open(os.path.join(bind, "mv"), "w") as h:  # „volle Platte“ beim Einsetzen der neuen run.py
-        h.write('#!/bin/sh\ncase "$1" in */zip/pocketknife/run.py) [ -f "$FAKE_STATE/mvfail" ] && { echo "mv: No space left on device" >&2; exit 1; } ;; esac\nexec /bin/mv "$@"\n')
-    for x in ("docker", "mv"):
-        os.chmod(os.path.join(bind, x), 0o755)
-    inst = os.path.join(base, "opt")
-
-    def tree(d, ver, mark):
-        os.makedirs(os.path.join(d, "app"), exist_ok=True)
-        for n, c in (("VERSION", ver), ("docker-compose.yml", "x"), ("run.py", mark), ("app/m.txt", mark)):
-            open(os.path.join(d, n), "w").write(c + "\n")
-    tree(inst, "2.24.2", "ALT")
-    open(os.path.join(inst, ".env"), "w").write("PK_DNS_1=1.2.3.4\n")
-    os.makedirs(os.path.join(inst, "data")); open(os.path.join(inst, "data", "pocketknife.db"), "w").write("DB")
-    _sh.copy(f, os.path.join(inst, "update.sh"))
-
-    def mkzip(ver, mark):
-        zd = tempfile.mkdtemp(dir=base)
-        tree(os.path.join(zd, "pocketknife"), ver, mark)
-        open(os.path.join(zd, "pocketknife", "fremd.txt"), "w").write("x")
-        zp = os.path.join(base, f"pk-{ver}-{mark}.zip")
-        with _z.ZipFile(zp, "w") as z:
-            for dp, _dn, fn in os.walk(zd):
-                for n in fn:
-                    z.write(os.path.join(dp, n), os.path.relpath(os.path.join(dp, n), zd))
-        return zp
-    env = {**os.environ, "PATH": bind + ":" + os.environ.get("PATH", ""), "FAKE_STATE": st, "PK_SYSROOT": tempfile.mkdtemp(dir=TMP)}
-    open(os.path.join(st, "running"), "w").write(inst + "\n")
-
-    def run(zp):
-        return _sp.run(["sh", "update.sh", "-y", zp], cwd=inst, env=env, capture_output=True, text=True, timeout=120)
-    rd = lambda *p: open(os.path.join(inst, *p)).read().strip()  # noqa: E731
-    r = run(mkzip("2.24.4", "NEU"))
-    assert r.returncode == 0, r.stdout[-800:] + r.stderr[-800:]
-    assert rd("VERSION") == "2.24.4" and rd(".pk-vorher", "VERSION") == "2.24.2" and rd(".pk-vorher", "app", "m.txt") == "ALT"
-    assert not os.path.exists(os.path.join(inst, "fremd.txt")), "nur bekannte Programmdateien übernehmen"
-    assert rd("data", "pocketknife.db") == "DB" and rd(".env") == "PK_DNS_1=1.2.3.4\nPK_IMAGE=pocketknife:local", rd(".env")
-    # Gleiche Version noch einmal → .pk-vorher behält den echten Vorgänger
-    r = run(mkzip("2.24.4", "NEU2"))
-    assert r.returncode == 0 and rd(".pk-vorher", "VERSION") == "2.24.2" and rd("run.py") == "NEU2", r.stdout[-500:]
-    # Abbruch mitten im Tausch (volle Platte) → alles automatisch zurück, nichts fehlt
-    open(os.path.join(st, "mvfail"), "w").close()
-    r = run(mkzip("2.24.5", "KAPUTT"))
-    assert r.returncode != 0 and "Restored." in r.stderr, r.stdout[-500:] + r.stderr[-500:]
-    assert rd("VERSION") == "2.24.4" and rd("run.py") == "NEU2" and rd("app", "m.txt") == "NEU2", "Programmordner wieder vollständig"
-    assert rd(".pk-vorher", "VERSION") == "2.24.2" and rd(".env") == "PK_DNS_1=1.2.3.4\nPK_IMAGE=pocketknife:local"
-    assert not os.path.exists(os.path.join(inst, ".pk-update-unvollstaendig"))
-    assert not [n for n in os.listdir(inst) if n.startswith(".pk-update.")], "kein temporärer Ordner übrig"
-    os.remove(os.path.join(st, "mvfail"))
-    # Alte Versionsordner: mit Sicherungen oder Datenbankdatei bleiben sie, leere werden gelöscht
-    for v, extra in (("2.24", "data-backup/vor-2.24.tar.gz"), ("2.23.3", "alt/pocketknife.db"), ("2.23.2", None)):
-        d = os.path.join(inst, f"pocketknife-{v}")
-        tree(d, v, "X")
-        if extra:
-            os.makedirs(os.path.dirname(os.path.join(d, extra)), exist_ok=True)
-            open(os.path.join(d, extra), "w").write("x")
-    r = run(mkzip("2.24.6", "NEU3"))
-    assert r.returncode == 0, r.stdout[-500:]
-    assert os.path.isdir(os.path.join(inst, "pocketknife-2.24")) and os.path.isdir(os.path.join(inst, "pocketknife-2.23.3"))
-    assert not os.path.exists(os.path.join(inst, "pocketknife-2.23.2"))
-    assert rd(".pk-vorher", "VERSION") == "2.24.4"
-
-
-@test("2.27.1 update.sh --pull: fertiges Image aus der Registry (Digest), Programm-ZIP aus dem Image mit Prüfsumme, kein Bauen; Rückweg ohne Bauen; ZIP-Weg unverändert")
-def _():
-    import hashlib as _hl
-    import shutil as _sh
-    import subprocess as _sp
-    import re as _re
-    import zipfile as _z
-    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
-    f = os.path.join(root, "update.sh")
-    if not os.path.exists(f) or not _sh.which("sh") or not _sh.which("sha256sum"):
-        return  # im Container liegt update.sh nicht
-    src = open(f, encoding="utf-8").read()
-    for need in ('--pull) PULL=1', 'env_set "$INST/.env" PK_IMAGE "$WANT_IMAGE"', 'docker tag "$PREVID" "$BACK_IMAGE"', ".pk-rotiert-gerade", "sha256sum -c",
-                 'DEFAULT_IMAGE_REPO="ghcr.io/', "docker login"):
-        assert need in src, need
-    dc = open(os.path.join(root, "docker-compose.yml"), encoding="utf-8").read()
-    assert "image: ${PK_IMAGE:-ghcr.io/soleil0815/pocketknife:latest}" in dc, "Standard: fertiges Image aus der Registry (:latest – Dockhand/Watchtower)"
-    assert not _re.search(r"^\s*build:", dc.split("guacd:")[0], _re.M), "kein „build:“ – sonst baut eine Container-Verwaltung statt zu ziehen"
-    df = open(os.path.join(root, "Dockerfile"), encoding="utf-8").read()
-    assert "dist* /opt/pocketknife/dist/" in df, "Programm-ZIP gehört ins Image (für update.sh --pull)"
-    di = open(os.path.join(root, ".dockerignore"), encoding="utf-8").read()
-    assert di.index("*.zip") < di.index("!dist/pocketknife-*.zip"), "ZIP in dist/ darf in den Build"
-    wf = open(os.path.join(root, ".github", "workflows", "release.yml"), encoding="utf-8").read()
-    for need in ("linux/amd64,linux/arm64", "tools/selftest.py", "ghcr.io", "git archive", "sha256sum", "org.opencontainers.image.version"):
-        assert need in wf, need
-    import re as _re
-    for use in _re.findall(r"uses:\s*(\S+)", wf):
-        assert _re.search(r"@[0-9a-f]{40}$", use), f"Action nicht auf Commit festgelegt: {use}"
-    base = tempfile.mkdtemp(prefix="pk-pull-", dir=TMP)
-    bind, st = os.path.join(base, "bin"), os.path.join(base, "st")
-    os.makedirs(bind); os.makedirs(os.path.join(st, "dist"))
-    with open(os.path.join(bind, "docker"), "w") as h:
-        h.write('#!/bin/sh\nst="$FAKE_STATE"\necho "$*" >> "$st/calls"\ncase "$1" in\n info) exit 0 ;;\n'
-                ' pull) [ -f "$st/pullfail" ] && { echo "denied" >&2; exit 1; }; exit 0 ;;\n'
-                ' create) echo cid123 ;;\n cp) cp -r "$st/dist/." "$3" ;;\n rm) exit 0 ;;\n'
-                ' tag) echo "$2 $3" >> "$st/tags" ;;\n build) touch "$st/built" ;;\n'
-                ' image) case "$*" in *RepoDigests*) echo "ghcr.io/test/pocketknife@sha256:abc" ;; *image.version*) cat "$st/imgver" ;;'
-                ' *.Id*) cat "$st/newid" ;; esac; exit 0 ;;\n'
-                ' inspect) case "$*" in *working_dir*) cat "$st/running" 2>/dev/null ;; *Health*) if [ -f "$st/unhealthy" ]; then echo unhealthy; else echo healthy; fi ;; *Config.Image*) cat "$st/runref" ;; *.Image*) cat "$st/runid" ;; esac; exit 0 ;;\n'
-                ' compose) case "$2" in build) touch "$st/built" ;; up) pwd > "$st/running"; cat VERSION > "$st/runver" ;; exec) echo ok ;; esac; exit 0 ;;\n'
-                'esac\nexit 0\n')
-    os.chmod(os.path.join(bind, "docker"), 0o755)
-    inst = os.path.join(base, "opt")
-
-    def tree(d, ver, mark):
-        os.makedirs(os.path.join(d, "app"), exist_ok=True)
-        for n, c in (("VERSION", ver), ("docker-compose.yml", "x"), ("run.py", mark), ("app/m.txt", mark)):
-            open(os.path.join(d, n), "w").write(c + "\n")
-    tree(inst, "2.27", "ALT")
-    open(os.path.join(inst, ".env"), "w").write("PK_DNS_1=1.2.3.4\nPK_IMAGE_REPO=ghcr.io/test/pocketknife\n")
-    _sh.copy(f, os.path.join(inst, "update.sh"))
-
-    def dist(ver, mark, bad_sum=False):
-        _sh.rmtree(os.path.join(st, "dist")); os.makedirs(os.path.join(st, "dist"))
-        zd = tempfile.mkdtemp(dir=base)
-        tree(os.path.join(zd, "pocketknife"), ver, mark)
-        zp = os.path.join(st, "dist", f"pocketknife-{ver}.zip")
-        with _z.ZipFile(zp, "w") as z:
-            for dp, _dn, fn in os.walk(zd):
-                for n in fn:
-                    z.write(os.path.join(dp, n), os.path.relpath(os.path.join(dp, n), zd))
-        h = _hl.sha256(open(zp, "rb").read()).hexdigest()
-        open(zp + ".sha256", "w").write(("0" * 64 if bad_sum else h) + f"  pocketknife-{ver}.zip\n")
-        open(os.path.join(st, "imgver"), "w").write(ver + "\n")
-    env = {**os.environ, "PATH": bind + ":" + os.environ.get("PATH", ""), "FAKE_STATE": st, "PK_SYSROOT": tempfile.mkdtemp(dir=TMP)}
-    open(os.path.join(st, "running"), "w").write(inst + "\n")
-    open(os.path.join(st, "runid"), "w").write("sha256:old\n")
-    open(os.path.join(st, "runref"), "w").write("pocketknife:local\n")
-    open(os.path.join(st, "newid"), "w").write("sha256:new\n")
-    run = lambda *a: _sp.run(["sh", "update.sh", "-y", *a], cwd=inst, env=env, capture_output=True, text=True, timeout=120)  # noqa: E731
-    rd = lambda *p: open(os.path.join(inst, *p)).read().strip()  # noqa: E731
-    dist("2.27.1", "NEU")
-    r = run("--pull")
-    assert r.returncode == 0, r.stdout[-900:] + r.stderr[-900:]
-    assert rd("VERSION") == "2.27.1" and rd("run.py") == "NEU" and rd(".pk-vorher", "VERSION") == "2.27"
-    assert not os.path.exists(os.path.join(st, "built")), "--pull baut nicht"
-    tags = open(os.path.join(st, "tags")).read()
-    assert "sha256:old pocketknife:rollback" in tags and "pocketknife:rollback pocketknife:previous" in tags, tags
-    assert "pocketknife:local" not in tags, tags
-    assert "PK_IMAGE=ghcr.io/test/pocketknife:latest" in rd(".env") and "PK_DNS_1=1.2.3.4" in rd(".env"), "Container zeigt die Herkunft (wie andere Container)"
-    assert "pull ghcr.io/test/pocketknife:latest" in open(os.path.join(st, "calls")).read()
-    assert not [n for n in os.listdir(inst) if n.startswith((".pk-pull.", ".pk-update."))], "keine temporären Ordner übrig"
-    # 2.32.10: aus der Oberfläche (PK_WATCH_RESULT) nie zurück – auch nicht über „latest“; Ergebnis als Kennwort
-    r_first = r
-    wres = os.path.join(base, "wres")
-    wenv = {**env, "PK_WATCH_RESULT": wres}
-    dist("2.27", "ALT2")
-    open(os.path.join(st, "newid"), "w").write("sha256:aelter\n")
-    r = _sp.run(["sh", "update.sh", "-y", "--pull"], cwd=inst, env=wenv, capture_output=True, text=True, timeout=120)
-    assert r.returncode != 0 and open(wres).read().strip() == "older" and rd("VERSION") == "2.27.1" and rd("run.py") == "NEU", (r.stdout[-400:], r.stderr[-300:])
-    dist("2.27.1", "NEU")
-    r = _sp.run(["sh", "update.sh", "-y", "--pull"], cwd=inst, env=wenv, capture_output=True, text=True, timeout=120)
-    assert r.returncode == 0 and open(wres).read().strip() == "current" and rd("VERSION") == "2.27.1", r.stdout[-400:]
-    # Versions-Tag muss genau diese Version enthalten
-    r = _sp.run(["sh", "update.sh", "-y", "--pull", "2.27.7"], cwd=inst, env=env, capture_output=True, text=True, timeout=120)
-    assert r.returncode != 0 and "contains version 2.27.1" in r.stderr and rd("VERSION") == "2.27.1", r.stderr[-300:]
-    open(os.path.join(st, "newid"), "w").write("sha256:new\n")
-    src_us = open(f, encoding="utf-8").read()
-    assert 'if [ -n "${PK_WATCH_RESULT:-}" ]; then\n    # 2.32.10: from the web interface nothing beyond the update itself' in src_us, "aus der Oberfläche kein prune/Löschen"
-    r = r_first
-    # 2.32.9: das Update richtet den Update-Helfer gleich mit ein (nichts zu aktivieren) – nur als root
-    sysr = env["PK_SYSROOT"]
-    if os.geteuid() == 0:
-        assert "Update from the web interface" in r.stdout and "every 5 minutes as root" in r.stdout and not os.path.exists(os.path.join(sysr, "etc")), "ohne systemd/cron nur ein Hinweis"
-        os.makedirs(os.path.join(sysr, "etc", "cron.d"))
-        dist("2.27.1", "NEU")
-        r = run("--pull")
-        cr = open(os.path.join(sysr, "etc", "cron.d", "pocketknife-update")).read()
-        assert r.returncode == 0 and f"*/5 * * * * root /bin/sh {os.path.realpath(inst)}/update.sh --watch" in cr, (r.stdout[-400:], cr)
-        assert "PATH=/usr/local/sbin:/usr/local/bin:" in cr and "HOME=/root" in cr, "cron kennt sonst nur /usr/bin:/bin (docker in /usr/local/bin)"
-        # 2.32.10: ein schon eingerichteter Helfer wird beim Update aufgefrischt (alte Fassung ohne PATH)
-        open(os.path.join(sysr, "etc", "cron.d", "pocketknife-update"), "w").write("*/5 * * * * root /bin/sh x --watch\n")
-        dist("2.27.1", "NEU")
-        r = run("--pull")
-        assert "PATH=" in open(os.path.join(sysr, "etc", "cron.d", "pocketknife-update")).read(), "aufgefrischt"
-        open(os.path.join(inst, ".env"), "a").write("PK_UPDATE_HELPER=off\n")
-        os.remove(os.path.join(sysr, "etc", "cron.d", "pocketknife-update"))
-        r = run("--pull")
-        assert not os.path.exists(os.path.join(sysr, "etc", "cron.d", "pocketknife-update")), "abgeschaltet bleibt abgeschaltet"
-        envtxt = rd(".env").replace("PK_UPDATE_HELPER=off", "")
-        open(os.path.join(inst, ".env"), "w").write(envtxt + "\n")
-    # bestimmte Version; Prüfsumme falsch → nichts geändert
-    dist("2.27.2", "BOESE", bad_sum=True)
-    r = run("--pull", "2.27.2")
-    assert r.returncode != 0 and "Checksum" in r.stderr and rd("VERSION") == "2.27.1", r.stdout[-500:] + r.stderr[-500:]
-    assert "pull ghcr.io/test/pocketknife:2.27.2" in open(os.path.join(st, "calls")).read()
-    # Image und ZIP passen nicht zusammen
-    dist("2.27.2", "X"); open(os.path.join(st, "imgver"), "w").write("2.27.9\n")
-    r = run("--pull=2.27.2")
-    assert r.returncode != 0 and "do not match" in r.stderr and rd("VERSION") == "2.27.1"
-    # gleiches Image, aber der Container zeigt noch „pocketknife:local“ → nur den Namen umstellen
-    dist("2.27.1", "NEU"); open(os.path.join(st, "runid"), "w").write("sha256:new\n")
-    open(os.path.join(inst, ".env"), "w").write("PK_DNS_1=1.2.3.4\nPK_IMAGE_REPO=ghcr.io/test/pocketknife\n")
-    r = run("--pull")
-    assert r.returncode == 0 and "now shows ghcr.io/test/pocketknife:latest" in r.stdout and "PK_IMAGE=ghcr.io/test/pocketknife:latest" in rd(".env"), r.stdout[-500:]
-    # schon aktuell (genau dieses Image unter diesem Namen) → nichts zu tun
-    open(os.path.join(st, "runref"), "w").write("ghcr.io/test/pocketknife:latest\n")
-    r = run("--pull")
-    assert r.returncode == 0 and "already up to date" in r.stdout, r.stdout[-500:]
-    # ZIP-Weg danach: wieder lokal gebaut als pocketknife:local (PK_IMAGE leer)
-    zd = tempfile.mkdtemp(dir=base); tree(os.path.join(zd, "pocketknife"), "2.27.3", "ZIP")
-    zp = os.path.join(base, "pocketknife-2.27.3.zip")
-    with _z.ZipFile(zp, "w") as z:
-        for dp, _dn, fn in os.walk(zd):
-            for n in fn:
-                z.write(os.path.join(dp, n), os.path.relpath(os.path.join(dp, n), zd))
-    # Audit 2.29: liegt die Prüfsumme des Releases daneben, muss sie stimmen
-    open(zp + ".sha256", "w").write("0" * 64 + "  pocketknife-2.27.3.zip\n")
-    r = run(zp)
-    assert r.returncode != 0 and "Checksum" in r.stderr and rd("VERSION") == "2.27.1", r.stdout[-500:] + r.stderr[-300:]
-    open(zp + ".sha256", "w").write(_hl.sha256(open(zp, "rb").read()).hexdigest() + "  pocketknife-2.27.3.zip\n")
-    r = run(zp)
-    assert r.returncode == 0 and os.path.exists(os.path.join(st, "built")), r.stdout[-500:]
-    assert "Checksum OK" in r.stdout
-    assert "PK_IMAGE=pocketknife:local" in rd(".env"), ("ZIP-Weg: lokal gebautes Image", rd(".env"))
-    os.remove(os.path.join(st, "built"))
-    # Neue Version startet nicht → zurück zum vorigen Image unter dem Namen, den die bisherige .env erwartet
-    open(os.path.join(inst, ".env"), "w").write("PK_DNS_1=1.2.3.4\nPK_IMAGE_REPO=ghcr.io/test/pocketknife\nPK_IMAGE=ghcr.io/test/pocketknife:latest\n")
-    open(os.path.join(st, "runref"), "w").write("ghcr.io/test/pocketknife:latest\n")
-    open(os.path.join(st, "runid"), "w").write("sha256:old\n")
-    open(os.path.join(st, "tags"), "w").close()
-    open(os.path.join(st, "unhealthy"), "w").close()
-    dist("2.27.4", "KAPUTT")
-    r = run("--pull")
-    assert r.returncode != 0 and "Previous version 2.27.3 is running again" in r.stdout, r.stdout[-800:]
-    tags = open(os.path.join(st, "tags")).read()
-    assert "sha256:old pocketknife:rollback" in tags and "pocketknife:rollback ghcr.io/test/pocketknife:latest" in tags, tags
-    assert "pocketknife:previous" not in tags, "ein gescheitertes Update überschreibt das letzte gute Image nicht"
-    assert rd("VERSION") == "2.27.3" and "PK_IMAGE=ghcr.io/test/pocketknife:latest" in rd(".env")
-    assert not os.path.exists(os.path.join(st, "built")), "Rückweg ohne Bauen"
-    # Audit 2.29: Zurückgehen abgelehnt → beim nächsten Lauf bleiben .pk-vorher/ und das letzte gute Image erhalten
-    open(os.path.join(st, "tags"), "w").close()
-    open(os.path.join(st, "runid"), "w").write("sha256:gut\n")
-    dist("2.27.5", "SCHLECHT")
-    r = _sp.run(["sh", "update.sh", "--pull"], cwd=inst, env=env, input="y\nn\n", capture_output=True, text=True, timeout=120)
-    assert r.returncode != 0 and rd("VERSION") == "2.27.5" and os.path.exists(os.path.join(inst, ".pk-update-unvollstaendig")), r.stdout[-800:]
-    assert rd(".pk-vorher", "VERSION") == "2.27.3" and not os.path.exists(os.path.join(inst, ".pk-rotiert-gerade"))
-    open(os.path.join(st, "runid"), "w").write("sha256:schlecht\n")
-    # noch ein schlechtes Update, diesmal zurück: zurück kommt der laufende (schlechte) Stand MIT seinem Image –
-    # das letzte gute Image („rollback“) und .pk-vorher/ bleiben unangetastet, der Lauf bleibt „unvollständig“
-    dist("2.27.6", "AUCHSCHLECHT")
-    r = run("--pull")
-    assert r.returncode != 0 and rd("VERSION") == "2.27.5" and rd("run.py") == "SCHLECHT", r.stdout[-800:]
-    tags = open(os.path.join(st, "tags")).read()
-    assert "sha256:schlecht pocketknife:rollback-run" in tags and "pocketknife:rollback-run ghcr.io/test/pocketknife:latest" in tags, tags
-    assert "pocketknife:rollback ghcr.io" not in tags and "sha256:schlecht pocketknife:rollback\n" not in tags, tags
-    assert rd(".pk-vorher", "VERSION") == "2.27.3" and os.path.exists(os.path.join(inst, ".pk-update-unvollstaendig"))
-    os.remove(os.path.join(st, "unhealthy"))
-    dist("2.27.7", "REPARIERT")
-    r = run("--pull")
-    assert r.returncode == 0 and rd("VERSION") == "2.27.7", r.stdout[-800:] + r.stderr[-500:]
-    assert rd(".pk-vorher", "VERSION") == "2.27.3", "der letzte gute Stand wird nicht durch den gescheiterten ersetzt"
-    tags = open(os.path.join(st, "tags")).read()
-    assert "sha256:gut pocketknife:rollback\n" in tags and "sha256:schlecht pocketknife:rollback\n" not in tags, tags
-    assert "pocketknife:rollback pocketknife:previous" in tags, "letztes gutes Image wird „previous“ (passt zu .pk-vorher/)"
-    assert not os.path.exists(os.path.join(inst, ".pk-rollback-ref"))
-    # Abbruch MITTEN im Umbenennen (Marker gesetzt) → .pk-vorher.alt ist der vollständige Vorgänger und kommt zurück
-    os.rename(os.path.join(inst, ".pk-vorher"), os.path.join(inst, ".pk-vorher.alt"))
-    os.makedirs(os.path.join(inst, ".pk-vorher"))
-    open(os.path.join(inst, ".pk-rotiert-gerade"), "w").close()
-    open(os.path.join(inst, ".pk-update-unvollstaendig"), "w").write("2.27.7\n")
-    dist("2.27.8", "WEITER")
-    r = run("--pull")
-    assert r.returncode == 0 and rd(".pk-vorher", "VERSION") == "2.27.3", r.stdout[-800:]
-    assert not os.path.exists(os.path.join(inst, ".pk-vorher.alt")) and not os.path.exists(os.path.join(inst, ".pk-rotiert-gerade"))
-    open(os.path.join(st, "runref"), "w").write("pocketknife:local\n")
-    # Anmeldung fehlt → verständlicher Hinweis, nichts geändert
-    open(os.path.join(st, "pullfail"), "w").close()
-    r = run("--pull")
-    assert r.returncode != 0 and "docker login ghcr.io" in r.stdout and rd("VERSION") == "2.27.8"
-    assert not [n for n in os.listdir(inst) if n.startswith((".pk-pull.", ".pk-update."))]
-
-
 @test("2.24.4 Benachrichtigung: vom Benutzer abgeschaltet wird respektiert, Start unabhängig von der Ausführungsrichtlinie, Rechte unter „Programme“ erzwungen")
 def _():
     import base64 as _b
@@ -2253,70 +1938,6 @@ def _():
     u = toast.USER_PS
     assert "$_.PSChildName -like ($d.base + '*')" in u and "Remove-Item -Path $o.PSPath" in u and "if ($off" in u, \
         "alte IDs aufräumen; vom Benutzer abgeschaltet bleibt abgeschaltet"
-
-
-@test("2.24.8 update.sh: Zurücklegen darf selbst unterbrochen werden (zweiter Durchlauf zerstört nichts), Bau-Fehler legt zurück, kein leeres .pk-vorher")
-def _():
-    import shutil as _sh
-    import subprocess as _sp
-    import zipfile as _z
-    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
-    f = os.path.join(root, "update.sh")
-    if not os.path.exists(f) or not _sh.which("sh"):
-        return
-    base = tempfile.mkdtemp(prefix="pk-upd2-", dir=TMP)
-    bind, st = os.path.join(base, "bin"), os.path.join(base, "st")
-    os.makedirs(bind); os.makedirs(st)
-    with open(os.path.join(bind, "docker"), "w") as h:
-        h.write('#!/bin/sh\nst="$FAKE_STATE"\ncase "$1" in\n info|image) exit 0 ;;\n build) [ -f "$st/buildfail" ] && exit 1; exit 0 ;;\n'
-                ' inspect) case "$*" in *working_dir*) cat "$st/running" 2>/dev/null; exit 0 ;; *Health*) echo healthy; exit 0 ;; esac; exit 0 ;;\n'
-                ' compose) case "$2" in build) [ -f "$st/buildfail" ] && exit 1; exit 0 ;; up) pwd > "$st/running"; exit 0 ;; exec) echo ok; exit 0 ;; esac; exit 0 ;;\nesac\nexit 0\n')
-    with open(os.path.join(bind, "mv"), "w") as h:  # Zurücklegen von app/ scheitert genau einmal (z. B. E/A-Fehler)
-        h.write('#!/bin/sh\ncase "$1" in */.pk-vorher/app) if [ -f "$FAKE_STATE/mvfail_once" ]; then rm -f "$FAKE_STATE/mvfail_once"; echo "mv: Input/output error" >&2; exit 1; fi ;; esac\nexec /bin/mv "$@"\n')
-    for x in ("docker", "mv"):
-        os.chmod(os.path.join(bind, x), 0o755)
-    inst = os.path.join(base, "opt")
-
-    def tree(d, ver, mark):
-        os.makedirs(os.path.join(d, "app"), exist_ok=True)
-        for n, c in (("VERSION", ver), ("docker-compose.yml", "x"), ("run.py", mark), ("app/m.txt", mark)):
-            open(os.path.join(d, n), "w").write(c + "\n")
-
-    def mkzip(ver, mark):
-        zd = tempfile.mkdtemp(dir=base)
-        tree(os.path.join(zd, "pocketknife"), ver, mark)
-        zp = os.path.join(base, f"pk-{ver}-{mark}.zip")
-        with _z.ZipFile(zp, "w") as z:
-            for dp, _dn, fn in os.walk(zd):
-                for n in fn:
-                    z.write(os.path.join(dp, n), os.path.relpath(os.path.join(dp, n), zd))
-        return zp
-    tree(inst, "2.24.2", "ALT")
-    open(os.path.join(inst, ".env"), "w").write("PK_SERVICE_PASSWORD=geheim\n")
-    env = {**os.environ, "PATH": bind + ":" + os.environ.get("PATH", ""), "FAKE_STATE": st, "PK_SYSROOT": tempfile.mkdtemp(dir=TMP)}
-    open(os.path.join(st, "running"), "w").write(inst + "\n")
-
-    def run(zp):
-        _sh.copy(f, os.path.join(inst, "update.sh"))  # immer das aktuelle Skript (nicht das aus dem ZIP)
-        return _sp.run(["sh", "update.sh", "-y", zp], cwd=inst, env=env, capture_output=True, text=True, timeout=120)
-    rd = lambda *p: open(os.path.join(inst, *p)).read().strip()  # noqa: E731
-    # Erstes Update scheitert beim Bau → alles zurück, kein halbleeres .pk-vorher übrig
-    open(os.path.join(st, "buildfail"), "w").close()
-    r = run(mkzip("2.24.3", "B"))
-    assert r.returncode != 0 and rd("VERSION") == "2.24.2" and rd("app", "m.txt") == "ALT", r.stdout[-400:] + r.stderr[-400:]
-    assert not os.path.exists(os.path.join(inst, ".pk-vorher")), "vorher gab es keinen gesicherten Stand"
-    os.remove(os.path.join(st, "buildfail"))
-    assert run(mkzip("2.24.4", "NEU")).returncode == 0 and rd(".pk-vorher", "VERSION") == "2.24.2"
-    # Bau scheitert UND das Zurücklegen wird unterbrochen → on_exit macht es fertig; nichts geht verloren
-    open(os.path.join(st, "buildfail"), "w").close(); open(os.path.join(st, "mvfail_once"), "w").close()
-    r = run(mkzip("2.24.5", "KAPUTT"))
-    assert r.returncode != 0 and "Restored." in r.stderr, r.stdout[-400:] + r.stderr[-600:]
-    assert rd("VERSION") == "2.24.4" and rd("run.py") == "NEU" and rd("app", "m.txt") == "NEU", "Programmordner vollständig"
-    assert rd(".pk-vorher", "VERSION") == "2.24.2" and rd(".pk-vorher", "app", "m.txt") == "ALT", "gesicherter Vorgänger unversehrt"
-    assert rd(".env") == "PK_SERVICE_PASSWORD=geheim\nPK_IMAGE=pocketknife:local", rd(".env")  # Stand vor diesem Lauf
-    assert not os.path.exists(os.path.join(inst, ".pk-update-unvollstaendig"))
-    src = open(f, encoding="utf-8").read()
-    assert "list_drop" in src and "trap '' INT TERM" in src and 'cp "$TMP/bisher/.env" "$INST/.env"' not in src
 
 
 @test("2.24.8 Benachrichtigung/Neustart-Meldung: Review-Funde (Rückmeldung ohne Leeren des Schlüssels, Aufräumen, Codes 13/14, 0 Sekunden, Backslash)")
@@ -4090,7 +3711,7 @@ def _():
         news.check()  # innerhalb von 24 Stunden: nicht erneut fragen
         assert len(calls) == 1
         up = news.for_user(adm)["update"]
-        assert up["latest"] == fut and up["security"] and up["versions"][0]["items"][0]["kind"] == "security" and up["command"] == "sh update.sh --pull"
+        assert up["latest"] == fut and up["security"] and up["versions"][0]["items"][0]["kind"] == "security" and up["command"] == "sudo sh update.sh"
         assert db.val("SELECT COUNT(*) FROM logs WHERE message LIKE ?", (f"%{fut} ist verfügbar (mit Sicherheitsupdates)%",)) >= 1
         # Token nie an die Oberfläche (Einstellungen, Neuigkeiten, Diagnose-Regel)
         for out in (news.settings(), news.for_user(adm), _m.db.all_settings()):
@@ -5993,214 +5614,252 @@ def _():
         db.ex("DELETE FROM computers WHERE id=?", (c,))
 
 
-@test("2.32.9 Update aus der Oberfläche: Auftrag im Datenordner, nur Hauptadmins, nie älter; Host-Helfer update.sh --watch ohne Docker-Zugriff im Container")
+
+@test("2.33 Docker-Standard: Programm nur im Image, docker-compose.yml mit Versionsnummer (Hinweis, wenn zu alt), guacd unter eigenem Namen, Release ohne ZIP, kein Update-Helfer mehr")
 def _():
+    import importlib.util as _iu
+    import re as _re
+    from app import backup, config, news, privileges
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+    assert _iu.find_spec("app.selfupdate") is None, "Update-Helfer (2.32.9–2.32.12) ist ausgebaut"
+    js = open(os.path.join(root, "app", "static", "app.js"), encoding="utf-8").read()
+    assert "/api/system/selfupdate" not in js and "Jetzt aktualisieren" not in js
+    from app import main as _m
+    assert not [r for r in _m.app.routes if "selfupdate" in getattr(r, "path", "")]
+    # docker-compose.yml: Stand der Datei = das, was das Programm erwartet
+    dcp = os.path.join(root, "docker-compose.yml")
+    if os.path.exists(dcp):
+        dc = open(dcp, encoding="utf-8").read()
+        m = _re.search(r'^\s*PK_COMPOSE_VERSION:\s*"(\d+)"\s*$', dc, _re.M)
+        assert m and int(m.group(1)) == news.COMPOSE_VERSION, "PK_COMPOSE_VERSION in docker-compose.yml = news.COMPOSE_VERSION"
+        assert not _re.search(r"^\s*build:", dc, _re.M) and "docker.sock" not in dc
+        df = open(os.path.join(root, "Dockerfile"), encoding="utf-8").read()
+        assert "COPY docker-compose.yml .env.example update.sh /opt/pocketknife/host/" in df and "dist" not in df.split("COPY app ./app")[1]
+        assert "!dist/" not in open(os.path.join(root, ".dockerignore"), encoding="utf-8").read()
+    wfd = os.path.join(root, ".github", "workflows")
+    if os.path.isdir(wfd):
+        rel = open(os.path.join(wfd, "release.yml"), encoding="utf-8").read()
+        assert "git archive" not in rel and ".zip" not in rel, "Release ohne Programm-ZIP"
+        assert "imagetools create" in rel and "docker/guacd.txt" in rel and "docker save" in rel and "tar.gz" in rel
+        assert rel.index("- name: Bauen und hochladen") < rel.index("- name: guacd unter eigenem Namen") < rel.index("- name: Release anlegen")
+        wk = open(os.path.join(wfd, "weekly.yml"), encoding="utf-8").read()
+        assert "docker/guacd.txt" in wk and "docker-compose.yml" not in wk.split("Etwas geändert?")[1].split("Schwachstellen")[0]
+        for fn in os.listdir(wfd):
+            t_ = open(os.path.join(wfd, fn), encoding="utf-8").read()
+            assert "image: \\(guacamole" not in t_ and " docker-compose.yml;" not in t_, f"{fn}: guacd steht in docker/guacd.txt, nicht mehr in der docker-compose.yml"
+    # Hinweise für Hauptadmins
+    old = os.environ.pop("PK_COMPOSE_VERSION", None)
+    try:
+        assert [h["id"] for h in news.hints()] == ["compose"], "ohne Versionsnummer = alte docker-compose.yml"
+        os.environ["PK_COMPOSE_VERSION"] = str(news.COMPOSE_VERSION)
+        assert news.hints() == []
+        os.environ["PK_COMPOSE_VERSION"] = "x"
+        assert [h["id"] for h in news.hints()] == ["compose"]
+        os.environ["PK_COMPOSE_VERSION"] = str(news.COMPOSE_VERSION)
+        # Datenbank von einer neueren Version (zurück ohne die Sicherung): Hinweis; Sicherheitsupdate derselben Version zählt nicht
+        import contextlib as _cl
+        import io as _io
+        _quiet = _cl.redirect_stdout(_io.StringIO())
+        _quiet.__enter__()
+        keep = (db.setting_raw("db_version_max"), db.setting_raw("last_version"), backup.NEWER_DB, backup.create)
+        backup.create = lambda label="", user=None: {"name": label}
+        try:
+            for top, newer in (("99.0", "99.0"), (config.VERSION.split("-s")[0] + "-s7", None), ("1.0", None)):
+                db.set_setting("db_version_max", top)
+                backup.before_update()
+                assert backup.NEWER_DB == newer, (top, backup.NEWER_DB)
+            db.set_setting("db_version_max", "99.0")
+            backup.mark_version()
+            assert db.setting_raw("db_version_max") == "99.0" and db.setting_raw("last_version") == config.VERSION, "höchste Version bleibt"
+            backup.before_update()
+            assert [h["id"] for h in news.hints()] == ["newer_db"] and "vor-99.0" in news.hints()[0]["text"]
+            db.set_setting("db_version_max", "1.0")
+            backup.mark_version()
+            assert db.setting_raw("db_version_max") == config.VERSION
+        finally:
+            db.set_setting("db_version_max", keep[0] or config.VERSION)
+            db.set_setting("last_version", keep[1] or config.VERSION)
+            backup.NEWER_DB, backup.create = keep[2], keep[3]
+            _quiet.__exit__(None, None, None)
+    finally:
+        if old is None:
+            os.environ.pop("PK_COMPOSE_VERSION", None)
+        else:
+            os.environ["PK_COMPOSE_VERSION"] = old
+    # Start-chown lässt den Ordner des früheren Helfers aus (gehört root, update.sh --cleanup räumt ihn weg)
+    if os.geteuid() == 0:
+        d = tempfile.mkdtemp(dir=TMP)
+        os.makedirs(os.path.join(d, "update", "host")); open(os.path.join(d, "a"), "w").close()
+        privileges.chown_tree(d, 10001, 10001)
+        assert os.stat(os.path.join(d, "a")).st_uid == 10001 and os.stat(os.path.join(d, "update", "host")).st_uid == 0
+
+
+@test("2.33 update.sh: nur Container aktualisieren (pull, up, Gesundheitscheck, zurück ohne Download), Version festlegen, neuere docker-compose.yml aus dem Image, ohne Internet per Archiv, --cleanup schont Daten auch bei Links")
+def _():
+    import hashlib as _hl
     import shutil as _sh
     import subprocess as _sp
-    import time as _t
-    from app import config, main as _m, selfupdate as su, news, util as _u
-    assert ("POST", "/api/system/selfupdate") not in _m.access.ROUTES and ("GET", "/api/system/selfupdate") not in _m.access.ROUTES, "nur Hauptadmins"
-    assert su.UPDATE_DIR == os.path.join(config.DATA_DIR, "update")
-    config.ensure_dirs()
-    assert os.path.isdir(su.UPDATE_DIR)
-    for n in os.listdir(su.UPDATE_DIR):
-        os.remove(os.path.join(su.UPDATE_DIR, n))
-    user = {"username": "admin'; rm -rf /"}
-    newer = config.VERSION.split("-")[0] + ".9"
-    # ohne Host-Helfer: verständliche Meldung, kein Auftrag
-    try:
-        su.request(newer, user); raise AssertionError("Helfer fehlt")
-    except ValueError as e:
-        assert "--watch-install" in str(e) and "automatisch" in str(e)
-    assert not os.path.exists(os.path.join(su.UPDATE_DIR, "request"))
-    open(os.path.join(su.UPDATE_DIR, "helper"), "w").write("seen=1\n")
-    assert su.state()["helper"]["active"]
-    for bad in ("", "1.0; rm -rf /", "../x", config.VERSION, "1.0"):
-        try:
-            su.request(bad, user); raise AssertionError(("abgelehnt", bad))
-        except ValueError:
-            pass
-    st = su.request(newer, user)
-    req = open(os.path.join(su.UPDATE_DIR, "request")).read()
-    assert req.startswith(f"version={newer}\n") and "by=adminrm-rf\n" in req.replace("'", ""), req
-    assert ";" not in req and " " not in req.split("by=")[1].split("\n")[0], req
-    assert st["request"]["version"] == newer and not st["request"]["stale"]
-    su.request("latest", user)
-    c1 = su.cancel(user)
-    assert c1["request"] is None and c1["cancelled"] is True and su.cancel(user)["cancelled"] is False, "zu spät = nicht zurückgenommen"
-    # Stand vom Host: läuft → kein zweiter Auftrag; fertig → einmal ins Protokoll
-    w = lambda n, s: open(os.path.join(su.UPDATE_DIR, n), "w").write(s)  # noqa: E731
-    w("status", f"state=running\nfrom=2.32.8\ntarget={newer}\nstarted={int(_t.time())}\n")
-    try:
-        su.request(newer, user); raise AssertionError("läuft bereits")
-    except ValueError as e:
-        assert "bereits" in str(e)
-    w("status", f"state=done\nfrom=2.32.8\nto={newer}\ntarget={newer}\nby=admin\nstarted=1\nfinished=2\nmessage=\n")
-    w("update.log", "\x1b[1mzeile1\x1b[0m\r\nzeile2\n")
-    s = su.state()
-    assert s["status"]["state"] == "done" and s["status"]["finished"] == 2 and s["log"] == "zeile1\nzeile2", s
-    n0 = db.val("SELECT COUNT(*) FROM logs") if "logs" in [r["name"] for r in db.q("SELECT name FROM sqlite_master WHERE type='table'")] else None
-    su.poll(); su.poll()
-    assert db.setting_raw(su.LOGGED_KEY) == "2:done"
-    if n0 is not None:
-        assert db.val("SELECT COUNT(*) FROM logs") == n0 + 1, "nur einmal protokolliert"
-    # 2.32.10: Dateien des Helfers in host/ gehen vor (2.32.9 schrieb direkt nach update/)
-    os.makedirs(os.path.join(su.UPDATE_DIR, "host"), exist_ok=True)
-    open(os.path.join(su.UPDATE_DIR, "host", "status"), "w").write("state=current\nto=2.32.10\nfinished=9\n")
-    assert su.read_status()["state"] == "current"
-    _sh.rmtree(os.path.join(su.UPDATE_DIR, "host"))
-    w("status", "state=hacked\n")
-    assert su.read_status() is None
-    w("status", "state=failed\nfrom=x y\nto=<b>\nfinished=abc\n")
-    s = su.read_status()
-    assert s["from"] == "" and s["to"] == "" and s["finished"] is None, s
-    # nie einem Link folgen
-    os.remove(os.path.join(su.UPDATE_DIR, "status"))
-    secret = os.path.join(TMP, "geheim.txt"); open(secret, "w").write("state=done\n")
-    os.symlink(secret, os.path.join(su.UPDATE_DIR, "status"))
-    assert su.read_status() is None
-    for n in os.listdir(su.UPDATE_DIR):
-        os.remove(os.path.join(su.UPDATE_DIR, n))
-    # Oberfläche: Knopf, kein Docker-Socket
-    js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
-    assert "/api/system/selfupdate" in js and "Jetzt aktualisieren" in js
     root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
-    dc = os.path.join(root, "docker-compose.yml")
-    if os.path.exists(dc):
-        assert "docker.sock" not in open(dc, encoding="utf-8").read(), "der Container bekommt nie Zugriff auf Docker"
-    # Empfehlung überall gleich: Knopf oder update.sh --pull, keine automatischen Updates durch Container-Verwaltungen
-    for doc in ("README.md", "README.en.md", os.path.join("app", "static", "help", "de.md"), os.path.join("app", "static", "help", "en.md")):
-        fp = os.path.join(root, doc)
-        if os.path.exists(fp):
-            t = open(fp, encoding="utf-8").read()
-            assert "Tugtainer" in t and "update.sh --pull" in t, doc
-            assert "Mit `:latest` kann die Container-Verwaltung das neue Image selbst" not in t and "with `:latest` a container manager" not in t, doc
-
-    # --- Host-Helfer (update.sh --watch) mit einem nachgebauten docker ---
     f = os.path.join(root, "update.sh")
     if not os.path.exists(f) or not _sh.which("sh"):
         return  # im Container liegt update.sh nicht
+    if _sh.which("dash"):
+        assert _sp.run(["dash", "-n", f]).returncode == 0, "update.sh muss mit /bin/sh (dash) laufen"
     src = open(f, encoding="utf-8").read()
-    for need in ("--watch) WATCH=run", 'PATH="$PATH:$WATCH_PATH"', "-lt 10800", 'watch_status failed "pull"', 'mktemp "./.pk-host.XXXXXX"', '[ "$(pwd -P)" = "$DP/update/host" ]', 'mv -f ../request "./.req.$$"', "< /dev/null",
-                 "OnUnitActiveSec=5min", "/etc/cron.d/$WATCH_UNIT", "synoinfo.conf"):
-        assert need in src, need
-    base = tempfile.mkdtemp(prefix="pk-watch-", dir=TMP)
-    inst, data, bind = os.path.join(base, "opt"), os.path.join(base, "daten"), os.path.join(base, "bin")
-    for d in (inst, data, bind, os.path.join(data, "update")):
+    for bad in ("unzip", "docker build", "git archive", "PROGRAM_ITEMS="):
+        assert bad not in src, ("kein ZIP, kein Bauen", bad)
+    base = tempfile.mkdtemp(prefix="pk-up-", dir=TMP)
+    inst, st, bind = os.path.join(base, "opt"), os.path.join(base, "st"), os.path.join(base, "bin")
+    for d in (inst, bind, os.path.join(st, "host")):
         os.makedirs(d)
-    open(os.path.join(data, "pocketknife.db"), "w").close()
-    open(os.path.join(inst, "VERSION"), "w").write("2.32.8\n")
-    open(os.path.join(inst, ".env"), "w").write(f"PK_DATA_PATH={data}\nPK_IMAGE_REPO=ghcr.io/test/pocketknife\n")
-    _sh.copy(f, os.path.join(inst, "update.sh"))
-    with open(os.path.join(bind, "docker"), "w") as h:  # Ziehen scheitert immer (hier geht es nur um den Helfer)
-        h.write('#!/bin/sh\necho "$*" >> "$FAKE_CALLS"\ncase "$1" in info|compose) exit 0 ;; pull) echo denied >&2; exit 1 ;; esac\nexit 0\n')
+    with open(os.path.join(bind, "docker"), "w") as h:
+        h.write(r'''#!/bin/sh
+st="$FAKE_STATE"
+echo "$*" >> "$st/calls"
+case "$1" in
+  info) exit 0 ;;
+  compose)
+    case "$2" in
+      version) exit 0 ;;
+      up) echo "up $(grep '^PK_IMAGE=' .env) $(grep '^PK_GUACD_IMAGE=' .env) env=${PK_IMAGE:-}" >> "$st/ups"; pwd > "$st/running_dir" ;;
+      logs) echo "log line" ;;
+    esac; exit 0 ;;
+  inspect)
+    case "$*" in
+      *working_dir*) cat "$st/running_dir" 2>/dev/null ;;
+      *Health*) cat "$st/health" ;;
+      *image.version*) cat "$st/running_ver" ;;
+      *pocketknife-guacd*) echo sha256:guacalt ;;
+      *.Image*) echo sha256:alt ;;
+    esac; exit 0 ;;
+  image)
+    case "$2" in
+      inspect) case "$*" in *image.version*) t=${3##*:}; if [ "$t" = latest ]; then cat "$st/latest_ver"; else echo "$t"; fi ;; esac; exit 0 ;;
+      ls) cat "$st/images" 2>/dev/null; exit 0 ;;
+      rm) exit 0 ;;
+    esac ;;
+  tag) echo "$2 $3" >> "$st/tags"; exit 0 ;;
+  pull) [ -f "$st/pullfail" ] && { echo "denied" >&2; exit 1; }; exit 0 ;;
+  create) echo cid1; exit 0 ;;
+  cp) cp -r "$st/host/." "$3"; exit 0 ;;
+  rm) exit 0 ;;
+  load) cat "$st/loaded"; exit 0 ;;
+esac
+exit 0
+''')
     os.chmod(os.path.join(bind, "docker"), 0o755)
-    calls = os.path.join(base, "calls")
-    env = {**os.environ, "PATH": bind + ":" + os.environ.get("PATH", ""), "FAKE_CALLS": calls, "PK_SYSROOT": tempfile.mkdtemp(dir=TMP)}
-    run = lambda: _sp.run(["sh", "update.sh", "--watch"], cwd=inst, env=env, capture_output=True, text=True, timeout=60)  # noqa: E731
-    U = os.path.join(data, "update")
-    H = os.path.join(U, "host")  # 2.32.10: root schreibt nur in seinen eigenen Ordner
-    rdk = lambda: dict(l.split("=", 1) for l in open(os.path.join(H, "status")).read().splitlines() if "=" in l)  # noqa: E731
-    # Dateien von 2.32.9 direkt in update/ werden aufgeräumt
-    for n in ("status", "helper", "update.log"):
-        open(os.path.join(U, n), "w").write("alt\n")
-    # ohne Auftrag: nur Lebenszeichen, kein docker
-    r = run()
-    assert r.returncode == 0 and os.path.exists(os.path.join(H, "helper")) and not os.path.exists(calls), r.stderr
-    assert oct(os.stat(os.path.join(H, "helper")).st_mode & 0o777) == "0o644" and os.stat(H).st_uid == os.geteuid()
-    assert not [n for n in ("status", "helper", "update.log") if os.path.exists(os.path.join(U, n))], os.listdir(U)
-    # ungültiger Auftrag / älter → abgelehnt, Auftrag weg, nichts gezogen
-    for body, why in (("version=1.0; reboot\n", "invalid"), ("version=2.32.7\n", "older"), ("version=2.32.8\n", "older")):
-        open(os.path.join(U, "request"), "w").write(body)
-        r = run()
-        assert r.returncode == 0 and rdk()["state"] == "refused" and rdk()["message"] == why, (body, rdk(), r.stderr)
-        assert not os.path.exists(os.path.join(U, "request")) and not os.path.exists(calls)
-    # gültiger Auftrag: update.sh --pull <Version> -y; Ziehen scheitert → failed, Protokoll da
-    open(os.path.join(U, "request"), "w").write("version=2.32.9-s1\nby=adm\\in\nat=1\n")
-    r = run()
-    k = rdk()
-    assert r.returncode == 0 and k["state"] == "failed" and k["target"] == "2.32.9-s1" and k["from"] == "2.32.8" and k["by"] == "adm\\in", (k, r.stderr)
-    assert int(k["finished"]) >= int(k["started"]) > 0 and k["message"] == "pull", k
-    assert "pull ghcr.io/test/pocketknife:2.32.9-s1" in open(calls).read()
-    assert "could not be pulled" in open(os.path.join(H, "update.log")).read()
-    assert not [n for n in os.listdir(inst) if n.startswith((".pk-watch", ".pk-pull."))], os.listdir(inst)
-    assert not [n for n in os.listdir(H) if n.startswith((".pk-host.", ".req."))], os.listdir(H)
-    # Link als Auftrag: entfernt, nie gelesen
-    os.symlink(os.path.join(inst, ".env"), os.path.join(U, "request"))
-    os.remove(calls)
-    r = run()
-    assert r.returncode == 0 and not os.path.lexists(os.path.join(U, "request")) and not os.path.exists(calls)
-    # host/ durch einen Link ersetzt → nicht benutzt (nichts landet woanders)
-    _sh.rmtree(H)
-    elsewhere = os.path.join(base, "woanders1"); os.makedirs(elsewhere)
-    os.symlink(elsewhere, H)
-    r = run()
-    assert r.returncode != 0 and not os.listdir(elsewhere), (r.stderr, os.listdir(elsewhere))
-    os.remove(H)
-    if os.geteuid() == 0:  # host/ gehört einem Dritten (weder root noch dem Container) → nicht benutzt
-        os.makedirs(H); os.chown(H, 65534, 65534)
-        r = run()
-        assert r.returncode != 0 and "belongs to neither" in r.stderr and not os.listdir(H), r.stderr
-        os.rmdir(H)
-        # 2.32.12: host/ gehört dem Container (2.32.10/11 gaben ihn bei jedem Start per chown zurück) → übernehmen,
-        # Inhalt nur löschen (Links nie verfolgen), danach normal weiter
-        geheim = os.path.join(base, "geheim.txt"); open(geheim, "w").write("GEHEIM\n")
-        os.chown(U, 10001, 10001); os.makedirs(H); os.chown(H, 10001, 10001)
-        os.symlink(geheim, os.path.join(H, "status")); os.symlink(base, os.path.join(H, "update.log"))
-        open(os.path.join(H, "helper"), "w").write("x"); os.chown(os.path.join(H, "helper"), 10001, 10001)
-        r = run()
-        assert r.returncode == 0 and os.stat(H).st_uid == 0 and not os.path.islink(os.path.join(H, "status")), (r.stderr, os.listdir(H))
-        assert open(geheim).read() == "GEHEIM\n" and os.stat(os.path.join(H, "helper")).st_uid == 0, "Ziel des Links unberührt, Lebenszeichen neu"
-        os.chown(U, 0, 0)
-        # und der Start des Containers gibt host/ nicht mehr zurück (chown des Datenordners lässt ihn aus)
-        from app import privileges as _pv
-        open(os.path.join(data, "x.txt"), "w").close()
-        _pv.chown_tree(data, 10001, 10001)
-        assert os.stat(os.path.join(data, "x.txt")).st_uid == 10001 and os.stat(H).st_uid == 0 and os.stat(os.path.join(H, "helper")).st_uid == 0
-        assert os.stat(U).st_uid == 10001
-        _pv.chown_tree(data, 0, 0)
-    # abgebrochenes Update (Neustart des Hosts): „läuft“ wird zu „fehlgeschlagen (interrupted)“
-    os.makedirs(H, exist_ok=True)
-    open(os.path.join(H, "status"), "w").write("state=running\nfrom=2.32.8\ntarget=2.32.9\nby=adm\nstarted=5\n")
-    r = run()
-    k = rdk()
-    assert k["state"] == "failed" and k["message"] == "interrupted" and k["target"] == "2.32.9" and k["started"] == "5", k
-    # Ordner durch einen Link ersetzt → nicht benutzt (nichts landet woanders)
-    _sh.rmtree(U)
-    elsewhere = os.path.join(base, "woanders"); os.makedirs(elsewhere)
-    os.symlink(elsewhere, U)
-    r = run()
-    assert r.returncode != 0 and not os.listdir(elsewhere), (r.stderr, os.listdir(elsewhere))
-    os.remove(U)
-    # läuft schon ein Helfer → sofort Ende
-    os.makedirs(U)
-    lk = os.path.join(inst, ".pk-watch.lock"); os.makedirs(lk); open(os.path.join(lk, "pid"), "w").write(str(os.getpid()))
-    open(os.path.join(U, "request"), "w").write("version=2.32.9\n")
-    r = run()
-    assert r.returncode == 0 and os.path.exists(os.path.join(U, "request")), "zweiter Helfer wartet"
-    os.utime(lk, (_t.time() - 4 * 3600, _t.time() - 4 * 3600))  # 2.32.10: uralt – Prozessnummer inzwischen anders vergeben
-    r = run()
-    assert not os.path.exists(os.path.join(U, "request")) and not os.path.exists(lk), r.stderr
-    os.makedirs(lk); open(os.path.join(lk, "pid"), "w").write("999999")  # verwaistes Schloss
-    open(os.path.join(U, "request"), "w").write("version=2.32.9\n")
-    r = run()
-    assert not os.path.exists(os.path.join(U, "request")) and not os.path.exists(lk), r.stderr
-    # 2.32.10: systemd-Timer – als root, mit PATH/HOME, aufgefrischt nur bei Änderung
+    w = lambda p, t: open(p, "w").write(t)  # noqa: E731
+    rd = lambda *p: open(os.path.join(inst, *p)).read()  # noqa: E731
+    env = {**os.environ, "PATH": bind + ":" + os.environ.get("PATH", ""), "FAKE_STATE": st, "PK_SYSROOT": tempfile.mkdtemp(dir=TMP),
+           "PK_WAIT_STEPS": "2"}
+    run = lambda *a, inp=None: _sp.run(["sh", "update.sh", *a], cwd=inst, env=env, input=inp, capture_output=True, text=True, timeout=120)  # noqa: E731
+    old_compose = 'name: pocketknife\nservices:\n  pocketknife:\n    image: ${PK_IMAGE}\n  guacd:\n    image: guacamole/guacd:1.5@sha256:' + "0" * 64 + '\n'
+    new_compose = open(os.path.join(root, "docker-compose.yml"), encoding="utf-8").read()
+    w(os.path.join(inst, "docker-compose.yml"), old_compose)
+    w(os.path.join(inst, ".env"), "PK_DNS_1=10.0.10.5\nPK_IMAGE=pocketknife:local\nPK_DATA_PATH=./data\n")
+    _sh.copy(f, os.path.join(inst, "update.sh"))
+    w(os.path.join(st, "host", "docker-compose.yml"), new_compose)
+    w(os.path.join(st, "host", ".env.example"), "BEISPIEL=1\n")
+    w(os.path.join(st, "running_dir"), inst + "\n"); w(os.path.join(st, "running_ver"), "2.32.12\n")
+    w(os.path.join(st, "health"), "healthy\n"); w(os.path.join(st, "latest_ver"), "2.33.0\n")
+    os.makedirs(os.path.join(inst, "data")); w(os.path.join(inst, "data", "pocketknife.db"), "DB")
+    # 1. Umstieg von 2.32 (lokal gebautes Image, alte docker-compose.yml): Registry-Image, neue Datei, alte als .alt
+    r = run("-y")
+    assert r.returncode == 0, r.stdout[-800:] + r.stderr[-400:]
+    assert "PK_IMAGE=ghcr.io/soleil0815/pocketknife:latest" in rd(".env") and "PK_DNS_1=10.0.10.5" in rd(".env")
+    assert rd("docker-compose.yml") == new_compose and rd("docker-compose.yml.alt") == old_compose and rd(".env.example") == "BEISPIEL=1\n"
+    calls = open(os.path.join(st, "calls")).read()
+    assert "pull ghcr.io/soleil0815/pocketknife:latest" in calls and "pull ghcr.io/soleil0815/pocketknife-guacd:latest" in calls
+    tags = open(os.path.join(st, "tags")).read()
+    assert "sha256:alt pocketknife:previous" in tags and "sha256:guacalt pocketknife-guacd:previous" in tags, "vorher merken (zurück ohne Download)"
+    assert "build" not in calls and "load" not in calls
+    assert sorted(os.listdir(inst)) == [".env", ".env.example", "data", "docker-compose.yml", "docker-compose.yml.alt", "update.sh"], os.listdir(inst)
+    assert "Done: POCKET KNIFE 2.33.0" in r.stdout
+    # 2. gleiche Datei-Version: docker-compose.yml bleibt (eigene Kommentare o. ä. bleiben erhalten)
+    os.remove(os.path.join(inst, "docker-compose.yml.alt"))
+    w(os.path.join(inst, "docker-compose.yml"), new_compose + "# eigene Zeile\n")
+    r = run("-y")
+    assert r.returncode == 0 and rd("docker-compose.yml").endswith("# eigene Zeile\n") and not os.path.exists(os.path.join(inst, "docker-compose.yml.alt"))
+    # 3. bestimmte Version festlegen – beide Images; „latest“ wieder zurück
+    r = run("-y", "2.33.1")
+    assert r.returncode == 0 and "PK_IMAGE=ghcr.io/soleil0815/pocketknife:2.33.1" in rd(".env") and "PK_GUACD_IMAGE=ghcr.io/soleil0815/pocketknife-guacd:2.33.1" in rd(".env"), rd(".env")
+    r = run("-y")
+    assert r.returncode == 0 and open(os.path.join(st, "calls")).read().count("pull ghcr.io/soleil0815/pocketknife:2.33.1") == 2, "ohne Angabe: die festgelegte Version"
+    r = run("-y", "latest")
+    assert r.returncode == 0 and "PK_IMAGE=ghcr.io/soleil0815/pocketknife:latest" in rd(".env") and "pocketknife-guacd:latest" in rd(".env")
+    for bad in ("2.33; reboot", "../x", "--irgendwas"):
+        r = run("-y", bad)
+        assert r.returncode != 0, bad
+    # alte Schreibweise --pull [Version] geht weiter
+    r = run("-y", "--pull", "2.33.1")
+    assert r.returncode == 0 and ":2.33.1" in rd(".env")
+    run("-y", "latest")
+    # 4. Ziehen scheitert → nichts geändert, Hinweis auf docker login
+    env_before = rd(".env")
+    w(os.path.join(st, "pullfail"), "")
+    r = run("-y", "2.33.2")
+    assert r.returncode != 0 and "could not be pulled" in r.stdout and "docker login ghcr.io" in r.stdout and rd(".env") == env_before
+    os.remove(os.path.join(st, "pullfail"))
+    # 5. neue Version startet nicht → vorheriges Image unter dem Namen der bisherigen .env, .env zurück
+    w(os.path.join(st, "tags"), ""); w(os.path.join(st, "health"), "unhealthy\n")
+    r = run("-y", "2.33.2")
+    assert r.returncode != 0 and "is running again" in r.stdout and rd(".env") == env_before, r.stdout[-600:]
+    tags = open(os.path.join(st, "tags")).read()
+    assert "pocketknife:previous ghcr.io/soleil0815/pocketknife:latest" in tags and "pocketknife-guacd:previous ghcr.io/soleil0815/pocketknife-guacd:latest" in tags, tags
+    assert "sudo sh update.sh 2.32.12" in r.stdout, "wie man auf der Version bleibt"
+    w(os.path.join(st, "health"), "healthy\n")
+    # 6. ohne Internet: Archiv aus dem Release (beide Images), Prüfsumme muss stimmen
+    arc = os.path.join(base, "pocketknife-2.33.3-amd64.tar.gz"); w(arc, "ARCHIV")
+    w(os.path.join(base, "pocketknife-2.33.3.sha256"), _hl.sha256(b"ARCHIV").hexdigest() + "  pocketknife-2.33.3-amd64.tar.gz\n")
+    w(os.path.join(st, "loaded"), "Loaded image: ghcr.io/soleil0815/pocketknife:2.33.3\nLoaded image: ghcr.io/soleil0815/pocketknife-guacd:2.33.3\n")
+    w(os.path.join(st, "calls"), "")
+    r = run("-y", arc)
+    assert r.returncode == 0 and ":2.33.3" in rd(".env") and "pocketknife-guacd:2.33.3" in rd(".env") and "Checksum OK" in r.stdout, r.stdout[-500:]
+    assert "pull" not in open(os.path.join(st, "calls")).read(), "ohne Internet nichts ziehen"
+    w(os.path.join(base, "pocketknife-2.33.3.sha256"), "0" * 64 + "  pocketknife-2.33.3-amd64.tar.gz\n")
+    env_before = rd(".env")
+    r = run("-y", arc)
+    assert r.returncode != 0 and "Checksum" in r.stderr and rd(".env") == env_before
+    run("-y", "latest")
+    # 7. läuft aus einem anderen Ordner → nichts tun
+    w(os.path.join(st, "running_dir"), base + "\n")
+    r = run("-y")
+    assert r.returncode != 0 and "runs from" in r.stderr
+    w(os.path.join(st, "running_dir"), inst + "\n")
+    # 8. Timer des früheren Update-Helfers (2.32.9–2.32.12) räumt das Skript selbst weg – auch wenn er es aufruft
     if os.geteuid() == 0:
-        sysr = env["PK_SYSROOT"]
-        os.makedirs(os.path.join(sysr, "run", "systemd", "system")); os.makedirs(os.path.join(sysr, "etc", "systemd", "system"))
-        with open(os.path.join(bind, "systemctl"), "w") as h:
-            h.write('#!/bin/sh\necho "$*" >> "$FAKE_CALLS.sysctl"\nexit 0\n')
-        os.chmod(os.path.join(bind, "systemctl"), 0o755)
-        r = _sp.run(["sh", "update.sh", "--watch-install"], cwd=inst, env=env, capture_output=True, text=True, timeout=60)
-        svc = open(os.path.join(sysr, "etc", "systemd", "system", "pocketknife-update.service")).read()
-        tim = open(os.path.join(sysr, "etc", "systemd", "system", "pocketknife-update.timer")).read()
-        assert r.returncode == 0 and "User=root" in svc and "Environment=HOME=/root" in svc and "/usr/local/bin" in svc, (r.stdout, r.stderr, svc)
-        assert f"ExecStart=/bin/sh {os.path.realpath(inst)}/update.sh --watch" in svc and "OnUnitActiveSec=5min" in tim
-        assert "enable --now pocketknife-update.timer" in open(calls + ".sysctl").read()
-        assert not os.path.exists(os.path.join(sysr, "etc", "cron.d", "pocketknife-update"))
-        r = _sp.run(["sh", "update.sh", "--watch-remove"], cwd=inst, env=env, capture_output=True, text=True, timeout=60)
-        assert not os.path.exists(os.path.join(sysr, "etc", "systemd", "system", "pocketknife-update.timer")) and "PK_UPDATE_HELPER=off" in open(os.path.join(inst, ".env")).read(), r.stdout
+        cd = os.path.join(env["PK_SYSROOT"], "etc", "cron.d"); os.makedirs(cd)
+        w(os.path.join(cd, "pocketknife-update"), "*/5 * * * * root /bin/sh x --watch\n")
+        r = run("--watch")
+        assert r.returncode == 0 and not os.path.exists(os.path.join(cd, "pocketknife-update")), r.stdout + r.stderr
+    # 9. --cleanup: alte Programmdateien weg – Daten, Sicherungen, Repository, .env, docker-compose.yml bleiben,
+    #    auch wenn ein „Programmordner“ in Wirklichkeit ein Link auf Daten ist
+    for d in ("app", "docker", ".pk-vorher/app", "pocketknife-2.24/app", "pocketknife-2.23.3/app", "pocketknife-2.23.3/data", "data-backup", "repo", "data/update/host"):
+        os.makedirs(os.path.join(inst, d), exist_ok=True)
+    for p_ in ("Dockerfile", "run.py", "VERSION", "pocketknife-2.30.zip", "pocketknife-2.30.zip.sha256", "pocketknife-2.24/VERSION",
+               "pocketknife-2.24/docker-compose.yml", "pocketknife-2.23.3/VERSION", "pocketknife-2.23.3/docker-compose.yml",
+               "pocketknife-2.23.3/data/pocketknife.db", "data-backup/s.zip", "repo/x.msi", "data/update/request", "docker-compose.override.yml"):
+        w(os.path.join(inst, p_), "x")
+    ext = os.path.join(base, "geheim"); os.makedirs(ext); w(os.path.join(ext, "wichtig.txt"), "W")
+    w(os.path.join(inst, ".env"), rd(".env") + f"PK_REPO_MOUNT={ext}\n")
+    os.symlink(ext, os.path.join(inst, "tools"))  # „tools“ zeigt auf das Repository → nie löschen
+    w(os.path.join(st, "images"), "pocketknife:local\nghcr.io/soleil0815/pocketknife:latest\n")
+    r = run("--cleanup", inp="n\nn\n")
+    assert r.returncode == 0 and os.path.exists(os.path.join(inst, "app")), "ohne Ja nichts gelöscht"
+    r = run("-y", "--cleanup")
+    left = sorted(os.listdir(inst))
+    assert r.returncode == 0, r.stderr
+    assert left == [".env", ".env.example", "data", "data-backup", "docker-compose.override.yml", "docker-compose.yml", "pocketknife-2.23.3", "repo", "tools", "update.sh"], left
+    assert os.path.islink(os.path.join(inst, "tools")) and open(os.path.join(ext, "wichtig.txt")).read() == "W"
+    assert rd("data", "pocketknife.db") == "DB" and rd("data-backup", "s.zip") == "x" and rd("repo", "x.msi") == "x"
+    assert not os.path.exists(os.path.join(inst, "data", "update")), "Ordner des früheren Helfers weg"
+    assert "kept: " in r.stdout and "pocketknife-2.23.3" in r.stdout, "Versionsordner mit Datenbank bleibt"
+    assert "image rm pocketknife:local" in open(os.path.join(st, "calls")).read()
+    assert "pocketknife:latest" not in [x.split()[-1] for x in open(os.path.join(st, "calls")).read().splitlines() if x.startswith("image rm")]
+    # 10. update.sh nimmt sich selbst aus dem Image (neue Datei per mv – das laufende Skript bleibt unberührt)
+    w(os.path.join(st, "host", "update.sh"), open(f, encoding="utf-8").read() + "\n# aus dem Image\n")
+    r = run("-y")
+    assert r.returncode == 0 and rd("update.sh").endswith("# aus dem Image\n")
 
 def main():
     ok = 0

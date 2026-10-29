@@ -68,9 +68,9 @@ ENV TMPDIR=/data/tmp \
 COPY app ./app
 COPY run.py healthcheck.py VERSION CHANGELOG.md ./
 COPY tools/selftest.py ./tools/selftest.py
-# Program ZIP of exactly this version (only in images built by GitHub: dist/ exists there) – update.sh --pull takes
-# the program files from it. VERSION is listed too, so the COPY also works for local builds without dist/.
-COPY VERSION dist* /opt/pocketknife/dist/
+# 2.33: the files for the Docker host that belong to exactly this version – update.sh takes a newer docker-compose.yml
+# from here (nothing else of the program is ever placed on the host)
+COPY docker-compose.yml .env.example update.sh /opt/pocketknife/host/
 
 VOLUME ["/data"]
 EXPOSE 8443

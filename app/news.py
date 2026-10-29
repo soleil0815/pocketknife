@@ -109,6 +109,7 @@ def for_user(user):
            "security": any(i["kind"] == "security" for v in unseen for i in v["items"])}
     if not access.scoped(user):
         res["update"] = update_info(user)
+        res["hints"] = hints()
     return res
 
 
@@ -219,7 +220,7 @@ def check(force=False, who=None):
     if out.get("ok") and out.get("latest") and util.vcmp(out["latest"], config.VERSION) > 0 and out["latest"] != prev:
         sec = any(i["kind"] == "security" for v in out.get("newer") or [] for i in v["items"])
         (pklog.warn if sec else pklog.info)("system", f"POCKET KNIFE {out['latest']} ist verfügbar"
-                                            + (" (mit Sicherheitsupdates)" if sec else "") + " – Update: sh update.sh --pull",
+                                            + (" (mit Sicherheitsupdates)" if sec else "") + " – Update: Container-Verwaltung oder sudo sh update.sh",
                                             user=who)
     return out
 
@@ -234,4 +235,32 @@ def update_info(user):
     return {"latest": st["latest"], "url": st.get("url") or "", "published": st.get("published") or "",
             "versions": [v for v in vers if v["items"]],
             "security": any(i["kind"] == "security" for v in vers for i in v["items"]),
-            "command": "sh update.sh --pull"}
+            "command": "sudo sh update.sh"}
+
+
+# --- Hinweise für Hauptadmins (2.33) ----------------------------------------------------------------------------
+COMPOSE_VERSION = 2  # Stand der docker-compose.yml, den dieses Programm erwartet (PK_COMPOSE_VERSION in der Datei)
+
+
+def compose_version():
+    try:
+        return int(str(os.environ.get("PK_COMPOSE_VERSION") or "0").strip() or 0)
+    except ValueError:
+        return 0
+
+
+def hints():
+    from . import backup
+    out = []
+    if compose_version() < COMPOSE_VERSION:
+        out.append({"id": "compose", "title": "Neue docker-compose.yml nötig",
+                    "text": "Die docker-compose.yml auf dem Docker-Host ist älter als dieses Programm (z. B. guacd kommt jetzt aus "
+                            "einem eigenen Image). Einmal auf dem Docker-Host im Ordner mit der docker-compose.yml ausführen – das "
+                            "legt die neue Datei hin und behält die alte als docker-compose.yml.alt:",
+                    "command": "sudo sh update.sh"})
+    if backup.NEWER_DB:
+        out.append({"id": "newer_db", "title": "Datenbank stammt von einer neueren Version",
+                    "text": f"Diese Datenbank wurde schon von POCKET KNIFE {backup.NEWER_DB} benutzt. Läuft etwas nicht richtig, "
+                            f"die Sicherung „vor-{backup.NEWER_DB}“ zurückspielen (Hilfe → Sicherung) oder wieder Version "
+                            f"{backup.NEWER_DB} starten."})
+    return out

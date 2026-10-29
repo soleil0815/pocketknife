@@ -984,6 +984,9 @@ function drawNewsPill() {
     kids.push(h('a.news-pill.up', { href: '#', class: up.security ? 'sec' : '', title: tr('Neue Version verfügbar – Klick für die Neuigkeiten und den Update-Befehl'),
       onclick: (e) => { e.preventDefault(); newsDlg(true); } }, up.security ? '⚠ ' : '↑ ', fmtT('{0} verfügbar', up.latest)));
   }
+  if (NEWS && NEWS.hints && NEWS.hints.length) {
+    kids.push(h('a.news-pill.up.sec', { href: '#', title: tr(NEWS.hints[0].title), onclick: (e) => { e.preventDefault(); newsDlg(); } }, '⚠ ', tr('Hinweis')));
+  }
   if (!kids.length && NEWS) {
     kids.push(h('a.news-link', { href: '#', onclick: (e) => { e.preventDefault(); newsDlg(); } }, tr('Neuigkeiten')));
   }
@@ -1005,8 +1008,9 @@ async function newsDlg(focusUpdate = false) {
         up.security ? h('span.badge.err', tr('enthält Sicherheitsupdates')) : null, h('div.spacer'),
         up.url ? h('a', { href: up.url, target: '_blank', rel: 'noopener noreferrer' }, tr('Release auf GitHub')) : null),
       ...up.versions.map((v) => h('div', h('div.news-ver', h('b.raw', v.version), v.date ? h('span.muted.small', ' · ' + fmtDate(v.date, false)) : null), newsItems(v.items))),
-      suBox(up)));
+      ...updateHow(up)));
   }
+  parts.push(...sysHints(NEWS.hints));
   const vers = NEWS.versions || [];
   let shown = 6;
   const list = h('div');
@@ -1028,117 +1032,16 @@ async function newsDlg(focusUpdate = false) {
   }
 }
 
-// 2.32.9: Update aus der Oberfläche. Der Container bekommt keinen Zugriff auf Docker – er legt nur einen Auftrag in den
-// Datenordner; der Update-Helfer auf dem Docker-Host (update.sh --watch, alle 5 Minuten) führt  update.sh --pull  aus.
-const SU_TEXT = { done: 'Update erledigt: {0} → {1}.', current: 'Version {1} ist bereits aktuell.', failed: 'Update auf {2} fehlgeschlagen – es läuft weiter {1}.',
-  rolledback: 'Die neue Version {2} startete nicht – POCKET KNIFE ist automatisch zurück auf {1}.', refused: 'Der Update-Helfer hat den Auftrag abgelehnt.' };
-function suAgo(sec) { return sec == null ? '' : sec < 90 ? fmtT('vor {0} s', sec) : sec < 5400 ? fmtT('vor {0} Min.', Math.round(sec / 60)) : fmtT('vor {0} Std.', Math.round(sec / 3600)); }
-function suTime(sec) {
-  const d = new Date(sec * 1000); const p = (n) => String(n).padStart(2, '0');
-  return fmtDate(`${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`);
-}
-function suResult(st) {
-  if (!st || st.state === 'running') return '';
-  const why = { invalid: tr('Ungültiger Auftrag.'), older: tr('Die Version ist nicht neuer als die laufende – zurück nur von Hand auf dem Host.'),
-    pull: tr('Das Image konnte nicht geladen werden – bei einem privaten Image einmal als root anmelden: sudo docker login ghcr.io') }[st.message];
-  return fmtT(SU_TEXT[st.state] || '{1}', st.from || '?', st.to || '?', st.target || '?') + (why ? ' ' + why : st.message ? ` (${st.message})` : '');
-}
-function suManual(up) {
-  const cmd = (up && up.command) || 'sh update.sh --pull';
-  return [h('div.muted.small', { style: { marginTop: '6px' } }, tr('Update auf dem Docker-Host im Programmordner:')),
+// 2.33: Update wie bei Docker üblich – Container-Verwaltung (z. B. Dockhand) oder von Hand  sudo sh update.sh
+function updateHow(up) {
+  const cmd = (up && up.command) || 'sudo sh update.sh';
+  return [h('div.muted.small', { style: { marginTop: '6px' } }, tr('Aktualisieren: mit Ihrer Container-Verwaltung (z. B. Dockhand, Watchtower) – oder auf dem Docker-Host im Ordner mit der docker-compose.yml:')),
     h('div.row', { style: { gap: '6px', alignItems: 'center' } }, h('code.raw', cmd), btn('Kopieren', () => copyText(cmd), { cls: 'small ghost' }))];
 }
-// Im Neuigkeiten-Dialog: Knopf „Jetzt aktualisieren“, wenn der Helfer läuft – sonst Befehl und Einrichtung
-function suBox(up) {
-  const box = h('div', { style: { marginTop: '8px' } }, h('span.muted.small', tr('Wird geladen …')));
-  GET('/api/system/selfupdate').then((d) => {
-    if (d.helper.active) {
-      box.replaceChildren(h('div.row', { style: { gap: '8px', alignItems: 'center' } },
-        btn('Jetzt aktualisieren', () => selfUpdate(up.latest), { cls: 'small primary', icon: 'refresh' }),
-        h('span.muted.small', fmtT('Update-Helfer auf dem Docker-Host aktiv ({0}). Mit Sicherung und automatischem Zurück, falls die neue Version nicht startet.', suAgo(d.helper.age)))));
-    } else {
-      box.replaceChildren(...suManual(up), h('div.muted.small', { style: { marginTop: '6px' } },
-        tr('Der Knopf „Jetzt aktualisieren“ erscheint hier, sobald der Update-Helfer läuft – ihn richtet das nächste Update auf dem Docker-Host automatisch mit ein:'), ' ', h('code.raw', d.install)));
-    }
-  }).catch(() => box.replaceChildren(...suManual(up)));
-  return box;
-}
-async function selfUpdate(version) {
-  if (!(await confirmDlg(fmtT('Jetzt auf POCKET KNIFE {0} aktualisieren? POCKET KNIFE startet dabei neu und ist etwa ein bis drei Minuten nicht erreichbar; laufende Verteilungen werden danach fortgesetzt.', version), 'Jetzt aktualisieren'))) return;
-  const r = await run(() => POST('/api/system/selfupdate', { version }));
-  if (!r) return;
-  closeModals();
-  suProgress(r);
-}
-// Fortschritt: fragt alle 3 Sekunden – auch während POCKET KNIFE neu startet
-function suProgress(first) {
-  const at = (first.request && first.request.at) || 0;
-  const was = first.current;
-  const msg = h('p', tr('Auftrag abgelegt …'));
-  const log = h('pre.out', { style: { maxHeight: '340px', overflow: 'auto', display: 'none' } });
-  const extra = h('div.row', { style: { gap: '8px' } });
-  let stop = false;
-  let gone = 0;
-  let down = 0;  // seit wann keine Antwort (Neustart)  // Auftrag weg, Stand noch nicht da: der Helfer hat ihn gerade abgeholt – einmal mehr nachsehen
-  modal(tr('Update'), h('div', msg, extra, log), [{ label: 'Schließen' }], { wide: true, onClose: () => { stop = true; } });
-  const tick = async () => {
-    if (stop) return;
-    let d;
-    try { d = await GET('/api/system/selfupdate'); down = 0; } catch (e) {
-      down = down || Date.now();
-      if (Date.now() - down > 15 * 60000) { msg.className = 'err-text'; msg.textContent = tr('POCKET KNIFE antwortet seit 15 Minuten nicht – bitte die Seite neu laden (und ggf. auf dem Docker-Host nachsehen: docker compose ps).'); return; }
-      msg.className = 'muted'; msg.textContent = tr('POCKET KNIFE startet neu – einen Moment …'); setTimeout(tick, 3000); return;
-    }
-    const st = d.status && d.status.started && d.status.started >= at ? d.status : null;
-    if (st && d.log) { log.style.display = ''; log.textContent = d.log; log.scrollTop = log.scrollHeight; }
-    extra.replaceChildren();
-    if (!st) {
-      if (!d.request && ++gone >= 3) { msg.textContent = tr('Der Auftrag wurde zurückgenommen.'); return; }
-      if (!d.request) { setTimeout(tick, 3000); return; }
-      msg.textContent = d.request.stale ? tr('Der Update-Helfer auf dem Docker-Host hat den Auftrag seit über 30 Minuten nicht abgeholt – läuft der Timer noch?')
-        : tr('Wartet auf den Update-Helfer auf dem Docker-Host (prüft alle 5 Minuten) …');
-      extra.append(btn('Auftrag zurücknehmen', async () => {
-        const c = await run(() => DEL('/api/system/selfupdate'));
-        if (!c) return;
-        toast(c.cancelled ? tr('Zurückgenommen') : tr('Zu spät – der Update-Helfer hat den Auftrag schon abgeholt, das Update läuft.'), c.cancelled ? 'ok' : 'err');
-        if (c.cancelled) { stop = true; msg.textContent = tr('Der Auftrag wurde zurückgenommen.'); extra.replaceChildren(); }
-      }, { cls: 'small ghost' }));
-    } else if (st.state === 'running') {
-      msg.className = 'muted'; msg.textContent = fmtT('Update auf {0} läuft: Image ziehen und prüfen, Programmdateien sichern, neu starten, Gesundheitscheck, Selbsttest …', st.target);
-    } else {
-      const good = st.state === 'done' || st.state === 'current';
-      msg.className = good ? 'ok-text' : 'err-text'; msg.textContent = suResult(st);
-      if (d.current !== was) extra.append(btn('Seite neu laden', () => location.reload(), { cls: 'small primary', icon: 'refresh' }));
-      loadNews();
-      return;
-    }
-    setTimeout(tick, 3000);
-  };
-  tick();
-}
-// Einstellungen → Wartung: Stand des Update-Helfers und letztes Update
-function suField() {
-  const el = h('div.small', h('span.muted', tr('Wird geladen …')));
-  const draw = async () => {
-    let d;
-    try { d = await GET('/api/system/selfupdate'); } catch (e) { el.replaceChildren(h('span.muted', e.message)); return; }
-    const st = d.status;
-    el.replaceChildren(
-      h('div', { class: d.helper.active ? '' : 'muted' }, d.helper.active ? fmtT('Update-Helfer auf dem Docker-Host aktiv ({0}).', suAgo(d.helper.age))
-        : d.helper.age != null ? fmtT('Update-Helfer meldet sich nicht mehr (zuletzt {0}).', suAgo(d.helper.age))
-          : tr('Noch nicht eingerichtet – das nächste Update auf dem Docker-Host richtet ihn automatisch ein:'), ' ', d.helper.active ? '' : h('code.raw', d.install)),
-      st ? h('div', { class: st.state === 'running' ? 'muted' : (st.state === 'done' || st.state === 'current') ? 'ok-text' : 'err-text' },
-        st.state === 'running' ? fmtT('Update auf {0} läuft …', st.target) : (st.finished ? suTime(st.finished) + ': ' : '') + suResult(st)) : null,
-      h('div.row', { style: { gap: '6px', marginTop: '4px' } },
-        d.latest && d.helper.active ? btn(fmtT('Jetzt auf {0} aktualisieren', d.latest), () => selfUpdate(d.latest), { cls: 'small primary', icon: 'refresh' }) : null,
-        d.request ? btn('Auftrag zurücknehmen', async () => {
-          const c = await run(() => DEL('/api/system/selfupdate'));
-          if (c) { toast(c.cancelled ? tr('Zurückgenommen') : tr('Zu spät – der Update-Helfer hat den Auftrag schon abgeholt, das Update läuft.'), c.cancelled ? 'ok' : 'err'); draw(); }
-        }, { cls: 'small ghost' }) : null,
-        d.log ? btn('Protokoll', () => showOutput(tr('Protokoll des letzten Updates'), d.log), { cls: 'small ghost' }) : null));
-  };
-  draw();
-  return el;
+// Hinweise für Hauptadmins: docker-compose.yml zu alt, Datenbank von einer neueren Version
+function sysHints(hs) {
+  return (hs || []).map((x) => h('div.news-up.sec', h('b', tr(x.title)), h('div.small', { style: { marginTop: '4px' } }, tr(x.text)),
+    x.command ? h('div.row', { style: { gap: '6px', alignItems: 'center', marginTop: '4px' } }, h('code.raw', x.command), btn('Kopieren', () => copyText(x.command), { cls: 'small ghost' })) : null));
 }
 
 // Einstellungen → Wartung: Hinweis auf neue Versionen (der Server fragt GitHub, nie der Browser)
@@ -1163,7 +1066,7 @@ function updatesCard() {
           const r = await run(() => PUT('/api/system/updates', { clear_token: true }), 'Token gelöscht'); if (r) draw(r);
         }, { cls: 'small ghost' }) : null), 'Nur bei einem privaten Repository: fein granulares Token mit Lesezugriff auf das Repository („Contents: Read“). Wird verschlüsselt gespeichert und nie angezeigt.'),
         field('Stand', h('span.small', { class: st && !st.ok ? 'err-text' : 'muted' }, stTxt)),
-        field('Update aus der Oberfläche', suField(), 'Der Container hat keinen Zugriff auf Docker: POCKET KNIFE legt nur einen Auftrag in den Datenordner, der Update-Helfer auf dem Docker-Host führt das Update aus (sh update.sh --pull, mit Sicherung und automatischem Zurück). Empfehlung: keine automatischen Updates durch Watchtower, Dockhand, Tugtainer & Co. – sie tauschen nur das Image, ohne guacd, docker-compose.yml und automatisches Zurück.')),
+        field('Aktualisieren', h('div.small.muted', tr('Mit Ihrer Container-Verwaltung (z. B. Dockhand, Watchtower – am besten nachts) oder auf dem Docker-Host: sudo sh update.sh. Vor dem Start einer neuen Version sichert POCKET KNIFE die Datenbank selbst.')))),
       h('div.row', { style: { gap: '8px', marginTop: '8px' } },
         btn('Speichern', async () => {
           const b = { enabled: en.checked, repo: repo.value.trim() };
