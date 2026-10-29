@@ -836,14 +836,16 @@ def adhoc_tool(data):
     d = {"name": "Befehl", "type": typ, "run_as": run_as, "script": script.replace("\n", "\r\n"),
          "timeout_s": data.get("timeout_s"), "success_codes": data.get("success_codes")}
     clean_extras(d)  # Zeitlimit und Erfolgscodes wie im Tool prüfen
-    first = next((l.strip() for l in script.splitlines() if l.strip()), "")
+    # Name ohne Befehlstext: er steht je Computer im Protokoll (auch für OU-Admins sichtbar), und im Befehl kann ein
+    # Kennwort stehen
     d.update(id="adhoc", repo_path="", scan_after="never", scan_profile_id=None,
-             name=f"Befehl: {first[:60]}{'…' if len(first) > 60 or len(script.splitlines()) > 1 else ''}")
+             name=f"Befehl ({'PowerShell' if typ == 'powershell' else 'CMD'}{' als SYSTEM' if run_as == 'system' else ''})")
     return d
 
 
 def start_job(tool, ids, user):
     from . import pklog
+    ids = list(dict.fromkeys(ids))  # 2.34: doppelte IDs nicht doppelt ausführen
     jid = secrets.token_hex(6)
     names = {r["id"]: r["name"] for r in db.q("SELECT id, name FROM computers")}
     job = {"id": jid, "tool": tool["name"], "user": user, "started": util.now(),

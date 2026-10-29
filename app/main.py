@@ -989,8 +989,9 @@ def api_tool_command(data: dict = Body(...), user=U):
     ids = access.check_ids(user, data.get("ids"))[:500]
     if not ids:
         _err("Keine Computer ausgewählt.")
-    as_text = " als SYSTEM" if t["run_as"] == "system" else ""
-    pklog.info("tool", f"Befehl ({tools.TYPES[t['type']]}{as_text}) auf {len(ids)} Computer(n) gestartet:\n{t['script'][:2000]}",
+    # Befehlstext bewusst nicht im Protokoll (kann ein Kennwort enthalten) – nur Art, Umfang und Ziele
+    n = len(t["script"].splitlines())
+    pklog.info("tool", f"{t['name']} auf {len(ids)} Computer(n) gestartet ({n} Zeile(n), Text nicht protokolliert).",
                user=user["username"])
     return {"job": tools.start_job(t, ids, user["username"]), "name": t["name"]}
 
@@ -1380,12 +1381,13 @@ def server_role(c):
 @app.post("/api/computers/power-check")
 def api_power_check(data: dict = Body(...), user=U):
     """2.34: Vor Neustart/Herunterfahren – welche Ziele sind Server oder Domänencontroller, wie viele Benutzer sind angemeldet?"""
-    ids = access.check_ids(user, data.get("ids"))[:5000]
-    out = []
-    for i in ids:
-        c = db.q1("SELECT id, name, os_name, ad_os, extra, current_user FROM computers WHERE id=?", (i,))
-        if not c:
-            continue
+    ids = access.check_ids(user, data.get("ids"))
+    out, rows = [], []
+    for k in range(0, len(ids), 500):  # alle Ziele (die Aktion hat auch keine Grenze), in Blöcken für SQLite
+        part = ids[k:k + 500]
+        rows += db.q(f"SELECT id, name, os_name, ad_os, extra, current_user FROM computers WHERE id IN ({','.join('?' * len(part))}) "
+                     "ORDER BY name COLLATE NOCASE", part)
+    for c in rows:
         role = server_role(c)
         if role:
             users = [u for u in str(c.get("current_user") or "").split(",") if u.strip()]

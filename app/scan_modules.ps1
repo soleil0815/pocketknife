@@ -106,7 +106,9 @@ if ($os.ProductType -eq 1) {
   try {
     # zwei Ebenen (Applications bzw. je Benutzer-SID) – ohne -Depth, das kennt PowerShell 4 (Server 2012 R2) nicht
     $au = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Appx\AppxAllUserStore'
-    $wk = @(Get-ChildItem $au -ErrorAction SilentlyContinue | ForEach-Object { Get-ChildItem $_.PSPath -ErrorAction SilentlyContinue })
+    # nur installierte Pakete (Applications, InboxApplications, je Benutzer-SID) – nicht EndOfLife, Staged, Deprovisioned
+    $wk = @(Get-ChildItem $au -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -match '^(Applications|InboxApplications|S-1-.*)$' } |
+      ForEach-Object { Get-ChildItem $_.PSPath -ErrorAction SilentlyContinue })
     $wv = @($wk | ForEach-Object { if ($_.PSChildName -match '^Microsoft\.DesktopAppInstaller_([\d.]+)_') { $matches[1] } } |
       Sort-Object { try { [version]$_ } catch { [version]'0.0' } } -Descending)
     if ($wv.Count) { $e.winget = $wv[0] }

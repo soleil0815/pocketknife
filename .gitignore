@@ -13,3 +13,4 @@ repo/
 .pk-rollback-ref
 .pk-rotiert-gerade
 .pk-update-unvollstaendig
+strings.json

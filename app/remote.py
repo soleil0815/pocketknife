@@ -1328,7 +1328,11 @@ LOGGEDON_PS = r"""$ErrorActionPreference = 'SilentlyContinue'
 $u = @()
 $cs = (Get-CimInstance Win32_ComputerSystem).UserName
 if ($cs) { $u += $cs }
-""" + SESSIONS_PS + r"""$u += $pkExp
+""" + SESSIONS_PS + r"""# 2.34: quser (Server Core) liefert Namen ohne Domäne – nicht doppelt zu „DOMÄNE\name“ aus Win32_ComputerSystem
+foreach ($x in $pkExp) {
+  $full = @($u | Where-Object { $_ -eq $x -or ("" + $_).Split('\')[-1] -eq $x })
+  if ($full.Count) { if ($pkSt.ContainsKey($x) -and -not $pkSt.ContainsKey($full[0])) { $pkSt[$full[0]] = $pkSt[$x] } } else { $u += $x }
+}
 'PKUSERS:' + ((@($u | Where-Object { $_ }) | Select-Object -Unique) -join ', ')
 'PKSTATES:' + ((@($pkSt.GetEnumerator() | Where-Object { $_.Value -ne 'active' } | ForEach-Object { $_.Key + '=' + $_.Value })) -join ';')
 """
