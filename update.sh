@@ -744,7 +744,15 @@ watch() {
   [ -d host ] && [ ! -L host ] || die "$WU/host is missing or not a folder – not used."
   cd host || exit 0
   [ "$(pwd -P)" = "$DP/update/host" ] || die "$WU/host does not resolve to $DP/update/host – not used."
-  [ "$(stat -c '%u' .)" = "$(id -u)" ] || die "$WU/host does not belong to $(id -un) – not used (delete it; the helper creates it again)."
+  if [ "$(stat -c '%u' .)" != "$(id -u)" ]; then
+    # 2.32.10/2.32.11 gave host/ back to the container at every start (chown of the data folder). Take it over: chown
+    # works on the folder we are IN (no path, no link), and from then on the container cannot add anything. Its
+    # entries are only removed (rm never follows a link) – nothing in it is read or written to.
+    [ "$(stat -c '%u' .)" = "$(stat -c '%u' ..)" ] || die "$WU/host belongs to neither $(id -un) nor the container – not used."
+    chown "$(id -u):$(id -g)" . && chmod 755 . || die "$WU/host cannot be taken over."
+    [ "$(stat -c '%u' .)" = "$(id -u)" ] || die "$WU/host does not belong to $(id -un) – not used."
+    for n in ./* ./.[!.]* ./..?*; do { [ -e "$n" ] || [ -L "$n" ]; } && { rm -f "$n" 2>/dev/null || true; }; done
+  fi
   chmod 755 . 2>/dev/null || true
   # one helper at a time (an update takes a few minutes, the timer may start again meanwhile)
   LOCK="$SCRIPTDIR/.pk-watch.lock"
