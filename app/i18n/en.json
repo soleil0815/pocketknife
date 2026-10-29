@@ -5495,5 +5495,16 @@
  "{0} (winget-Cache)": "{0} (winget-Cache)",
  "„{0}“ gehört zum Mandanten „{1}“ – der Cache braucht einen eigenen Ordner.": "\"{0}\" belongs to the tenant \"{1}\" – the cache needs a folder of its own.",
  "„{0}“ gibt es im winget-Katalog nicht (mehr).": "\"{0}\" does not exist in the winget catalog (any more).",
- "„{0}“ ist schon im Cache.": "\"{0}\" is already in the cache."
+ "„{0}“ ist schon im Cache.": "\"{0}\" is already in the cache.",
+ "Der Eintrag wird gerade geprüft bzw. geladen – bitte gleich noch einmal.": "The entry is being checked or downloaded right now – please try again in a moment.",
+ "Der Ordner des winget-Caches ist ungültig (Einstellungen des winget-Caches).": "The folder of the winget cache is invalid (settings of the winget cache).",
+ "Der Ordner wird noch benutzt ({0}) – bitte danach entfernen.": "The folder is still in use ({0}) – please remove afterwards.",
+ "Die Datei im Cache ist beschädigt, wird aber gerade von einer Bereitstellung benutzt – nächster Versuch beim nächsten Lauf.": "The file in the cache is damaged but is being used by a deployment right now – next attempt on the next run.",
+ "Im Manifest fehlt die Prüfsumme des Installers.": "The installer checksum is missing in the manifest.",
+ "Paket aus dem winget-Cache: Ordner wird noch benutzt ({0}) – bitte danach löschen.": "Package from the winget cache: folder still in use ({0}) – please delete afterwards.",
+ "Regel „{0}“": "Rule \"{0}\"",
+ "Upgrade": "Upgrade",
+ "winget-Cache: Ordner „{0}“.": "winget cache: folder \"{0}\".",
+ "„{0}“ gibt es schon und ist nicht leer – der Cache braucht einen eigenen, neuen Ordner (beim Aufräumen löscht er dort alles, was zu keinem Eintrag gehört).": "\"{0}\" already exists and is not empty – the cache needs a folder of its own, a new one (when cleaning up it deletes everything there that belongs to no entry).",
+ "„{0}“ wird schon benutzt – der Cache braucht einen eigenen Ordner.": "\"{0}\" is already in use – the cache needs a folder of its own."
 }

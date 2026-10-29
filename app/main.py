@@ -1934,15 +1934,17 @@ def api_wc_suggest(user=U):
 @app.post("/api/wingetcache")
 def api_wc_add(data: dict = Body(...), user=U):
     _wc_main(user)
-    ids = []
-    try:
-        for wid in (data.get("winget_ids") or [data.get("winget_id")])[:100]:
+    ids, errors = [], []
+    for wid in (data.get("winget_ids") or [data.get("winget_id")])[:100]:
+        try:
             ids.append(wingetcache.add(wid, data.get("arch") or "x64", user["username"]))
-    except wingetcache.CacheError as e:
-        if not ids:
-            _err(e)
+        except wingetcache.CacheError as e:
+            errors.append(f"{wid}: {e}")
+    if not ids and errors:
+        _err("; ".join(errors[:5]))
+    # läuft schon eine Prüfung, nimmt sie neue Einträge am Ende mit
     scheduler._bg("wingetcache", lambda: wingetcache.refresh_all(user["username"], ids=set(ids)))
-    return {"ids": ids, **_wc_view()}
+    return {"ids": ids, "errors": errors, **_wc_view()}
 
 
 @app.post("/api/wingetcache/refresh")
@@ -1958,8 +1960,6 @@ def api_wc_refresh(data: dict = Body(default={}), user=U):
 @app.delete("/api/wingetcache/{eid}")
 def api_wc_remove(eid: int, user=U):
     _wc_main(user)
-    if wingetcache.status()["running"]:
-        _err("Der winget-Cache wird gerade geprüft – bitte danach entfernen.")
     try:
         return {**wingetcache.remove(eid, user["username"]), **_wc_view()}
     except wingetcache.CacheError as e:
@@ -2450,6 +2450,10 @@ def api_package_delete(pid: int, user=U):
     used = [r["name"] for r in db.q("SELECT name, packages FROM schedules") if pid in json.loads(r["packages"] or "[]")]
     if used:
         _err("Das Paket wird in Zeitplänen verwendet: " + ", ".join(used))
+    try:
+        wingetcache.check_package_delete(pid)  # 2.35: Cache-Ordner noch von einer Bereitstellung gebraucht?
+    except wingetcache.CacheError as e:
+        _err(e)
     db.ex("DELETE FROM packages WHERE id=?", (pid,))
     repofiles.forget_idents(pid)
     wingetcache.package_deleted(pid, user["username"])  # 2.35: Paket aus dem winget-Cache → Ordner und Eintrag mit weg
@@ -2784,7 +2788,7 @@ def api_deploy(data: dict = Body(...), user=U):
                 pkg = deploy.adhoc_winget(wid, act)
                 did2 = deploy.create(pkg, wg or ids, user["username"], sched or None, target_label=label)
                 return {"id": did2, "cache_id": did, "skipped": len(skip) if wg else 0}
-            return {"id": did, "cache": True}
+            return {"id": did, "cache": True, "skipped": len(skip)}
         else:
             _err("Paket oder winget-ID angeben")
     except ValueError as e:
@@ -3464,7 +3468,9 @@ INTERNAL_SETTINGS = {"ldap_cert_fingerprint", "ldap_cert_fingerprints", "ldap_ce
                      "ad_last_sync", "ad_last_status", "ad_sync_minutes", "ad_remove_missing", "ad_auto_sync",
                      "ad_sync_disabled", "ad_ou_collections", "ad_group_collections",
                      "proxy_url", "proxy_user", "proxy_clients",
-                     "update_check_enabled", "update_repo"}  # 2.28: nur über /api/system/updates (geprüft)  # Proxy: nur über /api/system/proxy (geprüft, Kennwort im Tresor)
+                     "update_check_enabled", "update_repo",
+                     # 2.35: winget-Cache nur über /api/wingetcache/settings (Ordner geprüft: eigener, leerer Ordner)
+                     "winget_cache_folder", "winget_cache_locale", "winget_cache_max_mb", "winget_cache_auto"}  # 2.28: nur über /api/system/updates (geprüft)  # Proxy: nur über /api/system/proxy (geprüft, Kennwort im Tresor)
 def rebootmsg_clean(v, limit):
     from . import rebootmsg
     return rebootmsg.clean(v, limit)

@@ -381,6 +381,14 @@ def winget_candidates(s, cids=None, online_only=True):
         if maxa and fails.get((r["computer_id"], wl), 0) >= maxa:
             continue
         out.setdefault(r["winget_id"], []).append(r["computer_id"])
+    # 2.35: Computer ohne winget nur, wenn das Paket aus dem winget-Cache für sie passt (Windows-Version, Architektur,
+    # wirklich neuer) – sonst würden sie bei jedem Lauf vorgemerkt/geweckt und dann doch ausgelassen
+    from . import wingetcache
+    for wid in list(out):
+        wg, cache, _skip, _e = wingetcache.split(wid, out[wid])
+        out[wid] = wg + cache
+        if not out[wid]:
+            del out[wid]
     return out
 
 

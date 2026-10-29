@@ -129,7 +129,7 @@ CREATE TABLE IF NOT EXISTS winget_overrides(
 CREATE TABLE IF NOT EXISTS winget_cache(
   id INTEGER PRIMARY KEY, winget_id TEXT NOT NULL UNIQUE COLLATE NOCASE, arch TEXT DEFAULT 'x64',
   scope TEXT DEFAULT 'machine', status TEXT DEFAULT 'new', message TEXT, name TEXT, version TEXT, folder TEXT,
-  file TEXT, size INTEGER, sha256 TEXT, installer_type TEXT, min_os TEXT, package_id INTEGER,
+  file TEXT, size INTEGER, sha256 TEXT, installer_type TEXT, min_os TEXT, package_id INTEGER, detect_version TEXT,
   checked_at TEXT, updated_at TEXT, created_at TEXT, created_by TEXT);
 
 CREATE TABLE IF NOT EXISTS disk_usage(
@@ -468,6 +468,7 @@ MIGRATIONS = [
     ("computers", "scan_allowed", "INTEGER DEFAULT 1"),
     ("scan_history", "profile_name", "TEXT"),
     ("software", "winget_sure", "INTEGER DEFAULT 1"),
+    ("winget_cache", "detect_version", "TEXT"),
     ("software", "excluded", "INTEGER DEFAULT 0"),
     ("scan_profiles", "scanner_types", "TEXT"),
     ("scan_profiles", "builtin_key", "TEXT"),

@@ -3064,6 +3064,7 @@ async function wcSuggestDlg() {
       const r = await run(() => POST('/api/wingetcache', { winget_ids: ids }));
       if (!r) return false;
       toast(`${r.ids.length} Programm(e) aufgenommen – werden geladen`, 'ok');
+      if (r.errors && r.errors.length) toast(r.errors.join('; '), 'err');
       route();
       return true;
     } }], { wide: true });
@@ -3090,7 +3091,8 @@ function wcSettingsDlg(d) {
     { label: 'Speichern', cls: 'primary', onClick: async () => {
       const body = { locale: loc.value, max_mb: mb.value, auto: auto.checked };
       if (!d.entries.length) body.folder = folder.value;
-      await PUT('/api/wingetcache/settings', body); toast('Gespeichert', 'ok'); route();
+      if (await run(() => PUT('/api/wingetcache/settings', body)) === undefined) return false;
+      toast('Gespeichert', 'ok'); route();
     } }]);
 }
 

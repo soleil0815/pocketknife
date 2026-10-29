@@ -39,7 +39,9 @@ INSTALLER_KEYS = ("InstallerLocale", "Platform", "MinimumOSVersion", "InstallerT
 OK_RESPONSES = ("rebootRequiredToFinish", "rebootRequiredForInstall", "rebootInitiated", "alreadyInstalled")
 MAX_YAML = 20 * 1024 * 1024
 _lock = threading.Lock()       # immer nur ein Lauf (Laden in das Repository)
+_elock = threading.RLock()     # ein Eintrag: Prüfen/Laden und Entfernen nie gleichzeitig
 _state = {"running": False, "current": None}
+TMP_PREFIX = "pk-wc-"
 
 
 class CacheError(ValueError):
@@ -47,13 +49,27 @@ class CacheError(ValueError):
 
 
 def init():
-    """Tabelle legt db.init an (winget_cache); hier nur: beim Start hängengebliebene „wird geprüft“ zurücksetzen."""
+    """Tabelle legt db.init an (winget_cache); hier: beim Start hängengebliebene „wird geprüft“ zurücksetzen und Reste
+    abgebrochener Downloads löschen."""
     db.ex("UPDATE winget_cache SET status='error', message='Prüfung durch Neustart unterbrochen' WHERE status='checking'")
+    try:
+        for f in os.listdir(config.WINGET_DIR):
+            if f.startswith(TMP_PREFIX) and f.endswith(".part"):
+                os.remove(os.path.join(config.WINGET_DIR, f))
+    except OSError:
+        pass
+
+
+def _norm_folder(v):
+    return "\\".join(x for x in str(v or "").replace("/", "\\").split("\\") if x not in ("", "."))
 
 
 def folder_root():
-    return "\\".join(x for x in str(db.setting("winget_cache_folder") or "winget-cache").replace("/", "\\").split("\\")
-                     if x not in ("", "."))
+    """Cache-Ordner im Repository – nie leer (sonst wäre es das ganze Repository) und nie mit „..“."""
+    v = _norm_folder(db.setting("winget_cache_folder") or "winget-cache")
+    if not v or ".." in v.split("\\") or ":" in v:
+        raise CacheError("Der Ordner des winget-Caches ist ungültig (Einstellungen des winget-Caches).")
+    return v
 
 
 # --- MSZIP (Windows Compression API, Puffer-Modus) -----------------------------------------------
@@ -88,10 +104,36 @@ def mszip_decompress(data, limit=MAX_YAML):
     return bytes(out)
 
 
+_LOADER = None
+
+
+def _loader():
+    """SafeLoader ohne Umwandlung in Zahlen/Wahrheitswerte: Versionen wie 1.10 oder 2.50 bleiben Text (wie bei winget)."""
+    global _LOADER
+    if _LOADER is None:
+        import yaml
+
+        class StrLoader(yaml.SafeLoader):
+            pass
+        StrLoader.yaml_implicit_resolvers = {
+            k: [(tag, rx) for tag, rx in v if tag not in ("tag:yaml.org,2002:int", "tag:yaml.org,2002:float",
+                                                          "tag:yaml.org,2002:bool", "tag:yaml.org,2002:timestamp")]
+            for k, v in yaml.SafeLoader.yaml_implicit_resolvers.items()}
+        _LOADER = StrLoader
+    return _LOADER
+
+
+def _int(v):
+    try:
+        return int(str(v).strip(), 0) if str(v).strip().lower().startswith(("0x", "-0x")) else int(str(v).strip())
+    except (TypeError, ValueError):
+        return None
+
+
 def _yaml(text):
     import yaml
     try:
-        return yaml.safe_load(text)
+        return yaml.load(text, Loader=_loader())  # noqa: S506 – SafeLoader-Unterklasse
     except yaml.YAMLError as e:
         raise CacheError(f"Manifest nicht lesbar: {str(e).splitlines()[0]}")
 
@@ -113,7 +155,7 @@ def _download(url, sha, max_bytes):
     """Installer in eine temporäre Datei laden und die SHA-256 prüfen. Gibt (pfad, größe) zurück."""
     if not re.match(r"^https?://", url or "", re.I):
         raise CacheError("Download-Adresse fehlt oder ist ungültig.")
-    fd, tmp = tempfile.mkstemp(dir=config.WINGET_DIR, suffix=".part")
+    fd, tmp = tempfile.mkstemp(dir=config.WINGET_DIR, prefix=TMP_PREFIX, suffix=".part")
     os.close(fd)
     h, size = hashlib.sha256(), 0
     try:
@@ -234,8 +276,10 @@ def choose(man, arch="x64", scope="machine", locale=None):
         sc = str(i.get("Scope") or "").lower()
         if sc and sc != scope:
             continue
+        if str(i.get("ElevationRequirement") or "") == "elevationProhibited":
+            continue  # darf nicht mit Administratorrechten laufen – als SYSTEM ungeeignet
         il = str(i.get("InstallerLocale") or "").lower()
-        rl = 0 if il == locale else 1 if il and il.split("-")[0] == locale.split("-")[0] else 2 if il == "en-us" else 3 if not il else 4
+        rl = 0 if il == locale else 1 if il and il.split("-")[0] == locale.split("-")[0] else 2 if not il else 3 if il == "en-us" else 4
         cand.append((ra, rl, 0 if sc else 1, i))
     if not cand:
         what = ", ".join(t for t in found_types if t) or "unbekannt"
@@ -252,7 +296,7 @@ def plan(man, inst, scope="machine"):
     hints = []
     if typ in ("msi", "wix"):
         it = "msi"
-        args = custom
+        args = " ".join(x for x in (custom, str(sw.get("Upgrade") or "").strip()) if x)
         if scope == "machine" and "allusers" not in args.lower():
             args = (args + " ALLUSERS=1").strip()
     else:
@@ -261,22 +305,24 @@ def plan(man, inst, scope="machine"):
         if not silent:
             raise CacheError("Der Installer (EXE) nennt im Manifest keine Schalter für die stille Installation – dafür "
                              "bitte selbst ein Paket anlegen.")
-        args = " ".join(x for x in (silent, custom) if x)
+        args = " ".join(x for x in (silent, custom, str(sw.get("Upgrade") or "").strip()) if x)
         if typ == "inno" and scope == "machine" and "/allusers" not in args.lower() and "/currentuser" not in args.lower():
             args += " /ALLUSERS"
     codes = [0, 3010, 1641]
     for c in inst.get("InstallerSuccessCodes") or []:
-        if isinstance(c, int) and c not in codes:
+        c = _int(c)
+        if c is not None and c not in codes:
             codes.append(c)
     for e in inst.get("ExpectedReturnCodes") or []:
-        if isinstance(e, dict) and e.get("ReturnResponse") in OK_RESPONSES and isinstance(e.get("InstallerReturnCode"), int):
-            if e["InstallerReturnCode"] not in codes:
-                codes.append(e["InstallerReturnCode"])
+        c = _int(e.get("InstallerReturnCode")) if isinstance(e, dict) else None
+        if c is not None and e.get("ReturnResponse") in OK_RESPONSES and c not in codes:
+            codes.append(c)
     arp = [x for x in (inst.get("AppsAndFeaturesEntries") or []) if isinstance(x, dict)]
     dn = str((arp[0].get("DisplayName") if arp else "") or man.get("PackageName") or "").strip()
     # Version im Anzeigenamen (z. B. „7-Zip 24.09 (x64 edition)“) durch * ersetzen – sonst fände die Erkennung ältere nie
     detect = re.sub(r"\s*\bv?\d+(\.\d+)+\S*", " *", dn).strip()
     detect = re.sub(r"(\s*\*)+", " *", detect).strip()
+    detect = detect.replace("[", "?").replace("]", "?")  # [ ] wären unter -like Platzhalter
     dver = str((arp[0].get("DisplayVersion") if arp else "") or man.get("PackageVersion") or "").strip()
     deps = (inst.get("Dependencies") or {}) if isinstance(inst.get("Dependencies"), dict) else {}
     pk = [str(d.get("PackageIdentifier")) for d in (deps.get("PackageDependencies") or []) if isinstance(d, dict)]
@@ -317,6 +363,7 @@ def add(wid, arch="x64", user=None):
         raise CacheError("Gültige winget-ID angeben (z. B. 7zip.7zip).")
     if arch not in ARCHS:
         raise CacheError("Ungültige Architektur.")
+    folder_root()
     pid, name, _latest, _hx = index_entry(wid)
     if db.val("SELECT 1 FROM winget_cache WHERE winget_id=? COLLATE NOCASE", (pid,)):
         raise CacheError(f"„{pid}“ ist schon im Cache.")
@@ -327,10 +374,14 @@ def add(wid, arch="x64", user=None):
 
 
 def _usage(pid):
-    """Wo wird das Cache-Paket außerdem benutzt? (Zeitpläne, verschachtelt, Kiosk) – Liste von Texten."""
+    """Wo wird das Cache-Paket außerdem benutzt? (Zeitpläne, Regeln, verschachtelt, Kiosk) – Liste von Texten."""
     from . import deploy, steps
     out = [f"Zeitplan „{r['name']}“" for r in db.q("SELECT name, packages FROM schedules")
            if pid in json.loads(r["packages"] or "[]")]
+    try:
+        out += [f"Regel „{r['name']}“" for r in db.q("SELECT name FROM update_rules WHERE package_id=?", (pid,))]
+    except Exception:
+        pass
     for r in db.q("SELECT id, name, steps FROM packages WHERE steps LIKE '%nested%'"):
         if any(s.get("type") == "nested" and s.get("package_id") == pid
                for _k, s in steps.iter_steps(steps.normalize(deploy.row_to_package(r)))):
@@ -343,37 +394,69 @@ def _usage(pid):
     return out
 
 
+def _users(rel, own_pid=None):
+    """Wer benutzt den Ordner außer dem eigenen Cache-Paket? (Pakete, geplante/laufende Bereitstellungen, Mandanten)"""
+    from . import repofiles
+    hits = [h for h in repofiles.usage(rel) if not (h[4][0] == "pkg" and own_pid and h[4][1] == own_pid)]
+    return repofiles.usage_summary(hits) if hits else ""
+
+
+def _lock_entry(timeout=3):
+    if not _elock.acquire(timeout=timeout):
+        raise CacheError("Der Eintrag wird gerade geprüft bzw. geladen – bitte gleich noch einmal.")
+
+
 def remove(eid, user=None, package_gone=False):
     """Eintrag entfernen und alles dazu aufräumen: Ordner im Repository und das erzeugte Paket. package_gone: das Paket
     wurde gerade gelöscht (Paketliste) – nur noch Ordner und Eintrag."""
-    e = entry(eid)
-    if not e:
-        raise CacheError("Eintrag nicht gefunden.")
-    if e["package_id"] and not package_gone and db.val("SELECT 1 FROM packages WHERE id=?", (e["package_id"],)):
-        used = _usage(e["package_id"])
-        if used:
-            raise CacheError("Das Paket aus dem Cache wird noch verwendet: " + ", ".join(used) + " – dort zuerst entfernen.")
-        if _busy(e["package_id"]):
-            raise CacheError("Mit dem Paket läuft gerade eine Bereitstellung – bitte danach entfernen.")
-        db.ex("DELETE FROM packages WHERE id=?", (e["package_id"],))
-        try:
-            from . import repofiles
-            repofiles.forget_idents(e["package_id"])
-        except Exception:
-            pass
-    folder = f"{folder_root()}\\{_safe_dir(e['winget_id'])}"
-    gone = True
+    _lock_entry(1800 if package_gone else 3)
     try:
-        if remote.repo_stat(folder) == "dir":
-            remote.repo_delete(folder)
-            remote.repo_cache_apply("remove", folder)
-    except Exception as ex:
+        e = entry(eid)
+        if not e:
+            raise CacheError("Eintrag nicht gefunden.")
+        folder = f"{folder_root()}\\{_safe_dir(e['winget_id'])}"
+        own = e["package_id"]
+        if own and not package_gone and db.val("SELECT 1 FROM packages WHERE id=?", (own,)):
+            used = _usage(own)
+            if used:
+                raise CacheError("Das Paket aus dem Cache wird noch verwendet: " + ", ".join(used) + " – dort zuerst entfernen.")
+        busy = _users(folder, own)
+        if busy and not package_gone:
+            raise CacheError(f"Der Ordner wird noch benutzt ({busy}) – bitte danach entfernen.")
+        if own and not package_gone:
+            db.ex("DELETE FROM packages WHERE id=?", (own,))
+            try:
+                from . import repofiles
+                repofiles.forget_idents(own)
+            except Exception:
+                pass
         gone = False
-        pklog.warn("winget", f"winget-Cache: Ordner „{folder}“ ließ sich nicht löschen: {ex}", user=user)
-    db.ex("DELETE FROM winget_cache WHERE id=?", (eid,))
-    pklog.info("winget", f"winget-Cache: „{e['winget_id']}“ entfernt (Paket und Ordner{'' if gone else ' – Ordner noch vorhanden, siehe Aufräumen'}).",
-               user=user)
-    return {"ok": True, "folder_removed": gone}
+        if not busy:
+            try:
+                if remote.repo_stat(folder) == "dir":
+                    remote.repo_delete(folder)
+                    remote.repo_cache_apply("remove", folder)
+                gone = True
+            except Exception as ex:
+                pklog.warn("winget", f"winget-Cache: Ordner „{folder}“ ließ sich nicht löschen: {ex}", user=user)
+        db.ex("DELETE FROM winget_cache WHERE id=?", (eid,))
+        pklog.info("winget", f"winget-Cache: „{e['winget_id']}“ entfernt (Paket und Ordner{'' if gone else ' – Ordner noch vorhanden, siehe Aufräumen'}).",
+                   user=user)
+        return {"ok": True, "folder_removed": gone}
+    finally:
+        _elock.release()
+
+
+def check_package_delete(pid):
+    """Vor dem Löschen eines Pakets aus der Paketliste: Ist es ein Cache-Paket, dessen Ordner noch eine geplante oder
+    laufende Bereitstellung braucht? Dann nicht löschen (sonst fehlten ihr die Dateien)."""
+    for e in db.q("SELECT * FROM winget_cache WHERE package_id=?", (pid,)):
+        try:
+            busy = _users(f"{folder_root()}\\{_safe_dir(e['winget_id'])}", pid)
+        except CacheError:
+            continue
+        if busy:
+            raise CacheError(f"Paket aus dem winget-Cache: Ordner wird noch benutzt ({busy}) – bitte danach löschen.")
 
 
 def package_deleted(pid, user=None):
@@ -385,17 +468,6 @@ def package_deleted(pid, user=None):
             pklog.warn("winget", f"winget-Cache: Aufräumen nach dem Löschen des Pakets fehlgeschlagen: {ex}", user=user)
 
 
-def _busy(pid, folder=None):
-    """Läuft oder wartet eine Bereitstellung mit diesem Paket (bzw. mit Dateien aus diesem Ordner)?"""
-    rows = db.q("""SELECT d.package_id, d.package_json FROM deployments d WHERE d.status IN ('queued','running','scheduled')""")
-    for r in rows:
-        if pid and r["package_id"] == pid:
-            return True
-        if folder and folder.lower() in (r["package_json"] or "").lower().replace("\\\\", "\\"):
-            return True
-    return False
-
-
 def _list_dir(rel):
     try:
         return remote.repo_list(rel)
@@ -403,15 +475,16 @@ def _list_dir(rel):
         return []
 
 
-def _cleanup_versions(e, keep):
-    """Ältere Versionsordner dieses Programms löschen (nicht, solange eine Bereitstellung sie noch braucht)."""
+def _cleanup_versions(e, keep, own_pid):
+    """Ältere Versionsordner dieses Programms löschen – nicht, solange etwas anderes sie noch braucht (geplante oder
+    laufende Bereitstellung, anderes Paket)."""
     base = f"{folder_root()}\\{_safe_dir(e['winget_id'])}"
     left = []
     for it in _list_dir(base):
         if not it.get("dir") or it["name"].lower() == keep.lower() or it.get("link"):
             continue
         rel = f"{base}\\{it['name']}"
-        if _busy(None, rel):
+        if _users(rel, own_pid):
             left.append(it["name"])
             continue
         try:
@@ -440,7 +513,9 @@ def _save_package(e, man, p, folder, file):
     for k in ("steps", "conditions"):
         if not isinstance(v.get(k), str):
             v[k] = json.dumps(v.get(k))
-    pid = e["package_id"] if e["package_id"] and db.val("SELECT 1 FROM packages WHERE id=?", (e["package_id"],)) else None
+    pid = e["package_id"]
+    if pid and not db.val("SELECT 1 FROM packages WHERE id=?", (pid,)):
+        return None  # Paket wurde gerade gelöscht (Paketliste) – nicht neu anlegen, der Eintrag wird mit entfernt
     if pid:
         db.ex(f"UPDATE packages SET {', '.join(k + '=?' for k in deploy.PKG_FIELDS)}, updated_at=? WHERE id=?",
               tuple(v.get(k) for k in deploy.PKG_FIELDS) + (util.now(), pid))
@@ -453,79 +528,108 @@ def _save_package(e, man, p, folder, file):
 
 
 def refresh_entry(eid, force=False, user=None):
-    """Eine winget-ID prüfen und bei Bedarf die neue Version in den Cache laden. Gibt den Eintrag zurück."""
-    e = entry(eid)
-    if not e:
-        raise CacheError("Eintrag nicht gefunden.")
-    now = util.now()
-    db.ex("UPDATE winget_cache SET status='checking', message=NULL WHERE id=?", (eid,))
-    try:
-        man = fetch_manifest(e["winget_id"])
-        inst = choose(man, e["arch"] or "x64", e["scope"] or "machine")
-        p = plan(man, inst, e["scope"] or "machine")
-        ver = str(man.get("PackageVersion") or "")
-        vdir = _safe_dir(ver)
-        folder = f"{folder_root()}\\{_safe_dir(e['winget_id'])}\\{vdir}"
-        file = _file_name(inst.get("InstallerUrl"), e["winget_id"], ver, p["install_type"])
-        sha = str(inst.get("InstallerSha256") or "").lower()
-        have = (e["version"] == ver and e["sha256"] == sha and e["folder"] == folder and e["file"] == file
-                and remote.repo_stat(f"{folder}\\{file}") == "file")
-        msg = []
-        size = e["size"]
-        if not have or force:
-            mx = max(16, int(db.setting("winget_cache_max_mb") or 2048)) * 1024 * 1024
-            tmp, size = _download(inst.get("InstallerUrl"), sha, mx)
-            try:
-                remote.repo_mkdir(folder)
-                part = f"{folder}\\{file}.pk-part"
-                remote.repo_delete(part)
-                with open(tmp, "rb") as src, remote.repo_open_write(part, "wb") as dst:
-                    while True:
-                        b = src.read(1024 * 1024)
-                        if not b:
-                            break
-                        dst.write(b)
-                remote.repo_delete(f"{folder}\\{file}")
-                remote.repo_rename(part, f"{folder}\\{file}")
-                remote.repo_cache_apply("add", f"{folder}\\{file}", size=size)
-            finally:
-                os.remove(tmp)
-        pid = _save_package({**e, "name": man.get("PackageName") or e["name"]}, man, p, folder, file)
-        left = _cleanup_versions(e, vdir)
-        if left:
-            msg.append("alte Version wird noch verwendet, wird beim nächsten Lauf gelöscht: " + ", ".join(left))
-        msg += p["hints"]
-        db.ex("""UPDATE winget_cache SET status='ok', message=?, name=?, version=?, folder=?, file=?, size=?, sha256=?,
-                 installer_type=?, min_os=?, package_id=?, checked_at=?, updated_at=CASE WHEN version IS ? THEN updated_at ELSE ? END
-                 WHERE id=?""",
-              ("; ".join(msg) or None, man.get("PackageName") or e["name"], ver, folder, file, size, sha, p["type"],
-               p["min_os"] or None, pid, now, ver, now, eid))
-        if not have:
-            pklog.info("winget", f"winget-Cache: {e['winget_id']} {ver} geladen ({(size or 0) // 1048576} MB, {p['type']}) – "
-                                 f"Paket „{man.get('PackageName') or e['winget_id']} (winget-Cache)“ aktualisiert.", user=user)
-    except CacheError as ex:
-        st = "unsupported" if str(ex).startswith(("Kein passender Installer", "Der Installer (EXE)", "Das Manifest enthält keinen")) else "error"
-        db.ex("UPDATE winget_cache SET status=?, message=?, checked_at=? WHERE id=?", (st, str(ex)[:500], now, eid))
-        if st == "error":
-            pklog.warn("winget", f"winget-Cache: {e['winget_id']}: {ex}", user=user)
-    except Exception as ex:
-        db.ex("UPDATE winget_cache SET status='error', message=?, checked_at=? WHERE id=?",
-              (proxy.safe_error(ex)[:500], now, eid))
-        pklog.warn("winget", f"winget-Cache: {e['winget_id']}: {proxy.safe_error(ex)}", user=user)
-    return entry(eid)
+    """Eine winget-ID prüfen und bei Bedarf die neue Version in den Cache laden. Gibt den Eintrag zurück (None, wenn er
+    inzwischen entfernt wurde)."""
+    with _elock:
+        e = entry(eid)
+        if not e:
+            return None
+        now = util.now()
+        db.ex("UPDATE winget_cache SET status='checking', message=NULL WHERE id=?", (eid,))
+        try:
+            root = folder_root()
+            man = fetch_manifest(e["winget_id"])
+            inst = choose(man, e["arch"] or "x64", e["scope"] or "machine")
+            p = plan(man, inst, e["scope"] or "machine")
+            ver = str(man.get("PackageVersion") or "")
+            sha = str(inst.get("InstallerSha256") or "").lower()
+            if not re.match(r"^[0-9a-f]{64}$", sha):
+                raise CacheError("Im Manifest fehlt die Prüfsumme des Installers.")
+            # Ordner je Version UND Prüfsumme: tauscht der Katalog bei gleicher Version die Datei, entsteht ein neuer
+            # Ordner – der bestätigte Stand der alten Datei (Bruchprüfung) bleibt stimmig
+            vdir = f"{_safe_dir(ver)}_{sha[:8]}"
+            folder = f"{root}\\{_safe_dir(e['winget_id'])}\\{vdir}"
+            file = _file_name(inst.get("InstallerUrl"), e["winget_id"], ver, p["install_type"])
+            target = f"{folder}\\{file}"
+            exists = remote.repo_stat(target) == "file"
+            msg = []
+            size = e["size"]
+            if not exists or force:
+                mx = max(16, int(db.setting("winget_cache_max_mb") or 2048)) * 1024 * 1024
+                tmp, size = _download(inst.get("InstallerUrl"), sha, mx)
+                try:
+                    same = False
+                    if exists:
+                        try:
+                            same = (remote.repo_sha256(target) or "").lower() == sha
+                        except Exception:
+                            same = False
+                    if exists and not same and _users(folder, e["package_id"]):
+                        raise CacheError("Die Datei im Cache ist beschädigt, wird aber gerade von einer Bereitstellung "
+                                         "benutzt – nächster Versuch beim nächsten Lauf.")
+                    if not same:
+                        remote.repo_mkdir(folder)
+                        part = f"{target}.pk-part"
+                        remote.repo_delete(part)
+                        with open(tmp, "rb") as src, remote.repo_open_write(part, "wb") as dst:
+                            while True:
+                                b = src.read(1024 * 1024)
+                                if not b:
+                                    break
+                                dst.write(b)
+                        remote.repo_delete(target)
+                        remote.repo_rename(part, target)
+                        remote.repo_cache_apply("add", target, size=size)
+                finally:
+                    os.remove(tmp)
+            if not entry(eid):
+                return None
+            pid = _save_package({**e, "name": man.get("PackageName") or e["name"]}, man, p, folder, file)
+            if pid is None:
+                # Paket wurde während des Ladens in der Paketliste gelöscht → Eintrag und Ordner mit weg
+                remove(eid, user, package_gone=True)
+                return None
+            left = _cleanup_versions(e, vdir, pid)
+            if left:
+                msg.append("alte Version wird noch verwendet, wird beim nächsten Lauf gelöscht: " + ", ".join(left))
+            msg += p["hints"]
+            db.ex("""UPDATE winget_cache SET status='ok', message=?, name=?, version=?, detect_version=?, folder=?, file=?,
+                     size=?, sha256=?, installer_type=?, min_os=?, package_id=?, checked_at=?,
+                     updated_at=CASE WHEN COALESCE(version, '') = ? THEN updated_at ELSE ? END WHERE id=?""",
+                  ("; ".join(msg) or None, man.get("PackageName") or e["name"], ver, p["detect_version"] or ver, folder, file,
+                   size, sha, p["type"], p["min_os"] or None, pid, now, ver, now, eid))
+            if not exists or (e["version"] != ver):
+                pklog.info("winget", f"winget-Cache: {e['winget_id']} {ver} geladen ({(size or 0) // 1048576} MB, {p['type']}) – "
+                                     f"Paket „{man.get('PackageName') or e['winget_id']} (winget-Cache)“ aktualisiert.", user=user)
+        except CacheError as ex:
+            st = "unsupported" if str(ex).startswith(("Kein passender Installer", "Der Installer (EXE)", "Das Manifest enthält keinen")) else "error"
+            db.ex("UPDATE winget_cache SET status=?, message=?, checked_at=? WHERE id=?", (st, str(ex)[:500], now, eid))
+            if st == "error":
+                pklog.warn("winget", f"winget-Cache: {e['winget_id']}: {ex}", user=user)
+        except Exception as ex:
+            db.ex("UPDATE winget_cache SET status='error', message=?, checked_at=? WHERE id=?",
+                  (proxy.safe_error(ex)[:500], now, eid))
+            pklog.warn("winget", f"winget-Cache: {e['winget_id']}: {proxy.safe_error(ex)}", user=user)
+        return entry(eid)
 
 
 def refresh_all(user=None, ids=None, force=False):
-    """Alle (bzw. die gewählten) Einträge nacheinander prüfen – immer nur ein Lauf gleichzeitig."""
+    """Alle (bzw. die gewählten) Einträge nacheinander prüfen – immer nur ein Lauf gleichzeitig. Einträge, die während
+    des Laufs aufgenommen werden (Status „neu“), werden am Ende mitgenommen."""
     if not _lock.acquire(blocking=False):
         return False
     _state["running"] = True
+    done = set()
     try:
-        for e in entries():
-            if ids and e["id"] not in ids:
-                continue
-            _state["current"] = e["winget_id"]
-            refresh_entry(e["id"], force=force, user=user)
+        while True:
+            todo = [e for e in entries() if e["id"] not in done
+                    and ((not ids or e["id"] in ids) if not done else e["status"] == "new")]
+            if not todo:
+                break
+            for e in todo:
+                done.add(e["id"])
+                _state["current"] = e["winget_id"]
+                refresh_entry(e["id"], force=force, user=user)
         return True
     finally:
         _state.update(running=False, current=None)
@@ -537,21 +641,20 @@ def status():
 
 
 def orphans():
-    """Ordner im Cache-Ordner, zu denen kein Eintrag (mehr) gehört."""
+    """Ordner im Cache-Ordner, zu denen kein Eintrag (mehr) gehört und die nichts anderes benutzt."""
     known = {_safe_dir(e["winget_id"]).lower() for e in entries()}
     root = folder_root()
     return [it["name"] for it in _list_dir(root) if it.get("dir") and not it.get("link") and it["name"].lower() not in known
-            and not it["name"].startswith(".")]
+            and not it["name"].startswith(".") and not _users(f"{root}\\{it['name']}")]
 
 
 def cleanup(user=None):
-    """Verwaiste Ordner im Cache-Ordner löschen und alte Versionen nachholen – nie außerhalb des Cache-Ordners."""
+    """Verwaiste Ordner im Cache-Ordner löschen und alte Versionen nachholen – nie außerhalb des Cache-Ordners und nie,
+    was ein Paket oder eine Bereitstellung benutzt."""
     root = folder_root()
     gone = []
     for n in orphans():
         rel = f"{root}\\{n}"
-        if _busy(None, rel):
-            continue
         try:
             remote.repo_delete(rel)
             remote.repo_cache_apply("remove", rel)
@@ -559,15 +662,15 @@ def cleanup(user=None):
         except Exception as ex:
             pklog.warn("winget", f"winget-Cache: „{rel}“ ließ sich nicht löschen: {ex}", user=user)
     for e in entries():
-        if e["status"] == "ok" and e["folder"]:
-            _cleanup_versions(e, e["folder"].rsplit("\\", 1)[-1])
+        if e["folder"] and e["package_id"]:
+            _cleanup_versions(e, e["folder"].rsplit("\\", 1)[-1], e["package_id"])
     if gone:
         pklog.info("winget", f"winget-Cache aufgeräumt: {', '.join(gone)}.", user=user)
     return gone
 
 
 def set_folder(value, user=None):
-    v = "\\".join(x for x in str(value or "").replace("/", "\\").split("\\") if x not in ("", "."))
+    v = _norm_folder(value)
     if not v or ".." in v.split("\\") or ":" in v:
         raise CacheError("Ordner im Repository angeben, z. B. winget-cache.")
     from . import repofiles, tools
@@ -576,17 +679,27 @@ def set_folder(value, user=None):
     bad = tools.tenant_conflict(v)
     if bad:
         raise CacheError(f"„{v}“ gehört zum Mandanten „{bad}“ – der Cache braucht einen eigenen Ordner.")
-    if v.lower() != folder_root().lower() and db.val("SELECT COUNT(*) FROM winget_cache", default=0):
+    if v.lower() == folder_root().lower():
+        return v
+    if db.val("SELECT COUNT(*) FROM winget_cache", default=0):
         raise CacheError("Der Ordner lässt sich nur ändern, solange der Cache leer ist – zuerst alle Einträge entfernen.")
+    kind = remote.repo_stat(v)
+    if kind == "file" or (kind == "dir" and _list_dir(v)):
+        raise CacheError(f"„{v}“ gibt es schon und ist nicht leer – der Cache braucht einen eigenen, neuen Ordner "
+                         "(beim Aufräumen löscht er dort alles, was zu keinem Eintrag gehört).")
+    if _users(v):
+        raise CacheError(f"„{v}“ wird schon benutzt – der Cache braucht einen eigenen Ordner.")
     db.set_setting("winget_cache_folder", v)
+    pklog.info("winget", f"winget-Cache: Ordner „{v}“.", user=user)
     return v
 
 
 # --- Für Computer ohne winget ---------------------------------------------------------------------
 def ready():
-    """{winget-id klein: Eintrag} – im Cache mit Paket bereit."""
+    """{winget-id klein: Eintrag} – Paket aus dem Cache bereit (auch während einer Prüfung oder nach einem Fehler beim
+    Laden einer neueren Version: dann gilt die bisherige)."""
     out = {}
-    for e in db.q("SELECT * FROM winget_cache WHERE status='ok' AND package_id IS NOT NULL"):
+    for e in db.q("SELECT * FROM winget_cache WHERE package_id IS NOT NULL AND COALESCE(version, '') != ''"):
         if db.val("SELECT 1 FROM packages WHERE id=?", (e["package_id"],)):
             out[e["winget_id"].lower()] = e
     return out
@@ -602,18 +715,52 @@ def os_ok(c, min_os):
     return (mm[0], mm[1], b[0]) >= tuple((list(need) + [0, 0, 0])[:3])
 
 
+def _arch_ok(c, sw_rows, arch):
+    """32-Bit-Windows nur x86; installiertes x86-Programm nicht durch x64 ersetzen (und umgekehrt); Installation nur
+    für einen Benutzer nicht durch eine für den Computer."""
+    osa = str(c.get("os_arch") or "").lower()
+    if "32" in osa and "64" not in osa and arch != "x86":
+        return False
+    archs = {str(r.get("arch") or "").lower() for r in sw_rows if r.get("arch")}
+    if archs and arch not in archs and not (arch == "x64" and archs <= {"x64", "amd64"}):
+        return False
+    scopes = {str(r.get("scope") or "").lower() for r in sw_rows}
+    if scopes and scopes <= {"benutzer", "user"}:
+        return False
+    return True
+
+
+def _newer(e, sw_rows):
+    """Ist die Version im Cache neuer als die installierte? (sonst nichts zu tun – keine Leerläufe)"""
+    inst = [str(r.get("version") or "") for r in sw_rows if r.get("version")]
+    if not inst:
+        return True
+    have = inst[0]
+    for v in inst[1:]:
+        if util.vcmp(v, have) > 0:
+            have = v
+    cv = e.get("detect_version") or e.get("version") or ""  # Anzeigeversion (wie im Inventar), sonst Paketversion
+    return util.vcmp(cv, have) > 0
+
+
 def split(wid, ids):
     """Computer für ein Update dieser winget-ID aufteilen: (per winget, aus dem Cache, ausgelassen, Cache-Eintrag)."""
     from . import deploy
-    rows = {r["id"]: r for r in db.q(f"SELECT id, os_build, os_version FROM computers WHERE id IN ({','.join('?' * len(ids)) or 'NULL'})",
-                                     tuple(ids))}
+    ids = list(dict.fromkeys(ids))
+    q = ",".join("?" * len(ids)) or "NULL"
+    rows = {r["id"]: r for r in db.q(f"SELECT id, os_build, os_version, os_arch FROM computers WHERE id IN ({q})", tuple(ids))}
     e = ready().get(str(wid or "").lower())
+    sw = {}
+    if e:
+        for r in db.q(f"""SELECT computer_id, version, arch, scope FROM software
+                          WHERE lower(winget_id) = ? AND computer_id IN ({q})""", (str(wid).lower(), *ids)):
+            sw.setdefault(r["computer_id"], []).append(r)
     wg, cache, skip = [], [], []
     for i in ids:
         c = rows.get(i) or {}
         if deploy.winget_ok(c.get("os_build")):
             wg.append(i)
-        elif e and os_ok(c, e["min_os"]):
+        elif e and os_ok(c, e["min_os"]) and _arch_ok(c, sw.get(i, []), e["arch"] or "x64") and _newer(e, sw.get(i, [])):
             cache.append(i)
         else:
             skip.append(i)

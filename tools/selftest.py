@@ -6083,11 +6083,13 @@ def _mszip(data, chunk=32768):
 
 @test("2.35 winget-Cache: Manifest wie winget laden (MSZIP, Prüfsummen), Installer wählen, ins Repository, Paket erzeugen, neue Version ersetzt alte, Entfernen räumt auf, Computer ohne winget bekommen das Paket")
 def _():
-    import hashlib as _h, io as _io, sqlite3 as _sq, tempfile as _tf, json as _j
+    import hashlib as _h, io as _io, sqlite3 as _sq, tempfile as _tf, json as _j, time as _t
     from app import wingetcache as wc, winget, remote, deploy, main as _m, schedules, config
     # MSZIP: mehrere Stücke mit Wörterbuch, kaputte Daten werden abgelehnt
     raw = ("vD:\n" + "".join(f"- v: '1.{i}'\n  rP: manifests/t/x/{i}.yaml\n  s256H: {'a' * 64}\n" for i in range(3000))).encode()
     assert len(raw) > 70000 and wc.mszip_decompress(_mszip(raw)) == raw
+    y = wc._yaml("v: 1.10\nPackageVersion: 2.50\nInstallerSuccessCodes: [1, 0x10]\nx: yes\n")
+    assert y == {"v": "1.10", "PackageVersion": "2.50", "InstallerSuccessCodes": ["1", "0x10"], "x": "yes"}, ("Versionen bleiben Text", y)
     must_fail(wc.mszip_decompress, b"PK\x03\x04" + b"0" * 40, contains="MSZIP")
     bad = bytearray(_mszip(raw)); bad[8] ^= 1
     must_fail(wc.mszip_decompress, bytes(bad))
@@ -6101,6 +6103,7 @@ def _():
                            "ProductCode": "{11111111-2222-3333-4444-555555555555}"},
                           {"Architecture": "x64", "Scope": "user", "InstallerType": "exe", "InstallerUrl": "https://dl.example.test/u.exe", "InstallerSha256": "00"}],
            "ExpectedReturnCodes": [{"InstallerReturnCode": 1638, "ReturnResponse": "alreadyInstalled"}, {"InstallerReturnCode": 5, "ReturnResponse": "blockedByPolicy"}]}
+    man["ExpectedReturnCodes"] = [{"InstallerReturnCode": "1638", "ReturnResponse": "alreadyInstalled"}, {"InstallerReturnCode": "5", "ReturnResponse": "blockedByPolicy"}]
     i = wc.choose(man, "x64", "machine", "de-DE")
     assert i["InstallerUrl"].endswith("app-de.msi"), i
     assert wc.choose(man, "x64", "machine", "fr-FR")["InstallerUrl"].endswith("app-en.msi"), "sonst en-US"
@@ -6173,29 +6176,53 @@ def _():
         must_fail(wc.add, "Test.App", "x64", contains="schon im Cache")
         e = wc.refresh_entry(eid)
         assert e["status"] == "ok" and e["version"] == "1.0" and e["winget_id"] == "Test.App", dict(e)
-        assert e["folder"] == "winget-cache\\Test.App\\1.0" and e["file"] == "testapp-1.0.exe"
-        assert open(os.path.join(root, "winget-cache", "Test.App", "1.0", "testapp-1.0.exe"), "rb").read() == b"MZ-eins" * 1000
-        assert not [f for f in os.listdir(os.path.join(root, "winget-cache", "Test.App", "1.0")) if f.endswith(".pk-part")]
+        d10 = "1.0_" + _h.sha256(b"MZ-eins" * 1000).hexdigest()[:8]
+        assert e["folder"] == "winget-cache\\Test.App\\" + d10 and e["file"] == "testapp-1.0.exe", e["folder"]
+        assert open(os.path.join(root, "winget-cache", "Test.App", d10, "testapp-1.0.exe"), "rb").read() == b"MZ-eins" * 1000
+        assert not [f for f in os.listdir(os.path.join(root, "winget-cache", "Test.App", d10)) if f.endswith(".pk-part")]
         pk = db.q1("SELECT * FROM packages WHERE id=?", (e["package_id"],))
         st = _j.loads(pk["steps"])["main"][0]
         assert pk["name"] == "Test App (winget-Cache)" and pk["version"] == "1.0" and pk["winget_id"] == "Test.App" and pk["type"] == "custom"
-        assert st["install_type"] == "exe" and st["folder"] == "winget-cache\\Test.App\\1.0" and st["install_file"] == "testapp-1.0.exe"
+        assert st["install_type"] == "exe" and st["folder"] == "winget-cache\\Test.App\\" + d10 and st["install_file"] == "testapp-1.0.exe"
         assert st["arguments"] == "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /ALLUSERS" and st["detect_name"] == "Test App"
         n = len(calls)
         assert wc.refresh_entry(eid)["status"] == "ok" and not any("testapp" in u for u in calls[n:]), "gleiche Version: nicht neu laden"
-        # neue Version: laden, Paket umstellen (gleiche ID), alte Version weg
+        # gleiche Version, Katalog tauscht die Datei (neue Prüfsumme): eigener Ordner, alter weg – Bruchprüfung bleibt stimmig
+        publish("1.0", b"MZ-eins-neu" * 1000)
+        e1b = wc.refresh_entry(eid)
+        d10b = "1.0_" + _h.sha256(b"MZ-eins-neu" * 1000).hexdigest()[:8]
+        assert e1b["folder"].endswith(d10b) and sorted(os.listdir(os.path.join(root, "winget-cache", "Test.App"))) == [d10b], dict(e1b)
+        # neue Version: laden, Paket umstellen (gleiche ID), alte Version weg – nicht, solange eine Bereitstellung sie braucht
+        dep = db.ex("INSERT INTO deployments(name, status, package_json) VALUES('WC-läuft', 'running', ?)",
+                    (_j.dumps({"steps": {"pre": [], "main": [{"type": "install", "source": "file", "folder": e1b["folder"], "install_file": "testapp-1.0.exe"}], "post": []}}),))
         publish("1.1", b"MZ-zwei" * 1000)
         e2 = wc.refresh_entry(eid)
-        assert e2["version"] == "1.1" and e2["package_id"] == e["package_id"], dict(e2)
-        assert sorted(os.listdir(os.path.join(root, "winget-cache", "Test.App"))) == ["1.1"], "nur die aktuelle Version im Cache"
+        d11 = "1.1_" + _h.sha256(b"MZ-zwei" * 1000).hexdigest()[:8]
+        assert e2["version"] == "1.1" and e2["package_id"] == e["package_id"] and "noch verwendet" in (e2["message"] or ""), dict(e2)
+        assert sorted(os.listdir(os.path.join(root, "winget-cache", "Test.App"))) == sorted([d10b, d11]), "alte Version bleibt, solange sie gebraucht wird"
+        db.ex("DELETE FROM deployments WHERE id=?", (dep,))
+        wc.cleanup("selftest")
+        assert sorted(os.listdir(os.path.join(root, "winget-cache", "Test.App"))) == [d11], "nur die aktuelle Version im Cache"
         assert _j.loads(db.val("SELECT steps FROM packages WHERE id=?", (e["package_id"],)))["main"][0]["install_file"] == "testapp-1.1.exe"
         # Hersteller tauscht die Datei: Prüfsumme falsch → nichts übernehmen, alte bleibt
         publish("1.2", b"MZ-drei" * 1000, sha="0" * 64)
         e3 = wc.refresh_entry(eid)
         assert e3["status"] == "error" and "Prüfsumme" in e3["message"] and e3["version"] == "1.1", dict(e3)
-        assert sorted(os.listdir(os.path.join(root, "winget-cache", "Test.App"))) == ["1.1"]
+        assert sorted(os.listdir(os.path.join(root, "winget-cache", "Test.App"))) == [d11]
         assert not [f for f in os.listdir(config.WINGET_DIR) if f.endswith(".part")], "keine Reste vom Download"
-        db.ex("UPDATE winget_cache SET status='ok' WHERE id=?", (eid,))
+        assert "test.app" in wc.ready(), "Fehler beim Laden der neuen Version: die bisherige bleibt nutzbar"
+        db.ex("UPDATE winget_cache SET status='checking' WHERE id=?", (eid,))
+        assert "test.app" in wc.ready(), "auch während einer Prüfung"
+        # Installiert: 1.0 → Cache 1.1 neuer; schon 1.1 → nichts zu tun; x86 installiert → kein x64 daneben; 32-Bit-Windows → nein
+        c32 = db.ex("INSERT INTO computers(name, os_build, os_version, os_arch) VALUES('PC-ALT32', '14393', '10.0.14393', '32-Bit')")
+        cx86 = db.ex("INSERT INTO computers(name, os_build, os_version, os_arch) VALUES('PC-ALT86', '14393', '10.0.14393', '64-Bit')")
+        cneu = db.ex("INSERT INTO computers(name, os_build, os_version, os_arch) VALUES('PC-ALTOK', '14393', '10.0.14393', '64-Bit')")
+        for cid, ver, arch in ((cmp_, "1.1", "x64"), (cx86, "1.0", "x86"), (cneu, "1.0", "x64"), (c32, "1.0", "x86")):
+            db.ex("INSERT INTO software(computer_id, name, version, arch, scope, winget_id) VALUES(?, 'Test App', ?, ?, 'Computer', 'Test.App')", (cid, ver, arch))
+        _wg, cc, sk, _e = wc.split("Test.App", [cmp_, cx86, cneu, c32])
+        assert cc == [cneu] and sorted(sk) == sorted([cmp_, cx86, c32]), (cc, sk)
+        db.ex("DELETE FROM software WHERE winget_id='Test.App'")
+        db.ex("DELETE FROM computers WHERE id IN (?,?,?)", (c32, cx86, cneu))
         # Aufteilen: neue Windows per winget, alte aus dem Cache, zu alte (Mindestversion) auslassen
         wg, cache, skip, ce = wc.split("test.app", [cmp_, cnew, c81])
         assert wg == [cnew] and cache == [cmp_] and skip == [c81] and ce["id"] == eid, (wg, cache, skip)
@@ -6222,16 +6249,39 @@ def _():
         must_fail(wc.remove, eid, "selftest", contains="Zeitplan")
         db.ex("DELETE FROM schedules WHERE id=?", (sid,))
         os.makedirs(os.path.join(root, "winget-cache", "Fremd.Rest", "9"))
+        os.makedirs(os.path.join(root, "winget-cache", "Benutzt", "x"))
         os.makedirs(os.path.join(root, "Anderes"))
-        assert wc.orphans() == ["Fremd.Rest"]
+        bp = db.ex("INSERT INTO packages(name, type, steps) VALUES('WC-Fremd', 'custom', ?)",
+                   (_j.dumps({"pre": [], "main": [{"type": "install", "source": "file", "folder": "winget-cache\\Benutzt\\x", "install_file": "a.exe"}], "post": []}),))
+        assert wc.orphans() == ["Fremd.Rest"], ("benutzte Ordner nie als verwaist", wc.orphans())
         # Paket in der Paketliste löschen → Eintrag und Ordner auch weg
         _m.api_package_delete(e["package_id"], {"username": "haupt", "scope": None})
         assert not wc.entry(eid) and not os.path.exists(os.path.join(root, "winget-cache", "Test.App")), "beim Löschen des Pakets aufräumen"
         eid = None
         assert wc.cleanup("selftest") == ["Fremd.Rest"] and os.path.isdir(os.path.join(root, "Anderes")), "nur im Cache-Ordner aufräumen"
-        # Ordner nur bei leerem Cache änderbar, nie in einem Mandanten-Ordner
+        assert os.path.isdir(os.path.join(root, "winget-cache", "Benutzt", "x")), "von einem Paket benutzt – bleibt"
+        db.ex("DELETE FROM packages WHERE id=?", (bp,))
+        # Ordner: nie leer/Wurzel, nicht über die allgemeinen Einstellungen, nur ein eigener (neuer/leerer) Ordner
         must_fail(wc.set_folder, "..\\x", contains="Ordner")
-        assert wc.set_folder("winget-cache") == "winget-cache"
+        must_fail(wc.set_folder, ".", contains="Ordner")
+        must_fail(wc.set_folder, "Anderes\\..", contains="Ordner")
+        os.makedirs(os.path.join(root, "Software", "7zip"))
+        must_fail(wc.set_folder, "Software", contains="nicht leer")
+        assert "winget_cache_folder" not in _m.EDITABLE and "winget_cache_max_mb" not in _m.EDITABLE
+        db.set_setting("winget_cache_folder", ".")
+        must_fail(wc.folder_root, contains="ungültig")
+        must_fail(wc.orphans, contains="ungültig")
+        db.set_setting("winget_cache_folder", "winget-cache")
+        assert wc.set_folder("winget-cache") == "winget-cache" and wc.set_folder("wc-neu") == "wc-neu"
+        db.set_setting("winget_cache_folder", "winget-cache")
+        # Aufnehmen mehrerer: eine ungültige ID hält die anderen nicht auf
+        r = _m.api_wc_add({"winget_ids": ["Gibt.Es.Nicht", "Test.App"]}, {"username": "haupt", "scope": None})
+        assert len(r["ids"]) == 1 and r["errors"] and "Gibt.Es.Nicht" in r["errors"][0], r
+        for _ in range(100):
+            if not wc.status()["running"]:
+                break
+            _t.sleep(0.05)
+        eid = r["ids"][0]
     finally:
         wc.proxy.urlopen = old_open
         if eid:
