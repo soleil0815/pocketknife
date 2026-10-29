@@ -5880,6 +5880,24 @@ def _():
     seg = js[i:i + 900]
     assert "v.sort(" in seg and "deCmp(a.name, b.name)" in seg and "a.builtin === 1 && b.builtin === 1 ? 0" in seg, "Baum sortiert"
 
+
+@test("2.33.4 Virenschutz auf Windows Server: Microsoft Defender direkt (kein Sicherheitscenter), leere Ausgabe nie als „undefined (aus)“")
+def _():
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+    ps = open(os.path.join(root, "app", "scan_modules.ps1"), encoding="utf-8").read()
+    blk = ps[ps.index("PKX 'antivirus' {"):ps.index("} catch { $r.errors += ('security: '")]
+    assert "if ($av.Count -eq 0 -and $mp)" in blk and "Microsoft Defender Antivirus" in blk and ",$av" in blk, "Server: Defender, immer eine Liste"
+    assert ps.index("$mp = Get-MpComputerStatus") < ps.index("PKX 'antivirus' {"), "Defender-Status vorher gelesen"
+    from app import inventory
+    out = inventory._merge_extra(-4711, {"extra": {"antivirus": {}, "firewall": [{"profile": "Domain", "enabled": True}, {}]}}, ["security"])
+    assert out["antivirus"] == [] and out["firewall"] == [{"profile": "Domain", "enabled": True}], out
+    out = inventory._merge_extra(-4711, {"extra": {"antivirus": {"name": "Microsoft Defender Antivirus", "enabled": True, "up_to_date": True}}}, ["security"])
+    assert out["antivirus"] == [{"name": "Microsoft Defender Antivirus", "enabled": True, "up_to_date": True}]
+    js = open(os.path.join(root, "app", "static", "app.js"), encoding="utf-8").read()
+    assert "arr(e.antivirus).filter((a) => a && a.name)" in js
+    src = open(os.path.join(root, "app", "inventory.py"), encoding="utf-8").read()
+    assert "if not (isinstance(x, dict) and not x)" in src
+
 def main():
     ok = 0
     for name, fn in RESULTS:

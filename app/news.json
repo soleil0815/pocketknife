@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.33.4",
+   "date": "2026-10-29",
+   "items": [
+    {
+     "kind": "fixed",
+     "audience": "all",
+     "de": "Virenschutz auf Windows Server: statt „undefined (aus)“ steht jetzt Microsoft Defender mit seinem echten Zustand (nach dem nächsten Scan).",
+     "en": "Antivirus on Windows Server: instead of \"undefined (off)\" Microsoft Defender is shown with its real state (after the next scan)."
+    }
+   ]
+  },
+  {
    "version": "2.33.3",
    "date": "2026-10-29",
    "items": [

@@ -359,11 +359,23 @@ try { $t = Get-CimInstance -Namespace 'root\cimv2\security\microsofttpm' -ClassN
   if ($t) { $e.tpm = [ordered]@{ present = $true; enabled = $t.IsEnabled_InitialValue; version = $t.SpecVersion } } } catch {}
 PKX 'firewall' { @(Get-NetFirewallProfile -ErrorAction Stop | ForEach-Object { [ordered]@{ profile = "$($_.Name)"; enabled = [bool]($_.Enabled -eq 'True' -or $_.Enabled -eq 1) } }) }
 PKX 'antivirus' {
+  # Arbeitsplätze: das Windows-Sicherheitscenter kennt jeden registrierten Virenschutz
+  $av = @()
   if ($os.ProductType -eq 1) {
-    @(Get-CimInstance -Namespace 'root\SecurityCenter2' -ClassName AntiVirusProduct -ErrorAction Stop | ForEach-Object {
+    $av = @(Get-CimInstance -Namespace 'root\SecurityCenter2' -ClassName AntiVirusProduct -ErrorAction Stop | ForEach-Object {
       $st = [int]$_.productState
       [ordered]@{ name = $_.displayName; enabled = (($st -band 0x1000) -ne 0); up_to_date = (($st -band 0x10) -eq 0) } })
   }
+  # 2.33.4: Windows Server hat kein Sicherheitscenter (root\SecurityCenter2 fehlt) – dort Microsoft Defender direkt.
+  # Bisher kam eine leere Ausgabe an, die als „undefined (aus)“ erschien.
+  if ($av.Count -eq 0 -and $mp) {
+    $mode = "$($mp.AMRunningMode)"
+    $nm = 'Microsoft Defender Antivirus'
+    if ($mode -and $mode -ne 'Normal') { $nm = $nm + ' (' + $mode + ')' }
+    $av = @([ordered]@{ name = $nm; enabled = [bool]($mp.AntivirusEnabled -and $mp.RealTimeProtectionEnabled)
+                        up_to_date = [bool]($mp.AntivirusSignatureAge -le 7) })
+  }
+  ,$av   # immer eine Liste – auch leer (eine leere Ausgabe wird in PowerShell 5.1 sonst zu „{}“)
 }
 } catch { $r.errors += ('security: ' + $_.Exception.Message) }
 

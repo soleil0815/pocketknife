@@ -1,5 +1,9 @@
 # Änderungen
 
+## pocketknife-2.33.4 (29.10.2026)
+- **Behoben – Virenschutz auf Windows Server „undefined (aus)“:** Der Scanner liest den Virenschutz aus dem Windows-Sicherheitscenter (`root\SecurityCenter2`) – das gibt es nur auf Arbeitsplätzen. Auf Windows Server kam deshalb eine leere Ausgabe an, die PowerShell 5.1 als `{}` weitergibt und die Oberfläche als „undefined (aus)“ zeigte. Jetzt nimmt der Scanner auf Servern (und wenn das Sicherheitscenter nichts meldet) Microsoft Defender direkt (`Get-MpComputerStatus`): an = Virenschutz und Echtzeitschutz an, aktuell = Signaturen höchstens 7 Tage alt, passiver Modus wird genannt. Leere Einträge werden nie mehr gespeichert oder angezeigt. Sichtbar nach dem nächsten Scan
+- **Selbsttest:** Defender auf Servern, immer eine Liste, leere Einträge fallen weg
+
 ## pocketknife-2.33.3 (29.10.2026)
 - **Verbessert – Sammlungsbaum alphabetisch:** Links in der Computerliste stehen Ordner und Sammlungen je Ebene alphabetisch (Ordner zuerst, Groß-/Kleinschreibung egal, Zahlen natürlich sortiert) – bisher in der Reihenfolge, in der sie angelegt wurden. Oben bleibt es bei AD, Standard, eigene; die Standard-Sammlungen (Alle Computer, Online, Offline …) behalten ihre feste Reihenfolge
 - **Selbsttest:** Sortierung des Baums
