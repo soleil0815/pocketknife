@@ -5641,6 +5641,7 @@ def _():
         rel = open(os.path.join(wfd, "release.yml"), encoding="utf-8").read()
         assert "git archive" not in rel and ".zip" not in rel, "Release ohne Programm-ZIP"
         assert "imagetools create" in rel and "docker/guacd.txt" in rel and "docker save" in rel and "tar.gz" in rel
+        assert "dist/* dist/.env.example" in rel, "dist/* erfasst .env.example nicht (Punkt am Anfang)"
         assert rel.index("- name: Bauen und hochladen") < rel.index("- name: guacd unter eigenem Namen") < rel.index("- name: Release anlegen")
         wk = open(os.path.join(wfd, "weekly.yml"), encoding="utf-8").read()
         assert "docker/guacd.txt" in wk and "docker-compose.yml" not in wk.split("Etwas geändert?")[1].split("Schwachstellen")[0]
