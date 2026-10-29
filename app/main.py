@@ -976,6 +976,25 @@ def api_tool_job(tid: int, data: dict = Body(...), user=U):
     return {"job": tools.start_job(t, ids, user["username"])}
 
 
+@app.post("/api/tools-command")
+def api_tool_command(data: dict = Body(...), user=U):
+    """2.34: Befehl (PowerShell/CMD) direkt auf den gewählten Computern ausführen – ohne Tool anzulegen. Wie Tools
+    anlegen nur für Hauptadmins (OU-Admins: Route nicht freigegeben)."""
+    if access.scoped(user):
+        raise HTTPException(403, "Nur für Hauptadmins.")
+    try:
+        t = tools.adhoc_tool(data or {})
+    except ValueError as e:
+        _err(e)
+    ids = access.check_ids(user, data.get("ids"))[:500]
+    if not ids:
+        _err("Keine Computer ausgewählt.")
+    as_text = " als SYSTEM" if t["run_as"] == "system" else ""
+    pklog.info("tool", f"Befehl ({tools.TYPES[t['type']]}{as_text}) auf {len(ids)} Computer(n) gestartet:\n{t['script'][:2000]}",
+               user=user["username"])
+    return {"job": tools.start_job(t, ids, user["username"]), "name": t["name"]}
+
+
 @app.get("/api/tooljobs/{jid}")
 def api_tool_job_status(jid: str, user=U):
     j = tools.job(jid)
@@ -1340,6 +1359,40 @@ def api_test(cid: int, user=U):
     return remote.test_connection(c["dns_name"] or c["name"])
 
 
+def server_role(c):
+    """2.34: „dc“ (Domänencontroller), „server“ oder None – aus dem Scan (ProductType 2/3), sonst aus dem Betriebssystem."""
+    try:
+        ex = json.loads(c.get("extra") or "{}")
+    except ValueError:
+        ex = {}
+    pt = ex.get("product_type")
+    try:
+        pt = int(pt) if pt not in (None, "") else None
+    except (TypeError, ValueError):
+        pt = None
+    if pt == 2:
+        return "dc"
+    if pt == 3 or (pt is None and "server" in str(c.get("os_name") or c.get("ad_os") or "").lower()):
+        return "server"
+    return None
+
+
+@app.post("/api/computers/power-check")
+def api_power_check(data: dict = Body(...), user=U):
+    """2.34: Vor Neustart/Herunterfahren – welche Ziele sind Server oder Domänencontroller, wie viele Benutzer sind angemeldet?"""
+    ids = access.check_ids(user, data.get("ids"))[:5000]
+    out = []
+    for i in ids:
+        c = db.q1("SELECT id, name, os_name, ad_os, extra, current_user FROM computers WHERE id=?", (i,))
+        if not c:
+            continue
+        role = server_role(c)
+        if role:
+            users = [u for u in str(c.get("current_user") or "").split(",") if u.strip()]
+            out.append({"id": c["id"], "name": c["name"], "role": role, "users": len(users)})
+    return {"servers": out}
+
+
 @app.post("/api/computers/{cid}/action")
 def api_action(cid: int, data: dict = Body(...), user=U):
     c = db.q1("SELECT name, dns_name FROM computers WHERE id=?", (cid,))
@@ -1693,7 +1746,7 @@ def api_software(collection: int = 0, user=U):
 def api_software_detail(name: str, user=U):
     sw, sp = access.sql_in(user, "c.id")
     return {
-        "computers": db.q(f"""SELECT c.id, c.name, c.online, s.version, s.arch, s.scope, s.install_date, s.outdated,
+        "computers": db.q(f"""SELECT c.id, c.name, c.online, c.os_build, s.version, s.arch, s.scope, s.install_date, s.outdated,
                              s.winget_id, s.winget_latest FROM software s JOIN computers c ON c.id=s.computer_id
                              WHERE s.name=? AND {sw} ORDER BY c.name""", [name] + sp),
         "override": db.q1("SELECT * FROM winget_overrides WHERE name=?", (name,)),

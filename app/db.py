@@ -311,6 +311,7 @@ BUILTIN_COLLECTIONS = [
     ("Offline", "all", [{"field": "online", "op": "is_false"}]),
     ("Workstations", "all", [{"field": "os", "op": "not_contains", "value": "Server"}]),
     ("Server", "all", [{"field": "os", "op": "contains", "value": "Server"}]),
+    ("Domänencontroller", "all", [{"field": "role", "op": "equals", "value": "Domänencontroller"}]),  # 2.34
     ("Veraltete Software", "all", [{"field": "software_outdated", "op": "is_true"}]),
     ("Neustart ausstehend", "all", [{"field": "pending_reboot", "op": "is_true"}]),
     ("Scan fehlgeschlagen", "all", [{"field": "scan_status", "op": "equals", "value": "Fehler"}]),

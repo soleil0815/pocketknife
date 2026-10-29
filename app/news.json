@@ -2,6 +2,42 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.34.0",
+   "date": "2026-10-29",
+   "items": [
+    {
+     "kind": "new",
+     "audience": "admin",
+     "de": "Tools → „Befehl ausführen …“ (Strg+Alt+C): PowerShell- oder CMD-Befehl direkt auf den markierten Computern ausführen und auf Wunsch als Tool speichern.",
+     "en": "Tools → \"Run command …\" (Ctrl+Alt+C): run a PowerShell or CMD command directly on the selected computers and save it as a tool if you like."
+    },
+    {
+     "kind": "new",
+     "audience": "admin",
+     "de": "Neustart/Herunterfahren fragt bei Servern und Domänencontrollern ausdrücklich nach und nennt die angemeldeten Benutzer.",
+     "en": "Restart/shutdown asks explicitly for servers and domain controllers and states the signed-in users."
+    },
+    {
+     "kind": "new",
+     "audience": "all",
+     "de": "Neue Standard-Sammlung „Domänencontroller“; Felder „Rolle“ und „Virtualisierung“ (Hyper-V, VMware, KVM/QEMU, Proxmox …) für Sammlungen und Berichte.",
+     "en": "New default collection \"Domain controllers\"; fields \"Role\" and \"Virtualization\" (Hyper-V, VMware, KVM/QEMU, Proxmox …) for collections and reports."
+    },
+    {
+     "kind": "improved",
+     "audience": "all",
+     "de": "Windows Server: schnellerer Scan auf Terminalservern, angemeldete Benutzer auf Server Core, keine Bildschirm-Warnung auf VMs, ältere Server (2012 R2) besser unterstützt.",
+     "en": "Windows Server: faster scan on terminal servers, signed-in users on Server Core, no display warning on VMs, older servers (2012 R2) better supported."
+    },
+    {
+     "kind": "improved",
+     "audience": "all",
+     "de": "Windows vor 10 1809 / Server 2019 (kein winget): kein „Aktualisieren“ per winget mehr, winget-Pakete erscheinen dort nicht im Kiosk, die Computeransicht sagt „winget nicht unterstützt“.",
+     "en": "Windows before 10 1809 / Server 2019 (no winget): no winget \"Update\" any more, winget packages are not offered in the kiosk there, the computer view says \"winget not supported\"."
+    }
+   ]
+  },
+  {
    "version": "2.33.4",
    "date": "2026-10-29",
    "items": [

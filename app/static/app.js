@@ -1366,6 +1366,11 @@ async function viewDashboard() {
   every(30000, () => { if (parseHash().parts[0] === 'dashboard') route(); });
 }
 
+// winget läuft erst ab Windows 10 1809 / Windows Server 2019 (Build 17763) – wie deploy.WINGET_MIN_BUILD
+const WINGET_MIN_BUILD = 17763;
+const WINGET_NA = 'winget gibt es erst ab Windows 10 1809 / Windows Server 2019 – veraltete Programme hier mit einem eigenen Paket aktualisieren.';
+const wingetOk = (c) => !c || !c.os_build || !(Number(c.os_build) < WINGET_MIN_BUILD);
+
 async function updateOutdated(wid, computerIds = null) {
   let ids = computerIds;
   if (!ids) {
@@ -1374,11 +1379,11 @@ async function updateOutdated(wid, computerIds = null) {
     ids = [];
     for (const n of names) {
       const det = await GET('/api/software/detail?name=' + encodeURIComponent(n));
-      det.computers.filter((c) => c.outdated).forEach((c) => ids.push(c.id));
+      det.computers.filter((c) => c.outdated && wingetOk(c)).forEach((c) => ids.push(c.id));
     }
   }
   ids = [...new Set(ids)];
-  if (!ids.length) { toast('Keine Computer mit veralteter Version gefunden.'); return; }
+  if (!ids.length) { toast(computerIds ? 'Keine Computer mit veralteter Version gefunden.' : 'Keine Computer mit veralteter Version gefunden, auf denen winget läuft.'); return; }
   if (!(await confirmDlg(`${wid} auf ${ids.length} Computer(n) per winget aktualisieren?`, 'Aktualisieren'))) return;
   const r = await run(() => POST('/api/deployments', { winget_id: wid, action: 'upgrade', computer_ids: ids }), 'Bereitstellung gestartet');
   if (r) go(`#/deployment/${r.id}`);
@@ -1397,7 +1402,7 @@ async function scanSubItems(getIds) {
 async function toolSubItems(getTargets) {
   const data = await toolsData();
   const exec = (fn) => async () => { const t = await getTargets(); if (!t.length) { toast('Keine Computer', 'err'); return; } fn(t); };
-  const items = BUILTIN_TOOLS.filter((b) => b.key !== 'scan').map((b) => ({ label: b.name, icon: b.icon, hint: hotkeyOf(`builtin:${b.key}`), onClick: exec((t) => runBuiltin(b, t)) }));
+  const items = BUILTIN_TOOLS.filter((b) => b.key !== 'scan' && !(b.main && isOU())).map((b) => ({ label: b.name, icon: b.icon, hint: hotkeyOf(`builtin:${b.key}`), onClick: exec((t) => runBuiltin(b, t)) }));
   const folders = {};
   data.tools.forEach((t) => (folders[t.folder || ''] = folders[t.folder || ''] || []).push(t));
   const toolItem = (t) => ({ label: t.name, icon: t.type === 'url' ? 'net' : 'terminal', hint: [t.run_as === 'system' ? 'SYSTEM' : '', hotkeyOf(`tool:${t.id}`)].filter(Boolean).join(' · '), onClick: exec((x) => runTool(t, x)) });
@@ -1660,7 +1665,7 @@ async function viewComputers(_parts, params) {
     { key: 'cpu', label: 'Prozessor', hidden: true, cls: 'trunc' },
     { key: 'ram_gb', label: 'RAM (GB)', hidden: true, cls: 'right' },
     { key: 'os_arch', label: 'Architektur', hidden: true },
-    { key: 'winget', label: 'winget', hidden: true, value: (r) => r.winget || (r.last_scan ? 'fehlt' : '') },
+    { key: 'winget', label: 'winget', hidden: true, value: (r) => (!wingetOk(r) ? 'nicht unterstützt' : r.winget || (r.last_scan ? 'fehlt' : '')) },
     { key: 'ip_addresses', label: 'IP', cls: 'trunc' },
     { key: 'resolved_ip', label: 'DNS-Adresse', cls: 'mono', hidden: true, title: (r) => (r.addr_problem ? tr(r.addr_detail || "") : undefined) },
     { key: 'mac_addresses', label: 'MAC', hidden: true, cls: 'trunc' },
@@ -2499,6 +2504,7 @@ function pcOverview(c, link) {
       fRow('Version', c.os_version && c.os_build ? c.os_version.split('.').slice(0, 2).join('.') + '.' + c.os_build : c.os_version),
       fRow('SP / Release', c.os_display_version, null, ['os_display_version', c.os_display_version]), fRow('Installiert', fmtDate(c.os_install_date)), fRow('Seriennummer', e.os_serial),
       fRow('Systemlaufwerk', (e.system_drive || '').replace(':', ''), link('disks')), fRow('PowerShell-Version', e.ps_version, null, ['ps_version', e.ps_version]),
+      fRow('winget', !wingetOk(c) ? h('span.badge', { title: WINGET_NA }, 'nicht unterstützt') : e.winget || (c.last_scan ? h('span.badge.warn', 'fehlt') : '')),
       fRow('SMBv1-Server aktiviert', warnBool(e.smb1_server)), fRow('SMBv1-Client aktiviert', warnBool(e.smb1_client)),
       fRow('IE-Version', e.ie_version), fRow('Architektur', c.os_arch, null, ['os_arch', c.os_arch]), fRow('.NET-Versionen', e.dotnet),
       fRow('BIOS-Modus', e.bios_mode, null, ['bios_mode', e.bios_mode]), fRow('Secure Boot', bool(e.secure_boot)),
@@ -2513,7 +2519,8 @@ function pcOverview(c, link) {
       fRow('Gruppen', c.counts.ad_groups ? `${c.counts.ad_groups} Gruppen` : '', link('ad_groups'))]),
     fSection('System', [
       fRow('Hersteller', c.manufacturer, null, ['manufacturer', c.manufacturer]), fRow('Modell', c.model, null, ['model', c.model]), fRow('Arbeitsspeicher', ram, link('memory')),
-      fRow('Prozessor', cpuText, link('cpus'), ['cpu', c.cpu]), fRow('Gehäuse', e.chassis_name, null, ['chassis', e.chassis_name]), fRow('Seriennummer', c.serial),
+      fRow('Prozessor', cpuText, link('cpus'), ['cpu', c.cpu]), fRow('Gehäuse', e.chassis_name, null, ['chassis', e.chassis_name]), e.virtual ? fRow('Virtualisierung', e.virtual, null, ['virtual', e.virtual]) : null,
+      Number(e.product_type) === 2 ? fRow('Rolle', tr('Domänencontroller'), null, ['role', 'Domänencontroller']) : null, fRow('Seriennummer', c.serial),
       fRow('BIOS-Version', c.bios_version, null, ['bios_version', c.bios_version]), fRow('BIOS-Hersteller', e.bios_manufacturer, null, ['bios_manufacturer', e.bios_manufacturer]), fRow('BIOS-Datum', fmtDate(c.bios_date, false)),
       fRow('BIOS-Asset-Tag', e.asset_tag), fRow('Familie', e.family, null, ['family', e.family]), fRow('Version', e.product_version), fRow('SKU', e.sku, null, ['sku', e.sku]),
       fRow('UUID', e.uuid), fRow('TPM', e.tpm ? `Version ${(e.tpm.version || '').split(',')[0]}` : '', null, e.tpm ? ['tpm_version', e.tpm.version] : null)]),
@@ -2552,7 +2559,8 @@ async function pcCategory(c, cat) {
   };
   const wrapT = (t) => h('div.pc-table', t.el);
   if (cat === 'software') {
-    const outdated = data.filter((s) => s.outdated);
+    const wok = wingetOk(c);
+    const outdated = wok ? data.filter((s) => s.outdated) : [];
     const instDate = (r) => {
       const d = /^(\d{4})(\d{2})(\d{2})$/.exec(r.install_date || '');
       const date = d ? `${d[1]}-${d[2]}-${d[3]}` : '';
@@ -2561,7 +2569,7 @@ async function pcCategory(c, cat) {
     };
     const t = tbl([
       { key: 'act', label: 'Aktion', nosort: true, noFilter: true, render: (r) => h('div.row', { style: { flexWrap: 'nowrap' } },
-        r.outdated && r.winget_id ? btn('Aktualisieren', () => updateOutdated(r.winget_id, [id]), { cls: 'small' }) : null,
+        wok && r.outdated && r.winget_id ? btn('Aktualisieren', () => updateOutdated(r.winget_id, [id]), { cls: 'small' }) : null,
         btn('Deinstallieren', () => uninstallDlg([{ ...r, computer: c.name }]), { cls: 'small danger' })) },
       { key: 'name', label: 'Name' }, { key: 'version', label: 'Version' }, { key: 'publisher', label: 'Hersteller' },
       { key: 'installed', label: 'Installiert (Datum & Zeit)', value: instDate, render: (r) => fmtDate(instDate(r)) },
@@ -2576,7 +2584,7 @@ async function pcCategory(c, cat) {
       { key: 'winget_latest', label: 'Aktuell', render: (r) => (r.outdated ? h('span.badge.warn', r.winget_latest) : (r.winget_latest || '')) },
     ], data, { sort: 'name', noun: 'Programme', selectable: true, id: (r) => r.id,
       onContext: (r, e, selRows) => contextMenu(e.clientX, e.clientY, [
-        r.outdated && r.winget_id && selRows.length === 1 ? { label: 'Aktualisieren', icon: 'refresh', onClick: () => updateOutdated(r.winget_id, [id]) } : null,
+        wok && r.outdated && r.winget_id && selRows.length === 1 ? { label: 'Aktualisieren', icon: 'refresh', onClick: () => updateOutdated(r.winget_id, [id]) } : null,
         { label: selRows.length > 1 ? `${selRows.length} Programme deinstallieren …` : 'Jetzt deinstallieren …', icon: 'trash', onClick: () => uninstallDlg(selRows.map((x) => ({ ...x, computer: c.name }))) },
         selRows.length === 1 ? { label: 'Deinstallationspaket erstellen …', icon: 'box', onClick: () => uninstallPackageFrom(r) } : null,
         selRows.length === 1 && r.winget_id ? { label: 'Paket aus winget anlegen …', icon: 'box', onClick: () => packageDlg(null, { winget_id: r.winget_id, name: r.name }) } : null,
@@ -2600,6 +2608,7 @@ async function pcCategory(c, cat) {
         go(`#/computer/${id}?cat=deployments`);
       }, { cls: 'primary' }));
     }
+    if (!wok && data.some((s) => s.outdated)) return h('div', h('p.muted.small', WINGET_NA), wrapT(t));
     return wrapT(t);
   }
   if (cat === 'services') {
@@ -2908,11 +2917,11 @@ async function softwareDlg(sw) {
   const t = table([
     { key: 'name', label: 'Computer', render: (r) => h('a', { href: `#/computer/${r.id}` }, r.name) },
     { key: 'version', label: 'Version' }, { key: 'arch', label: 'Arch.' }, { key: 'scope', label: 'Bereich' },
-    { key: 'outdated', label: 'Status', render: (r) => (r.outdated ? h('span.badge.warn', 'veraltet') : r.winget_id ? h('span.badge.ok', 'aktuell') : '') },
+    { key: 'outdated', label: 'Status', render: (r) => (r.outdated ? h('span.row', h('span.badge.warn', 'veraltet'), wingetOk(r) ? null : h('span.badge', { title: WINGET_NA }, 'ohne winget')) : r.winget_id ? h('span.badge.ok', 'aktuell') : '') },
     { key: 'online', label: 'Online', render: (r) => h('span.dot', { class: r.online ? 'on' : 'off' }) },
   ], d.computers, { selectable: true, noun: 'Computer', fill: false });
   t.el.querySelector('.tbl-scroll').style.maxHeight = '320px';
-  const outIds = d.computers.filter((c) => c.outdated).map((c) => c.id);
+  const outIds = d.computers.filter((c) => c.outdated && wingetOk(c)).map((c) => c.id);
   modal(sw.name, h('div',
     h('div.form', field('winget-ID (Zuordnung)', h('div.row', wid, btn('Suchen', () => wingetPicker((id) => (wid.value = id)), { cls: 'small' })),
       'Automatisch ermittelt. Hier manuell festlegen, falls die Zuordnung falsch ist.'),
@@ -5991,6 +6000,7 @@ const BUILTIN_TOOLS = [
   { key: 'diskusage', name: 'Speicherplatz analysieren …', icon: 'db' },
   { key: 'files', name: 'Dateien (Explorer) …', icon: 'folder', view: 'files' },
   { key: 'eventlog', name: 'Ereignisanzeige …', icon: 'log', view: 'eventlog' },
+  { key: 'command', name: 'Befehl ausführen …', icon: 'terminal', main: true },
 ];
 // 2.32.6: Sitzungszustand angemeldeter Benutzer – gesperrt (Sperrbildschirm) oder getrennt (Remotedesktop/Benutzerwechsel)
 const USER_STATE = { locked: 'gesperrt', disconnected: 'getrennt' };
@@ -6066,7 +6076,8 @@ async function hotkeyRun2(ref, combo) {
     const b = BUILTIN_TOOLS.find((x) => x.key === ref.slice(8));
     if (!b) return;
     // Rückfrage kommt aus dem Tool selbst (Neustart-Dialog, Scanprofil) bzw. Ansichten öffnen nur einen Computer
-    name = tr(b.name); asks = !!b.confirm || ['scan', 'power', 'files', 'eventlog', 'diskusage'].includes(b.key); exec = () => runBuiltin(b, targets);
+    if (b.main && isOU()) return;
+    name = tr(b.name); asks = !!b.confirm || ['scan', 'power', 'files', 'eventlog', 'diskusage', 'command'].includes(b.key); exec = () => runBuiltin(b, targets);
   } else {
     const t = HK.tools.find((x) => `tool:${x.id}` === ref);
     if (!t) { toast('Das Tool zu diesem Tastenkürzel gibt es nicht mehr', 'err'); return; }
@@ -6123,11 +6134,29 @@ function powerDialog(targets) {
   const num = h('input', { type: 'number', min: '0', max: '1440', step: '1', value: '60', style: { width: '110px' } });
   const unit = sel([['1', 'Sekunden'], ['60', 'Minuten']], '1');
   const who = targets.length === 1 ? targets[0].name : `${targets.length} Computern`;
-  modal('Neustart / Herunterfahren', h('div.form',
+  // 2.34: Server und Domänencontroller nicht wie einen Arbeitsplatz neu starten – deutlich zeigen und bestätigen lassen
+  let servers = null;
+  const sure = h('input', { type: 'checkbox' });
+  const warn = h('div');
+  POST('/api/computers/power-check', { ids: targets.map((t) => t.id) }).then((r) => {
+    servers = r.servers || [];
+    if (!servers.length) return;
+    const dcs = servers.filter((x) => x.role === 'dc');
+    const users = servers.reduce((n, x) => n + (x.users || 0), 0);
+    warn.replaceChildren(h('div.news-up.sec', { style: { marginBottom: '10px' } },
+      h('b', dcs.length ? fmtT('Darunter {0} Domänencontroller', dcs.length) : fmtT('Darunter {0} Server', servers.length)),
+      h('div.small', { style: { margin: '4px 0' } }, servers.slice(0, 12).map((x) => `${x.name}${x.role === 'dc' ? ' (' + tr('Domänencontroller') + ')' : ''}${x.users ? ' · ' + fmtT('{0} angemeldet', x.users) : ''}`).join(', ')
+        + (servers.length > 12 ? ` … (+${servers.length - 12})` : '')),
+      users ? h('div.small', fmtT('Insgesamt {0} angemeldete Benutzer auf diesen Servern – ihre Sitzungen werden beendet.', users)) : null,
+      h('label.chk', { style: { marginTop: '6px' } }, sure, dcs.length ? tr('Ja, auch die Domänencontroller') : tr('Ja, auch die Server'))));
+  }).catch(() => { servers = []; });
+  modal('Neustart / Herunterfahren', h('div', warn, h('div.form',
     field('Aktion', act),
-    field('Wartezeit', h('div.row', num, unit), 'Angemeldete Benutzer sehen solange eine Meldung von Windows (Text unter Einstellungen → Zeitpläne & Leistung). 0 = sofort, dabei werden offene Programme ohne Rückfrage geschlossen. Bis zum Ablauf lässt es sich mit „Neustart/Herunterfahren abbrechen“ stoppen.')), [
+    field('Wartezeit', h('div.row', num, unit), 'Angemeldete Benutzer sehen solange eine Meldung von Windows (Text unter Einstellungen → Zeitpläne & Leistung). 0 = sofort, dabei werden offene Programme ohne Rückfrage geschlossen. Bis zum Ablauf lässt es sich mit „Neustart/Herunterfahren abbrechen“ stoppen.'))), [
     { label: 'Abbrechen' },
     { label: 'Ausführen', cls: 'primary', onClick: async () => {
+      if (servers === null) { toast('Einen Moment – POCKET KNIFE prüft noch, ob Server dabei sind.', 'err'); return false; }
+      if (servers.length && !sure.checked) { toast('Bitte bestätigen, dass auch die Server bzw. Domänencontroller neu gestartet werden sollen.', 'err'); return false; }
       const n = Number(num.value);
       const secs = Math.round(n * Number(unit.value));
       if (num.value === '' || !Number.isFinite(n) || n < 0 || secs > 86400) { toast('Wartezeit: 0 Sekunden bis 24 Stunden', 'err'); return false; }
@@ -6251,6 +6280,7 @@ async function runBuiltin(b, targets) {
   }
   if (b.key === 'wake') { wakeDialog(targets); return; }
   if (b.key === 'power') { powerDialog(targets); return; }
+  if (b.key === 'command') { commandDlg(targets); return; }
   if (b.confirm && !(await confirmDlg(`„${b.name}“ auf ${targets.length === 1 ? targets[0].name : targets.length + ' Computern'} ausführen?`, 'Ausführen', true))) return;
   const exec = b.action
     ? (t) => POST(`/api/computers/${t.id}/action`, { action: b.key }).then((r) => ({ exit: 0, output: r.output || 'Ausgeführt.' }))
@@ -6318,7 +6348,8 @@ function wakeDialog(targets) {
   })();
 }
 
-function jobDialog(title, jid) {
+// Ergebnisse eines Tool-Auftrags (je Computer Status und Ausgabe) – im eigenen Fenster oder eingebettet (Befehl ausführen)
+function jobPanel(jid) {
   const body = h('div');
   let closed = false;
   let last = null;
@@ -6332,7 +6363,7 @@ function jobDialog(title, jid) {
     const done = rows.filter((r) => r.res).length;
     if (rows.length === 1) {
       const r = rows[0];
-      body.replaceChildren(h('div.row', { style: { marginBottom: '8px' } }, h('b', r.name), badge(r), secs(r)),
+      body.replaceChildren(h('div.row', { style: { marginBottom: '8px' } }, h('b.raw', r.name), badge(r), secs(r)),
         h('pre.out', r.res ? (r.res.output || '(keine Ausgabe)') : 'Wird ausgeführt …'));
       return;
     }
@@ -6341,28 +6372,99 @@ function jobDialog(title, jid) {
       h('span.muted.small', 'Läuft auf dem Server weiter, auch wenn Sie dieses Fenster schließen.')),
     h('div.run-list', rows.map((r) => {
       const d = h('details', { open: openSet.has(r.id) || (rows.length <= 3 && !!r.res) },
-        h('summary', h('b', r.name), badge(r), secs(r)),
+        h('summary', h('b.raw', r.name), badge(r), secs(r)),
         h('pre.out', r.res ? (r.res.output || '(keine Ausgabe)') : (r.status === 'läuft' ? 'Wird ausgeführt …' : 'Wartet …')));
       d.addEventListener('toggle', () => { if (d.open) openSet.add(r.id); else openSet.delete(r.id); });
       return d;
     })));
   }
-  const copyAll = () => {
-    const txt = ((last && last.targets) || []).map((r) => `=== ${r.name} (${r.status}) ===\n${(r.res && r.res.output) || ''}`).join('\n\n');
+  const copy = () => {
+    if (!last) { toast('Noch keine Ausgabe', 'err'); return; }
+    const txt = (last.targets || []).map((r) => `=== ${r.name} (${r.status}) ===\n${(r.res && r.res.output) || ''}`).join('\n\n');
     navigator.clipboard.writeText(txt).then(() => toast('Ausgabe kopiert', 'ok'), () => toast('Kopieren nicht möglich', 'err'));
   };
   body.append(h('div.muted', 'Wird gestartet …'));
-  modal(title, body, [{ label: 'Ausgabe kopieren', onClick: () => { copyAll(); return false; } }, { label: 'Schließen' }],
-    { wide: true, onClose: () => { closed = true; } });
   const poll = async () => {
     if (closed) return;
     try {
       const j = await GET(`/api/tooljobs/${jid}`);
+      if (closed) return;
       draw(j);
       if (j.targets.some((r) => !r.res)) setTimeout(poll, 1500);
-    } catch (e) { body.replaceChildren(h('div.empty', e.message)); }
+    } catch (e) { if (!closed) body.replaceChildren(h('div.empty', e.message)); }
   };
   poll();
+  return { el: body, copy, stop: () => { closed = true; }, running: () => !last || last.targets.some((r) => !r.res) };
+}
+
+function jobDialog(title, jid) {
+  const p = jobPanel(jid);
+  modal(title, p.el, [{ label: 'Ausgabe kopieren', onClick: () => { p.copy(); return false; } }, { label: 'Schließen' }],
+    { wide: true, onClose: p.stop });
+}
+
+// 2.34: Befehl (PowerShell/CMD) direkt ausführen – ohne vorher ein Tool anzulegen; auf Wunsch als Tool speichern.
+// Nur Hauptadmins (wie Tools anlegen). Die letzten Befehle merkt sich die Seite bis zum Neuladen (nicht gespeichert:
+// in einem Befehl kann ein Kennwort stehen).
+const CMD_HIST = [];
+const CMD_LAST = { type: 'powershell', script: '', run_as: 'service' };
+async function commandDlg(targets) {
+  if (isOU()) { toast('Befehle direkt ausführen dürfen nur Hauptadmins.', 'err'); return; }
+  const data = await toolsData();
+  let type = CMD_LAST.type;
+  const seg = h('div.seg');
+  const drawSeg = () => seg.replaceChildren(...[['powershell', 'PowerShell'], ['cmd', 'CMD']].map(([k, l]) =>
+    h('button', { type: 'button', class: type === k ? 'on' : '', onclick: () => { type = k; drawSeg(); hintUpd(); } }, l)));
+  const script = h('textarea.mono', { rows: 9, value: CMD_LAST.script, spellcheck: 'false', placeholder: 'z. B. Get-Service Spooler  bzw.  ipconfig /all' });
+  const runAs = sel(Object.entries(data.run_as), CMD_LAST.run_as);
+  const hint = h('div.hint');
+  const hintUpd = () => { hint.textContent = type === 'cmd' ? 'Befehle wie in einer .cmd-Datei, mehrzeilig möglich.' : 'PowerShell-Code, mehrzeilig möglich. Fehler setzen den Status auf „Fehler“.'; };
+  const hist = sel([['', CMD_HIST.length ? `Zuletzt verwendet (${CMD_HIST.length}) …` : 'Noch keine Befehle in dieser Sitzung'],
+    ...CMD_HIST.map((x, i) => [String(i), `${x.type === 'cmd' ? 'CMD' : 'PS'} · ${x.script.split('\n')[0].slice(0, 80)}`])], '');
+  hist.disabled = !CMD_HIST.length;
+  hist.addEventListener('change', () => {
+    const x = CMD_HIST[Number(hist.value)];
+    if (x) { type = x.type; script.value = x.script; runAs.value = x.run_as; drawSeg(); hintUpd(); }
+    hist.value = '';
+  });
+  const names = targets.slice(0, 8).map((t) => t.name).join(', ') + (targets.length > 8 ? ` … (+${targets.length - 8})` : '');
+  const out = h('div', { style: { marginTop: '12px' } });
+  let panel = null;
+  drawSeg(); hintUpd();
+  const form = h('div.form', field('Ziele', h('span.raw', `${names}${targets.length > 1 ? ` – ${targets.length} Computer` : ''}`)),
+    field('Typ', seg), field('Ausführen als', runAs, 'Dienstkonto: direkt über WinRM, schnell. SYSTEM: über eine geplante Aufgabe.'),
+    h('label', 'Befehl'), script, hint, field('Verlauf', hist),
+    h('div.full.muted.small', 'Variablen: $(Computer) $(Host) $(IP) $(MAC) $(User) $(Domain)'));
+  const cur = () => ({ type, script: script.value.replace(/\s+$/, ''), run_as: runAs.value });
+  let busy = false;
+  const exec = async () => {
+    if (busy) return false;
+    busy = true;
+    try { return await exec2(); } finally { busy = false; }
+  };
+  const exec2 = async () => {
+    const c = cur();
+    if (!c.script.trim()) { toast('Bitte einen Befehl eingeben.', 'err'); return false; }
+    if (targets.length > 1 && !(await confirmDlg(`Befehl auf ${targets.length} Computern ausführen?`, 'Ausführen', true))) return false;
+    const r = await run(() => POST('/api/tools-command', { ...c, ids: targets.map((x) => x.id) }));
+    if (!r) return false;
+    Object.assign(CMD_LAST, c);
+    const k = CMD_HIST.findIndex((x) => x.type === c.type && x.script === c.script && x.run_as === c.run_as);
+    if (k >= 0) CMD_HIST.splice(k, 1);
+    CMD_HIST.unshift({ ...c });
+    CMD_HIST.splice(20);
+    if (panel) panel.stop();
+    panel = jobPanel(r.job);
+    out.replaceChildren(h('h3', { style: { margin: '0 0 8px' } }, 'Ergebnis'), panel.el);
+    return false;  // Fenster bleibt offen: Befehl anpassen und erneut ausführen
+  };
+  script.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.ctrlKey) { e.preventDefault(); exec().catch((x) => toast(x.message || String(x), 'err')); } });
+  modal(targets.length === 1 ? `Befehl ausführen – ${targets[0].name}` : `Befehl ausführen – ${targets.length} Computer`, h('div', form, out), [
+    { label: 'Als Tool speichern …', onClick: () => { const c = cur(); if (!c.script.trim()) { toast('Bitte einen Befehl eingeben.', 'err'); return false; } toolDlg({ name: '', folder: '', description: '', confirm: 0, ...c }); return false; } },
+    { label: 'Ausgabe kopieren', onClick: () => { if (panel) panel.copy(); else toast('Noch keine Ausgabe', 'err'); return false; } },
+    { label: 'Schließen' },
+    { label: 'Ausführen (Strg+Enter)', cls: 'primary', onClick: exec },
+  ], { wide: true, sticky: true, onClose: () => { const c = cur(); CMD_LAST.type = c.type; CMD_LAST.script = c.script; CMD_LAST.run_as = c.run_as; if (panel) panel.stop(); } });
 }
 
 function runDialog(title, targets, exec) {
@@ -6434,6 +6536,7 @@ async function viewTools() {
     const els = [h('div.trow.thead', h('span', 'Name'), h('span', 'Typ'), h('span', 'Ausführung'), h('span', 'Beschreibung'))];
     for (const b of BUILTIN_TOOLS) {
       if (f && !b.name.toLowerCase().includes(f)) continue;
+      if (b.main && isOU()) continue;
       els.push(row(b.icon, b.name, 'eingebaut', b.key.endsWith('web') || b.view ? 'im Browser' : b.action ? 'Dienstkonto' : 'POCKET KNIFE', BUILTIN_DESC[b.key] || '', null, 'builtin', hotkeyOf(`builtin:${b.key}`)));
     }
     els.push(h('div.tsep'));
@@ -6467,11 +6570,12 @@ const BUILTIN_DESC = {
   diskusage: 'Ordnergrößen als Ringdiagramm, mit Zoom in die Ebenen',
   files: 'Dateien auf dem Client durchsuchen, kopieren, verschieben, löschen, herunter- und hochladen',
   eventlog: 'Windows-Ereignisprotokolle im Browser ansehen',
+  command: 'PowerShell- oder CMD-Befehl direkt ausführen, auf Wunsch als Tool speichern (nur Hauptadmins)',
 };
 
 async function toolDlg(tool, presetFolder) {
   const data = await toolsData();
-  const isNew = !tool;
+  const isNew = !tool || !tool.id;  // 2.34: ohne id = neues Tool mit Vorgaben (aus „Befehl ausführen“)
   tool = tool || { name: '', folder: presetFolder || '', type: 'powershell', script: '', run_as: 'service', confirm: 0, description: '' };
   const name = h('input', { value: tool.name });
   const folders = [...new Set(data.tools.map((x) => x.folder).filter(Boolean))].sort();

@@ -5899,6 +5899,148 @@ def _():
     src = open(os.path.join(root, "app", "inventory.py"), encoding="utf-8").read()
     assert "if not (isinstance(x, dict) and not x)" in src
 
+
+@test("2.34 Windows Server: Rückfrage vor Neustart/Herunterfahren von Servern und Domänencontrollern, Sammlung „Domänencontroller“, Virtualisierung erkannt, winget-Version ohne Profile, Server Core-Benutzer, Bildschirme auf VMs ohne Warnung")
+def _():
+    import json as _j
+    from app import main as _m, collections_, db as _db
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+    # Rolle: aus dem Scan (ProductType), sonst aus dem Betriebssystem
+    sr = _m.server_role
+    assert sr({"extra": _j.dumps({"product_type": 2})}) == "dc" and sr({"extra": _j.dumps({"product_type": "3"})}) == "server"
+    assert sr({"extra": _j.dumps({"product_type": 1}), "os_name": "Windows Server 2022"}) is None, "Scan geht vor"
+    assert sr({"extra": None, "os_name": "Microsoft Windows Server 2025 Standard"}) == "server" and sr({"extra": "{}", "ad_os": "Windows 11 Pro"}) is None
+    assert ("POST", "/api/computers/power-check") in _m.access.ROUTES
+    js = open(os.path.join(root, "app", "static", "app.js"), encoding="utf-8").read()
+    pdl = js[js.index("function powerDialog(targets)"):js.index("function fmtDelay(")]
+    assert "/api/computers/power-check" in pdl and "servers.length && !sure.checked" in pdl and "servers === null" in pdl, "Server: bestätigen"
+    # Sammlung „Domänencontroller“ und Feld „Rolle“
+    assert any(n == "Domänencontroller" for n, _mm, _f in _db.BUILTIN_COLLECTIONS)
+    a = _db.ex("INSERT INTO computers(name, extra) VALUES('DC-TEST1', ?)", (_j.dumps({"product_type": 2, "virtual": "Hyper-V"}),))
+    b = _db.ex("INSERT INTO computers(name, extra) VALUES('SRV-TEST1', ?)", (_j.dumps({"product_type": 3}),))
+    try:
+        dc = _db.val("SELECT id FROM collections WHERE builtin=1 AND name='Domänencontroller'")
+        assert dc, "beim Start angelegt"
+        mem = set(collections_.member_ids(dc, fresh=True))
+        assert a in mem and b not in mem, mem
+        w, p = collections_.build([{"field": "virtual", "op": "equals", "value": "Hyper-V"}])
+        assert _db.val(f"SELECT COUNT(*) FROM computers c WHERE c.id=? AND {w}", [a] + list(p)) == 1
+    finally:
+        _db.ex("DELETE FROM computers WHERE id IN (?,?)", (a, b))
+    ps = open(os.path.join(root, "app", "scan_modules.ps1"), encoding="utf-8").read()
+    vm = ps[ps.index("PKX 'virtual' {"):]
+    vm = vm[:vm.index("\n}\n")]
+    assert vm.index("'VMware'") < vm.index("'Hyper-V'") and "'KVM/QEMU" in vm and "Proxmox" in vm and "HypervisorPresent" not in vm.replace("(HypervisorPresent", ""), "Hersteller/Modell, nicht HypervisorPresent"
+    wg = ps[ps.index("if ($os.ProductType -eq 1) {\n  try { $ai = Get-AppxPackage"):ps.index("$e.pending_reboot")]
+    assert "AppxAllUserStore" in wg and "-Recurse -Depth" not in wg and "Get-AppxPackage -AllUsers" in wg.split("} else {")[0], "Server: Registry statt alle Profile"
+    disp = ps[ps.index("PKS 'displays'"):ps.index("# @module environment")]
+    assert "nicht unterst|not supported|8004100C" in disp and "{ throw }" in disp
+    blk = ps[ps.index("# @sessions-begin"):ps.index("# @sessions-end")]
+    assert "Server Core" in blk and "$pkExp.Count -eq 0 -and $pkQo.Count -gt 1" in blk
+    from app import inventory
+    assert "virtual" in inventory.MODULE_EXTRA["computer"]
+
+@test("2.34 Ältere Windows ohne winget (vor 1809 / Server 2019): kein winget-Aktualisieren, Kiosk bietet winget-Pakete dort nicht an, Hinweis statt „fehlt“")
+def _():
+    import re as _re
+    from app import kiosk, deploy, steps as stp
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+    ok = deploy.winget_ok
+    assert ok(None) and ok("") and ok("17763") and ok(26100) and ok("x") and not ok("14393") and not ok(9600), "Build-Grenze"
+    js = open(os.path.join(root, "app", "static", "app.js"), encoding="utf-8").read()
+    assert int(_re.search(r"const WINGET_MIN_BUILD = (\d+);", js).group(1)) == deploy.WINGET_MIN_BUILD, "JS und Server gleiche Grenze"
+    sv = js[js.index("if (cat === 'software') {"):]
+    sv = sv[:sv.index("return wrapT(t);\n  }")]
+    assert "const wok = wingetOk(c);" in sv and "wok && r.outdated && r.winget_id ? btn('Aktualisieren'" in sv and "wok ? data.filter" in sv
+    assert "c.outdated && wingetOk(c)" in js[js.index("async function updateOutdated("):js.index("async function scanSubItems(")]
+    sd = js[js.index("async function softwareDlg(sw)"):]
+    assert "c.outdated && wingetOk(c)" in sd[:sd.index("modal(sw.name")]
+    from app import main as _m
+    import inspect
+    assert "c.os_build" in inspect.getsource(_m.api_software_detail), "Build für die Anzeige"
+    # Kiosk: winget-Paket auf Server 2016 nicht anbieten, eigenes Paket schon
+    db.set_setting("kiosk_enabled", 1)
+    cid = db.ex("INSERT INTO computers(name, online, winrm, current_user, os_build) VALUES('PC-ALT1', 1, 1, 'FIRMA\\nutzer', '14393')")
+    pk = {}
+    for name, st in (("WG Tool", {"type": "install", "source": "winget", "winget_id": "Mozilla.Firefox"}),
+                     ("Eigen Tool", {"type": "command", "command": "cmd /c exit 0"})):
+        p = stp.clean_package({"name": name, "steps": {"main": [st]}})
+        p["steps"], p["conditions"] = json.dumps(p["steps"]), json.dumps(p["conditions"])
+        pk[name] = db.ex(f"INSERT INTO packages({', '.join(deploy.PKG_FIELDS)}) VALUES({', '.join('?' * len(deploy.PKG_FIELDS))})",
+                         tuple(p[k] for k in deploy.PKG_FIELDS))
+        kiosk.save_item(pk[name], {"enabled": True, "approval": 0})
+    old = kiosk._logged_on
+    kiosk._logged_on = lambda c, fresh=False: {"nutzer"}
+    try:
+        names = {i["name"] for i in kiosk.catalog(cid)}
+        assert "Eigen Tool" in names and "WG Tool" not in names, names
+        must_fail(kiosk.request, {"username": "nutzer", "display_name": "N"}, "?", cid, pk["WG Tool"], "install", contains="1809")
+        db.ex("UPDATE computers SET os_build='19045' WHERE id=?", (cid,))
+        assert "WG Tool" in {i["name"] for i in kiosk.catalog(cid)}
+    finally:
+        kiosk._logged_on = old
+        db.set_setting("kiosk_enabled", 0)
+        for v in pk.values():
+            db.ex("DELETE FROM kiosk_items WHERE package_id=?", (v,))
+            db.ex("DELETE FROM packages WHERE id=?", (v,))
+        db.ex("DELETE FROM computers WHERE id=?", (cid,))
+
+
+@test("2.34 Befehl ausführen: PowerShell/CMD direkt ohne Tool, nur Hauptadmins, protokolliert, als Tool speicherbar, Strg+Alt+C nur wenn frei")
+def _():
+    import time as _t
+    from app import tools, remote, main as _m, pklog
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+    t = tools.adhoc_tool({"type": "powershell", "script": "Get-Service Spooler\r\nGet-Date\n\n"})
+    assert t["type"] == "powershell" and t["run_as"] == "service" and t["script"] == "Get-Service Spooler\r\nGet-Date", t["script"]
+    assert t["name"].startswith("Befehl: Get-Service Spooler") and t["name"].endswith("…") and not t["repo_path"] and t["scan_after"] == "never"
+    assert tools.adhoc_tool({"type": "cmd", "script": "ipconfig", "run_as": "system"})["name"] == "Befehl: ipconfig"
+    for bad, txt in (({"type": "url", "script": "http://x"}, "PowerShell oder CMD"), ({"type": "cmd", "script": "  \n "}, "Befehl eingeben"),
+                     ({"type": "cmd", "script": "x", "run_as": "root"}, "Ausführung"),
+                     ({"type": "cmd", "script": "x" * (tools.ADHOC_MAX + 1)}, "zu lang"),
+                     ({"type": "cmd", "script": "x", "timeout_s": 3}, "Zeitlimit")):
+        must_fail(tools.adhoc_tool, bad, contains=txt)
+    # OU-Admins: Route nicht freigegeben, Handler prüft zusätzlich
+    assert ("POST", "/api/tools-command") not in _m.access.ROUTES
+    try:
+        _m.api_tool_command({"type": "cmd", "script": "whoami", "ids": [1]}, {"username": "ou-x", "scope": [1]})
+        raise AssertionError("OU-Admin durfte Befehl ausführen")
+    except _m.HTTPException as e:
+        assert e.status_code == 403
+    # Ausführung wie ein Tool, Befehl im Protokoll
+    c = db.ex("INSERT INTO computers(name, dns_name) VALUES('CMD-PC1', 'cmd-pc1.firma.local')")
+    old_ps, logs = remote.ps, []
+    old_info = pklog.info
+    remote.ps = lambda host, script, timeout=None, **kw: ("Spooler Running\nPKEXIT:0", "", False)
+    pklog.info = lambda cat, msg, **kw: logs.append(msg)
+    try:
+        r = _m.api_tool_command({"type": "powershell", "script": "Get-Service Spooler", "ids": [c]}, {"username": "haupt", "scope": None})
+        for _ in range(100):
+            j = tools.job(r["job"])
+            if all(x["res"] for x in j["targets"]):
+                break
+            _t.sleep(0.05)
+        assert j["targets"][0]["status"] == "OK" and "Spooler Running" in j["targets"][0]["res"]["output"], j
+        assert any("Get-Service Spooler" in m and "gestartet" in m for m in logs), logs
+    finally:
+        remote.ps, pklog.info = old_ps, old_info
+        db.ex("DELETE FROM computers WHERE id=?", (c,))
+    # Tastenkürzel: Vorgabe Strg+Alt+C nur, wenn kein eigenes Tool es hat
+    assert "command" in tools.BUILTIN_KEYS and tools.builtin_hotkeys().get("command") == "Ctrl+Alt+C"
+    tid = db.ex("INSERT INTO tools(name, type, script, hotkey) VALUES('Eigenes C', 'cmd', 'ver', 'Ctrl+Alt+C')")
+    try:
+        assert "command" not in tools.builtin_hotkeys() and tools.hotkey_owner("Ctrl+Alt+C") == "Eigenes C"
+    finally:
+        db.ex("DELETE FROM tools WHERE id=?", (tid,))
+    js = open(os.path.join(root, "app", "static", "app.js"), encoding="utf-8").read()
+    dlg = js[js.index("async function commandDlg(targets)"):]
+    dlg = dlg[:dlg.index("\n}\n")]
+    assert "/api/tools-command" in dlg and "toolDlg({" in dlg and "return false;  // Fenster bleibt offen" in dlg and "if (busy) return false;" in dlg
+    assert "localStorage" not in dlg, "Verlauf nicht speichern (Kennwörter)"
+    assert "{ key: 'command', name: 'Befehl ausführen …', icon: 'terminal', main: true }" in js and "if (b.key === 'command') { commandDlg(targets); return; }" in js
+    assert "const isNew = !tool || !tool.id;" in js
+
+
 def main():
     ok = 0
     for name, fn in RESULTS:

@@ -161,6 +161,12 @@ def _detect(row):
     return (row.get("winget_id") or "").lower(), (row.get("detect_name") or "").lower()
 
 
+def _needs_winget(row):
+    """Installiert das Paket (auch) per winget? Auf Windows vor 1809 / Server 2019 ginge das nicht."""
+    p = steps.normalize(deploy.row_to_package(row))
+    return any(s.get("type") == "install" and s.get("source") == "winget" for _k, s in steps.iter_steps(p))
+
+
 def _installed(row, software):
     wid, pat = _detect(row)
     for s in software:
@@ -205,6 +211,7 @@ def _available(item, cid, username=None):
 def catalog(cid, username=None):
     software = db.q("SELECT name, version, winget_id FROM software WHERE computer_id=?", (cid,))
     last_scan = db.val("SELECT last_scan FROM computers WHERE id=?", (cid,)) or ""
+    wok = deploy.winget_ok(db.val("SELECT os_build FROM computers WHERE id=?", (cid,)))
     reqs = {}
     for r in db.q("SELECT * FROM kiosk_requests WHERE computer_id=? AND action IN ('install','uninstall') ORDER BY id", (cid,)):
         reqs[r["package_id"]] = r  # jeweils die letzte Anfrage
@@ -214,6 +221,8 @@ def catalog(cid, username=None):
                       WHERE k.enabled=1 ORDER BY COALESCE(k.category, ''), p.name COLLATE NOCASE"""):
         if not _available(it, cid, username):
             continue
+        if not wok and _needs_winget(it):
+            continue  # 2.34: winget gibt es auf diesem Windows nicht – nicht anbieten
         inst = _installed(it, software)
         r = reqs.get(it["package_id"])
         rs = status(r) if r else None
@@ -300,6 +309,8 @@ def request(user, ip, cid, pid, action):
         raise KioskError("Diese Software ist für Ihren Computer nicht freigegeben.")
     if not _group_ok(user["username"], item_groups(it)):
         raise KioskError("Diese Software ist für Sie nicht freigegeben.")
+    if action == "install" and not deploy.winget_ok(c["os_build"]) and _needs_winget(db.q1("SELECT * FROM packages WHERE id=?", (pid,)) or {}):
+        raise KioskError("Diese Software wird per winget installiert – das gibt es erst ab Windows 10 1809 / Windows Server 2019.")
     if action == "uninstall" and not it["uninstall_package_id"]:
         raise KioskError("Diese Software lässt sich im Kiosk nicht deinstallieren.")
     check_computer(user["username"], ip, cid)
