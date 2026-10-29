@@ -1,5 +1,10 @@
 # Änderungen
 
+## pocketknife-2.33.2 (29.10.2026)
+- **Behoben – `update.sh --cleanup` tat nichts:** Auf einem echten Docker-Host gibt `docker inspect` für einen Container ohne eingebundene Ordner (guacd) eine leere Zeile aus; daran beendete eine Schleife das Skript unter `set -e` ohne Meldung – noch bevor etwas angezeigt oder gelöscht wurde. Ebenso hätte ein fehlgeschlagenes Löschen das Skript still beendet. Alle Schleifen enden jetzt mit einem Befehl, der gelingt; Fehler beim Löschen werden genannt
+- **Behoben – Release:** `.env.example` hieß bei den Dateien des Releases „default.env.example“ (GitHub erlaubt keinen Punkt am Anfang) – jetzt `env.example` (als `.env.example` speichern)
+- **Selbsttest:** das nachgebaute docker gibt wie das echte leere Zeilen aus
+
 ## pocketknife-2.33.1 (29.10.2026)
 - **Behoben – Umstieg von der ZIP-Installation:** Der Befehl zum Holen des neuen `update.sh` lief ohne `sudo` – ohne Docker-Rechte (oder ohne Anmeldung an der Registry) entstand eine leere `update.sh.neu`, und danach lief weiter das alte Skript (es baut wie früher vor Ort). Jetzt ein einziger Befehl als root: Image laden, Skript holen, ausführen – schlägt ein Schritt fehl, passiert nichts weiter. Das neue Skript legt sich am Ende selbst als `update.sh` ab. Ebenso bei der Installation
 - **Behoben – Release:** `.env.example` fehlte bei den Dateien des Releases (`dist/*` erfasst keine Dateien mit Punkt am Anfang)

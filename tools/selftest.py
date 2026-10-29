@@ -5641,7 +5641,7 @@ def _():
         rel = open(os.path.join(wfd, "release.yml"), encoding="utf-8").read()
         assert "git archive" not in rel and ".zip" not in rel, "Release ohne Programm-ZIP"
         assert "imagetools create" in rel and "docker/guacd.txt" in rel and "docker save" in rel and "tar.gz" in rel
-        assert "dist/* dist/.env.example" in rel, "dist/* erfasst .env.example nicht (Punkt am Anfang)"
+        assert "cp .env.example dist/env.example" in rel and "dist/.env.example" not in rel, "GitHub benennt .env.example um – als env.example"
         assert rel.index("- name: Bauen und hochladen") < rel.index("- name: guacd unter eigenem Namen") < rel.index("- name: Release anlegen")
         wk = open(os.path.join(wfd, "weekly.yml"), encoding="utf-8").read()
         assert "docker/guacd.txt" in wk and "docker-compose.yml" not in wk.split("Etwas geändert?")[1].split("Schwachstellen")[0]
@@ -5730,6 +5730,7 @@ case "$1" in
       *working_dir*) cat "$st/running_dir" 2>/dev/null ;;
       *Health*) cat "$st/health" ;;
       *image.version*) cat "$st/running_ver" ;;
+      *Mounts*) echo ""; echo "" ;;   # 2.33.2: wie das echte docker – eine leere Zeile je Container ohne Mounts
       *pocketknife-guacd*) echo sha256:guacalt ;;
       *.Image*) echo sha256:alt ;;
     esac; exit 0 ;;

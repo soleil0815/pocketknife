@@ -186,8 +186,9 @@ jobs:
             docker rmi -f "${{ steps.v.outputs.image }}:$VER" "${{ steps.v.outputs.guacd_image }}:$VER" >/dev/null 2>&1 || true
           done
           # die Dateien für den Docker-Host dieser Version (für den Download im Browser – sonst aus dem Image)
-          cp docker-compose.yml .env.example update.sh dist/
-          (cd dist && sha256sum pocketknife-"$VER"-*.tar.gz docker-compose.yml .env.example update.sh > "pocketknife-$VER.sha256")
+          # GitHub erlaubt keine Dateinamen mit Punkt am Anfang (machte „default.env.example“ daraus) → env.example
+          cp docker-compose.yml update.sh dist/ && cp .env.example dist/env.example
+          (cd dist && sha256sum pocketknife-"$VER"-*.tar.gz docker-compose.yml env.example update.sh > "pocketknife-$VER.sha256")
           ls -l dist
 
       - name: Release anlegen
@@ -205,6 +206,5 @@ jobs:
             echo "**Ohne Internet:** \`sudo sh update.sh pocketknife-$VER-amd64.tar.gz\` (bzw. \`-arm64\`)."
             echo "**Images:** \`$(head -n 1 "dist/pocketknife-$VER.image")\` und \`$(sed -n 2p "dist/pocketknife-$VER.image")\` (linux/amd64, linux/arm64)"
           } >> notes.md
-          # dist/* erfasst keine Dateien mit Punkt am Anfang – .env.example ausdrücklich dazu (fehlte in 2.33.0)
-          gh release create "v$VER" dist/* dist/.env.example --title "POCKET KNIFE $VER" --notes-file notes.md --target "$GITHUB_SHA" \
+          gh release create "v$VER" dist/* --title "POCKET KNIFE $VER" --notes-file notes.md --target "$GITHUB_SHA" \
             --repo "$GITHUB_REPOSITORY" --latest=${{ steps.v.outputs.latest }}

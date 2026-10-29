@@ -233,7 +233,7 @@ sudo sh -c 'docker pull ghcr.io/soleil0815/pocketknife:latest && docker run --rm
 cp .env.example .env
 ```
 
-Alternatively download `docker-compose.yml`, `.env.example` and `update.sh` in the browser from the release (checksums in `pocketknife-<version>.sha256`).
+Alternatively download `docker-compose.yml`, `env.example` (save it as `.env.example`) and `update.sh` in the browser from the release (checksums in `pocketknife-<version>.sha256`).
 
 Afterwards the folder looks like this – `data/` and `data-backup/` are created at the first start:
 

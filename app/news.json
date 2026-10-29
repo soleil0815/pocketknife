@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.33.2",
+   "date": "2026-10-29",
+   "items": [
+    {
+     "kind": "fixed",
+     "audience": "admin",
+     "de": "sudo sh update.sh --cleanup brach auf echten Docker-Hosts ohne Meldung ab und räumte nichts auf.",
+     "en": "sudo sh update.sh --cleanup stopped without a message on real Docker hosts and cleaned up nothing."
+    }
+   ]
+  },
+  {
    "version": "2.33.1",
    "date": "2026-10-29",
    "items": [
