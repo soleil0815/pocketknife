@@ -350,9 +350,14 @@ PKS 'product_keys' {
 
 # @module security | Sicherheit (Defender, BitLocker, TPM, Firewall, Antivirus)
 try {
-try { $mp = Get-MpComputerStatus -ErrorAction Stop
+# Defender-Status: das Cmdlet (Modul „Defender“), sonst direkt die WMI-Klasse dahinter – 2.33.4: auf manchen Windows
+# Servern fehlt das Modul (Get-MpComputerStatus unbekannt), die Klasse MSFT_MpComputerStatus gibt es trotzdem
+$mp = $null
+try { $mp = Get-MpComputerStatus -ErrorAction Stop } catch {
+  try { $mp = Get-CimInstance -Namespace 'root\Microsoft\Windows\Defender' -ClassName MSFT_MpComputerStatus -ErrorAction Stop } catch { $mp = $null } }
+if ($mp) {
   $e.defender = [ordered]@{ enabled = $mp.AntivirusEnabled; realtime = $mp.RealTimeProtectionEnabled; signature = $mp.AntivirusSignatureVersion
-                            signature_age = $mp.AntivirusSignatureAge; last_quick_scan = (D $mp.QuickScanEndTime) } } catch {}
+                            signature_age = $mp.AntivirusSignatureAge; last_quick_scan = (D $mp.QuickScanEndTime) } }
 try { $e.bitlocker = @(Get-BitLockerVolume -ErrorAction Stop | ForEach-Object {
   [ordered]@{ mount = $_.MountPoint; status = "$($_.VolumeStatus)"; protection = "$($_.ProtectionStatus)"; percent = $_.EncryptionPercentage } }) } catch {}
 try { $t = Get-CimInstance -Namespace 'root\cimv2\security\microsofttpm' -ClassName Win32_Tpm -ErrorAction Stop

@@ -5888,6 +5888,7 @@ def _():
     blk = ps[ps.index("PKX 'antivirus' {"):ps.index("} catch { $r.errors += ('security: '")]
     assert "if ($av.Count -eq 0 -and $mp)" in blk and "Microsoft Defender Antivirus" in blk and ",$av" in blk, "Server: Defender, immer eine Liste"
     assert ps.index("$mp = Get-MpComputerStatus") < ps.index("PKX 'antivirus' {"), "Defender-Status vorher gelesen"
+    assert "-ClassName MSFT_MpComputerStatus" in ps and ps.index("MSFT_MpComputerStatus") < ps.index("PKX 'antivirus' {"), "ohne Defender-Modul: WMI-Klasse"
     from app import inventory
     out = inventory._merge_extra(-4711, {"extra": {"antivirus": {}, "firewall": [{"profile": "Domain", "enabled": True}, {}]}}, ["security"])
     assert out["antivirus"] == [] and out["firewall"] == [{"profile": "Domain", "enabled": True}], out
