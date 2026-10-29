@@ -205,5 +205,6 @@ jobs:
             echo "**Ohne Internet:** \`sudo sh update.sh pocketknife-$VER-amd64.tar.gz\` (bzw. \`-arm64\`)."
             echo "**Images:** \`$(head -n 1 "dist/pocketknife-$VER.image")\` und \`$(sed -n 2p "dist/pocketknife-$VER.image")\` (linux/amd64, linux/arm64)"
           } >> notes.md
-          gh release create "v$VER" dist/* --title "POCKET KNIFE $VER" --notes-file notes.md --target "$GITHUB_SHA" \
+          # dist/* erfasst keine Dateien mit Punkt am Anfang – .env.example ausdrücklich dazu (fehlte in 2.33.0)
+          gh release create "v$VER" dist/* dist/.env.example --title "POCKET KNIFE $VER" --notes-file notes.md --target "$GITHUB_SHA" \
             --repo "$GITHUB_REPOSITORY" --latest=${{ steps.v.outputs.latest }}
