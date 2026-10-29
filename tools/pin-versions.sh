@@ -5,7 +5,7 @@
 #   Dockerfile         ARG PYTHON_IMAGE=python:<version>-slim-<debian>@sha256:…   and   ARG DEBIAN_SNAPSHOT=<timestamp>
 #   requirements.lock  all Python packages with == (incl. dependencies)
 #   build-requirements.txt, docker/apt-build.txt, docker/apt-runtime.txt   with exact versions
-#   docker-compose.yml guacd image with digest
+#   docker/guacd.txt  guacd image with digest (2.33: published as ghcr.io/<owner>/pocketknife-guacd by release.yml)
 # Afterwards it rebuilds completely (without cache) as a check and runs the self-test in the new image.
 #
 # Usage on the Docker host in the program folder:
@@ -54,7 +54,7 @@ if [ "$UPDATE" = 1 ]; then
     echo "Obergrenzen: $(grep -c '<' requirements.caps) Python-Pakete bleiben auf ihrer Hauptversion"
   fi
   printf '# Exact versions of all Python packages (incl. dependencies) – created with tools/pin-versions.sh.\n' > requirements.lock
-  sed -i -e 's|^\(    image: guacamole/guacd:[^@]*\)@sha256:[0-9a-f]*|\1|' docker-compose.yml
+  sed -i -e 's|@sha256:[0-9a-f]*||' docker/guacd.txt
   # guacd: neueste stabile Version (x.y.z) von Docker Hub – bei einem Fehler bleibt die bisherige
   GNEW=$(python3 -c '
 import json, re, urllib.request
@@ -73,7 +73,7 @@ for _ in range(5):
 print(".".join(map(str, best)) if best else "")
 ' 2>/dev/null || true)
   if [ -n "$GNEW" ]; then
-    sed -i -e "s|^\(    image: guacamole/guacd:\)[^@ ]*|\1${GNEW}|" docker-compose.yml
+    printf 'guacamole/guacd:%s\n' "$GNEW" > docker/guacd.txt
     echo "guacd: $GNEW"
   else
     echo "guacd: neueste Version nicht ermittelbar – bleibt"
@@ -151,8 +151,8 @@ if [ -z "$SNAP" ]; then
 fi
 
 say "guacd image"
-# direkt aus der Datei (docker compose config scheitert ohne .env – dann bliebe guacd still ohne Digest)
-GUAC=$(sed -n 's/^    image: \(guacamole\/guacd:[^ ]*\)$/\1/p' docker-compose.yml | head -n1)
+# direkt aus der Datei (2.33: docker/guacd.txt – die docker-compose.yml nennt nur noch ghcr.io/…/pocketknife-guacd)
+GUAC=$(sed -n 's/^\(guacamole\/guacd:[^ ]*\)$/\1/p' docker/guacd.txt | head -n1)
 case "$GUAC" in
   ""|*@sha256:*) PIN_GUAC="$GUAC" ;;
   *) docker pull -q "$GUAC" >/dev/null
@@ -164,7 +164,7 @@ echo "${PIN_GUAC:-–}"
 
 sed -i -e "s|^ARG PYTHON_IMAGE=.*|ARG PYTHON_IMAGE=${PIN_BASE}|" -e "s|^ARG DEBIAN_SNAPSHOT=.*|ARG DEBIAN_SNAPSHOT=${SNAP}|" Dockerfile
 if [ -n "$PIN_GUAC" ]; then
-  sed -i -e "s|^\(    image: \)guacamole/guacd:.*|\1${PIN_GUAC}|" docker-compose.yml
+  printf '%s\n' "$PIN_GUAC" > docker/guacd.txt
 fi
 
 if [ "$VERIFY" = 1 ]; then
@@ -173,5 +173,5 @@ if [ "$VERIFY" = 1 ]; then
   docker build --no-cache -t "$IMG" .
   docker run --rm --entrypoint python "$IMG" tools/selftest.py
 fi
-say "Done. Pinned in Dockerfile, requirements.lock, build-requirements.txt, docker/apt-*.txt, docker-compose.yml."
+say "Done. Pinned in Dockerfile, requirements.lock, build-requirements.txt, docker/apt-*.txt, docker/guacd.txt."
 echo "Apply with: PK_IMAGE=pocketknife:local in the .env, then docker compose up -d"

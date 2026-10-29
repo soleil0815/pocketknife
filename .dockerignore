@@ -9,9 +9,7 @@ __pycache__/
 .pk-vorher.alt/
 .pk-update.*/
 pocketknife-*/
-# the program ZIP in dist/ belongs into images built by GitHub (update.sh --pull)
-!dist/pocketknife-*.zip
-!dist/pocketknife-*.zip.sha256
+dist/
 .git/
 .github/
 .pk-rollback-ref

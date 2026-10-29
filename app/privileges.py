@@ -21,8 +21,8 @@ def _ids():
     return num("PK_UID", DEFAULT_UID), num("PK_GID", DEFAULT_GID)
 
 
-# 2.32.12: Ordner des Update-Helfers auf dem Host (data/update/host) gehört root und bleibt es – sonst lehnt der Helfer
-# ihn ab (er schreibt nie in einen Ordner, den der Container ändern kann)
+# Ordner, deren Besitzer nie geändert wird (relativ zum Datenordner). 2.32.12: data/update/host des früheren
+# Update-Helfers (2.32.9–2.32.12) gehört root – update.sh --cleanup räumt ihn weg.
 KEEP_OWNER = (os.path.join("update", "host"),)
 
 

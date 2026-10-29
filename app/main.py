@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTex
 from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 
-from . import (access, backup, selfupdate, clientfiles, loadstats, integrity, kiosk, news, pkgexport, repofiles, sso, customreports, mailer, notify, diskusage, kerberos, presence, tls, actions, ad, auth, guard, profiles, remote_desktop, scanners, tools, uninstall, collections_, config, db, deploy, inventory, pklog, remote, reports, scheduler,
+from . import (access, backup, clientfiles, loadstats, integrity, kiosk, news, pkgexport, repofiles, sso, customreports, mailer, notify, diskusage, kerberos, presence, tls, actions, ad, auth, guard, profiles, remote_desktop, scanners, tools, uninstall, collections_, config, db, deploy, inventory, pklog, remote, reports, scheduler,
                schedules, steps, util, winget)
 
 
@@ -287,26 +287,6 @@ def api_updates_save(data: dict = Body(...), user=U):
         _err(e)
     pklog.info("system", "Einstellungen „Neuigkeiten und Updates“ geändert.", user=user["username"])
     return out
-
-
-@app.get("/api/system/selfupdate")
-def api_selfupdate(user=U):
-    """2.32.9: Update aus der Oberfläche – Stand des Update-Helfers auf dem Docker-Host (nur Hauptadmins)."""
-    return selfupdate.state()
-
-
-@app.post("/api/system/selfupdate")
-def api_selfupdate_request(data: dict = Body(...), user=U):
-    """Auftrag in den Datenordner legen; der Helfer auf dem Host führt  update.sh --pull  aus. Kein Docker-Zugriff im Container."""
-    try:
-        return selfupdate.request((data or {}).get("version"), user)
-    except ValueError as e:
-        _err(e)
-
-
-@app.delete("/api/system/selfupdate")
-def api_selfupdate_cancel(user=U):
-    return selfupdate.cancel(user)
 
 
 @app.post("/api/system/updates/check")

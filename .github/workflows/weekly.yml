@@ -2,7 +2,7 @@
 # neuesten Stand bringen (tools/pin-versions.sh --update), ohne Cache neu bauen, Selbsttest, Schwachstellen-Prüfung
 # (Trivy) – und NUR wenn alles bestanden ist: Sicherheitsupdate-Nummer (z. B. 2.29.7 → 2.29.7-s1 – gleiches Programm, nur neue Pakete), Eintrag in CHANGELOG und
 # Neuigkeiten, Commit auf main und Release starten. Der Release-Workflow baut dann amd64 und arm64, testet und prüft
-# beide noch einmal und veröffentlicht unter <Version> und :latest (installiert per Knopf „Jetzt aktualisieren“ oder update.sh --pull).
+# beide noch einmal und veröffentlicht unter <Version> und :latest – zusammen mit guacd als …/pocketknife-guacd (Container-Verwaltung wie Dockhand oder sudo sh update.sh).
 #
 # Hat sich nichts geändert, passiert nichts. Schlägt ein Schritt fehl, wird NICHTS veröffentlicht – GitHub schickt
 # eine Mail an den Besitzer. Von Hand: Actions → Wöchentliches Sicherheitsupdate → Run workflow.
@@ -89,7 +89,7 @@ jobs:
       - name: Etwas geändert?
         id: diff
         run: |
-          if git diff --quiet -- Dockerfile requirements.lock requirements.caps build-requirements.txt docker/apt-build.txt docker/apt-runtime.txt docker-compose.yml; then
+          if git diff --quiet -- Dockerfile requirements.lock requirements.caps build-requirements.txt docker/apt-build.txt docker/apt-runtime.txt docker/guacd.txt; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             echo "Alles ist schon aktuell – keine neue Version." >> "$GITHUB_STEP_SUMMARY"
           else
@@ -116,7 +116,7 @@ jobs:
         run: |
           # guacd baut das Guacamole-Projekt – POCKET KNIFE nimmt immer dessen neueste Version, kann es aber nicht selbst
           # korrigieren; Befunde blockieren das Update deshalb nicht, sie stehen in der Zusammenfassung
-          G=$(sed -n 's/^    image: \(guacamole\/guacd:[^ ]*\)$/\1/p' docker-compose.yml | head -n 1)
+          G=$(sed -n 's/^\(guacamole\/guacd:[^ ]*\)$/\1/p' docker/guacd.txt | head -n 1)
           rc=0; sh tools/trivy-scan.sh "$G" || rc=$?
           if [ -f trivy-guacd.md ]; then cat trivy-guacd.md >> "$GITHUB_STEP_SUMMARY"; fi
           [ "$rc" = 0 ] || echo "::warning title=guacd::$G hat Befunde (oder ließ sich nicht prüfen) – Korrektur nur durch das Guacamole-Projekt."
@@ -130,7 +130,7 @@ jobs:
           VER=$(python3 tools/security-release.py "$RUNNER_TEMP/vorher")
           echo "version=$VER" >> "$GITHUB_OUTPUT"
           git add -A Dockerfile requirements.lock requirements.caps build-requirements.txt docker/apt-build.txt docker/apt-runtime.txt \
-            docker-compose.yml VERSION CHANGELOG.md app/news.json README.md README.en.md
+            docker/guacd.txt VERSION CHANGELOG.md app/news.json README.md README.en.md
           git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
             commit -qm "pocketknife $VER: wöchentliches Sicherheitsupdate (Basis-Image und Pakete)"
           git push -q "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:${{ github.event.repository.default_branch }}"

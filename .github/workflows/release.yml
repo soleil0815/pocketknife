@@ -1,12 +1,13 @@
 # POCKET KNIFE – Release: Image für amd64 und arm64 bauen, Selbsttest, in die GitHub Container Registry (ghcr.io)
-# laden und ein Release mit der Programm-ZIP anlegen.
+# laden, guacd unter eigenem Namen veröffentlichen und ein Release anlegen (2.33: ohne Programm-ZIP – das Programm
+# steckt komplett im Image; für Installationen ohne Internet je Plattform ein Archiv beider Images für docker load).
 #
 # Auslösen: Tag „v<VERSION>“ pushen (muss zur Datei VERSION passen), z. B.
 #     git tag v2.27.1 && git push origin v2.27.1
 # oder von Hand unter Actions → Release → Run workflow (baut die Version aus VERSION).
 #
-# Die Programm-ZIP liegt zusätzlich IM Image (/opt/pocketknife/dist) – update.sh --pull nimmt sie von dort und
-# braucht so nur die Docker-Anmeldung an der Registry, keinen weiteren Zugang zu GitHub.
+# Das Image enthält die zur Version passende docker-compose.yml (/opt/pocketknife/host) – update.sh legt sie bei Bedarf
+# auf dem Host ab; sonst kommt nichts vom Programm auf den Host.
 # Alle Actions sind auf einen Commit festgelegt (wie die übrigen Bausteine, siehe tools/pin-versions.sh).
 # Vor dem Hochladen prüft Trivy beide Images (tools/trivy-scan.sh): Schwachstellen mit Korrektur → kein Release.
 name: Release
@@ -67,14 +68,13 @@ jobs:
           echo "version=$VER" >> "$GITHUB_OUTPUT"
           echo "image=$IMG" >> "$GITHUB_OUTPUT"
           echo "tags=$TAGS" >> "$GITHUB_OUTPUT"
-
-      - name: Programm-ZIP (wie bisher, Ordner pocketknife/)
-        run: |
-          VER=${{ steps.v.outputs.version }}
-          mkdir -p dist
-          git archive --format=zip --prefix=pocketknife/ -o "dist/pocketknife-$VER.zip" HEAD
-          (cd dist && sha256sum "pocketknife-$VER.zip" > "pocketknife-$VER.zip.sha256")
-          cat "dist/pocketknife-$VER.zip.sha256"
+          GIMG="${IMG}-guacd"
+          GTAGS="$GIMG:$VER"; [ "$ISLATEST" = true ] && GTAGS="$GTAGS $GIMG:latest"
+          echo "guacd_image=$GIMG" >> "$GITHUB_OUTPUT"
+          echo "guacd_tags=$GTAGS" >> "$GITHUB_OUTPUT"
+          G=$(sed -n 's/^\(guacamole\/guacd:[^ ]*@sha256:[0-9a-f]\{64\}\)$/\1/p' docker/guacd.txt | head -n 1)
+          [ -n "$G" ] || { echo "::error::docker/guacd.txt enthält kein guacd-Image mit Digest"; exit 1; }
+          echo "guacd_src=$G" >> "$GITHUB_OUTPUT"
 
       - name: QEMU (arm64 auf amd64)
         uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1  # v4.4.0
@@ -164,18 +164,46 @@ jobs:
             type=gha,scope=amd64
             type=gha,scope=arm64
 
+      - name: guacd unter eigenem Namen veröffentlichen (amd64 + arm64, unverändert)
+        id: guacd
+        run: |
+          # dieselbe, auf ihren Digest festgelegte offizielle guacd-Version – nur unter …/pocketknife-guacd, damit sich die
+          # docker-compose.yml für ein guacd-Update nicht ändern muss (Container-Verwaltungen aktualisieren beide)
+          set -- ; for t in ${{ steps.v.outputs.guacd_tags }}; do set -- "$@" -t "$t"; done
+          docker buildx imagetools create "$@" "${{ steps.v.outputs.guacd_src }}"
+          D=$(docker buildx imagetools inspect "${{ steps.v.outputs.guacd_image }}:${{ steps.v.outputs.version }}" --format '{{ .Manifest.Digest }}')
+          echo "digest=$D" >> "$GITHUB_OUTPUT"
+
+      - name: Archive für Installationen ohne Internet (docker load)
+        run: |
+          VER=${{ steps.v.outputs.version }}
+          mkdir -p dist
+          for arch in amd64 arm64; do
+            docker pull -q --platform "linux/$arch" "${{ steps.v.outputs.image }}@${{ steps.push.outputs.digest }}"
+            docker tag "${{ steps.v.outputs.image }}@${{ steps.push.outputs.digest }}" "${{ steps.v.outputs.image }}:$VER"
+            docker pull -q --platform "linux/$arch" "${{ steps.v.outputs.guacd_image }}:$VER"
+            docker save "${{ steps.v.outputs.image }}:$VER" "${{ steps.v.outputs.guacd_image }}:$VER" | gzip -6 > "dist/pocketknife-$VER-$arch.tar.gz"
+            docker rmi -f "${{ steps.v.outputs.image }}:$VER" "${{ steps.v.outputs.guacd_image }}:$VER" >/dev/null 2>&1 || true
+          done
+          # die Dateien für den Docker-Host dieser Version (für den Download im Browser – sonst aus dem Image)
+          cp docker-compose.yml .env.example update.sh dist/
+          (cd dist && sha256sum pocketknife-"$VER"-*.tar.gz docker-compose.yml .env.example update.sh > "pocketknife-$VER.sha256")
+          ls -l dist
+
       - name: Release anlegen
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VER=${{ steps.v.outputs.version }}
-          echo "${{ steps.v.outputs.image }}@${{ steps.push.outputs.digest }}" > "dist/pocketknife-$VER.image"
+          { echo "${{ steps.v.outputs.image }}@${{ steps.push.outputs.digest }}"
+            echo "${{ steps.v.outputs.guacd_image }}@${{ steps.guacd.outputs.digest }}"; } > "dist/pocketknife-$VER.image"
           # Abschnitt dieser Version aus dem CHANGELOG als Beschreibung
           awk -v v="## pocketknife-$VER " 'index($0, v) == 1 { on = 1; next } /^## pocketknife-/ { on = 0 } on' CHANGELOG.md > notes.md
           {
             echo ""
-            echo "**Update:** \`sh update.sh --pull\` (Image aus der Registry) oder \`sh update.sh pocketknife-$VER.zip\`."
-            echo "**Image:** \`$(cat "dist/pocketknife-$VER.image")\` (linux/amd64, linux/arm64)"
+            echo "**Update:** Container-Verwaltung (z. B. Dockhand) oder auf dem Docker-Host \`sudo sh update.sh\` (bzw. \`docker compose pull && docker compose up -d\`)."
+            echo "**Ohne Internet:** \`sudo sh update.sh pocketknife-$VER-amd64.tar.gz\` (bzw. \`-arm64\`)."
+            echo "**Images:** \`$(head -n 1 "dist/pocketknife-$VER.image")\` und \`$(sed -n 2p "dist/pocketknife-$VER.image")\` (linux/amd64, linux/arm64)"
           } >> notes.md
           gh release create "v$VER" dist/* --title "POCKET KNIFE $VER" --notes-file notes.md --target "$GITHUB_SHA" \
             --repo "$GITHUB_REPOSITORY" --latest=${{ steps.v.outputs.latest }}
