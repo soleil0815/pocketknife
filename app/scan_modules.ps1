@@ -65,6 +65,18 @@ $pkExp = @(Get-CimInstance Win32_Process -Filter "Name='explorer.exe'" | ForEach
     if (-not $pkSt.ContainsKey($n) -or $rank[$s] -gt $rank[$pkSt[$n]]) { $pkSt[$n] = $s }
     $n
   } })
+# 2.34: Server Core (kein Explorer) – angemeldete Benutzer aus quser (Name ohne Domäne)
+if ($pkExp.Count -eq 0 -and $pkQo.Count -gt 1) {
+  $pkExp = @(foreach ($l in @($pkQo | Select-Object -Skip 1)) {
+    $t = "" + $l
+    if ($pkIp -gt 4 -and $t.Length -gt $pkIp) { $nm = $t.Substring(0, $pkIp - 4); $rest = $t.Substring($pkIp - 4) } else { $nm = $t; $rest = '' }
+    if ($nm -match '^\s*>?(\S+)') {
+      $n = $matches[1]; $s = 'active'
+      if ($rest -match '^\s*(\d+)\s+(\S+)') { if ($matches[2] -match '^(Disc|Getr|D.co|Desc|Disco|Getrennt)') { $s = 'disconnected' } elseif ($pkLui -contains [int]$matches[1]) { $s = 'locked' } }
+      if (-not $pkSt.ContainsKey($n)) { $pkSt[$n] = $s }
+      $n
+    } })
+}
 # @sessions-end
 $pkUser = $cs.UserName
 if (-not $pkUser) {
@@ -85,8 +97,21 @@ $r.system = [ordered]@{
   os_name = $osName; os_version = $os.Version; os_build = ("" + $os.BuildNumber + $(if ($cv.UBR -ne $null) { '.' + $cv.UBR } else { '' }))
   display_version = $dv; os_arch = $os.OSArchitecture; install_date = (D $os.InstallDate); last_boot = (D $os.LastBootUpTime)
 }
-try { $ai = Get-AppxPackage -AllUsers -Name Microsoft.DesktopAppInstaller -ErrorAction Stop | Sort-Object Version -Descending | Select-Object -First 1
-  if ($ai) { $e.winget = "$($ai.Version)" } } catch {}
+if ($os.ProductType -eq 1) {
+  try { $ai = Get-AppxPackage -AllUsers -Name Microsoft.DesktopAppInstaller -ErrorAction Stop | Sort-Object Version -Descending | Select-Object -First 1
+    if ($ai) { $e.winget = "$($ai.Version)" } } catch {}
+} else {
+  # 2.34: Server – Get-AppxPackage -AllUsers geht alle Benutzerprofile durch (auf Terminalservern mit vielen Profilen
+  # minutenlang). Die installierten Pakete stehen auch in der Registry (AppxAllUserStore) – schnell und ohne Profile.
+  try {
+    # zwei Ebenen (Applications bzw. je Benutzer-SID) – ohne -Depth, das kennt PowerShell 4 (Server 2012 R2) nicht
+    $au = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Appx\AppxAllUserStore'
+    $wk = @(Get-ChildItem $au -ErrorAction SilentlyContinue | ForEach-Object { Get-ChildItem $_.PSPath -ErrorAction SilentlyContinue })
+    $wv = @($wk | ForEach-Object { if ($_.PSChildName -match '^Microsoft\.DesktopAppInstaller_([\d.]+)_') { $matches[1] } } |
+      Sort-Object { try { [version]$_ } catch { [version]'0.0' } } -Descending)
+    if ($wv.Count) { $e.winget = $wv[0] }
+  } catch {}
+}
 $e.pending_reboot = [bool]((Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending') -or
   (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired'))
 $e.timezone = (Get-CimInstance Win32_TimeZone).Caption
@@ -104,6 +129,22 @@ PKX 'domain' { $cs.Domain }
 PKX 'os_serial' { $os.SerialNumber }
 PKX 'system_drive' { $os.SystemDrive }
 PKX 'product_type' { $os.ProductType }
+# 2.34: virtuelle Maschine? Hersteller/Modell/BIOS verraten den Hypervisor (HypervisorPresent allein nicht – das ist auch
+# auf echter Hardware mit Hyper-V oder virtualisierungsbasierter Sicherheit wahr)
+PKX 'virtual' {
+  $vm = ("" + $cs.Manufacturer + ' | ' + $cs.Model + ' | ' + $bios.Manufacturer + ' | ' + $bios.SMBIOSBIOSVersion + ' | ' + $csp.Version + ' | ' + $csp.Vendor)
+  if ($vm -match 'VMware') { 'VMware' }
+  elseif ($vm -match 'VirtualBox|innotek') { 'VirtualBox' }
+  elseif ($vm -match 'Proxmox') { 'Proxmox (KVM)' }
+  elseif ($vm -match 'Nutanix|AHV') { 'Nutanix AHV' }
+  elseif ($vm -match 'QEMU|KVM|Bochs|SeaBIOS|OVMF') { 'KVM/QEMU (z. B. Proxmox)' }
+  elseif ($vm -match 'Xen') { 'Xen' }
+  elseif ($vm -match 'Parallels') { 'Parallels' }
+  elseif ($vm -match 'Amazon EC2') { 'Amazon EC2' }
+  elseif ($vm -match 'Google Compute') { 'Google Cloud' }
+  elseif ($vm -match 'Microsoft Corporation.*Virtual Machine|Hyper-V|Virtual Machine') { 'Hyper-V' }
+  else { '' }
+}
 PKX 'locale' { $os.Locale }
 PKX 'bios_mode' { $env:firmware_type }
 PKX 'secure_boot' { try { [bool](Confirm-SecureBootUEFI -ErrorAction Stop) } catch { $null } }
@@ -212,7 +253,10 @@ PKS 'volumes' { Get-CimInstance Win32_Volume -Filter 'DriveType=3' | ForEach-Obj
 
 # @module displays | Bildschirme
 try {
-PKS 'displays' { Get-CimInstance -Namespace root\wmi -ClassName WmiMonitorID -ErrorAction Stop | ForEach-Object { [ordered]@{
+# 2.34: Server und virtuelle Maschinen ohne Bildschirm melden „nicht unterstützt“ – das ist kein Fehler, nur keine Bildschirme
+PKS 'displays' { $mon = @(); try { $mon = @(Get-CimInstance -Namespace root\wmi -ClassName WmiMonitorID -ErrorAction Stop) } catch {
+    if ("$_" -notmatch 'nicht unterst|not supported|8004100C|Ungültige Klasse|Invalid class|Keine Instanzen|No instances') { throw } }
+  $mon | ForEach-Object { [ordered]@{
   manufacturer = (PKStr $_.ManufacturerName); model = (PKStr $_.UserFriendlyName); serial = (PKStr $_.SerialNumberID)
   product_code = (PKStr $_.ProductCodeID); year = $_.YearOfManufacture; week = $_.WeekOfManufacture; active = $_.Active } } }
 } catch { $r.errors += ('displays: ' + $_.Exception.Message) }

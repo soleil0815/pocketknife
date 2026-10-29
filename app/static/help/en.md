@@ -908,6 +908,18 @@ Before POCKET KNIFE restarts or shuts down a computer, Windows shows the signed-
 - A custom text in the package step "Restart" takes precedence (the same placeholders are allowed there).
 - At most 400 characters; double quotes become single quotes (Windows limits the message to 512 characters).
 
+## Windows Server {#windows-server}
+
+POCKET KNIFE manages Windows Server just like workstations – via WinRM, which is enabled by default on Windows Server (Windows Admin Center relies on it too). A few things work differently there:
+
+- **Role:** the scan reads whether a computer is a workstation, server or domain controller (field "Role" in collections and reports). The default collection **Domain controllers** groups the DCs – e.g. to exclude them from restart schedules ("is not member of").
+- **Restart/shutdown:** if servers or domain controllers are included, the dialog asks explicitly and states the number of signed-in users.
+- **Antivirus:** Windows Server has no Security Center – POCKET KNIFE shows Microsoft Defender directly there (even without the PowerShell module "Defender"). Other antivirus products are not visible on servers.
+- **Virtual machines:** the scan detects Hyper-V, VMware, KVM/QEMU (e.g. Proxmox), Nutanix AHV, Xen, VirtualBox, Parallels and cloud VMs (field "Virtualization"). On VMs and servers without a monitor there is no longer a warning about displays.
+- **Terminal servers:** on servers POCKET KNIFE reads the winget version from the registry instead of going through all user profiles – the scan stays fast even with many profiles.
+- **Server Core:** without Explorer, POCKET KNIFE detects signed-in users via `quser` (name without domain).
+- **Older servers:** Windows Server 2012 R2 (PowerShell 4) and 2016 are scanned; what is missing there (e.g. `Get-LocalUser`, Defender) is replaced by older methods or left empty. winget is not available there.
+
 ## POCKET KNIFE restarted during a deployment {#deploy-restart}
 
 If the container is restarted (update, Docker host reboot) while something is still running on computers, those targets are marked **“Interrupted (POCKET KNIFE was restarted)”** (failed – schedules catch them up as usual). POCKET KNIFE then cleans up on the computer by itself as soon as it is reachable (checked every 5 minutes):
@@ -961,7 +973,7 @@ Select computers → **Tools ▾** or right-click → Tools.
 | Ping & Ports | reachability and open ports |
 | Remote Desktop / VNC in browser | remote session in a separate tab |
 | Wake-on-LAN | via a reachable computer in the same subnet (relay), several times, checking whether it wakes up – see below |
-| Restart / Shut down … | from 2.32.3 in one dialog: choose restart or shutdown and enter the delay (seconds or minutes, 0 = immediately up to 24 hours, default 60 seconds). Signed-in users see the Windows message during that time; for longer delays the default text states minutes, a custom text under **Settings → Schedules & performance** applies unchanged. With "immediately" Windows closes open programs without asking |
+| Restart / Shut down … | from 2.32.3 in one dialog: choose restart or shutdown and enter the delay (seconds or minutes, 0 = immediately up to 24 hours, default 60 seconds). Signed-in users see the Windows message during that time; for longer delays the default text states minutes, a custom text under **Settings → Schedules & performance** applies unchanged. With "immediately" Windows closes open programs without asking. From 2.34: if servers or domain controllers are included, the dialog lists them with the number of signed-in users and only runs after ticking "Yes, the servers too" |
 | Cancel restart/shutdown | stops an announced restart or shutdown while the delay is running |
 | gpupdate /force | refresh group policies |
 | Check / install winget | provides winget where it is missing |

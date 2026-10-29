@@ -1,5 +1,16 @@
 # Änderungen
 
+## pocketknife-2.34.0 (29.10.2026)
+Windows Server – was dort anders ist (neues Hilfe-Kapitel „Windows Server“):
+- **Neu – Rückfrage vor Neustart/Herunterfahren von Servern:** Sind Server oder Domänencontroller unter den Zielen, nennt der Dialog sie samt Zahl der angemeldeten Benutzer und führt erst nach dem Häkchen „Ja, auch die Server“ bzw. „… Domänencontroller“ aus (Rolle aus dem Scan, sonst aus dem Betriebssystem)
+- **Neu – Standard-Sammlung „Domänencontroller“** und Feld **„Rolle“** (Arbeitsplatz/Server/Domänencontroller) – z. B. um DCs von Neustart-Zeitplänen auszunehmen
+- **Neu – Virtualisierung erkannt:** Hyper-V, VMware, KVM/QEMU (z. B. Proxmox), Nutanix AHV, Xen, VirtualBox, Parallels, Amazon EC2, Google Cloud – aus Hersteller, Modell und BIOS (nicht aus „Hypervisor vorhanden“, das auch echte Hardware mit Hyper-V meldet). Feld **„Virtualisierung“**, in der Computeransicht unter System
+- **Verbessert – Terminalserver:** Die winget-Version liest der Scan auf Servern aus der Registry statt mit `Get-AppxPackage -AllUsers` über alle Benutzerprofile (bei vielen Profilen minutenlang)
+- **Verbessert – Server Core:** Ohne Explorer erkennt der Scan angemeldete Benutzer (und ihren Sitzungszustand) über `quser`
+- **Behoben – Bildschirme auf VMs und Servern:** „nicht unterstützt“ ohne Bildschirm ist keine Scan-Warnung mehr
+- **Verbessert – ältere Server:** keine Befehle mehr, die erst ab PowerShell 5 gehen, im Scan (Server 2012 R2 hat PowerShell 4)
+- **Selbsttest:** Rolle, Rückfrage im Dialog, Sammlung „Domänencontroller“, Felder, Erkennung der Virtualisierung, winget ohne Profile, Server Core, Bildschirme
+
 ## pocketknife-2.33.4 (29.10.2026)
 - **Behoben – Virenschutz auf Windows Server „undefined (aus)“:** Der Scanner liest den Virenschutz aus dem Windows-Sicherheitscenter (`root\SecurityCenter2`) – das gibt es nur auf Arbeitsplätzen. Auf Windows Server kam deshalb eine leere Ausgabe an, die PowerShell 5.1 als `{}` weitergibt und die Oberfläche als „undefined (aus)“ zeigte. Jetzt nimmt der Scanner auf Servern (und wenn das Sicherheitscenter nichts meldet) Microsoft Defender direkt (`Get-MpComputerStatus`; fehlt das Defender-Modul, wie auf manchen Servern, die WMI-Klasse `MSFT_MpComputerStatus` dahinter – gilt auch für die Zeile „Defender“): an = Virenschutz und Echtzeitschutz an, aktuell = Signaturen höchstens 7 Tage alt, passiver Modus wird genannt. Leere Einträge werden nie mehr gespeichert oder angezeigt. Sichtbar nach dem nächsten Scan
 - **Selbsttest:** Defender auf Servern, immer eine Liste, leere Einträge fallen weg

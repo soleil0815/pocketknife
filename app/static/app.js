@@ -2513,7 +2513,8 @@ function pcOverview(c, link) {
       fRow('Gruppen', c.counts.ad_groups ? `${c.counts.ad_groups} Gruppen` : '', link('ad_groups'))]),
     fSection('System', [
       fRow('Hersteller', c.manufacturer, null, ['manufacturer', c.manufacturer]), fRow('Modell', c.model, null, ['model', c.model]), fRow('Arbeitsspeicher', ram, link('memory')),
-      fRow('Prozessor', cpuText, link('cpus'), ['cpu', c.cpu]), fRow('Gehäuse', e.chassis_name, null, ['chassis', e.chassis_name]), fRow('Seriennummer', c.serial),
+      fRow('Prozessor', cpuText, link('cpus'), ['cpu', c.cpu]), fRow('Gehäuse', e.chassis_name, null, ['chassis', e.chassis_name]), e.virtual ? fRow('Virtualisierung', e.virtual, null, ['virtual', e.virtual]) : null,
+      Number(e.product_type) === 2 ? fRow('Rolle', tr('Domänencontroller'), null, ['role', 'Domänencontroller']) : null, fRow('Seriennummer', c.serial),
       fRow('BIOS-Version', c.bios_version, null, ['bios_version', c.bios_version]), fRow('BIOS-Hersteller', e.bios_manufacturer, null, ['bios_manufacturer', e.bios_manufacturer]), fRow('BIOS-Datum', fmtDate(c.bios_date, false)),
       fRow('BIOS-Asset-Tag', e.asset_tag), fRow('Familie', e.family, null, ['family', e.family]), fRow('Version', e.product_version), fRow('SKU', e.sku, null, ['sku', e.sku]),
       fRow('UUID', e.uuid), fRow('TPM', e.tpm ? `Version ${(e.tpm.version || '').split(',')[0]}` : '', null, e.tpm ? ['tpm_version', e.tpm.version] : null)]),
@@ -6123,11 +6124,29 @@ function powerDialog(targets) {
   const num = h('input', { type: 'number', min: '0', max: '1440', step: '1', value: '60', style: { width: '110px' } });
   const unit = sel([['1', 'Sekunden'], ['60', 'Minuten']], '1');
   const who = targets.length === 1 ? targets[0].name : `${targets.length} Computern`;
-  modal('Neustart / Herunterfahren', h('div.form',
+  // 2.34: Server und Domänencontroller nicht wie einen Arbeitsplatz neu starten – deutlich zeigen und bestätigen lassen
+  let servers = null;
+  const sure = h('input', { type: 'checkbox' });
+  const warn = h('div');
+  POST('/api/computers/power-check', { ids: targets.map((t) => t.id) }).then((r) => {
+    servers = r.servers || [];
+    if (!servers.length) return;
+    const dcs = servers.filter((x) => x.role === 'dc');
+    const users = servers.reduce((n, x) => n + (x.users || 0), 0);
+    warn.replaceChildren(h('div.news-up.sec', { style: { marginBottom: '10px' } },
+      h('b', dcs.length ? fmtT('Darunter {0} Domänencontroller', dcs.length) : fmtT('Darunter {0} Server', servers.length)),
+      h('div.small', { style: { margin: '4px 0' } }, servers.slice(0, 12).map((x) => `${x.name}${x.role === 'dc' ? ' (' + tr('Domänencontroller') + ')' : ''}${x.users ? ' · ' + fmtT('{0} angemeldet', x.users) : ''}`).join(', ')
+        + (servers.length > 12 ? ` … (+${servers.length - 12})` : '')),
+      users ? h('div.small', fmtT('Insgesamt {0} angemeldete Benutzer auf diesen Servern – ihre Sitzungen werden beendet.', users)) : null,
+      h('label.chk', { style: { marginTop: '6px' } }, sure, dcs.length ? tr('Ja, auch die Domänencontroller') : tr('Ja, auch die Server'))));
+  }).catch(() => { servers = []; });
+  modal('Neustart / Herunterfahren', h('div', warn, h('div.form',
     field('Aktion', act),
-    field('Wartezeit', h('div.row', num, unit), 'Angemeldete Benutzer sehen solange eine Meldung von Windows (Text unter Einstellungen → Zeitpläne & Leistung). 0 = sofort, dabei werden offene Programme ohne Rückfrage geschlossen. Bis zum Ablauf lässt es sich mit „Neustart/Herunterfahren abbrechen“ stoppen.')), [
+    field('Wartezeit', h('div.row', num, unit), 'Angemeldete Benutzer sehen solange eine Meldung von Windows (Text unter Einstellungen → Zeitpläne & Leistung). 0 = sofort, dabei werden offene Programme ohne Rückfrage geschlossen. Bis zum Ablauf lässt es sich mit „Neustart/Herunterfahren abbrechen“ stoppen.'))), [
     { label: 'Abbrechen' },
     { label: 'Ausführen', cls: 'primary', onClick: async () => {
+      if (servers === null) { toast('Einen Moment – POCKET KNIFE prüft noch, ob Server dabei sind.', 'err'); return false; }
+      if (servers.length && !sure.checked) { toast('Bitte bestätigen, dass auch die Server bzw. Domänencontroller neu gestartet werden sollen.', 'err'); return false; }
       const n = Number(num.value);
       const secs = Math.round(n * Number(unit.value));
       if (num.value === '' || !Number.isFinite(n) || n < 0 || secs > 86400) { toast('Wartezeit: 0 Sekunden bis 24 Stunden', 'err'); return false; }

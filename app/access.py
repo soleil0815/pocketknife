@@ -422,6 +422,7 @@ ROUTES = {
     ("POST", "/api/computers/{cid}/test"): _p_cid,
     ("POST", "/api/computers/{cid}/action"): _p_cid,
     ("POST", "/api/computers/heartbeat"): OPEN,        # Handler prüft die IDs
+    ("POST", "/api/computers/power-check"): OPEN,      # 2.34: Handler prüft die IDs
     ("POST", "/api/computers/scan"): OPEN,             # Handler prüft die IDs
     ("GET", "/api/software/{sid}/uninstall"): _p_software,
     ("POST", "/api/uninstall"): OPEN,                  # Handler prüft Installationen/Computer

@@ -5305,5 +5305,17 @@
  "Neue docker-compose.yml nötig": "New docker-compose.yml needed",
  "Aktualisieren: mit Ihrer Container-Verwaltung (z. B. Dockhand, Watchtower) – oder auf dem Docker-Host im Ordner mit der docker-compose.yml:": "Update: with your container manager (e.g. Dockhand, Watchtower) – or on the Docker host in the folder with the docker-compose.yml:",
  "Mit Ihrer Container-Verwaltung (z. B. Dockhand, Watchtower – am besten nachts) oder auf dem Docker-Host: sudo sh update.sh. Vor dem Start einer neuen Version sichert POCKET KNIFE die Datenbank selbst.": "With your container manager (e.g. Dockhand, Watchtower – preferably at night) or on the Docker host: sudo sh update.sh. Before a new version starts, POCKET KNIFE backs up its database itself.",
- "sudo sh update.sh": "sudo sh update.sh"
+ "sudo sh update.sh": "sudo sh update.sh",
+ "CASE CAST({0} AS INTEGER) WHEN 1 THEN 'Arbeitsplatz' WHEN 2 THEN 'Domänencontroller' WHEN 3 THEN 'Server' ELSE NULL END": "CASE CAST({0} AS INTEGER) WHEN 1 THEN 'Arbeitsplatz' WHEN 2 THEN 'Domänencontroller' WHEN 3 THEN 'Server' ELSE NULL END",
+ "Rolle (Arbeitsplatz/Server/Domänencontroller)": "Role (workstation/server/domain controller)",
+ "4px 0": "4px 0",
+ "Bitte bestätigen, dass auch die Server bzw. Domänencontroller neu gestartet werden sollen.": "Please confirm that the servers or domain controllers are to be restarted as well.",
+ "Darunter {0} Domänencontroller": "Including {0} domain controller(s)",
+ "Darunter {0} Server": "Including {0} server(s)",
+ "Einen Moment – POCKET KNIFE prüft noch, ob Server dabei sind.": "One moment – POCKET KNIFE is still checking whether servers are included.",
+ "Insgesamt {0} angemeldete Benutzer auf diesen Servern – ihre Sitzungen werden beendet.": "In total {0} signed-in users on these servers – their sessions will be ended.",
+ "Ja, auch die Domänencontroller": "Yes, the domain controllers too",
+ "Ja, auch die Server": "Yes, the servers too",
+ "Rolle": "Role",
+ "{0} angemeldet": "{0} signed in"
 }

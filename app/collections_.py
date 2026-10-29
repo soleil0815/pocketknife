@@ -76,6 +76,10 @@ COMPUTER_COLS = [
     ("model", "Modell", "text", "c.model"),
     ("serial", "Seriennummer", "text", "c.serial"),
     ("chassis", "Gehäuse", "text", _x("chassis_name")),
+    # 2.34: Rolle aus dem Scan (Win32_OperatingSystem.ProductType) und Virtualisierung (Hyper-V, VMware, KVM/QEMU …)
+    ("role", "Rolle (Arbeitsplatz/Server/Domänencontroller)", "text",
+     f"CASE CAST({_x('product_type')} AS INTEGER) WHEN 1 THEN 'Arbeitsplatz' WHEN 2 THEN 'Domänencontroller' WHEN 3 THEN 'Server' ELSE NULL END"),
+    ("virtual", "Virtualisierung", "text", _x("virtual")),
     ("family", "Familie", "text", _x("family")),
     ("sku", "SKU", "text", _x("sku")),
     ("cpu", "Prozessor", "text", "c.cpu"),

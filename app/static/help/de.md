@@ -908,6 +908,18 @@ Bevor POCKET KNIFE einen Computer neu startet oder herunterfährt, zeigt Windows
 - Ein eigener Text im Paketschritt „Neustart“ hat Vorrang (dort sind dieselben Platzhalter erlaubt).
 - Höchstens 400 Zeichen; doppelte Anführungszeichen werden zu einfachen (Windows begrenzt die Meldung auf 512 Zeichen).
 
+## Windows Server {#windows-server}
+
+POCKET KNIFE verwaltet Windows Server genauso wie Arbeitsplätze – über WinRM, das auf Windows Server ab Werk eingeschaltet ist (auch das Windows Admin Center setzt darauf). Einige Dinge laufen dort anders:
+
+- **Rolle:** Der Scan liest, ob ein Computer Arbeitsplatz, Server oder Domänencontroller ist (Feld „Rolle“ in Sammlungen und Berichten). Die Standard-Sammlung **Domänencontroller** fasst die DCs zusammen – z. B. um sie von Neustart-Zeitplänen auszunehmen („ist nicht Mitglied von“).
+- **Neustart/Herunterfahren:** Sind Server oder Domänencontroller dabei, fragt der Dialog ausdrücklich nach und nennt die Zahl der angemeldeten Benutzer.
+- **Virenschutz:** Windows Server hat kein Sicherheitscenter – POCKET KNIFE zeigt dort Microsoft Defender direkt (auch ohne das PowerShell-Modul „Defender“). Ein anderer Virenschutz ist auf Servern nicht sichtbar.
+- **Virtuelle Maschinen:** Der Scan erkennt Hyper-V, VMware, KVM/QEMU (z. B. Proxmox), Nutanix AHV, Xen, VirtualBox, Parallels und Cloud-VMs (Feld „Virtualisierung“). Auf VMs und Servern ohne Bildschirm erscheint keine Warnung mehr wegen der Bildschirme.
+- **Terminalserver:** Die winget-Version liest POCKET KNIFE auf Servern aus der Registry statt über alle Benutzerprofile – der Scan bleibt auch bei vielen Profilen schnell.
+- **Server Core:** Ohne Explorer erkennt POCKET KNIFE angemeldete Benutzer über `quser` (Name ohne Domäne).
+- **Ältere Server:** Windows Server 2012 R2 (PowerShell 4) und 2016 werden gescannt; was dort fehlt (z. B. `Get-LocalUser`, Defender), ersetzt der Scan durch ältere Wege oder lässt das Feld leer. winget gibt es dort nicht.
+
 ## Neustart von POCKET KNIFE während einer Bereitstellung {#deploy-restart}
 
 Wird der Container neu gestartet (Update, Neustart des Docker-Hosts), während auf Computern noch etwas läuft, gelten diese Ziele als **„Unterbrochen (POCKET KNIFE wurde neu gestartet)“** (fehlgeschlagen – Zeitpläne holen sie wie gewohnt nach). Auf dem Computer räumt POCKET KNIFE danach selbst auf, sobald er erreichbar ist (Prüfung alle 5 Minuten):
@@ -961,7 +973,7 @@ Computer auswählen → **Tools ▾** oder Rechtsklick → Tools.
 | Ping & Ports | Erreichbarkeit und offene Ports |
 | Remotedesktop / VNC im Browser | Fernsitzung in einem eigenen Tab |
 | Wake-on-LAN | über einen erreichbaren Computer im selben Subnetz (Relay), mehrfach, mit Prüfung, ob er aufwacht – siehe unten |
-| Neustart / Herunterfahren … | ab 2.32.3 in einem Dialog: Neustart oder Herunterfahren wählen und die Wartezeit angeben (Sekunden oder Minuten, 0 = sofort bis 24 Stunden, Standard 60 Sekunden). Angemeldete Benutzer sehen solange die Meldung von Windows; der Standardtext nennt bei längeren Zeiten Minuten, ein eigener Text unter **Einstellungen → Zeitpläne & Leistung** gilt unverändert. Bei „sofort“ schließt Windows offene Programme ohne Rückfrage |
+| Neustart / Herunterfahren … | ab 2.32.3 in einem Dialog: Neustart oder Herunterfahren wählen und die Wartezeit angeben (Sekunden oder Minuten, 0 = sofort bis 24 Stunden, Standard 60 Sekunden). Angemeldete Benutzer sehen solange die Meldung von Windows; der Standardtext nennt bei längeren Zeiten Minuten, ein eigener Text unter **Einstellungen → Zeitpläne & Leistung** gilt unverändert. Bei „sofort“ schließt Windows offene Programme ohne Rückfrage. Ab 2.34: Sind Server oder Domänencontroller dabei, nennt der Dialog sie samt Zahl der angemeldeten Benutzer und führt erst nach einem Häkchen „Ja, auch die Server“ aus |
 | Neustart/Herunterfahren abbrechen | stoppt einen angekündigten Neustart bzw. ein Herunterfahren, solange die Wartezeit läuft |
 | gpupdate /force | Gruppenrichtlinien aktualisieren |
 | winget prüfen / nachinstallieren | stellt winget bereit, wo es fehlt |

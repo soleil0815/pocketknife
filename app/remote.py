@@ -1310,6 +1310,18 @@ $pkExp = @(Get-CimInstance Win32_Process -Filter "Name='explorer.exe'" | ForEach
     if (-not $pkSt.ContainsKey($n) -or $rank[$s] -gt $rank[$pkSt[$n]]) { $pkSt[$n] = $s }
     $n
   } })
+# 2.34: Server Core (kein Explorer) – angemeldete Benutzer aus quser (Name ohne Domäne)
+if ($pkExp.Count -eq 0 -and $pkQo.Count -gt 1) {
+  $pkExp = @(foreach ($l in @($pkQo | Select-Object -Skip 1)) {
+    $t = "" + $l
+    if ($pkIp -gt 4 -and $t.Length -gt $pkIp) { $nm = $t.Substring(0, $pkIp - 4); $rest = $t.Substring($pkIp - 4) } else { $nm = $t; $rest = '' }
+    if ($nm -match '^\s*>?(\S+)') {
+      $n = $matches[1]; $s = 'active'
+      if ($rest -match '^\s*(\d+)\s+(\S+)') { if ($matches[2] -match '^(Disc|Getr|D.co|Desc|Disco|Getrennt)') { $s = 'disconnected' } elseif ($pkLui -contains [int]$matches[1]) { $s = 'locked' } }
+      if (-not $pkSt.ContainsKey($n)) { $pkSt[$n] = $s }
+      $n
+    } })
+}
 # @sessions-end
 """
 LOGGEDON_PS = r"""$ErrorActionPreference = 'SilentlyContinue'

@@ -1340,6 +1340,40 @@ def api_test(cid: int, user=U):
     return remote.test_connection(c["dns_name"] or c["name"])
 
 
+def server_role(c):
+    """2.34: „dc“ (Domänencontroller), „server“ oder None – aus dem Scan (ProductType 2/3), sonst aus dem Betriebssystem."""
+    try:
+        ex = json.loads(c.get("extra") or "{}")
+    except ValueError:
+        ex = {}
+    pt = ex.get("product_type")
+    try:
+        pt = int(pt) if pt not in (None, "") else None
+    except (TypeError, ValueError):
+        pt = None
+    if pt == 2:
+        return "dc"
+    if pt == 3 or (pt is None and "server" in str(c.get("os_name") or c.get("ad_os") or "").lower()):
+        return "server"
+    return None
+
+
+@app.post("/api/computers/power-check")
+def api_power_check(data: dict = Body(...), user=U):
+    """2.34: Vor Neustart/Herunterfahren – welche Ziele sind Server oder Domänencontroller, wie viele Benutzer sind angemeldet?"""
+    ids = access.check_ids(user, data.get("ids"))[:5000]
+    out = []
+    for i in ids:
+        c = db.q1("SELECT id, name, os_name, ad_os, extra, current_user FROM computers WHERE id=?", (i,))
+        if not c:
+            continue
+        role = server_role(c)
+        if role:
+            users = [u for u in str(c.get("current_user") or "").split(",") if u.strip()]
+            out.append({"id": c["id"], "name": c["name"], "role": role, "users": len(users)})
+    return {"servers": out}
+
+
 @app.post("/api/computers/{cid}/action")
 def api_action(cid: int, data: dict = Body(...), user=U):
     c = db.q1("SELECT name, dns_name FROM computers WHERE id=?", (cid,))

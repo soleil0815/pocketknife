@@ -68,7 +68,7 @@ MODULE_EXTRA = {
     "computer": ["winget", "pending_reboot", "timezone", "ps_version", "chassis", "chassis_name", "bios_manufacturer",
                  "asset_tag", "family", "product_version", "sku", "uuid", "domain", "os_serial", "system_drive",
                  "product_type", "locale", "bios_mode", "secure_boot", "smb1_server", "smb1_client", "ie_version",
-                 "domain_controller", "dotnet", "last_wu_install", "user_states"],
+                 "domain_controller", "dotnet", "last_wu_install", "user_states", "virtual"],
     "security": ["defender", "bitlocker", "tpm", "firewall", "antivirus"],
     "memory": ["memory_slots", "memory_max"],
     "nics": ["fast_startup"],  # 2.31: Wake-on-LAN-Bereitschaft

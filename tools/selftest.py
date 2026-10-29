@@ -5899,6 +5899,47 @@ def _():
     src = open(os.path.join(root, "app", "inventory.py"), encoding="utf-8").read()
     assert "if not (isinstance(x, dict) and not x)" in src
 
+
+@test("2.34 Windows Server: Rückfrage vor Neustart/Herunterfahren von Servern und Domänencontrollern, Sammlung „Domänencontroller“, Virtualisierung erkannt, winget-Version ohne Profile, Server Core-Benutzer, Bildschirme auf VMs ohne Warnung")
+def _():
+    import json as _j
+    from app import main as _m, collections_, db as _db
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+    # Rolle: aus dem Scan (ProductType), sonst aus dem Betriebssystem
+    sr = _m.server_role
+    assert sr({"extra": _j.dumps({"product_type": 2})}) == "dc" and sr({"extra": _j.dumps({"product_type": "3"})}) == "server"
+    assert sr({"extra": _j.dumps({"product_type": 1}), "os_name": "Windows Server 2022"}) is None, "Scan geht vor"
+    assert sr({"extra": None, "os_name": "Microsoft Windows Server 2025 Standard"}) == "server" and sr({"extra": "{}", "ad_os": "Windows 11 Pro"}) is None
+    assert ("POST", "/api/computers/power-check") in _m.access.ROUTES
+    js = open(os.path.join(root, "app", "static", "app.js"), encoding="utf-8").read()
+    pdl = js[js.index("function powerDialog(targets)"):js.index("function fmtDelay(")]
+    assert "/api/computers/power-check" in pdl and "servers.length && !sure.checked" in pdl and "servers === null" in pdl, "Server: bestätigen"
+    # Sammlung „Domänencontroller“ und Feld „Rolle“
+    assert any(n == "Domänencontroller" for n, _mm, _f in _db.BUILTIN_COLLECTIONS)
+    a = _db.ex("INSERT INTO computers(name, extra) VALUES('DC-TEST1', ?)", (_j.dumps({"product_type": 2, "virtual": "Hyper-V"}),))
+    b = _db.ex("INSERT INTO computers(name, extra) VALUES('SRV-TEST1', ?)", (_j.dumps({"product_type": 3}),))
+    try:
+        dc = _db.val("SELECT id FROM collections WHERE builtin=1 AND name='Domänencontroller'")
+        assert dc, "beim Start angelegt"
+        mem = set(collections_.member_ids(dc, fresh=True))
+        assert a in mem and b not in mem, mem
+        w, p = collections_.build([{"field": "virtual", "op": "equals", "value": "Hyper-V"}])
+        assert _db.val(f"SELECT COUNT(*) FROM computers c WHERE c.id=? AND {w}", [a] + list(p)) == 1
+    finally:
+        _db.ex("DELETE FROM computers WHERE id IN (?,?)", (a, b))
+    ps = open(os.path.join(root, "app", "scan_modules.ps1"), encoding="utf-8").read()
+    vm = ps[ps.index("PKX 'virtual' {"):]
+    vm = vm[:vm.index("\n}\n")]
+    assert vm.index("'VMware'") < vm.index("'Hyper-V'") and "'KVM/QEMU" in vm and "Proxmox" in vm and "HypervisorPresent" not in vm.replace("(HypervisorPresent", ""), "Hersteller/Modell, nicht HypervisorPresent"
+    wg = ps[ps.index("if ($os.ProductType -eq 1) {\n  try { $ai = Get-AppxPackage"):ps.index("$e.pending_reboot")]
+    assert "AppxAllUserStore" in wg and "-Recurse -Depth" not in wg and "Get-AppxPackage -AllUsers" in wg.split("} else {")[0], "Server: Registry statt alle Profile"
+    disp = ps[ps.index("PKS 'displays'"):ps.index("# @module environment")]
+    assert "nicht unterst|not supported|8004100C" in disp and "{ throw }" in disp
+    blk = ps[ps.index("# @sessions-begin"):ps.index("# @sessions-end")]
+    assert "Server Core" in blk and "$pkExp.Count -eq 0 -and $pkQo.Count -gt 1" in blk
+    from app import inventory
+    assert "virtual" in inventory.MODULE_EXTRA["computer"]
+
 def main():
     ok = 0
     for name, fn in RESULTS:
