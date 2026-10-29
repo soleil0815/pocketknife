@@ -319,7 +319,8 @@ def _merge_extra(cid, data, modules):
     new = dict(data.get("extra") or {})
     for k in ("firewall", "antivirus", "bitlocker"):
         if k in new:
-            new[k] = _L(new[k])
+            # 2.33.4: leere Einträge („{}“ aus einer leeren PowerShell-Ausgabe) weglassen
+            new[k] = [x for x in _L(new[k]) if not (isinstance(x, dict) and not x)]
     if "computer" in modules:
         try:
             new["chassis_name"] = CHASSIS.get(int(new.get("chassis") or 0), "")

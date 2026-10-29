@@ -2471,7 +2471,7 @@ function pcOverview(c, link) {
   const mac = (c.mac_addresses || '').split(',')[0];
   const ip = (c.ip_addresses || '').split(',')[0];
   const bl = arr(e.bitlocker).map((b) => `${b.mount} ${b.protection === 'On' ? 'geschützt' : 'ungeschützt'} (${b.percent ?? '?'}%)`).join(', ');
-  const av = arr(e.antivirus).map((a) => `${a.name}${a.enabled ? '' : ' (aus)'}${a.up_to_date === false ? ' (veraltet)' : ''}`).join(', ');
+  const av = arr(e.antivirus).filter((a) => a && a.name).map((a) => `${a.name}${a.enabled ? '' : ' (aus)'}${a.up_to_date === false ? ' (veraltet)' : ''}`).join(', ');
   const fw = arr(e.firewall).map((f) => `${f.profile}: ${f.enabled ? 'ein' : 'AUS'}`).join(' · ');
   const last = c.last_scan_info || {};
   const online = h('span', h('span.dot', { class: c.online ? 'on' : 'off' }), ' ', c.online ? 'Ja' : 'Nein');
