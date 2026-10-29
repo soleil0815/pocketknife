@@ -1,5 +1,9 @@
 # Änderungen
 
+## pocketknife-2.33.3 (29.10.2026)
+- **Verbessert – Sammlungsbaum alphabetisch:** Links in der Computerliste stehen Ordner und Sammlungen je Ebene alphabetisch (Ordner zuerst, Groß-/Kleinschreibung egal, Zahlen natürlich sortiert) – bisher in der Reihenfolge, in der sie angelegt wurden. Oben bleibt es bei AD, Standard, eigene; die Standard-Sammlungen (Alle Computer, Online, Offline …) behalten ihre feste Reihenfolge
+- **Selbsttest:** Sortierung des Baums
+
 ## pocketknife-2.33.2 (29.10.2026)
 - **Behoben – `update.sh --cleanup` tat nichts:** Auf einem echten Docker-Host gibt `docker inspect` für einen Container ohne eingebundene Ordner (guacd) eine leere Zeile aus; daran beendete eine Schleife das Skript unter `set -e` ohne Meldung – noch bevor etwas angezeigt oder gelöscht wurde. Ebenso hätte ein fehlgeschlagenes Löschen das Skript still beendet. Alle Schleifen enden jetzt mit einem Befehl, der gelingt; Fehler beim Löschen werden genannt
 - **Behoben – Release:** `.env.example` hieß bei den Dateien des Releases „default.env.example“ (GitHub erlaubt keinen Punkt am Anfang) – jetzt `env.example` (als `.env.example` speichern)
