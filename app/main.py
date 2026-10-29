@@ -976,6 +976,25 @@ def api_tool_job(tid: int, data: dict = Body(...), user=U):
     return {"job": tools.start_job(t, ids, user["username"])}
 
 
+@app.post("/api/tools-command")
+def api_tool_command(data: dict = Body(...), user=U):
+    """2.34: Befehl (PowerShell/CMD) direkt auf den gewählten Computern ausführen – ohne Tool anzulegen. Wie Tools
+    anlegen nur für Hauptadmins (OU-Admins: Route nicht freigegeben)."""
+    if access.scoped(user):
+        raise HTTPException(403, "Nur für Hauptadmins.")
+    try:
+        t = tools.adhoc_tool(data or {})
+    except ValueError as e:
+        _err(e)
+    ids = access.check_ids(user, data.get("ids"))[:500]
+    if not ids:
+        _err("Keine Computer ausgewählt.")
+    as_text = " als SYSTEM" if t["run_as"] == "system" else ""
+    pklog.info("tool", f"Befehl ({tools.TYPES[t['type']]}{as_text}) auf {len(ids)} Computer(n) gestartet:\n{t['script'][:2000]}",
+               user=user["username"])
+    return {"job": tools.start_job(t, ids, user["username"]), "name": t["name"]}
+
+
 @app.get("/api/tooljobs/{jid}")
 def api_tool_job_status(jid: str, user=U):
     j = tools.job(jid)

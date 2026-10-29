@@ -1402,7 +1402,7 @@ async function scanSubItems(getIds) {
 async function toolSubItems(getTargets) {
   const data = await toolsData();
   const exec = (fn) => async () => { const t = await getTargets(); if (!t.length) { toast('Keine Computer', 'err'); return; } fn(t); };
-  const items = BUILTIN_TOOLS.filter((b) => b.key !== 'scan').map((b) => ({ label: b.name, icon: b.icon, hint: hotkeyOf(`builtin:${b.key}`), onClick: exec((t) => runBuiltin(b, t)) }));
+  const items = BUILTIN_TOOLS.filter((b) => b.key !== 'scan' && !(b.main && isOU())).map((b) => ({ label: b.name, icon: b.icon, hint: hotkeyOf(`builtin:${b.key}`), onClick: exec((t) => runBuiltin(b, t)) }));
   const folders = {};
   data.tools.forEach((t) => (folders[t.folder || ''] = folders[t.folder || ''] || []).push(t));
   const toolItem = (t) => ({ label: t.name, icon: t.type === 'url' ? 'net' : 'terminal', hint: [t.run_as === 'system' ? 'SYSTEM' : '', hotkeyOf(`tool:${t.id}`)].filter(Boolean).join(' · '), onClick: exec((x) => runTool(t, x)) });
@@ -6000,6 +6000,7 @@ const BUILTIN_TOOLS = [
   { key: 'diskusage', name: 'Speicherplatz analysieren …', icon: 'db' },
   { key: 'files', name: 'Dateien (Explorer) …', icon: 'folder', view: 'files' },
   { key: 'eventlog', name: 'Ereignisanzeige …', icon: 'log', view: 'eventlog' },
+  { key: 'command', name: 'Befehl ausführen …', icon: 'terminal', main: true },
 ];
 // 2.32.6: Sitzungszustand angemeldeter Benutzer – gesperrt (Sperrbildschirm) oder getrennt (Remotedesktop/Benutzerwechsel)
 const USER_STATE = { locked: 'gesperrt', disconnected: 'getrennt' };
@@ -6075,7 +6076,8 @@ async function hotkeyRun2(ref, combo) {
     const b = BUILTIN_TOOLS.find((x) => x.key === ref.slice(8));
     if (!b) return;
     // Rückfrage kommt aus dem Tool selbst (Neustart-Dialog, Scanprofil) bzw. Ansichten öffnen nur einen Computer
-    name = tr(b.name); asks = !!b.confirm || ['scan', 'power', 'files', 'eventlog', 'diskusage'].includes(b.key); exec = () => runBuiltin(b, targets);
+    if (b.main && isOU()) return;
+    name = tr(b.name); asks = !!b.confirm || ['scan', 'power', 'files', 'eventlog', 'diskusage', 'command'].includes(b.key); exec = () => runBuiltin(b, targets);
   } else {
     const t = HK.tools.find((x) => `tool:${x.id}` === ref);
     if (!t) { toast('Das Tool zu diesem Tastenkürzel gibt es nicht mehr', 'err'); return; }
@@ -6278,6 +6280,7 @@ async function runBuiltin(b, targets) {
   }
   if (b.key === 'wake') { wakeDialog(targets); return; }
   if (b.key === 'power') { powerDialog(targets); return; }
+  if (b.key === 'command') { commandDlg(targets); return; }
   if (b.confirm && !(await confirmDlg(`„${b.name}“ auf ${targets.length === 1 ? targets[0].name : targets.length + ' Computern'} ausführen?`, 'Ausführen', true))) return;
   const exec = b.action
     ? (t) => POST(`/api/computers/${t.id}/action`, { action: b.key }).then((r) => ({ exit: 0, output: r.output || 'Ausgeführt.' }))
@@ -6345,7 +6348,8 @@ function wakeDialog(targets) {
   })();
 }
 
-function jobDialog(title, jid) {
+// Ergebnisse eines Tool-Auftrags (je Computer Status und Ausgabe) – im eigenen Fenster oder eingebettet (Befehl ausführen)
+function jobPanel(jid) {
   const body = h('div');
   let closed = false;
   let last = null;
@@ -6359,7 +6363,7 @@ function jobDialog(title, jid) {
     const done = rows.filter((r) => r.res).length;
     if (rows.length === 1) {
       const r = rows[0];
-      body.replaceChildren(h('div.row', { style: { marginBottom: '8px' } }, h('b', r.name), badge(r), secs(r)),
+      body.replaceChildren(h('div.row', { style: { marginBottom: '8px' } }, h('b.raw', r.name), badge(r), secs(r)),
         h('pre.out', r.res ? (r.res.output || '(keine Ausgabe)') : 'Wird ausgeführt …'));
       return;
     }
@@ -6368,28 +6372,99 @@ function jobDialog(title, jid) {
       h('span.muted.small', 'Läuft auf dem Server weiter, auch wenn Sie dieses Fenster schließen.')),
     h('div.run-list', rows.map((r) => {
       const d = h('details', { open: openSet.has(r.id) || (rows.length <= 3 && !!r.res) },
-        h('summary', h('b', r.name), badge(r), secs(r)),
+        h('summary', h('b.raw', r.name), badge(r), secs(r)),
         h('pre.out', r.res ? (r.res.output || '(keine Ausgabe)') : (r.status === 'läuft' ? 'Wird ausgeführt …' : 'Wartet …')));
       d.addEventListener('toggle', () => { if (d.open) openSet.add(r.id); else openSet.delete(r.id); });
       return d;
     })));
   }
-  const copyAll = () => {
-    const txt = ((last && last.targets) || []).map((r) => `=== ${r.name} (${r.status}) ===\n${(r.res && r.res.output) || ''}`).join('\n\n');
+  const copy = () => {
+    if (!last) { toast('Noch keine Ausgabe', 'err'); return; }
+    const txt = (last.targets || []).map((r) => `=== ${r.name} (${r.status}) ===\n${(r.res && r.res.output) || ''}`).join('\n\n');
     navigator.clipboard.writeText(txt).then(() => toast('Ausgabe kopiert', 'ok'), () => toast('Kopieren nicht möglich', 'err'));
   };
   body.append(h('div.muted', 'Wird gestartet …'));
-  modal(title, body, [{ label: 'Ausgabe kopieren', onClick: () => { copyAll(); return false; } }, { label: 'Schließen' }],
-    { wide: true, onClose: () => { closed = true; } });
   const poll = async () => {
     if (closed) return;
     try {
       const j = await GET(`/api/tooljobs/${jid}`);
+      if (closed) return;
       draw(j);
       if (j.targets.some((r) => !r.res)) setTimeout(poll, 1500);
-    } catch (e) { body.replaceChildren(h('div.empty', e.message)); }
+    } catch (e) { if (!closed) body.replaceChildren(h('div.empty', e.message)); }
   };
   poll();
+  return { el: body, copy, stop: () => { closed = true; }, running: () => !last || last.targets.some((r) => !r.res) };
+}
+
+function jobDialog(title, jid) {
+  const p = jobPanel(jid);
+  modal(title, p.el, [{ label: 'Ausgabe kopieren', onClick: () => { p.copy(); return false; } }, { label: 'Schließen' }],
+    { wide: true, onClose: p.stop });
+}
+
+// 2.34: Befehl (PowerShell/CMD) direkt ausführen – ohne vorher ein Tool anzulegen; auf Wunsch als Tool speichern.
+// Nur Hauptadmins (wie Tools anlegen). Die letzten Befehle merkt sich die Seite bis zum Neuladen (nicht gespeichert:
+// in einem Befehl kann ein Kennwort stehen).
+const CMD_HIST = [];
+const CMD_LAST = { type: 'powershell', script: '', run_as: 'service' };
+async function commandDlg(targets) {
+  if (isOU()) { toast('Befehle direkt ausführen dürfen nur Hauptadmins.', 'err'); return; }
+  const data = await toolsData();
+  let type = CMD_LAST.type;
+  const seg = h('div.seg');
+  const drawSeg = () => seg.replaceChildren(...[['powershell', 'PowerShell'], ['cmd', 'CMD']].map(([k, l]) =>
+    h('button', { type: 'button', class: type === k ? 'on' : '', onclick: () => { type = k; drawSeg(); hintUpd(); } }, l)));
+  const script = h('textarea.mono', { rows: 9, value: CMD_LAST.script, spellcheck: 'false', placeholder: 'z. B. Get-Service Spooler  bzw.  ipconfig /all' });
+  const runAs = sel(Object.entries(data.run_as), CMD_LAST.run_as);
+  const hint = h('div.hint');
+  const hintUpd = () => { hint.textContent = type === 'cmd' ? 'Befehle wie in einer .cmd-Datei, mehrzeilig möglich.' : 'PowerShell-Code, mehrzeilig möglich. Fehler setzen den Status auf „Fehler“.'; };
+  const hist = sel([['', CMD_HIST.length ? `Zuletzt verwendet (${CMD_HIST.length}) …` : 'Noch keine Befehle in dieser Sitzung'],
+    ...CMD_HIST.map((x, i) => [String(i), `${x.type === 'cmd' ? 'CMD' : 'PS'} · ${x.script.split('\n')[0].slice(0, 80)}`])], '');
+  hist.disabled = !CMD_HIST.length;
+  hist.addEventListener('change', () => {
+    const x = CMD_HIST[Number(hist.value)];
+    if (x) { type = x.type; script.value = x.script; runAs.value = x.run_as; drawSeg(); hintUpd(); }
+    hist.value = '';
+  });
+  const names = targets.slice(0, 8).map((t) => t.name).join(', ') + (targets.length > 8 ? ` … (+${targets.length - 8})` : '');
+  const out = h('div', { style: { marginTop: '12px' } });
+  let panel = null;
+  drawSeg(); hintUpd();
+  const form = h('div.form', field('Ziele', h('span.raw', `${names}${targets.length > 1 ? ` – ${targets.length} Computer` : ''}`)),
+    field('Typ', seg), field('Ausführen als', runAs, 'Dienstkonto: direkt über WinRM, schnell. SYSTEM: über eine geplante Aufgabe.'),
+    h('label', 'Befehl'), script, hint, field('Verlauf', hist),
+    h('div.full.muted.small', 'Variablen: $(Computer) $(Host) $(IP) $(MAC) $(User) $(Domain)'));
+  const cur = () => ({ type, script: script.value.replace(/\s+$/, ''), run_as: runAs.value });
+  let busy = false;
+  const exec = async () => {
+    if (busy) return false;
+    busy = true;
+    try { return await exec2(); } finally { busy = false; }
+  };
+  const exec2 = async () => {
+    const c = cur();
+    if (!c.script.trim()) { toast('Bitte einen Befehl eingeben.', 'err'); return false; }
+    if (targets.length > 1 && !(await confirmDlg(`Befehl auf ${targets.length} Computern ausführen?`, 'Ausführen', true))) return false;
+    const r = await run(() => POST('/api/tools-command', { ...c, ids: targets.map((x) => x.id) }));
+    if (!r) return false;
+    Object.assign(CMD_LAST, c);
+    const k = CMD_HIST.findIndex((x) => x.type === c.type && x.script === c.script && x.run_as === c.run_as);
+    if (k >= 0) CMD_HIST.splice(k, 1);
+    CMD_HIST.unshift({ ...c });
+    CMD_HIST.splice(20);
+    if (panel) panel.stop();
+    panel = jobPanel(r.job);
+    out.replaceChildren(h('h3', { style: { margin: '0 0 8px' } }, 'Ergebnis'), panel.el);
+    return false;  // Fenster bleibt offen: Befehl anpassen und erneut ausführen
+  };
+  script.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.ctrlKey) { e.preventDefault(); exec().catch((x) => toast(x.message || String(x), 'err')); } });
+  modal(targets.length === 1 ? `Befehl ausführen – ${targets[0].name}` : `Befehl ausführen – ${targets.length} Computer`, h('div', form, out), [
+    { label: 'Als Tool speichern …', onClick: () => { const c = cur(); if (!c.script.trim()) { toast('Bitte einen Befehl eingeben.', 'err'); return false; } toolDlg({ name: '', folder: '', description: '', confirm: 0, ...c }); return false; } },
+    { label: 'Ausgabe kopieren', onClick: () => { if (panel) panel.copy(); else toast('Noch keine Ausgabe', 'err'); return false; } },
+    { label: 'Schließen' },
+    { label: 'Ausführen (Strg+Enter)', cls: 'primary', onClick: exec },
+  ], { wide: true, sticky: true, onClose: () => { const c = cur(); CMD_LAST.type = c.type; CMD_LAST.script = c.script; CMD_LAST.run_as = c.run_as; if (panel) panel.stop(); } });
 }
 
 function runDialog(title, targets, exec) {
@@ -6461,6 +6536,7 @@ async function viewTools() {
     const els = [h('div.trow.thead', h('span', 'Name'), h('span', 'Typ'), h('span', 'Ausführung'), h('span', 'Beschreibung'))];
     for (const b of BUILTIN_TOOLS) {
       if (f && !b.name.toLowerCase().includes(f)) continue;
+      if (b.main && isOU()) continue;
       els.push(row(b.icon, b.name, 'eingebaut', b.key.endsWith('web') || b.view ? 'im Browser' : b.action ? 'Dienstkonto' : 'POCKET KNIFE', BUILTIN_DESC[b.key] || '', null, 'builtin', hotkeyOf(`builtin:${b.key}`)));
     }
     els.push(h('div.tsep'));
@@ -6494,11 +6570,12 @@ const BUILTIN_DESC = {
   diskusage: 'Ordnergrößen als Ringdiagramm, mit Zoom in die Ebenen',
   files: 'Dateien auf dem Client durchsuchen, kopieren, verschieben, löschen, herunter- und hochladen',
   eventlog: 'Windows-Ereignisprotokolle im Browser ansehen',
+  command: 'PowerShell- oder CMD-Befehl direkt ausführen, auf Wunsch als Tool speichern (nur Hauptadmins)',
 };
 
 async function toolDlg(tool, presetFolder) {
   const data = await toolsData();
-  const isNew = !tool;
+  const isNew = !tool || !tool.id;  // 2.34: ohne id = neues Tool mit Vorgaben (aus „Befehl ausführen“)
   tool = tool || { name: '', folder: presetFolder || '', type: 'powershell', script: '', run_as: 'service', confirm: 0, description: '' };
   const name = h('input', { value: tool.name });
   const folders = [...new Set(data.tools.map((x) => x.folder).filter(Boolean))].sort();

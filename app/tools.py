@@ -78,13 +78,15 @@ SEED = [
 # bei eingebauten Tools unter Tools → „Tastenkürzel …“ (mit sinnvollen Vorgaben). Immer Strg+Alt, wahlweise mit
 # Umschalt, dazu A–Z, 0–9 oder F1–F12. Gespeichert in einer festen Schreibweise, z. B. „Ctrl+Alt+P“.
 BUILTIN_KEYS = ("ping", "rdpweb", "vncweb", "wake", "power", "abort", "gpupdate", "winget", "scan",
-                "diskusage", "files", "eventlog")
+                "diskusage", "files", "eventlog", "command")
 BUILTIN_NAMES = {"ping": "Ping & Ports", "rdpweb": "Remotedesktop im Browser", "vncweb": "VNC im Browser",
                  "wake": "Wake-on-LAN", "power": "Neustart / Herunterfahren …", "abort": "Neustart/Herunterfahren abbrechen",
                  "gpupdate": "gpupdate /force", "winget": "winget prüfen / nachinstallieren", "scan": "Scannen mit Profil …",
-                 "diskusage": "Speicherplatz analysieren …", "files": "Dateien (Explorer) …", "eventlog": "Ereignisanzeige …"}
+                 "diskusage": "Speicherplatz analysieren …", "files": "Dateien (Explorer) …", "eventlog": "Ereignisanzeige …",
+                 "command": "Befehl ausführen …"}
 BUILTIN_HOTKEY_DEFAULTS = {"ping": "Ctrl+Alt+P", "rdpweb": "Ctrl+Alt+R", "vncweb": "Ctrl+Alt+V", "wake": "Ctrl+Alt+W",
-                           "power": "Ctrl+Alt+B", "gpupdate": "Ctrl+Alt+G", "files": "Ctrl+Alt+D", "eventlog": "Ctrl+Alt+E"}
+                           "power": "Ctrl+Alt+B", "gpupdate": "Ctrl+Alt+G", "files": "Ctrl+Alt+D", "eventlog": "Ctrl+Alt+E",
+                           "command": "Ctrl+Alt+C"}
 HOTKEY_RE = re.compile(r"^Ctrl\+Alt\+(Shift\+)?([A-Z]|[0-9]|F[1-9]|F1[0-2])$")
 
 
@@ -112,6 +114,11 @@ def builtin_hotkeys():
         saved = json.loads(db.setting_raw("builtin_hotkeys") or "{}")
     except (ValueError, TypeError):
         saved = {}
+    # 2.34: neue Vorgabe (z. B. Strg+Alt+C für „Befehl ausführen“) nicht, wenn ein eigenes Tool das Kürzel schon hat
+    taken = {r["hotkey"] for r in db.q("SELECT hotkey FROM tools WHERE hotkey IS NOT NULL AND hotkey != ''")}
+    for k in list(out):
+        if out[k] in taken and not (isinstance(saved, dict) and k in saved):
+            out[k] = ""
     for k, v in (saved.items() if isinstance(saved, dict) else ()):
         if k in BUILTIN_KEYS:
             try:
@@ -806,6 +813,33 @@ def scan_after(tool, cid, user, ok, res):
         res["output"] = (res.get("output") or "") + f"\n\nDanach: Scan mit „{prof['name']}“ gestartet."
     except Exception as e:  # noqa: BLE001
         res["output"] = (res.get("output") or "") + f"\n\nDanach scannen nicht möglich: {e}"
+
+
+# --- 2.34: Befehl direkt ausführen (ohne Tool anzulegen) -------------------------------------------
+ADHOC_MAX = 20_000  # Zeichen
+
+
+def adhoc_tool(data):
+    """Freier Befehl als einmaliges Tool – gleiche Ausführung wie ein eigenes Tool (WinRM bzw. SYSTEM über eine
+    geplante Aufgabe), ohne Dateien aus dem Repository. Nur für Hauptadmins (wie Tools anlegen)."""
+    typ = str(data.get("type") or "")
+    if typ not in ("powershell", "cmd"):
+        raise ValueError("Typ: PowerShell oder CMD.")
+    run_as = str(data.get("run_as") or "service")
+    if run_as not in RUN_AS:
+        raise ValueError("Ungültige Ausführung.")
+    script = str(data.get("script") or "").replace("\r\n", "\n").strip("\n")
+    if not script.strip():
+        raise ValueError("Bitte einen Befehl eingeben.")
+    if len(script) > ADHOC_MAX:
+        raise ValueError(f"Befehl zu lang (höchstens {ADHOC_MAX} Zeichen) – dafür besser ein Tool oder Paket anlegen.")
+    d = {"name": "Befehl", "type": typ, "run_as": run_as, "script": script.replace("\n", "\r\n"),
+         "timeout_s": data.get("timeout_s"), "success_codes": data.get("success_codes")}
+    clean_extras(d)  # Zeitlimit und Erfolgscodes wie im Tool prüfen
+    first = next((l.strip() for l in script.splitlines() if l.strip()), "")
+    d.update(id="adhoc", repo_path="", scan_after="never", scan_profile_id=None,
+             name=f"Befehl: {first[:60]}{'…' if len(first) > 60 or len(script.splitlines()) > 1 else ''}")
+    return d
 
 
 def start_job(tool, ids, user):

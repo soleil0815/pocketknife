@@ -5986,6 +5986,61 @@ def _():
         db.ex("DELETE FROM computers WHERE id=?", (cid,))
 
 
+@test("2.34 Befehl ausführen: PowerShell/CMD direkt ohne Tool, nur Hauptadmins, protokolliert, als Tool speicherbar, Strg+Alt+C nur wenn frei")
+def _():
+    import time as _t
+    from app import tools, remote, main as _m, pklog
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+    t = tools.adhoc_tool({"type": "powershell", "script": "Get-Service Spooler\r\nGet-Date\n\n"})
+    assert t["type"] == "powershell" and t["run_as"] == "service" and t["script"] == "Get-Service Spooler\r\nGet-Date", t["script"]
+    assert t["name"].startswith("Befehl: Get-Service Spooler") and t["name"].endswith("…") and not t["repo_path"] and t["scan_after"] == "never"
+    assert tools.adhoc_tool({"type": "cmd", "script": "ipconfig", "run_as": "system"})["name"] == "Befehl: ipconfig"
+    for bad, txt in (({"type": "url", "script": "http://x"}, "PowerShell oder CMD"), ({"type": "cmd", "script": "  \n "}, "Befehl eingeben"),
+                     ({"type": "cmd", "script": "x", "run_as": "root"}, "Ausführung"),
+                     ({"type": "cmd", "script": "x" * (tools.ADHOC_MAX + 1)}, "zu lang"),
+                     ({"type": "cmd", "script": "x", "timeout_s": 3}, "Zeitlimit")):
+        must_fail(tools.adhoc_tool, bad, contains=txt)
+    # OU-Admins: Route nicht freigegeben, Handler prüft zusätzlich
+    assert ("POST", "/api/tools-command") not in _m.access.ROUTES
+    try:
+        _m.api_tool_command({"type": "cmd", "script": "whoami", "ids": [1]}, {"username": "ou-x", "scope": [1]})
+        raise AssertionError("OU-Admin durfte Befehl ausführen")
+    except _m.HTTPException as e:
+        assert e.status_code == 403
+    # Ausführung wie ein Tool, Befehl im Protokoll
+    c = db.ex("INSERT INTO computers(name, dns_name) VALUES('CMD-PC1', 'cmd-pc1.firma.local')")
+    old_ps, logs = remote.ps, []
+    old_info = pklog.info
+    remote.ps = lambda host, script, timeout=None, **kw: ("Spooler Running\nPKEXIT:0", "", False)
+    pklog.info = lambda cat, msg, **kw: logs.append(msg)
+    try:
+        r = _m.api_tool_command({"type": "powershell", "script": "Get-Service Spooler", "ids": [c]}, {"username": "haupt", "scope": None})
+        for _ in range(100):
+            j = tools.job(r["job"])
+            if all(x["res"] for x in j["targets"]):
+                break
+            _t.sleep(0.05)
+        assert j["targets"][0]["status"] == "OK" and "Spooler Running" in j["targets"][0]["res"]["output"], j
+        assert any("Get-Service Spooler" in m and "gestartet" in m for m in logs), logs
+    finally:
+        remote.ps, pklog.info = old_ps, old_info
+        db.ex("DELETE FROM computers WHERE id=?", (c,))
+    # Tastenkürzel: Vorgabe Strg+Alt+C nur, wenn kein eigenes Tool es hat
+    assert "command" in tools.BUILTIN_KEYS and tools.builtin_hotkeys().get("command") == "Ctrl+Alt+C"
+    tid = db.ex("INSERT INTO tools(name, type, script, hotkey) VALUES('Eigenes C', 'cmd', 'ver', 'Ctrl+Alt+C')")
+    try:
+        assert "command" not in tools.builtin_hotkeys() and tools.hotkey_owner("Ctrl+Alt+C") == "Eigenes C"
+    finally:
+        db.ex("DELETE FROM tools WHERE id=?", (tid,))
+    js = open(os.path.join(root, "app", "static", "app.js"), encoding="utf-8").read()
+    dlg = js[js.index("async function commandDlg(targets)"):]
+    dlg = dlg[:dlg.index("\n}\n")]
+    assert "/api/tools-command" in dlg and "toolDlg({" in dlg and "return false;  // Fenster bleibt offen" in dlg and "if (busy) return false;" in dlg
+    assert "localStorage" not in dlg, "Verlauf nicht speichern (Kennwörter)"
+    assert "{ key: 'command', name: 'Befehl ausführen …', icon: 'terminal', main: true }" in js and "if (b.key === 'command') { commandDlg(targets); return; }" in js
+    assert "const isNew = !tool || !tool.id;" in js
+
+
 def main():
     ok = 0
     for name, fn in RESULTS:

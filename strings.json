@@ -4215,6 +4215,11 @@
 "src": "main.py"
 },
 {
+"s": " als SYSTEM",
+"kind": "exact",
+"src": "main.py"
+},
+{
 "s": " in {0} s",
 "kind": "tpl",
 "src": "main.py"
@@ -4351,6 +4356,11 @@
 },
 {
 "s": "Automatisches Scannen für {0} Computer {1}.",
+"kind": "tpl",
+"src": "main.py"
+},
+{
+"s": "Befehl ({0}{1}) auf {2} Computer(n) gestartet:\n{3}",
 "kind": "tpl",
 "src": "main.py"
 },
@@ -5046,6 +5056,11 @@
 },
 {
 "s": "Nur der Repository-Ordner Ihres Mandanten ist freigegeben.",
+"kind": "exact",
+"src": "main.py"
+},
+{
+"s": "Nur für Hauptadmins.",
 "kind": "exact",
 "src": "main.py"
 },
@@ -9285,6 +9300,11 @@
 "src": "static/app.js"
 },
 {
+"s": " – {0} Computer",
+"kind": "tpl",
+"src": "static/app.js"
+},
+{
 "s": " – {0} Computer gehören nicht zum Mandanten und wurden ausgelassen",
 "kind": "tpl",
 "src": "static/app.js"
@@ -9401,6 +9421,11 @@
 },
 {
 "s": "0 0 6px",
+"kind": "exact",
+"src": "static/app.js"
+},
+{
+"s": "0 0 8px",
 "kind": "exact",
 "src": "static/app.js"
 },
@@ -10150,6 +10175,11 @@
 "src": "static/app.js"
 },
 {
+"s": "Als Tool speichern …",
+"kind": "exact",
+"src": "static/app.js"
+},
+{
 "s": "Als Vorlage kopieren",
 "kind": "exact",
 "src": "static/app.js"
@@ -10555,6 +10585,11 @@
 "src": "static/app.js"
 },
 {
+"s": "Ausführen (Strg+Enter)",
+"kind": "exact",
+"src": "static/app.js"
+},
+{
 "s": "Ausführen als",
 "kind": "exact",
 "src": "static/app.js"
@@ -10905,6 +10940,26 @@
 "src": "static/app.js"
 },
 {
+"s": "Befehl auf {0} Computern ausführen?",
+"kind": "tpl",
+"src": "static/app.js"
+},
+{
+"s": "Befehl ausführen – {0}",
+"kind": "tpl",
+"src": "static/app.js"
+},
+{
+"s": "Befehl ausführen – {0} Computer",
+"kind": "tpl",
+"src": "static/app.js"
+},
+{
+"s": "Befehl ausführen …",
+"kind": "exact",
+"src": "static/app.js"
+},
+{
 "s": "Befehl für Software",
 "kind": "exact",
 "src": "static/app.js"
@@ -10915,12 +10970,22 @@
 "src": "static/app.js"
 },
 {
+"s": "Befehle direkt ausführen dürfen nur Hauptadmins.",
+"kind": "exact",
+"src": "static/app.js"
+},
+{
 "s": "Befehle für einzelne oder mehrere Computer – aufrufbar über „Tools ▾“ oder per Rechtsklick auf Computer",
 "kind": "exact",
 "src": "static/app.js"
 },
 {
 "s": "Befehle wie in einer .cmd-Datei, mehrzeilig möglich, z. B. ipconfig /all",
+"kind": "exact",
+"src": "static/app.js"
+},
+{
+"s": "Befehle wie in einer .cmd-Datei, mehrzeilig möglich.",
 "kind": "exact",
 "src": "static/app.js"
 },
@@ -11301,6 +11366,11 @@
 },
 {
 "s": "Bitte ein Paket wählen",
+"kind": "exact",
+"src": "static/app.js"
+},
+{
+"s": "Bitte einen Befehl eingeben.",
 "kind": "exact",
 "src": "static/app.js"
 },
@@ -12186,6 +12256,11 @@
 },
 {
 "s": "Dienstkonto: direkt über WinRM, schnell. SYSTEM: über eine geplante Aufgabe, z. B. für SFC oder Dinge, die als Computerkonto laufen müssen.",
+"kind": "exact",
+"src": "static/app.js"
+},
+{
+"s": "Dienstkonto: direkt über WinRM, schnell. SYSTEM: über eine geplante Aufgabe.",
 "kind": "exact",
 "src": "static/app.js"
 },
@@ -15595,6 +15670,11 @@
 "src": "static/app.js"
 },
 {
+"s": "Noch keine Ausgabe",
+"kind": "exact",
+"src": "static/app.js"
+},
+{
 "s": "Noch keine Ausnahmen.",
 "kind": "exact",
 "src": "static/app.js"
@@ -15616,6 +15696,11 @@
 },
 {
 "s": "Noch keine Bedingung – ohne Bedingung enthält die Sammlung alle Computer.",
+"kind": "exact",
+"src": "static/app.js"
+},
+{
+"s": "Noch keine Befehle in dieser Sitzung",
 "kind": "exact",
 "src": "static/app.js"
 },
@@ -16445,7 +16530,17 @@
 "src": "static/app.js"
 },
 {
+"s": "PowerShell- oder CMD-Befehl direkt ausführen, auf Wunsch als Tool speichern (nur Hauptadmins)",
+"kind": "exact",
+"src": "static/app.js"
+},
+{
 "s": "PowerShell-Code",
+"kind": "exact",
+"src": "static/app.js"
+},
+{
+"s": "PowerShell-Code, mehrzeilig möglich. Fehler setzen den Status auf „Fehler“.",
 "kind": "exact",
 "src": "static/app.js"
 },
@@ -19406,6 +19501,11 @@
 },
 {
 "s": "Zuletzt gesendet: {0}",
+"kind": "tpl",
+"src": "static/app.js"
+},
+{
+"s": "Zuletzt verwendet ({0}) …",
 "kind": "tpl",
 "src": "static/app.js"
 },
@@ -24060,6 +24160,16 @@
 "src": "tools.py"
 },
 {
+"s": "Befehl zu lang (höchstens {0} Zeichen) – dafür besser ein Tool oder Paket anlegen.",
+"kind": "tpl",
+"src": "tools.py"
+},
+{
+"s": "Befehl: {0}{1}",
+"kind": "tpl",
+"src": "tools.py"
+},
+{
 "s": "BitLocker C: Status",
 "kind": "exact",
 "src": "tools.py"
@@ -24091,6 +24201,11 @@
 },
 {
 "s": "Ctrl+Alt+B",
+"kind": "exact",
+"src": "tools.py"
+},
+{
+"s": "Ctrl+Alt+C",
 "kind": "exact",
 "src": "tools.py"
 },
@@ -24412,6 +24527,11 @@
 {
 "s": "Tool '{0}' auf {1}: {2} (Exitcode {3}).",
 "kind": "tpl",
+"src": "tools.py"
+},
+{
+"s": "Typ: PowerShell oder CMD.",
+"kind": "exact",
 "src": "tools.py"
 },
 {
