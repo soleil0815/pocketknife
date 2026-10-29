@@ -1,5 +1,9 @@
 # Änderungen
 
+## pocketknife-2.32.12 (29.10.2026)
+- **Behoben – Knopf „Jetzt aktualisieren“ fehlte (Update-Helfer: „host does not belong to root“):** Beim Start übergibt POCKET KNIFE den Datenordner dem Dienstbenutzer (chown) – seit 2.32.10 auch `data/update/host/`, den Ordner, der root gehören muss. Nach jedem Neustart lehnte der Helfer ihn deshalb ab und meldete sich nicht mehr. Jetzt lässt der Start diesen Ordner aus, und der Helfer übernimmt einen Ordner, den der Container besitzt, selbst wieder (nur der Ordner selbst wird umgestellt, sein Inhalt nur gelöscht – keinem Link wird gefolgt)
+- **Selbsttest:** Start lässt `update/host` beim Übergeben aus; Helfer übernimmt einen Ordner des Containers (Links darin werden gelöscht, nie verfolgt), lehnt einen Ordner eines Dritten ab
+
 ## pocketknife-2.32.11 (29.10.2026)
 - **Behoben – interner Fehler bei „Angemeldete Benutzer“ (`POST /api/computers/<id>/loggedon`, IndexError):** Waren alle Sitzungen aktiv (keine gesperrt oder getrennt), stand die Zeile `PKSTATES:` leer ganz am Ende der Ausgabe – das Auslesen scheiterte daran (seit 2.32.6). Gleiche Schwachstelle an drei weiteren Stellen beseitigt (Dateien-Explorer bei leerer Antwort, Titel eines Schritts ohne Befehl, SMTP-Test)
 - **Selbsttest:** leere bzw. fehlende Zustandszeile, Schritt ohne Befehl/Skript

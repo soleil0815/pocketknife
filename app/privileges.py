@@ -21,11 +21,18 @@ def _ids():
     return num("PK_UID", DEFAULT_UID), num("PK_GID", DEFAULT_GID)
 
 
-def chown_tree(path, uid, gid):
-    """Alles unterhalb von path (ohne Verknüpfungen zu folgen) uid:gid geben. Gibt (geändert, fehler) zurück."""
+# 2.32.12: Ordner des Update-Helfers auf dem Host (data/update/host) gehört root und bleibt es – sonst lehnt der Helfer
+# ihn ab (er schreibt nie in einen Ordner, den der Container ändern kann)
+KEEP_OWNER = (os.path.join("update", "host"),)
+
+
+def chown_tree(path, uid, gid, keep=KEEP_OWNER):
+    """Alles unterhalb von path (ohne Verknüpfungen zu folgen) uid:gid geben – außer den Ordnern in keep (relativ zu
+    path, samt Inhalt). Gibt (geändert, fehler) zurück."""
     changed, errors = 0, []
     if not os.path.isdir(path):
         return changed, errors
+    skip = {os.path.normpath(os.path.join(path, k)) for k in keep or ()}
 
     def fix(p):
         nonlocal changed
@@ -40,6 +47,7 @@ def chown_tree(path, uid, gid):
 
     fix(path)
     for root, dirs, files in os.walk(path, onerror=lambda e: errors.append(str(e)) if len(errors) < 5 else None):
+        dirs[:] = [n for n in dirs if os.path.normpath(os.path.join(root, n)) not in skip]
         for n in dirs + files:
             fix(os.path.join(root, n))
     return changed, errors

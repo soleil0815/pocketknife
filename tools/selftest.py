@@ -6137,11 +6137,28 @@ def _():
     r = run()
     assert r.returncode != 0 and not os.listdir(elsewhere), (r.stderr, os.listdir(elsewhere))
     os.remove(H)
-    if os.geteuid() == 0:  # host/ gehört jemand anderem (vom Container angelegt) → nicht benutzt
+    if os.geteuid() == 0:  # host/ gehört einem Dritten (weder root noch dem Container) → nicht benutzt
         os.makedirs(H); os.chown(H, 65534, 65534)
         r = run()
-        assert r.returncode != 0 and "does not belong" in r.stderr and not os.listdir(H), r.stderr
+        assert r.returncode != 0 and "belongs to neither" in r.stderr and not os.listdir(H), r.stderr
         os.rmdir(H)
+        # 2.32.12: host/ gehört dem Container (2.32.10/11 gaben ihn bei jedem Start per chown zurück) → übernehmen,
+        # Inhalt nur löschen (Links nie verfolgen), danach normal weiter
+        geheim = os.path.join(base, "geheim.txt"); open(geheim, "w").write("GEHEIM\n")
+        os.chown(U, 10001, 10001); os.makedirs(H); os.chown(H, 10001, 10001)
+        os.symlink(geheim, os.path.join(H, "status")); os.symlink(base, os.path.join(H, "update.log"))
+        open(os.path.join(H, "helper"), "w").write("x"); os.chown(os.path.join(H, "helper"), 10001, 10001)
+        r = run()
+        assert r.returncode == 0 and os.stat(H).st_uid == 0 and not os.path.islink(os.path.join(H, "status")), (r.stderr, os.listdir(H))
+        assert open(geheim).read() == "GEHEIM\n" and os.stat(os.path.join(H, "helper")).st_uid == 0, "Ziel des Links unberührt, Lebenszeichen neu"
+        os.chown(U, 0, 0)
+        # und der Start des Containers gibt host/ nicht mehr zurück (chown des Datenordners lässt ihn aus)
+        from app import privileges as _pv
+        open(os.path.join(data, "x.txt"), "w").close()
+        _pv.chown_tree(data, 10001, 10001)
+        assert os.stat(os.path.join(data, "x.txt")).st_uid == 10001 and os.stat(H).st_uid == 0 and os.stat(os.path.join(H, "helper")).st_uid == 0
+        assert os.stat(U).st_uid == 10001
+        _pv.chown_tree(data, 0, 0)
     # abgebrochenes Update (Neustart des Hosts): „läuft“ wird zu „fehlgeschlagen (interrupted)“
     os.makedirs(H, exist_ok=True)
     open(os.path.join(H, "status"), "w").write("state=running\nfrom=2.32.8\ntarget=2.32.9\nby=adm\nstarted=5\n")

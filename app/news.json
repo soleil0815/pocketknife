@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.32.12",
+   "date": "2026-10-29",
+   "items": [
+    {
+     "kind": "fixed",
+     "audience": "admin",
+     "de": "Der Knopf „Jetzt aktualisieren“ fehlte nach einem Neustart von POCKET KNIFE: Der Start gab den Ordner des Update-Helfers an den Container zurück, der Helfer lehnte ihn dann ab. Jetzt bleibt er beim Helfer, und dieser repariert den Ordner selbst.",
+     "en": "The \"Update now\" button was missing after a restart of POCKET KNIFE: the start gave the update helper's folder back to the container, and the helper then refused it. Now it stays with the helper, which also repairs the folder itself."
+    }
+   ]
+  },
+  {
    "version": "2.32.11",
    "date": "2026-10-29",
    "items": [
