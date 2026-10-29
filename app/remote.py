@@ -1324,7 +1324,8 @@ if ($cs) { $u += $cs }
 
 def parse_states(out):
     """2.32.6: {"DOM\\user": "locked"|"disconnected"} aus der Zeile PKSTATES: (aktive Sitzungen fehlen)."""
-    line = out.split("PKSTATES:", 1)[1].splitlines()[0] if "PKSTATES:" in (out or "") else ""
+    # nur die Zeile mit PKSTATES: – sie ist leer, wenn alle Sitzungen aktiv sind (2.32.11: ohne Zeilenende danach kein Fehler)
+    line = (out.split("PKSTATES:", 1)[1].splitlines() or [""])[0] if "PKSTATES:" in (out or "") else ""
     res = {}
     for part in line.split(";"):
         k, _, v = part.strip().partition("=")

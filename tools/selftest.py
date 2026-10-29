@@ -5760,6 +5760,11 @@ def _():
     assert "user_states" in scan
     assert remote.parse_states("PKUSERS:x\nPKSTATES:DOM\\a=locked;DOM\\b=disconnected;DOM\\c=active;kaputt") == \
         {"DOM\\a": "locked", "DOM\\b": "disconnected"}
+    # 2.32.11: alle Sitzungen aktiv → „PKSTATES:“ ganz am Ende ohne Zeilenende (war IndexError → interner Fehler 500)
+    for o in ("PKUSERS:DOM\\a\nPKSTATES:", "PKUSERS:DOM\\a\r\nPKSTATES:\r\n", "PKSTATES:", "", None):
+        assert remote.parse_states(o) == {}, repr(o)
+    from app import steps as _stp
+    assert _stp.step_title({"type": "command", "command": ""}) == "Befehl: " and _stp.step_title({"type": "powershell", "script": None}) == "PowerShell: "
     pw = os.environ.get("PK_PWSH")
     if not (pw and os.path.exists(pw)):
         return

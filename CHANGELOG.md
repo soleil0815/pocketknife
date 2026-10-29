@@ -1,5 +1,9 @@
 # Änderungen
 
+## pocketknife-2.32.11 (29.10.2026)
+- **Behoben – interner Fehler bei „Angemeldete Benutzer“ (`POST /api/computers/<id>/loggedon`, IndexError):** Waren alle Sitzungen aktiv (keine gesperrt oder getrennt), stand die Zeile `PKSTATES:` leer ganz am Ende der Ausgabe – das Auslesen scheiterte daran (seit 2.32.6). Gleiche Schwachstelle an drei weiteren Stellen beseitigt (Dateien-Explorer bei leerer Antwort, Titel eines Schritts ohne Befehl, SMTP-Test)
+- **Selbsttest:** leere bzw. fehlende Zustandszeile, Schritt ohne Befehl/Skript
+
 ## pocketknife-2.32.10 (29.10.2026)
 Code-Review des Updates per Knopf (2.32.9) – die Funde sind behoben:
 - **Sicherheit – root schreibt nie in einen Ordner des Containers:** Der Update-Helfer schrieb Stand und Protokoll direkt nach `data/update/`, einen Ordner, den der Container verändern kann – mit einem dort angelegten Link hätte er root Dateien an anderer Stelle schreiben lassen können. Jetzt schreibt der Helfer nur in `data/update/host/`, einen Ordner, der root gehört (gehört er jemand anderem oder ist er ein Link, wird er nicht benutzt). Den Auftrag verschiebt er zuerst dorthin und liest ihn erst dann (ein Verschieben folgt keinem Link; nur eine normale Datei des Containers)
