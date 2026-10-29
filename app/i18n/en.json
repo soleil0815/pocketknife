@@ -5317,5 +5317,10 @@
  "Ja, auch die Domänencontroller": "Yes, the domain controllers too",
  "Ja, auch die Server": "Yes, the servers too",
  "Rolle": "Role",
- "{0} angemeldet": "{0} signed in"
+ "{0} angemeldet": "{0} signed in",
+ "Diese Software wird per winget installiert – das gibt es erst ab Windows 10 1809 / Windows Server 2019.": "This software installs via winget – that only exists from Windows 10 1809 / Windows Server 2019.",
+ "Keine Computer mit veralteter Version gefunden, auf denen winget läuft.": "No computers with an outdated version found on which winget runs.",
+ "nicht unterstützt": "not supported",
+ "winget gibt es erst ab Windows 10 1809 / Windows Server 2019 – veraltete Programme hier mit einem eigenen Paket aktualisieren.": "winget only exists from Windows 10 1809 / Windows Server 2019 – update outdated programs here with your own package.",
+ "ohne winget": "no winget"
 }

@@ -1366,6 +1366,11 @@ async function viewDashboard() {
   every(30000, () => { if (parseHash().parts[0] === 'dashboard') route(); });
 }
 
+// winget läuft erst ab Windows 10 1809 / Windows Server 2019 (Build 17763) – wie deploy.WINGET_MIN_BUILD
+const WINGET_MIN_BUILD = 17763;
+const WINGET_NA = 'winget gibt es erst ab Windows 10 1809 / Windows Server 2019 – veraltete Programme hier mit einem eigenen Paket aktualisieren.';
+const wingetOk = (c) => !c || !c.os_build || !(Number(c.os_build) < WINGET_MIN_BUILD);
+
 async function updateOutdated(wid, computerIds = null) {
   let ids = computerIds;
   if (!ids) {
@@ -1374,11 +1379,11 @@ async function updateOutdated(wid, computerIds = null) {
     ids = [];
     for (const n of names) {
       const det = await GET('/api/software/detail?name=' + encodeURIComponent(n));
-      det.computers.filter((c) => c.outdated).forEach((c) => ids.push(c.id));
+      det.computers.filter((c) => c.outdated && wingetOk(c)).forEach((c) => ids.push(c.id));
     }
   }
   ids = [...new Set(ids)];
-  if (!ids.length) { toast('Keine Computer mit veralteter Version gefunden.'); return; }
+  if (!ids.length) { toast(computerIds ? 'Keine Computer mit veralteter Version gefunden.' : 'Keine Computer mit veralteter Version gefunden, auf denen winget läuft.'); return; }
   if (!(await confirmDlg(`${wid} auf ${ids.length} Computer(n) per winget aktualisieren?`, 'Aktualisieren'))) return;
   const r = await run(() => POST('/api/deployments', { winget_id: wid, action: 'upgrade', computer_ids: ids }), 'Bereitstellung gestartet');
   if (r) go(`#/deployment/${r.id}`);
@@ -1660,7 +1665,7 @@ async function viewComputers(_parts, params) {
     { key: 'cpu', label: 'Prozessor', hidden: true, cls: 'trunc' },
     { key: 'ram_gb', label: 'RAM (GB)', hidden: true, cls: 'right' },
     { key: 'os_arch', label: 'Architektur', hidden: true },
-    { key: 'winget', label: 'winget', hidden: true, value: (r) => r.winget || (r.last_scan ? 'fehlt' : '') },
+    { key: 'winget', label: 'winget', hidden: true, value: (r) => (!wingetOk(r) ? 'nicht unterstützt' : r.winget || (r.last_scan ? 'fehlt' : '')) },
     { key: 'ip_addresses', label: 'IP', cls: 'trunc' },
     { key: 'resolved_ip', label: 'DNS-Adresse', cls: 'mono', hidden: true, title: (r) => (r.addr_problem ? tr(r.addr_detail || "") : undefined) },
     { key: 'mac_addresses', label: 'MAC', hidden: true, cls: 'trunc' },
@@ -2499,6 +2504,7 @@ function pcOverview(c, link) {
       fRow('Version', c.os_version && c.os_build ? c.os_version.split('.').slice(0, 2).join('.') + '.' + c.os_build : c.os_version),
       fRow('SP / Release', c.os_display_version, null, ['os_display_version', c.os_display_version]), fRow('Installiert', fmtDate(c.os_install_date)), fRow('Seriennummer', e.os_serial),
       fRow('Systemlaufwerk', (e.system_drive || '').replace(':', ''), link('disks')), fRow('PowerShell-Version', e.ps_version, null, ['ps_version', e.ps_version]),
+      fRow('winget', !wingetOk(c) ? h('span.badge', { title: WINGET_NA }, 'nicht unterstützt') : e.winget || (c.last_scan ? h('span.badge.warn', 'fehlt') : '')),
       fRow('SMBv1-Server aktiviert', warnBool(e.smb1_server)), fRow('SMBv1-Client aktiviert', warnBool(e.smb1_client)),
       fRow('IE-Version', e.ie_version), fRow('Architektur', c.os_arch, null, ['os_arch', c.os_arch]), fRow('.NET-Versionen', e.dotnet),
       fRow('BIOS-Modus', e.bios_mode, null, ['bios_mode', e.bios_mode]), fRow('Secure Boot', bool(e.secure_boot)),
@@ -2553,7 +2559,8 @@ async function pcCategory(c, cat) {
   };
   const wrapT = (t) => h('div.pc-table', t.el);
   if (cat === 'software') {
-    const outdated = data.filter((s) => s.outdated);
+    const wok = wingetOk(c);
+    const outdated = wok ? data.filter((s) => s.outdated) : [];
     const instDate = (r) => {
       const d = /^(\d{4})(\d{2})(\d{2})$/.exec(r.install_date || '');
       const date = d ? `${d[1]}-${d[2]}-${d[3]}` : '';
@@ -2562,7 +2569,7 @@ async function pcCategory(c, cat) {
     };
     const t = tbl([
       { key: 'act', label: 'Aktion', nosort: true, noFilter: true, render: (r) => h('div.row', { style: { flexWrap: 'nowrap' } },
-        r.outdated && r.winget_id ? btn('Aktualisieren', () => updateOutdated(r.winget_id, [id]), { cls: 'small' }) : null,
+        wok && r.outdated && r.winget_id ? btn('Aktualisieren', () => updateOutdated(r.winget_id, [id]), { cls: 'small' }) : null,
         btn('Deinstallieren', () => uninstallDlg([{ ...r, computer: c.name }]), { cls: 'small danger' })) },
       { key: 'name', label: 'Name' }, { key: 'version', label: 'Version' }, { key: 'publisher', label: 'Hersteller' },
       { key: 'installed', label: 'Installiert (Datum & Zeit)', value: instDate, render: (r) => fmtDate(instDate(r)) },
@@ -2577,7 +2584,7 @@ async function pcCategory(c, cat) {
       { key: 'winget_latest', label: 'Aktuell', render: (r) => (r.outdated ? h('span.badge.warn', r.winget_latest) : (r.winget_latest || '')) },
     ], data, { sort: 'name', noun: 'Programme', selectable: true, id: (r) => r.id,
       onContext: (r, e, selRows) => contextMenu(e.clientX, e.clientY, [
-        r.outdated && r.winget_id && selRows.length === 1 ? { label: 'Aktualisieren', icon: 'refresh', onClick: () => updateOutdated(r.winget_id, [id]) } : null,
+        wok && r.outdated && r.winget_id && selRows.length === 1 ? { label: 'Aktualisieren', icon: 'refresh', onClick: () => updateOutdated(r.winget_id, [id]) } : null,
         { label: selRows.length > 1 ? `${selRows.length} Programme deinstallieren …` : 'Jetzt deinstallieren …', icon: 'trash', onClick: () => uninstallDlg(selRows.map((x) => ({ ...x, computer: c.name }))) },
         selRows.length === 1 ? { label: 'Deinstallationspaket erstellen …', icon: 'box', onClick: () => uninstallPackageFrom(r) } : null,
         selRows.length === 1 && r.winget_id ? { label: 'Paket aus winget anlegen …', icon: 'box', onClick: () => packageDlg(null, { winget_id: r.winget_id, name: r.name }) } : null,
@@ -2601,6 +2608,7 @@ async function pcCategory(c, cat) {
         go(`#/computer/${id}?cat=deployments`);
       }, { cls: 'primary' }));
     }
+    if (!wok && data.some((s) => s.outdated)) return h('div', h('p.muted.small', WINGET_NA), wrapT(t));
     return wrapT(t);
   }
   if (cat === 'services') {
@@ -2909,11 +2917,11 @@ async function softwareDlg(sw) {
   const t = table([
     { key: 'name', label: 'Computer', render: (r) => h('a', { href: `#/computer/${r.id}` }, r.name) },
     { key: 'version', label: 'Version' }, { key: 'arch', label: 'Arch.' }, { key: 'scope', label: 'Bereich' },
-    { key: 'outdated', label: 'Status', render: (r) => (r.outdated ? h('span.badge.warn', 'veraltet') : r.winget_id ? h('span.badge.ok', 'aktuell') : '') },
+    { key: 'outdated', label: 'Status', render: (r) => (r.outdated ? h('span.row', h('span.badge.warn', 'veraltet'), wingetOk(r) ? null : h('span.badge', { title: WINGET_NA }, 'ohne winget')) : r.winget_id ? h('span.badge.ok', 'aktuell') : '') },
     { key: 'online', label: 'Online', render: (r) => h('span.dot', { class: r.online ? 'on' : 'off' }) },
   ], d.computers, { selectable: true, noun: 'Computer', fill: false });
   t.el.querySelector('.tbl-scroll').style.maxHeight = '320px';
-  const outIds = d.computers.filter((c) => c.outdated).map((c) => c.id);
+  const outIds = d.computers.filter((c) => c.outdated && wingetOk(c)).map((c) => c.id);
   modal(sw.name, h('div',
     h('div.form', field('winget-ID (Zuordnung)', h('div.row', wid, btn('Suchen', () => wingetPicker((id) => (wid.value = id)), { cls: 'small' })),
       'Automatisch ermittelt. Hier manuell festlegen, falls die Zuordnung falsch ist.'),

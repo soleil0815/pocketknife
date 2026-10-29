@@ -5940,6 +5940,52 @@ def _():
     from app import inventory
     assert "virtual" in inventory.MODULE_EXTRA["computer"]
 
+@test("2.34 Ältere Windows ohne winget (vor 1809 / Server 2019): kein winget-Aktualisieren, Kiosk bietet winget-Pakete dort nicht an, Hinweis statt „fehlt“")
+def _():
+    import re as _re
+    from app import kiosk, deploy, steps as stp
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+    ok = deploy.winget_ok
+    assert ok(None) and ok("") and ok("17763") and ok(26100) and ok("x") and not ok("14393") and not ok(9600), "Build-Grenze"
+    js = open(os.path.join(root, "app", "static", "app.js"), encoding="utf-8").read()
+    assert int(_re.search(r"const WINGET_MIN_BUILD = (\d+);", js).group(1)) == deploy.WINGET_MIN_BUILD, "JS und Server gleiche Grenze"
+    sv = js[js.index("if (cat === 'software') {"):]
+    sv = sv[:sv.index("return wrapT(t);\n  }")]
+    assert "const wok = wingetOk(c);" in sv and "wok && r.outdated && r.winget_id ? btn('Aktualisieren'" in sv and "wok ? data.filter" in sv
+    assert "c.outdated && wingetOk(c)" in js[js.index("async function updateOutdated("):js.index("async function scanSubItems(")]
+    sd = js[js.index("async function softwareDlg(sw)"):]
+    assert "c.outdated && wingetOk(c)" in sd[:sd.index("modal(sw.name")]
+    from app import main as _m
+    import inspect
+    assert "c.os_build" in inspect.getsource(_m.api_software_detail), "Build für die Anzeige"
+    # Kiosk: winget-Paket auf Server 2016 nicht anbieten, eigenes Paket schon
+    db.set_setting("kiosk_enabled", 1)
+    cid = db.ex("INSERT INTO computers(name, online, winrm, current_user, os_build) VALUES('PC-ALT1', 1, 1, 'FIRMA\\nutzer', '14393')")
+    pk = {}
+    for name, st in (("WG Tool", {"type": "install", "source": "winget", "winget_id": "Mozilla.Firefox"}),
+                     ("Eigen Tool", {"type": "command", "command": "cmd /c exit 0"})):
+        p = stp.clean_package({"name": name, "steps": {"main": [st]}})
+        p["steps"], p["conditions"] = json.dumps(p["steps"]), json.dumps(p["conditions"])
+        pk[name] = db.ex(f"INSERT INTO packages({', '.join(deploy.PKG_FIELDS)}) VALUES({', '.join('?' * len(deploy.PKG_FIELDS))})",
+                         tuple(p[k] for k in deploy.PKG_FIELDS))
+        kiosk.save_item(pk[name], {"enabled": True, "approval": 0})
+    old = kiosk._logged_on
+    kiosk._logged_on = lambda c, fresh=False: {"nutzer"}
+    try:
+        names = {i["name"] for i in kiosk.catalog(cid)}
+        assert "Eigen Tool" in names and "WG Tool" not in names, names
+        must_fail(kiosk.request, {"username": "nutzer", "display_name": "N"}, "?", cid, pk["WG Tool"], "install", contains="1809")
+        db.ex("UPDATE computers SET os_build='19045' WHERE id=?", (cid,))
+        assert "WG Tool" in {i["name"] for i in kiosk.catalog(cid)}
+    finally:
+        kiosk._logged_on = old
+        db.set_setting("kiosk_enabled", 0)
+        for v in pk.values():
+            db.ex("DELETE FROM kiosk_items WHERE package_id=?", (v,))
+            db.ex("DELETE FROM packages WHERE id=?", (v,))
+        db.ex("DELETE FROM computers WHERE id=?", (cid,))
+
+
 def main():
     ok = 0
     for name, fn in RESULTS:

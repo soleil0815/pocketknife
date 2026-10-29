@@ -918,7 +918,7 @@ POCKET KNIFE verwaltet Windows Server genauso wie Arbeitsplätze – über WinRM
 - **Virtuelle Maschinen:** Der Scan erkennt Hyper-V, VMware, KVM/QEMU (z. B. Proxmox), Nutanix AHV, Xen, VirtualBox, Parallels und Cloud-VMs (Feld „Virtualisierung“). Auf VMs und Servern ohne Bildschirm erscheint keine Warnung mehr wegen der Bildschirme.
 - **Terminalserver:** Die winget-Version liest POCKET KNIFE auf Servern aus der Registry statt über alle Benutzerprofile – der Scan bleibt auch bei vielen Profilen schnell.
 - **Server Core:** Ohne Explorer erkennt POCKET KNIFE angemeldete Benutzer über `quser` (Name ohne Domäne).
-- **Ältere Server:** Windows Server 2012 R2 (PowerShell 4) und 2016 werden gescannt; was dort fehlt (z. B. `Get-LocalUser`, Defender), ersetzt der Scan durch ältere Wege oder lässt das Feld leer. winget gibt es dort nicht.
+- **Ältere Server:** Windows Server 2012 R2 (PowerShell 4) und 2016 werden gescannt; was dort fehlt (z. B. `Get-LocalUser`, Defender), ersetzt der Scan durch ältere Wege oder lässt das Feld leer. **winget gibt es erst ab Windows 10 1809 / Server 2019:** Auf älteren Systemen zeigt POCKET KNIFE veraltete Programme weiter an, bietet aber kein „Aktualisieren“ per winget an (Zeitpläne und Bereitstellungen lassen diese Computer aus bzw. melden „Übersprungen“), und der Kiosk zeigt dort keine Pakete, die per winget installieren. Solche Programme aktualisieren Sie mit einem eigenen Paket aus dem Repository.
 
 ## Neustart von POCKET KNIFE während einer Bereitstellung {#deploy-restart}
 

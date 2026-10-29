@@ -1727,7 +1727,7 @@ def api_software(collection: int = 0, user=U):
 def api_software_detail(name: str, user=U):
     sw, sp = access.sql_in(user, "c.id")
     return {
-        "computers": db.q(f"""SELECT c.id, c.name, c.online, s.version, s.arch, s.scope, s.install_date, s.outdated,
+        "computers": db.q(f"""SELECT c.id, c.name, c.online, c.os_build, s.version, s.arch, s.scope, s.install_date, s.outdated,
                              s.winget_id, s.winget_latest FROM software s JOIN computers c ON c.id=s.computer_id
                              WHERE s.name=? AND {sw} ORDER BY c.name""", [name] + sp),
         "override": db.q1("SELECT * FROM winget_overrides WHERE name=?", (name,)),

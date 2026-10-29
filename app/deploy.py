@@ -86,6 +86,15 @@ def adhoc_winget(wid, action="upgrade", scope=None):
 # --- Skripterzeugung ---------------------------------------------------------
 WINGET_MIN_BUILD = 17763  # winget läuft ab Windows 10 1809 / Windows Server 2019
 
+
+def winget_ok(os_build):
+    """Läuft winget auf diesem Build? Unbekannt (noch nicht gescannt) zählt als ja – der Client prüft selbst (9010)."""
+    try:
+        b = int(str(os_build or "").strip() or 0)
+    except ValueError:
+        return True
+    return b == 0 or b >= WINGET_MIN_BUILD
+
 # Findet winget.exe; fehlt es, wird der App-Installer (winget) samt Abhängigkeiten als bereitgestelltes Paket
 # nachinstalliert – aus dem Repository-Ordner (offline) oder vom offiziellen GitHub-Release von microsoft/winget-cli.
 WINGET_FIND = r"""
