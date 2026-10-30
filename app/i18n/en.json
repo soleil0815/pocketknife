@@ -5561,5 +5561,10 @@
  "Ohne Prüfsumme des Katalogs nur über HTTPS – der Hersteller leitet auf http weiter.": "Without the catalog checksum only via HTTPS – the vendor redirects to http.",
  "Ohne Prüfsumme des Katalogs nur über HTTPS – die Adresse im Manifest ist http.": "Without the catalog checksum only via HTTPS – the address in the manifest is http.",
  "eine laufende Bereitstellung": "a running deployment",
- "winget-Cache: „{0}“ nicht benutzt – Datei im Repository geändert oder nicht lesbar ({1}). Bitte im winget-Cache „Neu laden“.": "winget cache: \"{0}\" not used – file in the repository changed or not readable ({1}). Please \"Reload\" in the winget cache."
+ "winget-Cache: „{0}“ nicht benutzt – Datei im Repository geändert oder nicht lesbar ({1}). Bitte im winget-Cache „Neu laden“.": "winget cache: \"{0}\" not used – file in the repository changed or not readable ({1}). Please \"Reload\" in the winget cache.",
+ "Versteckte anzeigen": "Show hidden",
+ "Versteckte ausblenden": "Hide hidden",
+ "Versteckte Ordner und Dateien (z. B. ProgramData, $Recycle.Bin, desktop.ini) ein- oder ausblenden": "Show or hide hidden folders and files (e.g. ProgramData, $Recycle.Bin, desktop.ini)",
+ "{0} versteckt": "{0} hidden",
+ "Nur versteckte Einträge ({0}) – „Versteckte anzeigen“": "Only hidden entries ({0}) – \"Show hidden\""
 }

@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.35.6",
+   "date": "2026-10-30",
+   "items": [
+    {
+     "kind": "improved",
+     "audience": "all",
+     "de": "Dateien (Explorer): versteckte Ordner und Dateien sind wie im Windows-Explorer ausgeblendet – „Versteckte anzeigen“ blendet sie ein.",
+     "en": "Files (Explorer): hidden folders and files are hidden as in Windows Explorer – \"Show hidden\" shows them."
+    }
+   ]
+  },
+  {
    "version": "2.35.5",
    "date": "2026-10-30",
    "items": [
