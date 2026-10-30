@@ -171,6 +171,21 @@ def _needs_winget(row):
             or any(s.get("source") == "winget" and s.get("type") in ("install", "uninstall") for _k, s in steps.iter_steps(p)))
 
 
+def _cache_covers(row, cid):
+    """2.35.1: Alle winget-Installationsschritte des Pakets liegen für diesen Computer im winget-Cache bereit?"""
+    from . import wingetcache
+    c = db.q1("SELECT * FROM computers WHERE id=?", (cid,)) or {}
+    p = steps.normalize(deploy.row_to_package(row))
+    ws = [s for _k, s in steps.iter_steps(p) if s.get("source") == "winget" and s.get("type") == "install"]
+    if row.get("type") == "winget" and not ws:
+        ws = [{"type": "install", "source": "winget", "winget_id": row.get("winget_id"),
+               "winget_action": row.get("winget_action") or "install", "winget_version": row.get("winget_version")}]
+    try:
+        return bool(ws) and all(wingetcache.step_for(s, c) for s in ws)
+    except Exception:
+        return False
+
+
 def _installed(row, software):
     wid, pat = _detect(row)
     for s in software:
@@ -225,8 +240,8 @@ def catalog(cid, username=None):
                       WHERE k.enabled=1 ORDER BY COALESCE(k.category, ''), p.name COLLATE NOCASE"""):
         if not _available(it, cid, username):
             continue
-        if not wok and _needs_winget(it):
-            continue  # 2.34: winget gibt es auf diesem Windows nicht – nicht anbieten
+        if not wok and _needs_winget(it) and not _cache_covers(it, cid):
+            continue  # 2.34: winget gibt es auf diesem Windows nicht – nicht anbieten (2.35.1: außer aus dem winget-Cache)
         inst = _installed(it, software)
         r = reqs.get(it["package_id"])
         rs = status(r) if r else None
@@ -316,7 +331,8 @@ def request(user, ip, cid, pid, action):
         raise KioskError("Diese Software ist für Sie nicht freigegeben.")
     if not deploy.winget_ok(c["os_build"]):
         upid = pid if action == "install" else it["uninstall_package_id"]
-        if upid and _needs_winget(db.q1("SELECT * FROM packages WHERE id=?", (upid,)) or {}):
+        urow = db.q1("SELECT * FROM packages WHERE id=?", (upid,)) if upid else None
+        if urow and _needs_winget(urow) and not (action == "install" and _cache_covers(urow, cid)):
             raise KioskError("Diese Software wird per winget installiert – das gibt es erst ab Windows 10 1809 / Windows Server 2019.")
     if action == "uninstall" and not it["uninstall_package_id"]:
         raise KioskError("Diese Software lässt sich im Kiosk nicht deinstallieren.")

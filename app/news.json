@@ -2,6 +2,24 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.35.1",
+   "date": "2026-10-30",
+   "items": [
+    {
+     "kind": "improved",
+     "audience": "all",
+     "de": "Paket nach einer Bereitstellung geändert? Wiederholen nimmt jetzt wahlweise den aktuellen Stand des Pakets (Standard) – kein erneutes Zuweisen mehr nötig.",
+     "en": "Package changed after a deployment? Retrying now uses the current state of the package if you like (default) – no need to assign it again."
+    },
+    {
+     "kind": "improved",
+     "audience": "admin",
+     "de": "winget-Cache jetzt bei den Paketen (eigener Menüpunkt, Spalte, Rechtsklick „In den winget-Cache aufnehmen“) – und jeder winget-Schritt nimmt auf Computern ohne winget automatisch den Cache, auch in Zeitplänen und im Kiosk.",
+     "en": "winget cache now with the packages (own menu item, column, right-click \"Add to the winget cache\") – and every winget step automatically uses the cache on computers without winget, also in schedules and the kiosk."
+    }
+   ]
+  },
+  {
    "version": "2.35.0",
    "date": "2026-10-29",
    "items": [

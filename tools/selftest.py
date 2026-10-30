@@ -4557,7 +4557,7 @@ def _():
         assert db.val("SELECT ou_edit FROM schedules WHERE id=?", (s_own,)) == 1 and db.val("SELECT ou_edit FROM schedules WHERE id=?", (s_main,)) == 0
         assert db.val("SELECT value FROM settings WHERE key='ou_owner_migrated'") == "1"
         js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
-        assert "const OU_HIDDEN = new Set(['scanners', 'kiosk', 'settings']);" in js and "'Als Vorlage kopieren'" in js and "fieldset.ro" in js
+        assert "const OU_HIDDEN = new Set(['scanners', 'kiosk', 'settings', 'wingetcache']);" in js and "'Als Vorlage kopieren'" in js and "fieldset.ro" in js
     finally:
         for th in toks:
             db.ex("DELETE FROM sessions WHERE token_hash=?", (th,))
@@ -6299,6 +6299,147 @@ def _():
         winget.load()
     js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
     assert "async function viewWingetCache()" in js and "/api/wingetcache/ready" in js
+
+
+@test("2.35.1 Wiederholen nach Änderung am Paket: wählbar mit dem aktuellen Stand (Standard) oder dem der Bereitstellung, Ausschnitte bleiben Ausschnitte")
+def _():
+    import json as _j
+    from app import deploy, main as _m, steps as stp
+    st_a = {"id": "sa", "type": "command", "command": "echo alt", "title": "A"}
+    st_b = {"id": "sb", "type": "command", "command": "echo neu-b", "title": "B"}
+    old = stp.clean_package({"name": "Rerun-Neu", "steps": {"main": [st_a]}})
+    cur = stp.clean_package({"name": "Rerun-Neu", "steps": {"main": [dict(st_a, command="echo neu"), st_b]}})
+    for x in (old, cur):
+        x["steps"], x["conditions"] = _j.dumps(x["steps"]), _j.dumps(x["conditions"])
+    pid = db.ex(f"INSERT INTO packages({', '.join(deploy.PKG_FIELDS)}, created_at, updated_at) VALUES({', '.join('?' * len(deploy.PKG_FIELDS))}, ?, ?)",
+                tuple(cur[k] for k in deploy.PKG_FIELDS) + ("2026-10-01 10:00:00", "2026-10-02 10:00:00"))
+    snap = deploy.row_to_package(dict(old, id=pid))
+    c = db.ex("INSERT INTO computers(name) VALUES('RR-PC1')")
+    did = db.ex("INSERT INTO deployments(name, package_id, package_json, status, created_at) VALUES('Rerun-Neu', ?, ?, 'failed', '2026-10-01 12:00:00')",
+                (pid, _j.dumps(snap)))
+    db.ex("INSERT INTO deployment_targets(deployment_id, computer_id, computer_name, status, steps) VALUES(?,?,?,?,?)",
+          (did, c, "RR-PC1", "failed", _j.dumps([{"sid": "sa", "status": "failed", "depth": 0, "title": "A"}])))
+    made = []
+    oc = deploy.create
+    deploy.create = lambda pkg, ids, user, *a, **k: (made.append((pkg, ids, k)) or 4711)
+    try:
+        assert deploy.package_changed(db.q1("SELECT * FROM deployments WHERE id=?", (did,))) == "2026-10-02 10:00:00"
+        assert _m.api_deployment(did, {"username": "haupt", "scope": None})["package_changed"] == "2026-10-02 10:00:00"
+        cmds = lambda pk: [x.get("command") for _ph, x in stp.iter_steps(stp.normalize(pk))]
+        deploy.redeploy(did, True, "t")
+        assert cmds(made[-1][0]) == ["echo alt"], "Standard der Funktion: Stand der Bereitstellung"
+        deploy.redeploy(did, True, "t", current=True)
+        assert cmds(made[-1][0]) == ["echo neu", "echo neu-b"] and made[-1][2]["package_id"] == pid, "aktueller Stand"
+        deploy.retry_step(did, "sa", "step", [], "t", current=True)
+        assert cmds(made[-1][0]) == ["echo neu"]
+        must_fail(deploy.retry_step, did, "gibts-nicht", "step", [], "t", True, contains="geänderten Paket")
+        ov = deploy.steps_overview(did, None, current=True)
+        assert [x["sid"] for x in ov["steps"]] == ["sa", "sb"] and ov["steps"][0]["counts"] == {"failed": 1} and ov["steps"][1]["counts"] == {}, ov
+        assert [x["sid"] for x in deploy.steps_overview(did)["steps"]] == ["sa"]
+        deploy.rerun_steps(did, ["sb"], "all", [], "t", current=True)
+        assert cmds(made[-1][0]) == ["echo neu-b"], "neuer Schritt wählbar"
+        must_fail(deploy.rerun_steps, did, ["sb"], "all", [], "t", contains="Unbekannter Schritt")
+        # war schon ein Ausschnitt („– „A“ wiederholt“): aus dem aktuellen Paket nur diese Schritte
+        db.ex("UPDATE deployments SET name='Rerun-Neu – „A“ wiederholt' WHERE id=?", (did,))
+        deploy.redeploy(did, False, "t", current=True)
+        assert cmds(made[-1][0]) == ["echo neu"], "Ausschnitt bleibt Ausschnitt"
+        # nicht geändert (Paket älter als die Bereitstellung): immer der Stand der Bereitstellung
+        db.ex("UPDATE packages SET updated_at='2026-09-01 00:00:00' WHERE id=?", (pid,))
+        deploy.redeploy(did, False, "t", current=True)
+        assert cmds(made[-1][0]) == ["echo alt"] and deploy.package_changed(db.q1("SELECT * FROM deployments WHERE id=?", (did,))) is None
+    finally:
+        deploy.create = oc
+        db.ex("DELETE FROM deployments WHERE id=?", (did,))
+        db.ex("DELETE FROM deployment_targets WHERE deployment_id=?", (did,))
+        db.ex("DELETE FROM packages WHERE id=?", (pid,))
+        db.ex("DELETE FROM computers WHERE id=?", (c,))
+    js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
+    assert js.count("current: !!RERUN_CUR[") == 4 and "/steps${RERUN_CUR[did] ? '?current=1' : ''}" in js
+    assert "if (!(id in RERUN_CUR)) RERUN_CUR[id] = !!d.package_changed;" in js
+
+
+@test("2.35.1 winget-Cache überall: winget-Schritt auf Computern ohne winget läuft aus dem Cache (Pakete, Zeitpläne, Kiosk), Cache auf der Paketseite und im Paket festlegen")
+def _():
+    import json as _j, tempfile as _tf
+    from app import wingetcache as wc, deploy, kiosk, steps as stp
+    root = _tf.mkdtemp(prefix="pk-wc2-", dir=TMP)
+    os.makedirs(os.path.join(root, "winget-cache", "Cache.Tool", "2.0_abcdef12"))
+    open(os.path.join(root, "winget-cache", "Cache.Tool", "2.0_abcdef12", "tool.msi"), "wb").write(b"x" * 50)
+    old_repo = db.setting("repo_path")
+    db.set_setting("repo_path", root)
+    cp = stp.clean_package({"name": "Cache Tool (winget-Cache)", "steps": {"main": [{"type": "install", "source": "file", "folder": "winget-cache\\Cache.Tool\\2.0_abcdef12",
+                            "install_file": "tool.msi", "install_type": "msi", "arguments": "ALLUSERS=1", "detect_name": "Cache Tool", "detect_version": "2.0"}]}})
+    cp["steps"], cp["conditions"] = _j.dumps(cp["steps"]), _j.dumps(cp["conditions"])
+    cpid = db.ex(f"INSERT INTO packages({', '.join(deploy.PKG_FIELDS)}) VALUES({', '.join('?' * len(deploy.PKG_FIELDS))})", tuple(cp[k] for k in deploy.PKG_FIELDS))
+    eid = db.ex("INSERT INTO winget_cache(winget_id, arch, status, version, package_id, min_os) VALUES('Cache.Tool', 'x64', 'ok', '2.0', ?, '10.0.0.0')", (cpid,))
+    alt = db.ex("INSERT INTO computers(name, os_build, os_version, os_arch, online, winrm, current_user) VALUES('PC-ALT9', '14393.100', '10.0.14393', '64-Bit', 1, 1, 'FIRMA\\nutzer')")
+    neu = db.ex("INSERT INTO computers(name, os_build, os_version, os_arch) VALUES('PC-NEU9', '26100', '10.0.26100', '64-Bit')")
+    try:
+        ws = {"id": "w1", "type": "install", "source": "winget", "winget_id": "cache.tool", "winget_action": "install", "on_error": "continue", "title": "Cache Tool"}
+        c_alt, c_neu = db.q1("SELECT * FROM computers WHERE id=?", (alt,)), db.q1("SELECT * FROM computers WHERE id=?", (neu,))
+        sub = wc.step_for(ws, c_alt)
+        assert sub and sub["source"] == "file" and sub["install_file"] == "tool.msi" and sub["id"] == "w1" and sub["on_error"] == "continue", sub
+        assert "aus dem winget-Cache (2.0)" in sub["title"]
+        assert wc.step_for(ws, c_neu) is None, "mit winget: wie bisher per winget"
+        assert wc.step_for(dict(ws, winget_action="uninstall"), c_alt) is None and wc.step_for(dict(ws, winget_version="1.5"), c_alt) is None
+        assert wc.step_for(dict(ws, winget_action="upgrade", winget_version="2.0"), c_alt), "gleiche feste Version geht"
+        assert wc.step_for(ws, dict(c_alt, os_arch="32-Bit")) is None, "x64 nicht auf 32-Bit-Windows"
+        src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "steps.py"), encoding="utf-8").read()
+        cs = src[src.index("    def _client_step(self, st, pkg, phase, depth, t0):"):]
+        assert cs.index("wingetcache.step_for(st, self.c)") < cs.index("effective_run_as(st, pkg)"), "vor der Ausführung ersetzen"
+        # Kiosk: winget-Paket auf altem Windows nur, wenn der Cache es abdeckt
+        db.set_setting("kiosk_enabled", 1)
+        wp = stp.clean_package({"name": "WG Cache Tool", "steps": {"main": [dict(ws, id="k1")]}})
+        wp["steps"], wp["conditions"] = _j.dumps(wp["steps"]), _j.dumps(wp["conditions"])
+        wpid = db.ex(f"INSERT INTO packages({', '.join(deploy.PKG_FIELDS)}) VALUES({', '.join('?' * len(deploy.PKG_FIELDS))})", tuple(wp[k] for k in deploy.PKG_FIELDS))
+        kiosk.save_item(wpid, {"enabled": True, "approval": 0})
+        try:
+            assert "WG Cache Tool" in {i["name"] for i in kiosk.catalog(alt)}, "im Cache → im Kiosk"
+            db.ex("UPDATE winget_cache SET package_id=NULL WHERE id=?", (eid,))
+            assert "WG Cache Tool" not in {i["name"] for i in kiosk.catalog(alt)}
+            db.ex("UPDATE winget_cache SET package_id=? WHERE id=?", (cpid, eid))
+        finally:
+            db.ex("DELETE FROM kiosk_items WHERE package_id=?", (wpid,))
+            db.ex("DELETE FROM packages WHERE id=?", (wpid,))
+            db.set_setting("kiosk_enabled", 0)
+    finally:
+        db.ex("DELETE FROM winget_cache WHERE id=?", (eid,))
+        db.ex("DELETE FROM packages WHERE id=?", (cpid,))
+        db.ex("DELETE FROM computers WHERE id IN (?,?)", (alt, neu))
+        db.set_setting("repo_path", old_repo or "")
+    js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
+    assert "['wingetcache', 'winget-Cache', 'db']," in js and "'wingetcache']);" in js[js.index("const OU_HIDDEN"):js.index("const OU_HIDDEN") + 120]
+    sw = js[js.index("async function viewSoftware("):js.index("// --- Ausnahmen der Aktualitätsprüfung")]
+    assert "#/wingetcache" not in sw, "nicht mehr unter Software"
+    pk = js[js.index("async function viewPackages("):js.index("// --- 2.32: Pakete zu einem neuen zusammenfassen")]
+    assert "go('#/wingetcache')" in pk and "key: 'wcache'" in pk and "In den winget-Cache aufnehmen" in pk and "].filter(Boolean), shown," in pk
+    assert "const w = wcStepField(st);" in js
+
+
+@test("2.35.1 Oberfläche: kein „null“ als Text – replaceChildren/append bekommen nie null (Paket-Eigenschaften zeigten seit 2.27.1 „null“)")
+def _():
+    import re as _re
+    js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
+    bad = []
+    for m in _re.finditer(r"\.(replaceChildren|append)\(", js):
+        i, depth, j = m.end(), 1, m.end()
+        while depth and j < len(js):
+            depth += 1 if js[j] in "([{" else -1 if js[j] in ")]}" else 0
+            j += 1
+        top, d, cur = [], 0, ""
+        for ch in js[i:j - 1]:
+            d += 1 if ch in "([{" else -1 if ch in ")]}" else 0
+            if ch == "," and d == 0:
+                top.append(cur)
+                cur = ""
+            else:
+                cur += ch
+        top.append(cur)
+        for a in top:
+            a = a.strip()
+            if a == "null" or _re.search(r"\?\s*[^:]+:\s*null$", a):
+                bad.append((js.count("\n", 0, m.start()) + 1, a[:60]))
+    assert not bad, ("DOM-Methoden zeigen null als Text", bad)
 
 
 def main():

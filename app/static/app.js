@@ -906,6 +906,7 @@ const NAV = [
   ['software', 'Software', 'apps'],
   null,
   ['packages', 'Pakete', 'box'],
+  ['wingetcache', 'winget-Cache', 'db'],
   ['repository', 'Repository', 'folder'],
   ['deployments', 'Bereitstellungen', 'send'],
   ['schedules', 'Zeitpläne', 'clock'],
@@ -922,7 +923,7 @@ const NAV = [
 // OU-Admins (Mitglieder der Gruppe eines Mandanten): sehen nur ihre Computer; diese Bereiche gibt es für sie nicht
 // (der Server sperrt sie ohnehin – app/access.py)
 // 2.30: Berichte sehen OU-Admins – nur lesend und nur mit ihren Computern (Mailversand und Benachrichtigungen nicht)
-const OU_HIDDEN = new Set(['scanners', 'kiosk', 'settings']);
+const OU_HIDDEN = new Set(['scanners', 'kiosk', 'settings', 'wingetcache']);
 const isOU = () => !!(S.me && S.me.scoped);
 // 2.29.1: Befehls-/PowerShell-Schritte für OU-Admins nur, wenn beim Mandanten erlaubt (der Server prüft es ohnehin)
 const mayScript = (tid) => !isOU() || !!((S.me.tenants || []).find((t) => t.id === Number(tid)) || {}).allow_scripts;
@@ -2835,8 +2836,7 @@ async function viewSoftware(_p, params) {
   t.actions.append(bUpd);
   const csel = sel(collectionOptions(cols), cid, { onchange: (e) => go(`#/software?c=${e.target.value}${onlyOut ? '&outdated=1' : ''}`) });
   const ochk = h('label.chk', h('input', { type: 'checkbox', checked: onlyOut, onchange: (e) => go(`#/software?c=${cid}${e.target.checked ? '&outdated=1' : ''}`) }), 'nur veraltete');
-  t.actions.append(csel, ochk, btn('Ausnahmen …', () => exclusionsDlg(), { cls: 'small', icon: 'list', title: 'Programme, die nicht auf Aktualität geprüft werden' }),
-    isOU() ? null : btn('winget-Cache …', () => go('#/wingetcache'), { cls: 'small', icon: 'db', title: 'Installer für Computer ohne winget im Repository bereithalten' }));
+  t.actions.append(csel, ochk, btn('Ausnahmen …', () => exclusionsDlg(), { cls: 'small', icon: 'list', title: 'Programme, die nicht auf Aktualität geprüft werden' }));
   setContent(h('div', { style: { height: '100%', display: 'flex' } }, h('div.pane.card', t.el)));
 }
 
@@ -2994,6 +2994,47 @@ async function wcReady(fresh = false) {
   return WC_READY.ids;
 }
 const wcHas = (wid) => !!(wid && WC_READY && WC_READY.ids.has(String(wid).toLowerCase()));
+// 2.35.1: Einträge des winget-Caches (nur Hauptadmins) – für Paketliste und Paket-Editor
+let WC_LIST = null;
+async function wcList(fresh = false) {
+  if (isOU()) return null;
+  if (!fresh && WC_LIST && Date.now() - WC_LIST.at < 15000) return WC_LIST;
+  try {
+    const d = await GET('/api/wingetcache');
+    WC_LIST = { at: Date.now(), byId: {}, byPkg: {}, folder: d.folder };
+    d.entries.forEach((e) => { WC_LIST.byId[e.winget_id.toLowerCase()] = e; if (e.package_id) WC_LIST.byPkg[e.package_id] = e; });
+  } catch (e) { WC_LIST = { at: Date.now(), byId: {}, byPkg: {} }; }
+  return WC_LIST;
+}
+function wcBadge(e) {
+  if (!e) return '';
+  const cls = { ok: 'ok', error: 'err', unsupported: 'warn' }[e.status] || 'info';
+  const txt = e.status === 'ok' ? `✓ ${e.version || ''}` : e.version && e.status !== 'unsupported' ? `${e.version} · ${tr(e.status_text)}` : tr(e.status_text);
+  return h('span.badge', { class: cls, title: e.message || '' }, txt);
+}
+async function wcAdd(ids) {
+  const r = await run(() => POST('/api/wingetcache', { winget_ids: ids }));
+  if (!r) return false;
+  toast(fmtT('{0} Programm(e) in den winget-Cache aufgenommen – werden geladen', r.ids.length), 'ok');
+  if (r.errors && r.errors.length) toast(r.errors.join('; '), 'err');
+  WC_LIST = null;
+  return true;
+}
+// Paket-Editor, winget-Schritt: Zustand im winget-Cache und „aufnehmen“ (für Computer ohne winget)
+function wcStepField(st) {
+  const box = h('div.row', { style: { gap: '6px', alignItems: 'center' } });
+  const draw = async () => {
+    const wid = (st.winget_id || '').trim();
+    if (!wid || isOU()) { box.replaceChildren(); return; }
+    const l = await wcList();
+    const e = l && l.byId[wid.toLowerCase()];
+    box.replaceChildren(...(e ? [wcBadge(e), h('a.small', { href: '#/wingetcache' }, tr('winget-Cache öffnen'))]
+      : [btn('In den winget-Cache aufnehmen', async () => { if (await wcAdd([wid])) { await wcList(true); draw(); } }, { cls: 'small', icon: 'db' }),
+        h('span.muted.small', tr('für Computer ohne winget (vor Windows 10 1809 / Server 2019)'))]));
+  };
+  draw();
+  return { el: box, draw };
+}
 
 async function viewWingetCache() {
   if (isOU()) { setTop('winget-Cache', ''); setContent(h('div.empty', 'Nur für Hauptadmins.')); return; }
@@ -3204,7 +3245,9 @@ let PKG_META = null;
 async function pkgMeta(force) { if (!PKG_META || force) PKG_META = await GET('/api/packages/meta'); return PKG_META; }
 
 async function viewPackages(_p, params) {
-  const [rows, meta] = await Promise.all([GET('/api/packages'), pkgMeta(true)]);
+  const [rows, meta, wcl] = await Promise.all([GET('/api/packages'), pkgMeta(true), wcList(true)]);
+  const wcOf = (r) => (wcl && r.winget_id && r.type === 'winget' ? wcl.byId[r.winget_id.toLowerCase()] : null);
+  const isCachePkg = (r) => !!(wcl && wcl.byPkg[r.id]);
   let t = null;
   const bDeploy = btn('Bereitstellen …', () => deployDlg({ packageIds: t ? t.selectedIds() : [] }), { icon: 'send', title: 'Die ausgewählten Pakete bereitstellen (mehrere: je Computer nacheinander)' });
   const bExport = btn('Exportieren', () => {
@@ -3213,6 +3256,7 @@ async function viewPackages(_p, params) {
   }, { icon: 'download', title: 'Ausgewählte Pakete (ohne Auswahl: alle angezeigten) als Datei speichern – z. B. für eine andere POCKET-KNIFE-Installation' });
   setTop('Pakete', 'Pakete aus Schritten – winget, Dateien aus dem Repository, Befehle, Skripte',
     bDeploy, bExport, mayBuild() ? btn('Importieren …', () => importPackagesDlg(meta), { icon: 'up', title: 'Pakete aus einer Export-Datei übernehmen' }) : null,
+    isOU() ? null : btn('winget-Cache …', () => go('#/wingetcache'), { icon: 'db', title: 'Installer für Computer ohne winget im Repository bereithalten' }),
     mayBuild() ? btn('Neues Paket', () => packageDlg(null), { icon: 'plus', cls: 'primary' }) : null);
   const tenantSel = sel([['', 'Alle Mandanten'], ['0', 'Ohne Mandant (global)'], ...meta.tenants.map((t) => [t.id, t.name])], params.get('tenant') || '',
     { onchange: (e) => go(`#/packages${e.target.value ? '?tenant=' + e.target.value : ''}`) });
@@ -3226,7 +3270,10 @@ async function viewPackages(_p, params) {
     { key: 'version', label: 'Version', value: (r) => (r.type === 'winget' ? (r.winget_version || (r.latest ? `${r.latest} (neueste)` : 'neueste')) : r.version || ''),
       title: (r) => (r.type === 'winget' && !r.winget_version ? 'Ohne feste Version wird immer die aktuelle Katalogversion installiert.' : '') },
     { key: 'latest', label: 'Katalog', value: (r) => r.latest || '', title: () => 'Neueste Version im winget-Katalog' },
-    { key: 'kind', label: 'Typ', render: (r) => h('span.badge', { class: r.type === 'winget' ? 'info' : 'accent' }, kind(r)), value: kind },
+    { key: 'kind', label: 'Typ', render: (r) => h('span.row', { style: { gap: '4px' } }, h('span.badge', { class: r.type === 'winget' ? 'info' : 'accent' }, kind(r)),
+      isCachePkg(r) ? h('span.badge.info', { title: tr('Automatisch aus dem winget-Cache – wird bei jeder neuen Version neu erzeugt') }, 'winget-Cache') : null), value: (r) => kind(r) + (isCachePkg(r) ? ' winget-Cache' : '') },
+    wcl ? { key: 'wcache', label: 'winget-Cache', render: (r) => wcBadge(wcOf(r)), value: (r) => { const e = wcOf(r); return e ? (e.version || e.status_text) : ''; },
+      title: () => tr('Im winget-Cache für Computer ohne winget bereitgehalten (Rechtsklick → aufnehmen)') } : null,
     { key: 'step_count', label: 'Schritte', cls: 'right' },
     { key: 'run_as_label', label: 'Ausführen als' },
     { key: 'integrity', label: 'Zustand', cls: 'center', value: (r) => integText(r.integrity), render: (r) => integBadge(r.integrity),
@@ -3243,13 +3290,15 @@ async function viewPackages(_p, params) {
     { key: 'outdated_installs', label: 'Veraltet', render: (r) => (r.outdated_installs ? h('a.badge.warn', { href: `#/software?outdated=1&q=${encodeURIComponent(r.winget_id || '')}` }, r.outdated_installs) : ''), value: (r) => r.outdated_installs || '', sort: (r) => r.outdated_installs || 0 },
     { key: 'updated_at', label: 'Geändert', value: (r) => fmtDate(r.updated_at), sort: (r) => r.updated_at || '' },
     { key: 'act', label: '', nosort: true, noFilter: true, render: (r) => btn('Bereitstellen', () => deployDlg({ packageId: r.id }), { cls: 'small' }) },
-  ], shown, { key: 'packages23', sort: 'name', noun: 'Pakete', selectable: true, onRow: (r) => packageDlg(r.id), empty: 'Noch keine Pakete – „Neues Paket“ anlegen.',
+  ].filter(Boolean), shown, { key: 'packages23', sort: 'name', noun: 'Pakete', selectable: true, onRow: (r) => packageDlg(r.id), empty: 'Noch keine Pakete – „Neues Paket“ anlegen.',
     onSelect: (sx) => { bDeploy.lastChild.textContent = tr(sx.length > 1 ? `${sx.length} Pakete bereitstellen …` : 'Bereitstellen …'); bDeploy.classList.toggle('primary', sx.length > 0); },
     onContext: (r, e, selRows) => contextMenu(e.clientX, e.clientY, selRows && selRows.length > 1 ? [
       { label: `${selRows.length} Pakete bereitstellen …`, icon: 'send', onClick: () => deployDlg({ packageIds: selRows.map((x) => x.id) }) },
       { label: 'Zeitplan anlegen …', icon: 'clock', onClick: () => scheduleDlg(null, { packages: selRows.map((x) => x.id) }) },
       { label: `${selRows.length} Pakete exportieren`, icon: 'download', onClick: () => exportPackages(selRows.map((x) => x.id)) },
       mayBuild() ? { label: 'Zu neuem Paket zusammenfassen …', icon: 'coll', onClick: () => mergePackagesDlg(selRows) } : null,
+      wcl && selRows.some((x) => x.type === 'winget' && x.winget_id && !wcOf(x)) ? { label: tr('In den winget-Cache aufnehmen'), icon: 'db',
+        onClick: async () => { if (await wcAdd([...new Set(selRows.filter((x) => x.type === 'winget' && x.winget_id && !wcOf(x)).map((x) => x.winget_id))])) route(); } } : null,
     ] : [
       { label: 'Bearbeiten', icon: 'edit', hint: 'Doppelklick', onClick: () => packageDlg(r.id) },
       { label: 'Bereitstellen …', icon: 'send', onClick: () => deployDlg({ packageId: r.id }) },
@@ -3257,6 +3306,8 @@ async function viewPackages(_p, params) {
       { label: 'Duplizieren', icon: 'coll', onClick: async () => { if (await run(() => POST(`/api/packages/${r.id}/duplicate`), 'Paket dupliziert')) route(); } },
       { label: 'Exportieren', icon: 'download', onClick: () => exportPackages([r.id]) },
       r.type === 'winget' && r.outdated_installs ? { label: `Veraltete Installationen anzeigen (${r.outdated_installs})`, icon: 'list', onClick: () => go(`#/software?outdated=1&q=${encodeURIComponent(r.winget_id)}`) } : null,
+      wcl && r.type === 'winget' && r.winget_id && !wcOf(r) ? { label: 'In den winget-Cache aufnehmen', icon: 'db', onClick: async () => { if (await wcAdd([r.winget_id])) route(); } } : null,
+      wcl && (wcOf(r) || isCachePkg(r)) ? { label: 'Im winget-Cache anzeigen', icon: 'db', onClick: () => go('#/wingetcache') } : null,
       '-',
       { label: 'Löschen', icon: 'trash', onClick: async () => {
         if (!(await confirmDlg(`Paket „${r.name}“ löschen?`, 'Löschen', true))) return;
@@ -3349,7 +3400,7 @@ function importPackagesDlg(meta) {
           h('tbody', r.items.map((x) => h('tr', h('td.wrap.raw', x.status === 'copy' ? `${x.name} → ${x.new_name}` : x.name),
             h('td', h('span.badge', { class: STATUS[x.status][0] }, tr(STATUS[x.status][1]))),
             h('td.wrap.raw', [x.message, ...(x.warnings || [])].filter(Boolean).join(' · '))))))),
-      c.error ? h('p.muted.small', tr('Pakete mit Fehler (und Pakete, die sie verschachtelt verwenden) werden ausgelassen.')) : null);
+      ...(c.error ? [h('p.muted.small', tr('Pakete mit Fehler (und Pakete, die sie verschachtelt verwenden) werden ausgelassen.'))] : []));
   };
   async function check() {
     if (!data || done) return;
@@ -3655,7 +3706,9 @@ async function packageDlg(pidOrPkg, preset = {}) {
           field('Aktion', sl(st, 'winget_action', [['install', 'Installieren'], ['upgrade', 'Aktualisieren'], ['uninstall', 'Deinstallieren']])),
           field('Version', inp(st, 'winget_version', { placeholder: 'leer = immer die neueste' })),
           field('Bereich', sl(st, 'winget_scope', [['machine', 'Computer (empfohlen)'], ['', 'Standard des Pakets'], ['user', 'Benutzer']])),
-          field('Zusätzliche Argumente', inp(st, 'extra_args', { placeholder: 'z. B. --override "/S"' })));
+          field('Zusätzliche Argumente', inp(st, 'extra_args', { placeholder: 'z. B. --override "/S"' })),
+          isOU() || st.winget_action === 'uninstall' ? null : (() => { const w = wcStepField(st); wInp.addEventListener('change', w.draw);
+            return field('winget-Cache', w.el, 'Computer ohne winget bekommen diesen Schritt dann aus dem Repository – automatisch, auch in Zeitplänen und im Kiosk.'); })());
       }
       const fileInp = inp(st, 'install_file', { placeholder: 'z. B. 7z2408-x64.msi' });
       fileInp.addEventListener('change', () => { if (!st.install_type || st.install_type === '') { st.install_type = ''; } });
@@ -3752,7 +3805,7 @@ async function packageDlg(pidOrPkg, preset = {}) {
       const igBad = p.id && p.integrity && ['broken', 'warn'].includes(p.integrity.state);
       const igBox = p.id ? integrityBox(p, p.editable !== false, (r) => { p.integrity = r; }) : null;
       if (igBad) igBox.style.marginTop = '0';
-      panel.replaceChildren(igBad ? igBox : null, h('h3', igBad ? { style: { marginTop: '18px' } } : {}, 'Paket-Eigenschaften'), h('div.form',
+      panel.replaceChildren(...(igBad ? [igBox] : []), h('h3', igBad ? { style: { marginTop: '18px' } } : {}, 'Paket-Eigenschaften'), h('div.form',
         field('Name', inp(p, 'name')), field('Version', inp(p, 'version')), field('Beschreibung', h('textarea', { rows: 3, value: p.description || '', style: { fontFamily: 'inherit', fontSize: '13px', minHeight: '60px' }, oninput: (e) => { p.description = e.target.value; } })),
         meta.tenants.length ? field('Mandant', sl(p, 'tenant_id', [['', '— keiner (global) —'], ...meta.tenants.map((x) => [x.id, x.name])], true)) : null,
         !isOU() && meta.tenants.length ? field('OU-Admins dürfen ändern', h('label.chk', h('input', { type: 'checkbox', checked: !!p.ou_edit, onchange: (e) => { p.ou_edit = e.target.checked ? 1 : 0; changed(); } }),
@@ -4097,11 +4150,13 @@ function tenantsCard() {
 // --- Bereitstellung: Ergebnis je Schritt -----------------------------------------------------
 const STEP_STATUS = { success: ['OK', 'ok'], failed: ['Fehler', 'err'], skipped: ['Übersprungen', ''], notrun: ['Nicht ausgeführt', ''], running: ['Läuft', 'info'] };
 // Schritt erneut ausführen: nur diesen Schritt oder ab diesem Schritt (neue Bereitstellung mit gekürztem Paket)
+// 2.35.1: Paket seit der Bereitstellung geändert → Wiederholen nimmt (wählbar) den aktuellen Stand statt des damaligen
+const RERUN_CUR = {};
 async function retryStep(did, sid, title, mode, targetIds, names) {
   const who = names.length === 1 ? names[0] : `${names.length} Computern`;
   const what = mode === 'step' ? `Nur den Schritt „${title}“` : `Den Schritt „${title}“ und alle folgenden Schritte (inkl. Abschluss)`;
   if (!(await confirmDlg(`${what} auf ${who} erneut ausführen?\n\nEs wird eine neue Bereitstellung mit diesem Ausschnitt des Pakets erstellt; Paket-Bedingungen und „Ausführen als“ bleiben gleich.`, 'Wiederholen'))) return;
-  const r = await run(() => POST(`/api/deployments/${did}/retry`, { step_id: sid, mode, target_ids: targetIds }), 'Wiederholung gestartet');
+  const r = await run(() => POST(`/api/deployments/${did}/retry`, { step_id: sid, mode, target_ids: targetIds, current: !!RERUN_CUR[did] }), 'Wiederholung gestartet');
   if (r) { closeModals(); go(`#/deployment/${r.id}`); }
 }
 function retryMenu(e, did, sid, title, targetIds, names) {
@@ -4376,7 +4431,7 @@ async function viewDeployments() {
 // Bereitstellung mit frei gewählten Schritten wiederholen
 const STEP_COUNT_LABEL = { success: ['OK', 'ok'], failed: ['Fehler', 'err'], skipped: ['übersprungen', ''], notrun: ['nicht ausgeführt', ''] };
 async function rerunDlg(did, d) {
-  const ov = await GET(`/api/deployments/${did}/steps`);
+  const ov = await GET(`/api/deployments/${did}/steps${RERUN_CUR[did] ? '?current=1' : ''}`);
   const PHN = { pre: 'Vorbereitung', main: 'Schritte', post: 'Abschluss' };
   const checks = {};
   const anyFailed = ov.steps.some((x) => x.counts.failed);
@@ -4413,6 +4468,7 @@ async function rerunDlg(did, d) {
   Object.values(checks).forEach((c) => c.addEventListener('change', rbAuto)); rbAuto();
   modal('Schritte wählen und wiederholen', h('div',
     h('p.muted.small', { style: { marginTop: 0 } }, 'Es entsteht eine neue Bereitstellung nur mit den gewählten Schritten – in der Reihenfolge des Pakets, mit dessen Bedingungen und „Ausführen als“. Abschluss-Schritte laufen nur, wenn sie gewählt sind.'),
+    RERUN_CUR[did] ? h('p.small', { style: { marginTop: 0 } }, h('span.badge.info', 'aktueller Stand des Pakets'), ' ', tr('Schritte und Einstellungen aus dem geänderten Paket; neue Schritte haben noch kein Ergebnis.')) : null,
     allBtns, h('div', rows), h('div.form', { style: { marginTop: '12px' } }, field('Ziele', h('div', tsel, tbox)),
       pkgReboot !== 'never' ? field('Neustart am Ende', rb, 'Werden nur einzelne Schritte wiederholt (z. B. Registry), ist meist kein Neustart nötig.') : null)), [
     { label: 'Abbrechen' },
@@ -4421,7 +4477,7 @@ async function rerunDlg(did, d) {
       if (!step_ids.length) { toast(tr('Bitte mindestens einen Schritt wählen.'), 'err'); return false; }
       const target_ids = tsel.value === 'selected' ? Object.entries(tchecks).filter(([, c]) => c.checked).map(([k]) => Number(k)) : [];
       if (tsel.value === 'selected' && !target_ids.length) { toast(tr('Bitte mindestens ein Ziel wählen.'), 'err'); return false; }
-      const r = await run(() => POST(`/api/deployments/${did}/rerun`, { step_ids, target: tsel.value, target_ids, reboot: rb.value }), 'Wiederholung gestartet');
+      const r = await run(() => POST(`/api/deployments/${did}/rerun`, { step_ids, target: tsel.value, target_ids, reboot: rb.value, current: !!RERUN_CUR[did] }), 'Wiederholung gestartet');
       if (!r) return false;
       go(`#/deployment/${r.id}`);
     } }], { wide: true });
@@ -4432,16 +4488,18 @@ async function viewDeployment(parts) {
   const d = await GET(`/api/deployments/${id}`);
   const p = d.package || {};
   const active = ['running', 'queued', 'scheduled'].includes(d.status);
+  if (!(id in RERUN_CUR)) RERUN_CUR[id] = !!d.package_changed;  // Standard: geändertes Paket → aktueller Stand
+  if (!d.package_changed) RERUN_CUR[id] = false;
   setTop(`Bereitstellung #${d.id}: ${d.name}`, `${SOURCE[d.source] || d.source} · ${d.created_by || ''} · ${fmtDate(d.created_at)}`,
     active ? btn('Abbrechen', async () => { if (await confirmDlg('Bereitstellung abbrechen? Bereits laufende Installationen werden beendet.', 'Abbrechen', true)) { await run(() => POST(`/api/deployments/${id}/cancel`), 'Abgebrochen'); route(); } }, { cls: 'danger' }) : null,
     !active ? btn('Fehlgeschlagene erneut', async () => {
       if (!(await confirmDlg('Die fehlgeschlagenen Ziele erneut bereitstellen?', 'Erneut bereitstellen'))) return;
-      const r = await run(() => POST(`/api/deployments/${id}/redeploy`, { failed_only: true }), 'Gestartet'); if (r) go(`#/deployment/${r.id}`);
+      const r = await run(() => POST(`/api/deployments/${id}/redeploy`, { failed_only: true, current: !!RERUN_CUR[id] }), 'Gestartet'); if (r) go(`#/deployment/${r.id}`);
     }) : null,
     !active && p.steps && Object.values(p.steps).some((v) => v && v.length) ? btn('Schritte wählen …', () => rerunDlg(id, d), { icon: 'refresh', title: 'Ausgewählte Schritte auf allen, den fehlgeschlagenen oder ausgewählten Zielen wiederholen' }) : null,
     !active ? btn('Alle erneut', async () => {
       if (!(await confirmDlg(`Bereitstellung für alle ${d.targets.length === 1 ? 'Ziele (1)' : `${d.targets.length} Ziele`} erneut starten? Bereits erfolgreiche Computer werden noch einmal versorgt.`, 'Erneut bereitstellen'))) return;
-      const r = await run(() => POST(`/api/deployments/${id}/redeploy`, { failed_only: false }), 'Gestartet'); if (r) go(`#/deployment/${r.id}`);
+      const r = await run(() => POST(`/api/deployments/${id}/redeploy`, { failed_only: false, current: !!RERUN_CUR[id] }), 'Gestartet'); if (r) go(`#/deployment/${r.id}`);
     }) : null,
     !active ? btn('Löschen', async () => { if (await confirmDlg('Bereitstellung aus dem Verlauf löschen?', 'Löschen', true)) { await run(() => DEL(`/api/deployments/${id}`), 'Gelöscht'); go('#/deployments'); } }, { cls: 'danger', icon: 'trash' }) : null);
   const ok = d.targets.filter((t) => t.status === 'success').length;
@@ -4482,7 +4540,11 @@ async function viewDeployment(parts) {
             btn('Ab diesem Schritt', () => retryStep(id, f.sid, f.title, 'from', f.targets.map((x) => x.tid), f.targets.map((x) => x.computer)), { cls: 'small', icon: 'play' }))))))));
     }
   }
-  setContent(h('div.grid', info, fsCard, h('div.card', { style: { display: 'flex', height: 'calc(100vh - 290px)', minHeight: '300px' } }, h('div.pane', t.el))));
+  const curSel = d.package_changed && !active ? sel([['1', 'mit dem aktuellen Stand des Pakets'], ['0', 'mit dem Stand dieser Bereitstellung']], RERUN_CUR[id] ? '1' : '0',
+    { onchange: (e) => { RERUN_CUR[id] = e.target.value === '1'; } }) : null;
+  const changed = curSel ? h('div.news-up', { style: { marginBottom: '0' } }, h('b', fmtT('Das Paket wurde seit dieser Bereitstellung geändert ({0}).', fmtDate(d.package_changed))), ' ',
+    h('span', tr('Wiederholen (Fehlgeschlagene erneut, Alle erneut, Schritte wählen, Schritt wiederholen):')), ' ', curSel) : null;
+  setContent(h('div.grid', changed, info, fsCard, h('div.card', { style: { display: 'flex', height: 'calc(100vh - 290px)', minHeight: '300px' } }, h('div.pane', t.el))));
   if (active) every(4000, async () => { const x = await GET(`/api/deployments/${id}`); t.setRows(x.targets); if (x.status !== d.status) route(); });
 }
 
