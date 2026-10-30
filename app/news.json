@@ -2,6 +2,24 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.35.2",
+   "date": "2026-10-30",
+   "items": [
+    {
+     "kind": "new",
+     "audience": "admin",
+     "de": "Programme im winget-Cache kommen jetzt auch auf Computern mit winget aus dem Repository – deutlich schneller als aus dem Internet (abschaltbar in den Einstellungen des Caches).",
+     "en": "Programs in the winget cache now also come from the repository on computers with winget – much faster than from the internet (can be switched off in the cache settings)."
+    },
+    {
+     "kind": "improved",
+     "audience": "admin",
+     "de": "Keine doppelten Pakete mehr: Die Pakete „… (winget-Cache)“ sind aus der Paketliste verschwunden – das winget-Paket ist nur noch markiert.",
+     "en": "No more duplicate packages: the packages \"… (winget-Cache)\" are gone from the package list – the winget package is just marked."
+    }
+   ]
+  },
+  {
    "version": "2.35.1",
    "date": "2026-10-30",
    "items": [

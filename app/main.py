@@ -1904,6 +1904,7 @@ def _wc_view():
         rows.append(d)
     return {"entries": rows, "folder": wingetcache.folder_root(), "locale": db.setting("winget_cache_locale"),
             "max_mb": db.setting("winget_cache_max_mb"), "auto": db.setting("winget_cache_auto"),
+            "all": db.setting("winget_cache_all"),
             "archs": wingetcache.ARCHS, **wingetcache.status()}
 
 
@@ -1984,6 +1985,8 @@ def api_wc_settings(data: dict = Body(...), user=U):
             db.set_setting("winget_cache_max_mb", mb)
         if "auto" in data:
             db.set_setting("winget_cache_auto", 1 if data.get("auto") else 0)
+        if "all" in data:
+            db.set_setting("winget_cache_all", 1 if data.get("all") else 0)
     except (ValueError, wingetcache.CacheError, repofiles.RepoError) as e:
         _err(e)
     pklog.info("winget", "Einstellungen des winget-Caches geändert.", user=user["username"])
@@ -2174,7 +2177,9 @@ def _pkg_out(r, stats=None, names=None):
 
 @app.get("/api/packages")
 def api_packages(user=U):
-    rows = [r for r in db.q("SELECT * FROM packages ORDER BY name COLLATE NOCASE") if access.can_see_package(user, r)]
+    # 2.35.2: Pakete aus dem winget-Cache nicht in der Liste – sie sind Technik im Hintergrund (Markierung am winget-Paket)
+    rows = [r for r in db.q("SELECT * FROM packages WHERE id NOT IN (SELECT package_id FROM winget_cache WHERE package_id IS NOT NULL) ORDER BY name COLLATE NOCASE")
+            if access.can_see_package(user, r)]
     ws, ps = access.sql_in(user, "computer_id")  # OU-Admin: Installationszahlen nur seiner Computer
     stats = {r["wid"]: r for r in db.q(f"""SELECT lower(winget_id) wid, COUNT(DISTINCT computer_id) installs,
                                           COUNT(DISTINCT CASE WHEN outdated=1 THEN computer_id END) outdated
@@ -2198,7 +2203,7 @@ def api_packages_meta(user=U):
                         if access.scoped(user) else db.q("SELECT id, name, repo_folder FROM tenants ORDER BY name COLLATE NOCASE")),
             "profiles": [{"id": p["id"], "name": p["name"], "is_default": p["is_default"]} for p in profiles.all_profiles()],
             "collections": _collection_choices(user),
-            "packages": [{"id": r["id"], "name": r["name"]} for r in db.q("SELECT id, name, tenant_id FROM packages ORDER BY name COLLATE NOCASE")
+            "packages": [{"id": r["id"], "name": r["name"]} for r in db.q("SELECT id, name, tenant_id FROM packages WHERE id NOT IN (SELECT package_id FROM winget_cache WHERE package_id IS NOT NULL) ORDER BY name COLLATE NOCASE")
                          if access.can_see_package(user, r)]}
 
 
@@ -3470,7 +3475,7 @@ INTERNAL_SETTINGS = {"ldap_cert_fingerprint", "ldap_cert_fingerprints", "ldap_ce
                      "ad_last_sync", "ad_last_status", "ad_sync_minutes", "ad_remove_missing", "ad_auto_sync",
                      "ad_sync_disabled", "ad_ou_collections", "ad_group_collections",
                      "proxy_url", "proxy_user", "proxy_clients",
-                     "update_check_enabled", "update_repo",
+                     "update_check_enabled", "update_repo", "winget_cache_all",
                      # 2.35: winget-Cache nur über /api/wingetcache/settings (Ordner geprüft: eigener, leerer Ordner)
                      "winget_cache_folder", "winget_cache_locale", "winget_cache_max_mb", "winget_cache_auto"}  # 2.28: nur über /api/system/updates (geprüft)  # Proxy: nur über /api/system/proxy (geprüft, Kennwort im Tresor)
 def rebootmsg_clean(v, limit):
@@ -4215,7 +4220,7 @@ def api_kiosk_reboot(request: Request, data: dict = Body(...), user=K):
 def api_kiosk_admin(user=U):
     return {"items": kiosk.admin_items(), "requests": kiosk.admin_requests(),
             "packages": [{"id": r["id"], "name": r["name"], "version": r["version"]}
-                         for r in db.q("SELECT id, name, version FROM packages ORDER BY name COLLATE NOCASE")],
+                         for r in db.q("SELECT id, name, version FROM packages WHERE id NOT IN (SELECT package_id FROM winget_cache WHERE package_id IS NOT NULL) ORDER BY name COLLATE NOCASE")],
             "collections": _collection_choices(user), "enabled": kiosk.enabled(),
             "settings": {k: db.setting(k) for k in db.DEFAULT_SETTINGS if k.startswith("kiosk_")},
             "url": (mailer.base_url() or "").rstrip("/") + "/kiosk", "sso": sso.info()}

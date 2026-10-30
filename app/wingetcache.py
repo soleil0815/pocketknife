@@ -768,14 +768,20 @@ def split(wid, ids):
 
 
 def step_for(st, c):
-    """2.35.1: winget-Schritt (Installieren/Aktualisieren) auf einem Computer ohne winget → der Installationsschritt aus
-    dem winget-Cache, wenn er dort bereitliegt und passt – sonst None (der Schritt wird wie bisher übersprungen).
-    Gilt damit überall: Pakete, Zeitpläne „Pakete verteilen“, verschachtelte Pakete, Kiosk."""
+    """winget-Schritt (Installieren/Aktualisieren) → der Installationsschritt aus dem winget-Cache, wenn er dort
+    bereitliegt und passt – sonst None (dann wie bisher: winget bzw. ohne winget „Übersprungen“).
+    2.35.1: Computer ohne winget. 2.35.2: auch Computer mit winget (Einstellung „winget_cache_all“, Standard an) –
+    schneller aus dem LAN, einmal geladen statt je Computer aus dem Internet. Gilt überall: Pakete, Zeitpläne,
+    verschachtelte Pakete, Kiosk, Aktualisieren."""
     from . import deploy, integrity, steps
-    if st.get("type") != "install" or st.get("source") != "winget" or (st.get("winget_action") or "install") == "uninstall":
+    act = st.get("winget_action") or "install"
+    if st.get("type") != "install" or st.get("source") != "winget" or act == "uninstall":
         return None
-    if deploy.winget_ok((c or {}).get("os_build")):
+    has_wg = deploy.winget_ok((c or {}).get("os_build"))
+    if has_wg and not db.setting("winget_cache_all"):
         return None
+    if has_wg and (str(st.get("extra_args") or "").strip() or st.get("winget_scope") == "user"):
+        return None  # eigene winget-Argumente oder Benutzer-Installation: das kann nur winget
     e = ready().get(str(st.get("winget_id") or "").lower())
     if not e:
         return None
@@ -783,6 +789,8 @@ def step_for(st, c):
         return None  # feste andere Version verlangt – der Cache hat nur die aktuelle
     sw = db.q("SELECT version, arch, scope FROM software WHERE computer_id=? AND lower(winget_id)=?",
               ((c or {}).get("id"), str(e["winget_id"]).lower()))
+    if act == "upgrade" and not sw:
+        return None  # „Aktualisieren“ installiert nichts neu (wie winget upgrade) – nicht installiert: winget entscheidet
     if not os_ok(c or {}, e["min_os"]) or not _arch_ok(c or {}, sw, e["arch"] or "x64"):
         return None
     try:

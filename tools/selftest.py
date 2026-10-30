@@ -6380,9 +6380,24 @@ def _():
         sub = wc.step_for(ws, c_alt)
         assert sub and sub["source"] == "file" and sub["install_file"] == "tool.msi" and sub["id"] == "w1" and sub["on_error"] == "continue", sub
         assert "aus dem winget-Cache (2.0)" in sub["title"]
-        assert wc.step_for(ws, c_neu) is None, "mit winget: wie bisher per winget"
+        db.set_setting("winget_cache_all", 0)
+        assert wc.step_for(ws, c_neu) is None, "Einstellung aus: mit winget wie bisher per winget"
+        db.set_setting("winget_cache_all", 1)
+        assert wc.step_for(ws, c_neu)["install_file"] == "tool.msi", "2.35.2: auch mit winget aus dem Cache (Standard)"
+        assert wc.step_for(dict(ws, extra_args="--override /S"), c_neu) is None and wc.step_for(dict(ws, winget_scope="user"), c_neu) is None, "eigene winget-Argumente/Benutzer: winget"
+        assert wc.step_for(dict(ws, winget_action="upgrade"), c_neu) is None, "Aktualisieren installiert nichts neu"
+        db.ex("INSERT INTO software(computer_id, name, version, arch, scope, winget_id) VALUES(?, 'Cache Tool', '1.0', 'x64', 'Computer', 'Cache.Tool')", (neu,))
+        assert wc.step_for(dict(ws, winget_action="upgrade"), c_neu), "installiert: Aktualisieren aus dem Cache"
+        db.ex("DELETE FROM software WHERE computer_id=?", (neu,))
+        # 2.35.2: Cache-Pakete nicht in der Paketliste, nicht zur Auswahl (Bereitstellen, Zeitpläne, verschachtelt, Kiosk)
+        from app import main as _m2
+        hu = {"username": "haupt", "scope": None}
+        assert cpid not in {r["id"] for r in _m2.api_packages(hu)} and cpid not in {r["id"] for r in _m2.api_packages_meta(hu)["packages"]}
+        assert cpid not in {r["id"] for r in _m2.api_kiosk_admin(hu)["packages"]}
         assert wc.step_for(dict(ws, winget_action="uninstall"), c_alt) is None and wc.step_for(dict(ws, winget_version="1.5"), c_alt) is None
+        db.ex("INSERT INTO software(computer_id, name, version, arch, scope, winget_id) VALUES(?, 'Cache Tool', '1.0', 'x64', 'Computer', 'Cache.Tool')", (alt,))
         assert wc.step_for(dict(ws, winget_action="upgrade", winget_version="2.0"), c_alt), "gleiche feste Version geht"
+        db.ex("DELETE FROM software WHERE computer_id=?", (alt,))
         assert wc.step_for(ws, dict(c_alt, os_arch="32-Bit")) is None, "x64 nicht auf 32-Bit-Windows"
         src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "steps.py"), encoding="utf-8").read()
         cs = src[src.index("    def _client_step(self, st, pkg, phase, depth, t0):"):]
