@@ -2801,6 +2801,7 @@ def api_deployment(did: int, user=U):
     d = db.q1("SELECT * FROM deployments WHERE id=?", (did,))
     if not d:
         raise HTTPException(404)
+    d["package_changed"] = deploy.package_changed(d)  # 2.35.1: Paket seitdem geändert → Wiederholen mit aktuellem Stand
     d["package"] = json.loads(d.pop("package_json") or "{}")
     d["targets"] = db.q("SELECT * FROM deployment_targets WHERE deployment_id=? ORDER BY computer_name", (did,))
     mine = access.computer_ids(user)
@@ -2822,7 +2823,7 @@ def api_deployment_cancel(did: int, user=U):
 @app.post("/api/deployments/{did}/redeploy")
 def api_deployment_redeploy(did: int, data: dict = Body(default={}), user=U):
     try:
-        return {"id": deploy.redeploy(did, bool(data.get("failed_only")), user["username"])}
+        return {"id": deploy.redeploy(did, bool(data.get("failed_only")), user["username"], bool(data.get("current")))}
     except ValueError as e:
         _err(_dmsg(user, e))
 
@@ -2842,10 +2843,10 @@ def api_deployment_failed_steps(did: int, user=U):
 
 
 @app.get("/api/deployments/{did}/steps")
-def api_deployment_steps(did: int, user=U):
-    """Schritte der Bereitstellung mit dem Ergebnis je Ziel – für „Schritte wählen …“."""
+def api_deployment_steps(did: int, current: int = 0, user=U):
+    """Schritte der Bereitstellung mit dem Ergebnis je Ziel – für „Schritte wählen …“ (current=1: aktuelles Paket)."""
     try:
-        return deploy.steps_overview(did, access.computer_ids(user))
+        return deploy.steps_overview(did, access.computer_ids(user), bool(current))
     except ValueError as e:
         _err(e)
 
@@ -2856,7 +2857,8 @@ def api_deployment_rerun(did: int, data: dict = Body(...), user=U):
     try:
         return {"id": deploy.rerun_steps(did, data.get("step_ids") or [], data.get("target") or "failed",
                                          data.get("target_ids") or [], user["username"], access.computer_ids(user),
-                                         reboot="never" if data.get("reboot") == "never" else None)}
+                                         reboot="never" if data.get("reboot") == "never" else None,
+                                         current=bool(data.get("current")))}
     except ValueError as e:
         _err(_dmsg(user, e))
 
@@ -2865,7 +2867,7 @@ def api_deployment_rerun(did: int, data: dict = Body(...), user=U):
 def api_deployment_retry(did: int, data: dict = Body(...), user=U):
     try:
         return {"id": deploy.retry_step(did, str(data.get("step_id") or ""), data.get("mode"), data.get("target_ids") or [],
-                                        user["username"])}
+                                        user["username"], bool(data.get("current")))}
     except ValueError as e:
         _err(_dmsg(user, e))
 

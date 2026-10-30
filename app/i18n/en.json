@@ -5506,5 +5506,13 @@
  "Upgrade": "Upgrade",
  "winget-Cache: Ordner „{0}“.": "winget cache: folder \"{0}\".",
  "„{0}“ gibt es schon und ist nicht leer – der Cache braucht einen eigenen, neuen Ordner (beim Aufräumen löscht er dort alles, was zu keinem Eintrag gehört).": "\"{0}\" already exists and is not empty – the cache needs a folder of its own, a new one (when cleaning up it deletes everything there that belongs to no entry).",
- "„{0}“ wird schon benutzt – der Cache braucht einen eigenen Ordner.": "\"{0}\" is already in use – the cache needs a folder of its own."
+ "„{0}“ wird schon benutzt – der Cache braucht einen eigenen Ordner.": "\"{0}\" is already in use – the cache needs a folder of its own.",
+ "Die wiederholten Schritte gibt es im geänderten Paket nicht mehr – bitte das Paket neu bereitstellen.": "The repeated steps no longer exist in the changed package – please deploy the package again.",
+ "Diesen Schritt gibt es im geänderten Paket nicht mehr – „Schritte wählen …“ zeigt die aktuellen Schritte.": "This step no longer exists in the changed package – \"Choose steps …\" shows the current steps.",
+ "Das Paket wurde seit dieser Bereitstellung geändert ({0}).": "The package has been changed since this deployment ({0}).",
+ "Schritte und Einstellungen aus dem geänderten Paket; neue Schritte haben noch kein Ergebnis.": "Steps and settings from the changed package; new steps have no result yet.",
+ "aktueller Stand des Pakets": "current state of the package",
+ "mit dem Stand dieser Bereitstellung": "with the state of this deployment",
+ "mit dem aktuellen Stand des Pakets": "with the current state of the package",
+ "Wiederholen (Fehlgeschlagene erneut, Alle erneut, Schritte wählen, Schritt wiederholen):": "Repeat (Retry failed, Retry all, Choose steps, Retry step):"
 }

@@ -6301,6 +6301,63 @@ def _():
     assert "async function viewWingetCache()" in js and "/api/wingetcache/ready" in js
 
 
+@test("2.35.1 Wiederholen nach Änderung am Paket: wählbar mit dem aktuellen Stand (Standard) oder dem der Bereitstellung, Ausschnitte bleiben Ausschnitte")
+def _():
+    import json as _j
+    from app import deploy, main as _m, steps as stp
+    st_a = {"id": "sa", "type": "command", "command": "echo alt", "title": "A"}
+    st_b = {"id": "sb", "type": "command", "command": "echo neu-b", "title": "B"}
+    old = stp.clean_package({"name": "Rerun-Neu", "steps": {"main": [st_a]}})
+    cur = stp.clean_package({"name": "Rerun-Neu", "steps": {"main": [dict(st_a, command="echo neu"), st_b]}})
+    for x in (old, cur):
+        x["steps"], x["conditions"] = _j.dumps(x["steps"]), _j.dumps(x["conditions"])
+    pid = db.ex(f"INSERT INTO packages({', '.join(deploy.PKG_FIELDS)}, created_at, updated_at) VALUES({', '.join('?' * len(deploy.PKG_FIELDS))}, ?, ?)",
+                tuple(cur[k] for k in deploy.PKG_FIELDS) + ("2026-10-01 10:00:00", "2026-10-02 10:00:00"))
+    snap = deploy.row_to_package(dict(old, id=pid))
+    c = db.ex("INSERT INTO computers(name) VALUES('RR-PC1')")
+    did = db.ex("INSERT INTO deployments(name, package_id, package_json, status, created_at) VALUES('Rerun-Neu', ?, ?, 'failed', '2026-10-01 12:00:00')",
+                (pid, _j.dumps(snap)))
+    db.ex("INSERT INTO deployment_targets(deployment_id, computer_id, computer_name, status, steps) VALUES(?,?,?,?,?)",
+          (did, c, "RR-PC1", "failed", _j.dumps([{"sid": "sa", "status": "failed", "depth": 0, "title": "A"}])))
+    made = []
+    oc = deploy.create
+    deploy.create = lambda pkg, ids, user, *a, **k: (made.append((pkg, ids, k)) or 4711)
+    try:
+        assert deploy.package_changed(db.q1("SELECT * FROM deployments WHERE id=?", (did,))) == "2026-10-02 10:00:00"
+        assert _m.api_deployment(did, {"username": "haupt", "scope": None})["package_changed"] == "2026-10-02 10:00:00"
+        cmds = lambda pk: [x.get("command") for _ph, x in stp.iter_steps(stp.normalize(pk))]
+        deploy.redeploy(did, True, "t")
+        assert cmds(made[-1][0]) == ["echo alt"], "Standard der Funktion: Stand der Bereitstellung"
+        deploy.redeploy(did, True, "t", current=True)
+        assert cmds(made[-1][0]) == ["echo neu", "echo neu-b"] and made[-1][2]["package_id"] == pid, "aktueller Stand"
+        deploy.retry_step(did, "sa", "step", [], "t", current=True)
+        assert cmds(made[-1][0]) == ["echo neu"]
+        must_fail(deploy.retry_step, did, "gibts-nicht", "step", [], "t", True, contains="geänderten Paket")
+        ov = deploy.steps_overview(did, None, current=True)
+        assert [x["sid"] for x in ov["steps"]] == ["sa", "sb"] and ov["steps"][0]["counts"] == {"failed": 1} and ov["steps"][1]["counts"] == {}, ov
+        assert [x["sid"] for x in deploy.steps_overview(did)["steps"]] == ["sa"]
+        deploy.rerun_steps(did, ["sb"], "all", [], "t", current=True)
+        assert cmds(made[-1][0]) == ["echo neu-b"], "neuer Schritt wählbar"
+        must_fail(deploy.rerun_steps, did, ["sb"], "all", [], "t", contains="Unbekannter Schritt")
+        # war schon ein Ausschnitt („– „A“ wiederholt“): aus dem aktuellen Paket nur diese Schritte
+        db.ex("UPDATE deployments SET name='Rerun-Neu – „A“ wiederholt' WHERE id=?", (did,))
+        deploy.redeploy(did, False, "t", current=True)
+        assert cmds(made[-1][0]) == ["echo neu"], "Ausschnitt bleibt Ausschnitt"
+        # nicht geändert (Paket älter als die Bereitstellung): immer der Stand der Bereitstellung
+        db.ex("UPDATE packages SET updated_at='2026-09-01 00:00:00' WHERE id=?", (pid,))
+        deploy.redeploy(did, False, "t", current=True)
+        assert cmds(made[-1][0]) == ["echo alt"] and deploy.package_changed(db.q1("SELECT * FROM deployments WHERE id=?", (did,))) is None
+    finally:
+        deploy.create = oc
+        db.ex("DELETE FROM deployments WHERE id=?", (did,))
+        db.ex("DELETE FROM deployment_targets WHERE deployment_id=?", (did,))
+        db.ex("DELETE FROM packages WHERE id=?", (pid,))
+        db.ex("DELETE FROM computers WHERE id=?", (c,))
+    js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
+    assert js.count("current: !!RERUN_CUR[") == 4 and "/steps${RERUN_CUR[did] ? '?current=1' : ''}" in js
+    assert "if (!(id in RERUN_CUR)) RERUN_CUR[id] = !!d.package_changed;" in js
+
+
 def main():
     ok = 0
     for name, fn in RESULTS:

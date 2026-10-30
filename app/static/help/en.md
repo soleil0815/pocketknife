@@ -882,6 +882,8 @@ Deploy with the **Deploy …** button (computer list, package, software) or by r
 
 The deployment shows the progress per computer. **Details** opens the result of each step with the exit code and the complete output. "Retry failed" repeats the whole package on the computers that did not succeed.
 
+**Package changed since (from 2.35.1):** a deployment remembers the state of the package at its start. If you changed the package afterwards (e.g. corrected a step), a notice at the top of the deployment offers **with the current state of the package** (default) or **with the state of this deployment**. It applies to "Retry failed", "Retry all", "Choose steps …" and "Retry step" – no need to assign the package again. "Choose steps …" then shows the steps of the changed package (new steps without a previous result). If the deployment itself was already a retry of single steps, it stays with these steps – taken from the current package.
+
 **Retrying individual steps:** If a step failed, the deployment shows the section **Failed steps** – per step with the affected computers and two buttons:
 
 - **Only this step** – runs just this step again (e.g. a service start that failed because of a lock).

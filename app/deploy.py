@@ -678,7 +678,38 @@ def cancel(did, user=None):
     pklog.info("deploy", f"Bereitstellung #{did} abgebrochen.", user=user)
 
 
-def redeploy(did, failed_only, user):
+# --- 2.35.1: Wiederholen mit dem aktuellen Stand des Pakets --------------------------------
+def package_changed(d):
+    """Geändert-Datum des Pakets, wenn es seit dieser Bereitstellung geändert wurde – sonst None."""
+    if not d or not d.get("package_id"):
+        return None
+    r = db.q1("SELECT updated_at FROM packages WHERE id=?", (d["package_id"],))
+    if not r or not r["updated_at"] or r["updated_at"] <= (d.get("created_at") or ""):
+        return None
+    return r["updated_at"]
+
+
+def source_package(d, current=False):
+    """Paket für eine Wiederholung: der Stand dieser Bereitstellung (Standard) – oder mit current der aktuelle Stand
+    des Pakets, falls es seitdem geändert wurde. War die Bereitstellung selbst schon ein Ausschnitt (einzelne Schritte
+    wiederholt), bleibt es beim Ausschnitt: aus dem aktuellen Paket nur diese Schritte."""
+    from . import steps
+    snap = json.loads(d["package_json"] or "{}")
+    if not current or not package_changed(d):
+        return snap
+    row = db.q1("SELECT * FROM packages WHERE id=?", (d["package_id"],))
+    cur = steps.normalize(row_to_package(row))
+    if RETRY_SUFFIX.search(d.get("name") or ""):
+        keep = {st.get("id") for _ph, st in steps.iter_steps(steps.normalize(snap))}
+        cur = dict(cur, steps={ph: [dict(st, enabled=True) for st in cur["steps"].get(ph) or [] if st.get("id") in keep]
+                               for ph, _l in steps.PHASES}, reboot=snap.get("reboot", cur.get("reboot")))
+        if not any(cur["steps"].values()):
+            raise ValueError("Die wiederholten Schritte gibt es im geänderten Paket nicht mehr – bitte das Paket neu "
+                             "bereitstellen.")
+    return cur
+
+
+def redeploy(did, failed_only, user, current=False):
     d = db.q1("SELECT * FROM deployments WHERE id=?", (did,))
     if not d:
         raise ValueError("Bereitstellung nicht gefunden")
@@ -686,7 +717,7 @@ def redeploy(did, failed_only, user):
     if failed_only:
         sql += " AND status NOT IN ('success')"
     ids = [r["computer_id"] for r in db.q(sql, (did,))]
-    return create(json.loads(d["package_json"]), ids, user, name=d["name"], package_id=d["package_id"],
+    return create(source_package(d, current), ids, user, name=d["name"], package_id=d["package_id"],
                   target_label=d.get("target_label"))
 
 
@@ -754,14 +785,20 @@ def retry_package(p, sid, mode):
     return p, steps.step_title(st)
 
 
-def retry_step(did, sid, mode, target_ids, user):
+def retry_step(did, sid, mode, target_ids, user, current=False):
     d = db.q1("SELECT * FROM deployments WHERE id=?", (did,))
     if not d:
         raise ValueError("Bereitstellung nicht gefunden")
     if d["status"] in ("running", "queued", "scheduled"):
         raise ValueError("Die Bereitstellung läuft noch – bitte warten oder abbrechen.")
     mode = "from" if mode == "from" else "step"
-    pkg, title = retry_package(json.loads(d["package_json"] or "{}"), sid, mode)
+    try:
+        pkg, title = retry_package(source_package(d, current), sid, mode)
+    except ValueError as e:
+        if current and str(e) == "Schritt nicht gefunden":
+            raise ValueError("Diesen Schritt gibt es im geänderten Paket nicht mehr – „Schritte wählen …“ zeigt die "
+                             "aktuellen Schritte.")
+        raise
     failed = {x["tid"]: x["computer_id"] for f in failed_steps(did) if f["sid"] == sid for x in f["targets"]}
     if target_ids:
         rows = db.q(f"SELECT id, computer_id FROM deployment_targets WHERE deployment_id=? AND id IN "
@@ -778,17 +815,18 @@ def retry_step(did, sid, mode, target_ids, user):
     return new
 
 
-def steps_overview(did, allowed=None):
+def steps_overview(did, allowed=None, current=False):
     """Oberste Schritte einer Bereitstellung mit dem Ergebnis je Ziel (für „Schritte wählen …“).
-    allowed: nur diese Computer zählen (OU-Admins)."""
+    allowed: nur diese Computer zählen (OU-Admins). current: Schritte des aktuellen Pakets (2.35.1) – die Ergebnisse
+    werden über die Schritt-ID zugeordnet (neue Schritte haben noch keine)."""
     from . import steps
     d = db.q1("SELECT * FROM deployments WHERE id=?", (did,))
     if not d:
         raise ValueError("Bereitstellung nicht gefunden")
-    p = steps.normalize(json.loads(d["package_json"] or "{}"))
-    top = list(steps.iter_steps(p))
+    top = list(steps.iter_steps(steps.normalize(json.loads(d["package_json"] or "{}"))))  # für alte Ergebnisse ohne sid
+    p = steps.normalize(source_package(d, current))
     out = [{"sid": st.get("id"), "phase": ph, "title": steps.step_title(st), "type": st.get("type"),
-            "enabled": st.get("enabled", True) is not False, "counts": {}} for ph, st in top]
+            "enabled": st.get("enabled", True) is not False, "counts": {}} for ph, st in steps.iter_steps(p)]
     by_id = {x["sid"]: x for x in out}
     targets = []
     for t in db.q("SELECT id, computer_id, computer_name, status, steps FROM deployment_targets WHERE deployment_id=? "
@@ -814,7 +852,7 @@ def steps_overview(did, allowed=None):
 RETRY_SUFFIX = re.compile(r"( – ((ab )?„.*“|\d+ Schritte?) wiederholt)+$")
 
 
-def rerun_steps(did, step_ids, target, target_ids, user, allowed=None, reboot=None):
+def rerun_steps(did, step_ids, target, target_ids, user, allowed=None, reboot=None, current=False):
     """Bereitstellung mit frei gewählten Schritten wiederholen – neue Bereitstellung mit einem Ausschnitt des Pakets
     (Reihenfolge und Phasen bleiben; gewählte, im Original ausgeschaltete Schritte werden eingeschaltet).
     target: "all" | "failed" | "selected" (dann target_ids = IDs der Ziele dieser Bereitstellung)."""
@@ -827,7 +865,7 @@ def rerun_steps(did, step_ids, target, target_ids, user, allowed=None, reboot=No
     want = [str(x) for x in step_ids or [] if x]
     if not want:
         raise ValueError("Bitte mindestens einen Schritt wählen.")
-    p = steps.normalize(json.loads(d["package_json"] or "{}"))
+    p = steps.normalize(source_package(d, current))
     known = {st.get("id") for _ph, st in steps.iter_steps(p)}
     unknown = [x for x in want if x not in known]
     if unknown:
