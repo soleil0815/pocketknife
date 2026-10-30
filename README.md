@@ -2,7 +2,7 @@ English version: [README.en.md](README.en.md)
 
 # POCKET KNIFE
 
-Aktuelle Version: **pocketknife-2.32.8** – siehe `CHANGELOG.md`.
+Aktuelle Version: **pocketknife-2.36.0** – siehe `CHANGELOG.md`.
 
 Webseite: [helfi.space](https://helfi.space)
 
@@ -12,6 +12,22 @@ Webanwendung zur **Inventarisierung** und **Softwareverteilung** für Windows-Co
 - Anmeldung mit Domänenkonten über **LDAPS**; nur Mitglieder einer festgelegten AD-Gruppe haben Zugriff
 - Das LDAPS-Zertifikat der DCs wird **automatisch vertraut**; der SHA-256-Fingerabdruck wird gespeichert und eine Änderung protokolliert
 - Die Oberfläche lädt **nichts aus dem Internet** (keine Fonts, CDNs oder Bibliotheken; strenge Content-Security-Policy)
+
+## Bilder
+
+**Übersicht** – Online-Status, veraltete Software, letzte Bereitstellungen
+
+![Übersicht](docs/screenshots/uebersicht.png)
+
+**Computer** – Inventar mit 28 Kategorien, Sicherheit, Kennwörter & Schlüssel
+
+![Computer](docs/screenshots/computer.png)
+
+**Bereitstellung** – Live-Fortschritt je Computer, hier aus dem winget-Cache
+
+![Bereitstellung](docs/screenshots/bereitstellung.png)
+
+<sub>Demodaten (firma.local, PC-0001 …).</sub>
 
 ## Hilfe, Handbuch und Sprache
 

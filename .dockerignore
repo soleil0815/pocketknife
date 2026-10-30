@@ -15,3 +15,4 @@ dist/
 .pk-rollback-ref
 .pk-rotiert-gerade
 .pk-update-unvollstaendig
+docs/
