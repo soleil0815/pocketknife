@@ -699,10 +699,12 @@ def source_package(d, current=False):
         return snap
     row = db.q1("SELECT * FROM packages WHERE id=?", (d["package_id"],))
     cur = steps.normalize(row_to_package(row))
-    if RETRY_SUFFIX.search(d.get("name") or ""):
-        keep = {st.get("id") for _ph, st in steps.iter_steps(steps.normalize(snap))}
-        cur = dict(cur, steps={ph: [dict(st, enabled=True) for st in cur["steps"].get(ph) or [] if st.get("id") in keep]
-                               for ph, _l in steps.PHASES}, reboot=snap.get("reboot", cur.get("reboot")))
+    # Ausschnitt: fest markiert (2.35.5, „slice“) – ältere Bereitstellungen am Namen erkannt
+    if snap.get("slice") or RETRY_SUFFIX.search(d.get("name") or ""):
+        # eingeschaltet bleibt, was im Ausschnitt eingeschaltet war (ausgeschaltete Schritte nicht plötzlich mitlaufen)
+        keep = {st.get("id"): st.get("enabled", True) is not False for _ph, st in steps.iter_steps(steps.normalize(snap))}
+        cur = dict(cur, steps={ph: [dict(st, enabled=keep[st.get("id")]) for st in cur["steps"].get(ph) or [] if st.get("id") in keep]
+                               for ph, _l in steps.PHASES}, reboot=snap.get("reboot", cur.get("reboot")), slice=True)
         if not any(cur["steps"].values()):
             raise ValueError("Die wiederholten Schritte gibt es im geänderten Paket nicht mehr – bitte das Paket neu "
                              "bereitstellen.")
@@ -781,7 +783,7 @@ def retry_package(p, sid, mode):
         for k in order[order.index(ph):]:
             new[k] = list(p["steps"][k][i:] if k == ph else p["steps"][k])
         new[ph][0] = dict(new[ph][0], enabled=True)
-    p = dict(p, steps=new)
+    p = dict(p, steps=new, slice=True)  # 2.35.5: Ausschnitt fest markiert (nicht nur am Namen erkennbar)
     return p, steps.step_title(st)
 
 
@@ -874,7 +876,7 @@ def rerun_steps(did, step_ids, target, target_ids, user, allowed=None, reboot=No
     new_steps = {}
     for ph, _label in steps.PHASES:
         new_steps[ph] = [dict(st, enabled=True) for st in p["steps"].get(ph) or [] if st.get("id") in chosen]
-    pkg = dict(p, steps=new_steps)
+    pkg = dict(p, steps=new_steps, slice=True)
     if reboot == "never":
         pkg["reboot"] = "never"  # z. B. nur einen Registry-Schritt wiederholen: dafür nicht alle neu starten
     rows = db.q("SELECT id, computer_id, status FROM deployment_targets WHERE deployment_id=? AND computer_id IS NOT NULL", (did,))

@@ -2216,7 +2216,10 @@ def api_packages_meta(user=U):
                         if access.scoped(user) else db.q("SELECT id, name, repo_folder FROM tenants ORDER BY name COLLATE NOCASE")),
             "profiles": [{"id": p["id"], "name": p["name"], "is_default": p["is_default"]} for p in profiles.all_profiles()],
             "collections": _collection_choices(user),
-            "packages": [{"id": r["id"], "name": r["name"]} for r in db.q("SELECT id, name, tenant_id FROM packages WHERE id NOT IN (SELECT package_id FROM winget_cache WHERE package_id IS NOT NULL) ORDER BY name COLLATE NOCASE")
+            # 2.35.5: Cache-Pakete mit Kennzeichen – Auswahllisten bieten sie nicht an, zeigen aber eine schon gewählte
+            "packages": [{"id": r["id"], "name": r["name"], "cache": bool(r["cache"])} for r in db.q(
+                "SELECT id, name, tenant_id, id IN (SELECT package_id FROM winget_cache WHERE package_id IS NOT NULL) cache "
+                "FROM packages ORDER BY name COLLATE NOCASE")
                          if access.can_see_package(user, r)]}
 
 
@@ -4232,8 +4235,9 @@ def api_kiosk_reboot(request: Request, data: dict = Body(...), user=K):
 @app.get("/api/kiosk/admin")
 def api_kiosk_admin(user=U):
     return {"items": kiosk.admin_items(), "requests": kiosk.admin_requests(),
-            "packages": [{"id": r["id"], "name": r["name"], "version": r["version"]}
-                         for r in db.q("SELECT id, name, version FROM packages WHERE id NOT IN (SELECT package_id FROM winget_cache WHERE package_id IS NOT NULL) ORDER BY name COLLATE NOCASE")],
+            "packages": [{"id": r["id"], "name": r["name"], "version": r["version"], "cache": bool(r["cache"])}
+                         for r in db.q("SELECT id, name, version, id IN (SELECT package_id FROM winget_cache WHERE package_id IS NOT NULL) cache "
+                                       "FROM packages ORDER BY name COLLATE NOCASE")],
             "collections": _collection_choices(user), "enabled": kiosk.enabled(),
             "settings": {k: db.setting(k) for k in db.DEFAULT_SETTINGS if k.startswith("kiosk_")},
             "url": (mailer.base_url() or "").rstrip("/") + "/kiosk", "sso": sso.info()}

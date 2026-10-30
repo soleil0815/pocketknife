@@ -1,5 +1,14 @@
 # Änderungen
 
+## pocketknife-2.35.5 (30.10.2026)
+Ergebnis eines Code-Reviews von 2.35.1–2.35.4:
+- **Behoben – „Prüfsumme des Katalogs nicht verlangen“ nur noch über HTTPS:** auch eine Weiterleitung des Herstellers muss HTTPS bleiben (Download und Abfrage des Kennzeichens). Vorher war http möglich – ohne Prüfsumme hätte dann jemand im Netz eine Datei unterschieben können
+- **Behoben – Cache ersetzt keine Schritte mehr, die nicht passen:** nicht, wenn der Schritt als angemeldeter Benutzer läuft (ein Installer für alle Benutzer bräuchte Administratorrechte), nicht bei Bereich „Benutzer“ (auch ohne winget), und nie zum Herunterstufen, wenn die installierte Version nicht älter ist
+- **Behoben – Wiederholen mit aktuellem Stand:** Ausschnitte (einzelne Schritte wiederholt) sind jetzt fest markiert, statt am Namen erkannt zu werden – bei langen, gekürzten Namen lief sonst das ganze Paket; ausgeschaltete Schritte bleiben ausgeschaltet
+- **Behoben – Kiosk-Einträge, Zeitpläne und verschachtelte Schritte, die schon ein Cache-Paket benutzen:** die Auswahl zeigt es wieder (Bearbeiten und Speichern gingen nicht bzw. das Deinstallationspaket ging verloren); neu angeboten werden Cache-Pakete weiterhin nicht
+- **Verbessert – winget-Cache:** Bruchprüfung je Cache-Paket höchstens alle 2 Minuten statt für jedes Ziel; geänderte Datei → Eintrag im Protokoll; Paket nur neu geschrieben, wenn sich etwas geändert hat (kein täglicher Hinweis „Paket geändert“); alte Versionen nicht löschen, solange eine Bereitstellung mit diesem Programm läuft; ZIP: Namen, die sich nur in der Schreibung unterscheiden, abgelehnt, Datei mit der Schreibung aus dem ZIP, halbe Ordner nach Fehlern gelöscht, Grenze entpackt 2× größte Datei; „Prüfsumme nicht verlangen“ umschalten wird auch während einer laufenden Prüfung übernommen; bei MSI ohne Katalog-Prüfsumme Produktcode aus der Datei, Version weiter die des Katalogs
+- **Selbsttest:** HTTPS/Weiterleitung, Benutzer/Bereich/Herunterstufen, Ausschnitt mit gekürztem Namen und ausgeschaltetem Schritt, Schreibung im ZIP, Paket unverändert, Auswahllisten
+
 ## pocketknife-2.35.4 (30.10.2026)
 - **Behoben – winget-Cache: „Nicht möglich … Im Manifest: zip“ bei manchen ZIP-Paketen (z. B. MobaXterm):** Steht im Manifest die Datei im ZIP (`NestedInstallerFiles`) auf oberster Ebene statt beim Installer, wurde sie nicht übernommen. Jetzt gelten alle Angaben der obersten Ebene für jeden Installer, wie bei winget
 - **Behoben – Programme, die es nur als x86 gibt:** Im x64-Eintrag liegt dann der x86-Installer; beim Aufteilen zählt jetzt dessen Architektur – sonst wären Computer mit der installierten x86-Version ausgelassen worden. Die Spalte „Arch.“ zeigt die Architektur des Installers

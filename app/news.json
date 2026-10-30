@@ -2,6 +2,24 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.35.5",
+   "date": "2026-10-30",
+   "items": [
+    {
+     "kind": "security",
+     "audience": "admin",
+     "de": "winget-Cache: „Prüfsumme des Katalogs nicht verlangen“ lädt nur noch über HTTPS (auch nach Weiterleitungen).",
+     "en": "winget cache: \"Do not require the catalog checksum\" only downloads via HTTPS (also after redirects)."
+    },
+    {
+     "kind": "fixed",
+     "audience": "admin",
+     "de": "winget-Cache ersetzt keine Schritte mehr, die als angemeldeter Benutzer laufen, und stuft nie herunter; Wiederholen und Auswahllisten mit Cache-Paketen korrigiert.",
+     "en": "winget cache no longer replaces steps that run as the signed-in user and never downgrades; retrying and selection lists with cache packages fixed."
+    }
+   ]
+  },
+  {
    "version": "2.35.4",
    "date": "2026-10-30",
    "items": [

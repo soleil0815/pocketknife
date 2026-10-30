@@ -3567,7 +3567,7 @@ async function packageDlg(pidOrPkg, preset = {}) {
     ...({ install: { source: 'file', folder: '', install_file: '', install_type: '', arguments: '', copy_folder: true, detect_name: '', detect_version: '', success_codes: '0,3010,1641',
       winget_id: '', winget_action: 'install', winget_version: '', winget_scope: 'machine', extra_args: '' },
     uninstall: { match_name: '', match_version: '', command: '', cleanup: false, all_matches: true, missing_ok: true },
-    command: { command: '', success_codes: '0' }, powershell: { script: '', success_codes: '0' }, nested: { package_id: (meta.packages.find((x) => !p || x.id !== p.id) || {}).id },
+    command: { command: '', success_codes: '0' }, powershell: { script: '', success_codes: '0' }, nested: { package_id: (meta.packages.find((x) => !x.cache && (!p || x.id !== p.id)) || {}).id },
     filecopy: { source: '', target: '%ProgramData%\\', overwrite: true }, registry: { view: '64', success_codes: '0', entries: [{ action: 'set', path: 'HKLM\\SOFTWARE\\', name: '', kind: 'REG_SZ', data: '' }] }, scan: { profile_id: null }, reboot: { delay_sec: 60, wait_minutes: 20, message: '' },
     sleep: { seconds: 30 }, message: { text: '', timeout_sec: 0 }, logoff: { only_disconnected: false } })[type], ...extra });
   p = p ? JSON.parse(JSON.stringify(p)) : { name: '', version: '', description: '', run_as: 'deploy', timeout_min: 60, reboot: 'never', rescan: 1, tenant_id: preset.tenant_id || null,
@@ -3748,7 +3748,7 @@ async function packageDlg(pidOrPkg, preset = {}) {
     if (t === 'command') return h('div.form', h('label', 'Befehl'), h('div', ta(st, 'command', 10, { placeholder: 'Mehrzeilig wie eine .cmd-Datei, z. B.\ntaskkill /im 7zFM.exe /f\nreg add "HKLM\\SOFTWARE\\Firma" /v Wert /d 1 /f' })), field('Erfolgs-Exitcodes', inp(st, 'success_codes')));
     if (t === 'powershell') return h('div.form', h('label', 'PowerShell'), h('div', ta(st, 'script', 14, { placeholder: '# exit 1 meldet einen Fehler (Exitcode), ohne exit gilt 0\nGet-Process 7zFM -ErrorAction SilentlyContinue | Stop-Process -Force' })), field('Erfolgs-Exitcodes', inp(st, 'success_codes')));
     if (t === 'nested') {
-      return h('div.form', field('Paket', sl(st, 'package_id', meta.packages.filter((x) => !p.id || x.id !== p.id).map((x) => [x.id, x.name]), true),
+      return h('div.form', field('Paket', sl(st, 'package_id', meta.packages.filter((x) => (!p.id || x.id !== p.id) && (!x.cache || x.id === Number(st.package_id))).map((x) => [x.id, x.name]), true),
         'Die Schritte dieses Pakets laufen an dieser Stelle – mit dessen eigenen Bedingungen und „Ausführen als“.'));
     }
     if (t === 'filecopy') {
@@ -3972,7 +3972,7 @@ async function scheduleDlg(id, preset = {}) {
   const kindSeg = h('div.seg');
   // Pakete in Reihenfolge
   const pkBox = h('div');
-  const addPk = sel([['', '+ Paket hinzufügen …'], ...meta.packages.map((x) => [x.id, x.name])], '', { onchange: (e) => { if (e.target.value) { s.packages.push(Number(e.target.value)); e.target.value = ''; drawPk(); } } });
+  const addPk = sel([['', '+ Paket hinzufügen …'], ...meta.packages.filter((x) => !x.cache).map((x) => [x.id, x.name])], '', { onchange: (e) => { if (e.target.value) { s.packages.push(Number(e.target.value)); e.target.value = ''; drawPk(); } } });
   function drawPk() {
     pkBox.replaceChildren(...(s.packages.length ? s.packages.map((pid, i) => h('div.cond-line', h('span.pkg-n', String(i + 1)), h('b', (meta.packages.find((x) => x.id === pid) || { name: `#${pid}` }).name), h('div.spacer'),
       h('button.ghost.small', { type: 'button', onclick: () => { if (i) { s.packages.splice(i - 1, 0, s.packages.splice(i, 1)[0]); drawPk(); } } }, '↑'),
@@ -5214,14 +5214,14 @@ async function viewKiosk(_p, params) {
     const isNew = !it;
     const x = it ? { ...it } : { package_id: '', enabled: 1, approval: 0, category: '', description: '', uninstall_package_id: '', collection_id: '' };
     const inCat = new Set(d.items.map((i) => i.package_id));
-    const pkgSel = sel([['', '— Paket wählen —'], ...d.packages.filter((p) => !inCat.has(p.id) || p.id === x.package_id).map((p) => [p.id, p.version ? `${p.name} (${p.version})` : p.name])],
+    const pkgSel = sel([['', '— Paket wählen —'], ...d.packages.filter((p) => (!inCat.has(p.id) && !p.cache) || p.id === x.package_id).map((p) => [p.id, p.version ? `${p.name} (${p.version})` : p.name])],
       x.package_id, { disabled: !isNew });
     const en = h('input', { type: 'checkbox', checked: !!x.enabled });
     const appr = h('input', { type: 'checkbox', checked: !!x.approval });
     const cat = h('input', { value: x.category || '', placeholder: 'z. B. Office, Grafik, Werkzeuge' });
     combo(cat, cats);
     const desc = h('textarea', { rows: 3, placeholder: 'Kurze Beschreibung für Nutzer (leer = Paketbeschreibung)', value: x.description || '' });
-    const un = sel([['', '— keine (Deinstallieren nicht anbieten) —'], ...d.packages.map((p) => [p.id, p.name])], x.uninstall_package_id || '');
+    const un = sel([['', '— keine (Deinstallieren nicht anbieten) —'], ...d.packages.filter((p) => !p.cache || p.id === x.uninstall_package_id).map((p) => [p.id, p.name])], x.uninstall_package_id || '');
     const col = sel([['', tr('Alle Computer')], ...collChoiceOptions(d.collections.filter((c) => c.id > 0))], x.collection_id || '', { 'data-notr': '1' });
     const grp = h('textarea', { rows: 3, style: { width: '100%' }, placeholder: 'leer = alle Kiosk-Nutzer\neine Gruppe je Zeile – Name oder DN, z. B. Grafik-Team', value: x.groups || '' });
     const pickGroups = async () => {
