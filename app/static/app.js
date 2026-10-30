@@ -3051,7 +3051,7 @@ async function viewWingetCache() {
     { key: 'status', label: 'Status', render: badge, value: (r) => r.status_text },
     { key: 'message', label: 'Hinweis', cls: 'trunc', title: (r) => r.message || '' },
     { key: 'installer_type', label: 'Installer' },
-    { key: 'arch', label: 'Arch.' },
+    { key: 'arch', label: 'Arch.', value: (r) => r.inst_arch || r.arch, title: (r) => (r.inst_arch && r.inst_arch !== r.arch ? tr('Das Programm gibt es nur in dieser Architektur') : '') },
     { key: 'size', label: 'Größe', cls: 'right', render: (r) => (r.size ? fmtBytes(r.size) : ''), sort: (r) => r.size || 0 },
     { key: 'min_os', label: 'Mindest-Windows', hidden: true },
     { key: 'folder', label: 'Ordner', cls: 'mono trunc', hidden: true, title: (r) => (r.folder ? `${r.folder}\\${r.file || ''}` : '') },

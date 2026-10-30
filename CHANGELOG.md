@@ -1,5 +1,10 @@
 # Änderungen
 
+## pocketknife-2.35.4 (30.10.2026)
+- **Behoben – winget-Cache: „Nicht möglich … Im Manifest: zip“ bei manchen ZIP-Paketen (z. B. MobaXterm):** Steht im Manifest die Datei im ZIP (`NestedInstallerFiles`) auf oberster Ebene statt beim Installer, wurde sie nicht übernommen. Jetzt gelten alle Angaben der obersten Ebene für jeden Installer, wie bei winget
+- **Behoben – Programme, die es nur als x86 gibt:** Im x64-Eintrag liegt dann der x86-Installer; beim Aufteilen zählt jetzt dessen Architektur – sonst wären Computer mit der installierten x86-Version ausgelassen worden. Die Spalte „Arch.“ zeigt die Architektur des Installers
+- **Selbsttest:** Angaben auf oberster Ebene, x86-Installer im x64-Eintrag
+
 ## pocketknife-2.35.3 (30.10.2026)
 - **Neu – winget-Cache: ZIP mit Installer:** Liegt der Installer in einem ZIP (z. B. paint.net), lädt POCKET KNIFE das ZIP, prüft seine Prüfsumme, entpackt es (nur relative Pfade mit gültigen Namen, Größe begrenzt, erst in einen Zwischenordner) und installiert die im Manifest genannte Datei mit deren Schaltern. ZIPs ohne Installer („portable“) bleiben „Nicht möglich“
 - **Neu – „Prüfsumme des Katalogs nicht verlangen“ (je Eintrag, Rechtsklick):** für Hersteller, die unter derselben Adresse immer die neueste Datei liefern (z. B. Google Chrome) – dort passt die Prüfsumme im winget-Katalog oft nicht. POCKET KNIFE lädt dann über HTTPS vom Hersteller, nur wenn sich die Datei geändert hat (ETag bzw. Datum/Größe), merkt sich ihre Prüfsumme (Bruchprüfung) und liest bei MSI die Version aus der Datei. Der Fehlertext bei falscher Prüfsumme nennt die Möglichkeit

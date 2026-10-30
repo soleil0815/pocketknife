@@ -5552,5 +5552,6 @@
  "Ungültiger Pfad im ZIP: {0}": "Invalid path in the ZIP: {0}",
  "nicht mehr verlangt": "no longer required",
  "ohne Prüfsumme des Katalogs (Datei vom Hersteller per HTTPS)": "without the catalog checksum (file from the vendor via HTTPS)",
- "winget-Cache: „{0}“ – Prüfsumme des Katalogs {1}.": "winget cache: \"{0}\" – catalog checksum {1}."
+ "winget-Cache: „{0}“ – Prüfsumme des Katalogs {1}.": "winget cache: \"{0}\" – catalog checksum {1}.",
+ "Das Programm gibt es nur in dieser Architektur": "The program only exists in this architecture"
 }

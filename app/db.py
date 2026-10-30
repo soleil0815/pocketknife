@@ -130,7 +130,7 @@ CREATE TABLE IF NOT EXISTS winget_cache(
   id INTEGER PRIMARY KEY, winget_id TEXT NOT NULL UNIQUE COLLATE NOCASE, arch TEXT DEFAULT 'x64',
   scope TEXT DEFAULT 'machine', status TEXT DEFAULT 'new', message TEXT, name TEXT, version TEXT, folder TEXT,
   file TEXT, size INTEGER, sha256 TEXT, installer_type TEXT, min_os TEXT, package_id INTEGER, detect_version TEXT,
-  ignore_hash INTEGER DEFAULT 0, remote_sig TEXT,
+  ignore_hash INTEGER DEFAULT 0, remote_sig TEXT, inst_arch TEXT,
   checked_at TEXT, updated_at TEXT, created_at TEXT, created_by TEXT);
 
 CREATE TABLE IF NOT EXISTS disk_usage(
@@ -473,6 +473,7 @@ MIGRATIONS = [
     ("winget_cache", "detect_version", "TEXT"),
     ("winget_cache", "ignore_hash", "INTEGER DEFAULT 0"),   # 2.35.3: Prüfsumme des Katalogs nicht verlangen (je Eintrag)
     ("winget_cache", "remote_sig", "TEXT"),                 # 2.35.3: ETag/Datum/Größe der Download-Adresse
+    ("winget_cache", "inst_arch", "TEXT"),                  # 2.35.4: Architektur des geladenen Installers
     ("software", "excluded", "INTEGER DEFAULT 0"),
     ("scan_profiles", "scanner_types", "TEXT"),
     ("scan_profiles", "builtin_key", "TEXT"),
