@@ -2,7 +2,7 @@ Deutsche Fassung: [README.md](README.md)
 
 # POCKET KNIFE
 
-Current version: **pocketknife-2.32.8** – see `CHANGELOG.md` (German).
+Current version: **pocketknife-2.36.0** – see `CHANGELOG.md` (German).
 
 Website: [helfi.space](https://helfi.space)
 
@@ -12,6 +12,22 @@ Web application for **inventory** and **software deployment** for Windows comput
 - Sign-in with domain accounts via **LDAPS**; only members of a specified AD group have access
 - The DCs' LDAPS certificate is **trusted automatically**; its SHA-256 fingerprint is stored and any change is logged
 - The interface loads **nothing from the internet** (no fonts, CDNs or libraries; strict Content Security Policy)
+
+## Screenshots
+
+**Overview** – online status, outdated software, recent deployments
+
+![Overview](docs/screenshots/uebersicht.png)
+
+**Computer** – inventory with 28 categories, security, passwords & keys
+
+![Computer](docs/screenshots/computer.png)
+
+**Deployment** – live progress per computer, here from the winget cache
+
+![Deployment](docs/screenshots/bereitstellung.png)
+
+<sub>Demo data (firma.local, PC-0001 …), German interface.</sub>
 
 ## Help, manual and language
 
