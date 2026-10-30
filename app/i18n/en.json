@@ -5523,5 +5523,12 @@
  "für Computer ohne winget (vor Windows 10 1809 / Server 2019)": "for computers without winget (before Windows 10 1809 / Server 2019)",
  "winget-Cache öffnen": "Open winget cache",
  "{0} Programm(e) in den winget-Cache aufgenommen – werden geladen": "{0} program(s) added to the winget cache – being downloaded",
- "{0} – aus dem winget-Cache ({1})": "{0} – from the winget cache ({1})"
+ "{0} – aus dem winget-Cache ({1})": "{0} – from the winget cache ({1})",
+ "Auch mit winget": "Also with winget",
+ "Computer mit winget installieren ebenfalls aus dem Cache": "Computers with winget install from the cache as well",
+ "Computer ohne winget (vor Windows 10 1809 / Server 2019) bekommen das Programm aus dem Cache; alle anderen weiter per winget. Je Programm liegt nur die aktuelle Version im Cache.": "Computers without winget (before Windows 10 1809 / Server 2019) get the program from the cache; all others still use winget. Only the current version of each program is kept in the cache.",
+ "Erzeugtes Paket (nicht in der Paketliste) – nur ansehen; es wird bei jeder neuen Version neu erzeugt": "Generated package (not in the package list) – view only; it is recreated with every new version",
+ "Jeder winget-Schritt nimmt das Programm aus dem Cache, wenn es dort liegt und passt – schneller aus dem LAN; Computer ohne winget (vor Windows 10 1809 / Server 2019) bekommen es nur so. Je Programm liegt nur die aktuelle Version im Cache.": "Every winget step takes the program from the cache if it is there and fits – faster from the LAN; computers without winget (before Windows 10 1809 / Server 2019) can only get it this way. Only the current version of each program is kept in the cache.",
+ "Liegt das Programm im winget-Cache, kommt es aus dem Repository (schneller, auch für Computer ohne winget) – automatisch, auch in Zeitplänen und im Kiosk.": "If the program is in the winget cache, it comes from the repository (faster, also for computers without winget) – automatically, also in schedules and the kiosk.",
+ "Schneller (aus dem LAN statt je Computer aus dem Internet). Passt der Cache nicht (andere Architektur, feste Version, eigene winget-Argumente), nimmt der Computer weiter winget.": "Faster (from the LAN instead of from the internet for every computer). If the cache does not fit (different architecture, fixed version, custom winget arguments), the computer still uses winget."
 }

@@ -288,6 +288,7 @@ DEFAULT_SETTINGS = {
     "winget_cache_locale": "de-DE",
     "winget_cache_max_mb": 2048,
     "winget_cache_auto": 1,                  # täglich auf neue Versionen prüfen
+    "winget_cache_all": 1,                   # 2.35.2: auch Computer MIT winget installieren aus dem Cache (schneller, LAN)
     "rule_retry_hours": 24,
     "repo_path": "",
     "log_retention_days": 90,

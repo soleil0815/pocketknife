@@ -3054,7 +3054,7 @@ async function viewWingetCache() {
     { key: 'size', label: 'Größe', cls: 'right', render: (r) => (r.size ? fmtBytes(r.size) : ''), sort: (r) => r.size || 0 },
     { key: 'min_os', label: 'Mindest-Windows', hidden: true },
     { key: 'folder', label: 'Ordner', cls: 'mono trunc', hidden: true, title: (r) => (r.folder ? `${r.folder}\\${r.file || ''}` : '') },
-    { key: 'package_name', label: 'Paket', render: (r) => (r.package_id ? h('a', { href: `#/packages?q=${encodeURIComponent(r.package_name || '')}` }, r.package_name || `#${r.package_id}`) : '') },
+    { key: 'package_name', label: 'Paket', hidden: true, render: (r) => (r.package_id ? h('a', { href: '#', title: tr('Erzeugtes Paket (nicht in der Paketliste) – nur ansehen; es wird bei jeder neuen Version neu erzeugt'), onclick: (e) => { e.preventDefault(); packageDlg(r.package_id); } }, r.package_name || `#${r.package_id}`) : '') },
     { key: 'checked_at', label: 'Geprüft', render: (r) => h('span', { title: fmtDate(r.checked_at) }, relTime(r.checked_at)) },
     { key: 'updated_at', label: 'Neue Version seit', hidden: true, render: (r) => fmtDate(r.updated_at) },
   ], d.entries, { id: (r) => r.id, noun: 'Programme', sort: 'winget_id', selectable: true, empty: 'Noch keine Programme im Cache – „Hinzufügen …“ oder „Aus dem Bestand …“.',
@@ -3072,7 +3072,8 @@ async function viewWingetCache() {
   const info = h('p.muted.small', { style: { margin: '8px 2px 0' } },
     d.running ? `Wird gerade geprüft: ${d.current || '…'} – ` : '',
     `Ordner im Repository: ${d.folder} · `, d.auto ? 'täglich automatisch geprüft · ' : 'nur von Hand geprüft · ',
-    'Computer ohne winget (vor Windows 10 1809 / Server 2019) bekommen beim Aktualisieren automatisch das Paket aus dem Cache; alle anderen weiter per winget. Je Programm liegt nur die aktuelle Version im Cache.');
+    d.all ? 'Jeder winget-Schritt nimmt das Programm aus dem Cache, wenn es dort liegt und passt – schneller aus dem LAN; Computer ohne winget (vor Windows 10 1809 / Server 2019) bekommen es nur so. Je Programm liegt nur die aktuelle Version im Cache.'
+      : 'Computer ohne winget (vor Windows 10 1809 / Server 2019) bekommen das Programm aus dem Cache; alle anderen weiter per winget. Je Programm liegt nur die aktuelle Version im Cache.');
   setContent(h('div', { style: { height: '100%', display: 'flex', flexDirection: 'column' } }, h('div.pane.card', t.el), info));
   if (d.running || d.entries.some((x) => x.status === 'checking' || x.status === 'new')) {
     const hh = location.hash;
@@ -3123,14 +3124,16 @@ function wcSettingsDlg(d) {
   const loc = h('input', { value: d.locale || 'de-DE', style: { width: '120px' } });
   const mb = h('input', { type: 'number', min: '16', max: '20000', value: d.max_mb || 2048, style: { width: '120px' } });
   const auto = h('input', { type: 'checkbox', checked: !!d.auto });
+  const all = h('input', { type: 'checkbox', checked: !!d.all });
   modal('winget-Cache – Einstellungen', h('div.form',
     field('Ordner im Repository', folder, d.entries.length ? 'Lässt sich nur ändern, solange der Cache leer ist.' : 'Eigener Ordner, nicht in einem Mandanten-Ordner. Andere Ordner fasst der Cache nie an.'),
     field('Sprache', loc, 'Bevorzugte Sprache des Installers (z. B. de-DE), sonst en-US.'),
     field('Größte Datei', h('div.row', mb, h('span.muted', 'MB')), 'Größere Installer werden nicht geladen.'),
-    field('Automatisch', h('label.chk', auto, 'täglich auf neue Versionen prüfen'))), [
+    field('Automatisch', h('label.chk', auto, 'täglich auf neue Versionen prüfen')),
+    field('Auch mit winget', h('label.chk', all, 'Computer mit winget installieren ebenfalls aus dem Cache'), 'Schneller (aus dem LAN statt je Computer aus dem Internet). Passt der Cache nicht (andere Architektur, feste Version, eigene winget-Argumente), nimmt der Computer weiter winget.')), [
     { label: 'Abbrechen' },
     { label: 'Speichern', cls: 'primary', onClick: async () => {
-      const body = { locale: loc.value, max_mb: mb.value, auto: auto.checked };
+      const body = { locale: loc.value, max_mb: mb.value, auto: auto.checked, all: all.checked };
       if (!d.entries.length) body.folder = folder.value;
       if (await run(() => PUT('/api/wingetcache/settings', body)) === undefined) return false;
       toast('Gespeichert', 'ok'); route();
@@ -3708,7 +3711,7 @@ async function packageDlg(pidOrPkg, preset = {}) {
           field('Bereich', sl(st, 'winget_scope', [['machine', 'Computer (empfohlen)'], ['', 'Standard des Pakets'], ['user', 'Benutzer']])),
           field('Zusätzliche Argumente', inp(st, 'extra_args', { placeholder: 'z. B. --override "/S"' })),
           isOU() || st.winget_action === 'uninstall' ? null : (() => { const w = wcStepField(st); wInp.addEventListener('change', w.draw);
-            return field('winget-Cache', w.el, 'Computer ohne winget bekommen diesen Schritt dann aus dem Repository – automatisch, auch in Zeitplänen und im Kiosk.'); })());
+            return field('winget-Cache', w.el, 'Liegt das Programm im winget-Cache, kommt es aus dem Repository (schneller, auch für Computer ohne winget) – automatisch, auch in Zeitplänen und im Kiosk.'); })());
       }
       const fileInp = inp(st, 'install_file', { placeholder: 'z. B. 7z2408-x64.msi' });
       fileInp.addEventListener('change', () => { if (!st.install_type || st.install_type === '') { st.install_type = ''; } });
