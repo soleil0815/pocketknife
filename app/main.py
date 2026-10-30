@@ -1794,6 +1794,7 @@ def api_software_update(data: dict = Body(...), user=U):
             if wg:
                 pkg = deploy.adhoc_winget(wid, "upgrade")
                 pkg["name"] = f"Aktualisieren: {wid}"
+                pkg["release_bypass"] = True  # 2.36: von Hand ausgelöst – die neueste Version, auch wenn zurückgestellt
                 out.append(deploy.create(pkg, wg, user["username"]))
         except ValueError as e:
             _err(e)
@@ -1956,6 +1957,32 @@ def api_wc_refresh(data: dict = Body(default={}), user=U):
         _err("Der winget-Cache wird gerade geprüft – bitte warten.")
     scheduler._bg("wingetcache", lambda: wingetcache.refresh_all(user["username"], ids=ids, force=bool((data or {}).get("force"))))
     return {"ok": True}
+
+
+# --- 2.36: Freigabe neuer winget-Versionen (nur Hauptadmins) ---------------------------------------------------------
+@app.get("/api/wingetrelease")
+def api_wr_list(user=U):
+    _wc_main(user)
+    from . import wingetrelease
+    return wingetrelease.overview()
+
+
+@app.post("/api/wingetrelease/{action}")
+def api_wr_set(action: str, data: dict = Body(...), user=U):
+    _wc_main(user)
+    from . import wingetrelease
+    status = {"approve": "approved", "block": "blocked", "reset": ""}.get(action)
+    if status is None:
+        _err("Unbekannte Aktion.")
+    try:
+        t = wingetrelease.set_status(data.get("winget_id"), data.get("version"), status, user["username"])
+    except ValueError as e:
+        _err(e)
+    # Freigegeben bzw. gesperrt → der winget-Cache lädt gleich die passende Version
+    e = db.q1("SELECT id FROM winget_cache WHERE winget_id=?", (str(data.get("winget_id") or ""),))
+    if e and db.setting("winget_cache_auto") and not wingetcache.status()["running"]:
+        scheduler._bg("wingetcache", lambda: wingetcache.refresh_all(user["username"], ids={e["id"]}))
+    return t
 
 
 @app.delete("/api/wingetcache/{eid}")
@@ -3506,7 +3533,7 @@ SETTING_BOUNDS = {"repo_upload_max_mb": (1, 102400), "repo_tenant_quota_mb": (0,
                   "deploy_timeout_minutes": (1, 1440), "winget_refresh_hours": (1, 720), "backup_keep": (1, 365),
                   "backup_hour": (0, 23), "db_maintenance_hour": (0, 23), "scan_interval_hours": (1, 8760), "du_scan_depth": (1, 8),
                   "rule_retry_hours": (1, 8760), "session_idle_minutes": (5, 720), "kiosk_max_per_day": (1, 500),
-                  "dns_cache_minutes": (0, 1440), "identity_recheck_hours": (1, 168),
+                  "dns_cache_minutes": (0, 1440), "identity_recheck_hours": (1, 168), "winget_release_days": (1, 365),
                   "wol_repeat": (1, 10), "wol_wait_seconds": (0, 900)}
 
 
@@ -3712,6 +3739,8 @@ def api_settings_save(data: dict = Body(...), user=U):
                 kiosk.check_settings(k, v)
             except ValueError as e:
                 _err(e)
+        if k == "winget_release_mode" and v not in ("off", "days", "manual"):
+            _err("Freigabe neuer winget-Versionen: off, days oder manual.")
         if k == "toast_language" and v not in ("de", "en"):
             _err("Sprache der Benachrichtigung: de oder en.")
         if k == "reboot_sender":

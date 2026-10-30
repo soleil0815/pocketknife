@@ -335,8 +335,9 @@ def index_entry(wid):
     return r[0], r[1], r[2], hx
 
 
-def fetch_manifest(wid):
-    """Manifest der neuesten Version (dict) – wie winget: versionData.mszyml, dann das Manifest, beides mit Prüfsumme."""
+def fetch_manifest(wid, version=None):
+    """Manifest der neuesten (bzw. der genannten) Version (dict) – wie winget: versionData.mszyml, dann das Manifest,
+    beides mit Prüfsumme."""
     pid, name, latest, hx = index_entry(wid)
     vd_raw = _get(f"{BASE}/packages/{urllib.parse.quote(pid, safe='+.-_')}/{hx[:8]}/versionData.mszyml", 5 * 1024 * 1024)
     if hashlib.sha256(vd_raw).hexdigest() != hx:
@@ -345,7 +346,13 @@ def fetch_manifest(wid):
     vers = [v for v in (vd.get("vD") or []) if isinstance(v, dict) and v.get("v") and v.get("rP") and v.get("s256H")]
     if not vers:
         raise CacheError("Versionsliste leer.")
-    pick = next((v for v in vers if str(v["v"]) == str(latest)), None)
+    if version:
+        # 2.36: freigegebene (ältere) Version statt der neuesten
+        pick = next((v for v in vers if str(v["v"]) == str(version)), None)
+        if not pick:
+            raise CacheError(f"Version {version} steht nicht mehr im winget-Katalog.")
+    else:
+        pick = next((v for v in vers if str(v["v"]) == str(latest)), None)
     if not pick:
         pick = vers[0]
         for v in vers[1:]:
@@ -706,7 +713,22 @@ def refresh_entry(eid, force=False, user=None):
         db.ex("UPDATE winget_cache SET status='checking', message=NULL WHERE id=?", (eid,))
         try:
             root = folder_root()
-            man = fetch_manifest(e["winget_id"])
+            # 2.36: neueste Version noch nicht freigegeben → die freigegebene laden bzw. den Stand behalten
+            from . import wingetrelease
+            rel = wingetrelease.target(e["winget_id"])
+            if rel["state"] != "latest":
+                have = e["version"] and e["folder"] and e["file"] and e["status"] in ("ok", "checking")
+                if rel["state"] == "hold" or (have and str(e["version"]) == rel["version"]) or (have and e["ignore_hash"]):
+                    if not have:
+                        raise CacheError(f"{rel['reason']} – keine freigegebene Version zum Laden.")
+                    keep = (f"{rel['reason']} – im Cache bleibt {e['version']}" if _released(e) else
+                            f"{rel['reason']} – {e['version']} im Cache ist nicht freigegeben und wird nicht benutzt")
+                    db.ex("UPDATE winget_cache SET status='ok', message=?, checked_at=? WHERE id=?", (keep, now, eid))
+                    return entry(eid)
+                if e["ignore_hash"]:
+                    raise CacheError(f"{rel['reason']} – ohne Prüfsumme des Katalogs lädt der Hersteller immer die neueste, "
+                                     "eine ältere Version kann nicht geladen werden.")
+            man = fetch_manifest(e["winget_id"], rel.get("version") if rel["state"] == "pin" else None)
             inst = choose(man, e["arch"] or "x64", e["scope"] or "machine")
             p = plan(man, inst, e["scope"] or "machine")
             ver = str(man.get("PackageVersion") or "")
@@ -964,6 +986,15 @@ def _newer(e, sw_rows):
     return util.vcmp(cv, have) > 0
 
 
+def _released(e):
+    """2.36: Version im Cache gesperrt bzw. noch nicht freigegeben → den Cache nicht benutzen."""
+    try:
+        from . import wingetrelease
+        return wingetrelease.version_ok(e["winget_id"], e["version"])
+    except Exception:
+        return True
+
+
 def split(wid, ids):
     """Computer für ein Update dieser winget-ID aufteilen: (per winget, aus dem Cache, ausgelassen, Cache-Eintrag)."""
     from . import deploy
@@ -971,6 +1002,8 @@ def split(wid, ids):
     q = ",".join("?" * len(ids)) or "NULL"
     rows = {r["id"]: r for r in db.q(f"SELECT id, os_build, os_version, os_arch FROM computers WHERE id IN ({q})", tuple(ids))}
     e = ready().get(str(wid or "").lower())
+    if e and not _released(e):
+        e = None
     sw = {}
     if e:
         for r in db.q(f"""SELECT computer_id, version, arch, scope FROM software
@@ -1031,8 +1064,12 @@ def step_for(st, c, pkg=None):
         return None
     if has_wg and str(st.get("extra_args") or "").strip():
         return None  # eigene winget-Argumente: das kann nur winget
+    if has_wg and pkg is not None and pkg.get("release_bypass") and not st.get("winget_version"):
+        from . import wingetrelease
+        if wingetrelease.target(st.get("winget_id"))["state"] != "latest":
+            return None  # 2.36: „Aktualisieren“ von Hand – die neueste per winget, nicht die freigegebene aus dem Cache
     e = ready().get(str(st.get("winget_id") or "").lower())
-    if not e:
+    if not e or not _released(e):
         return None
     if st.get("winget_version") and str(st["winget_version"]) != str(e["version"]):
         return None  # feste andere Version verlangt – der Cache hat nur die aktuelle

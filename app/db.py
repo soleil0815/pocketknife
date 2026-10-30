@@ -133,6 +133,11 @@ CREATE TABLE IF NOT EXISTS winget_cache(
   ignore_hash INTEGER DEFAULT 0, remote_sig TEXT, inst_arch TEXT,
   checked_at TEXT, updated_at TEXT, created_at TEXT, created_by TEXT);
 
+-- 2.36: Freigabe neuer winget-Versionen – erste Sichtung je Version, Status baseline/approved/blocked (NULL = nach Regel)
+CREATE TABLE IF NOT EXISTS winget_releases(
+  id INTEGER PRIMARY KEY, winget_id TEXT NOT NULL COLLATE NOCASE, version TEXT NOT NULL, first_seen TEXT, status TEXT,
+  base INTEGER DEFAULT 0, by_user TEXT, at TEXT, UNIQUE(winget_id, version));
+
 CREATE TABLE IF NOT EXISTS disk_usage(
   id INTEGER PRIMARY KEY, computer_id INTEGER REFERENCES computers(id) ON DELETE CASCADE, path TEXT, ts TEXT,
   total INTEGER, seconds INTEGER, created_by TEXT, json TEXT);
@@ -290,6 +295,8 @@ DEFAULT_SETTINGS = {
     "winget_cache_max_mb": 2048,
     "winget_cache_auto": 1,                  # täglich auf neue Versionen prüfen
     "winget_cache_all": 1,                   # 2.35.2: auch Computer MIT winget installieren aus dem Cache (schneller, LAN)
+    "winget_release_mode": "off",            # 2.36: neue winget-Versionen: off (sofort) | days (zurückstellen) | manual
+    "winget_release_days": 2,
     "rule_retry_hours": 24,
     "repo_path": "",
     "log_retention_days": 90,
@@ -474,6 +481,7 @@ MIGRATIONS = [
     ("winget_cache", "ignore_hash", "INTEGER DEFAULT 0"),   # 2.35.3: Prüfsumme des Katalogs nicht verlangen (je Eintrag)
     ("winget_cache", "remote_sig", "TEXT"),                 # 2.35.3: ETag/Datum/Größe der Download-Adresse
     ("winget_cache", "inst_arch", "TEXT"),                  # 2.35.4: Architektur des geladenen Installers
+    ("winget_releases", "base", "INTEGER DEFAULT 0"),       # 2.36: Ausgangsstand (erste Sichtung)
     ("software", "excluded", "INTEGER DEFAULT 0"),
     ("scan_profiles", "scanner_types", "TEXT"),
     ("scan_profiles", "builtin_key", "TEXT"),

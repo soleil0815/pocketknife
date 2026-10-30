@@ -666,6 +666,26 @@ Das ältere **Ignorieren** in den Details eines Programms entfernt dagegen nur d
 
 Die winget-Zuordnung berücksichtigt Varianten wie ESR, Beta oder Sprachversionen. Unsichere Zuordnungen werden nicht automatisch aktualisiert.
 
+## Neue winget-Versionen zurückstellen {#winget-release}
+
+**Einstellungen → Repository & winget → winget → Neue Versionen** legt fest, wann eine neue Version aus dem winget-Katalog verteilt wird:
+
+| Einstellung | Wirkung |
+|---|---|
+| sofort freigeben | wie bisher – die neueste Version (Standard) |
+| zurückstellen um … Tage | eine neue Version wird erst nach der eingestellten Zahl an Tagen verteilt; vorher einzeln freigeben geht |
+| nur nach Freigabe im Paket | eine neue Version wird erst verteilt, wenn sie freigegeben ist |
+
+Der winget-Katalog nennt kein Erscheinungsdatum – gezählt wird ab dem Tag, an dem POCKET KNIFE die Version im Katalog **zum ersten Mal sieht** (beim Laden des winget-Index). Die beim ersten Mal vorgefundene Version gilt als freigegeben („Ausgangsstand“), damit nach dem Einschalten nichts stillsteht.
+
+Solange die neueste Version nicht freigegeben ist:
+- **Zeitpläne** (Software aktuell halten, Patchday) aktualisieren nur Computer, die eine ältere als die zuletzt freigegebene Version haben – und installieren genau diese.
+- **winget-Schritte in Paketen, verschachtelten Paketen und im Kiosk** installieren die zuletzt freigegebene Version (`winget --version`). Ist dieselbe oder eine neuere Version schon installiert, wird der Schritt übersprungen (nie herunterstufen). Ein Schritt mit fester Version bleibt unverändert.
+- Der **winget-Cache** lädt nur die freigegebene Version; liegt sie schon im Cache, bleibt er dabei. Einträge mit „Prüfsumme des Katalogs nicht verlangen“ behalten ihren Stand (der Hersteller liefert dort immer die neueste).
+- Der Knopf **Aktualisieren** unter Software installiert bewusst die neueste Version – er wird von Hand ausgelöst. Die Anzeige „veraltet“ richtet sich weiter nach dem Katalog.
+
+**Einzeln freigeben oder sperren:** Unter **Pakete** zeigt die Spalte **Freigabe** den Stand jedes winget-Pakets (z. B. „24.08 statt 24.09“). Rechtsklick → **Version … jetzt freigeben** gibt die neueste sofort frei; **Freigabe …** zeigt alle bekannten Versionen mit „zuerst gesehen“ und Stand und bietet **Freigeben**, **Sperren** (eine fehlerhafte Version nie verteilen – auch bei „sofort freigeben“), **Sperre aufheben** und **Freigabe zurücknehmen**. Nach einer Freigabe lädt der winget-Cache die Version gleich. Alles steht im Protokoll; nur Hauptadmins.
+
 ## winget-Cache – Updates für Computer ohne winget {#winget-cache}
 
 winget gibt es erst ab Windows 10 1809 / Windows Server 2019. Für ältere Systeme (z. B. Server 2016, 2012 R2) hält POCKET KNIFE die **aktuelle Version** ausgewählter Programme im Repository bereit – ohne dass du Pakete selbst bauen musst: **winget-Cache** in der linken Leiste oder **Pakete → winget-Cache …** (nur Hauptadmins).
@@ -1228,7 +1248,7 @@ Die Einstellungen sind in Bereiche gegliedert (Liste links).
 | Verbindung & Konten | Domänendaten, LDAPS testen, **Abmelden bei Inaktivität**, **Dienstkonto** und optional ein Repository-Konto (vor dem Speichern geprüft, verschlüsselt gespeichert), **Anmeldeverfahren** NTLM/Kerberos mit Test |
 | Active Directory | Container ein-/ausschließen (die nächstgelegene Regel gewinnt), Abgleich-Intervall, Umgang mit verschwundenen und deaktivierten Computern (Löschen erst, wenn ein Computer **seit 7 Tagen** im AD fehlt; ist kein Container eingeschlossen oder fehlen plötzlich fast alle Computer, wird nichts geändert), AD-Sammlungen |
 | Zeitpläne & Leistung | Heartbeat, parallele Scans/Installationen, Zeitlimits, Aufbewahrung von Protokoll und Verlauf, [Benachrichtigung am Client](#toast), [Meldung bei Neustart](#rebootmsg) |
-| Repository & winget | Repository-Pfad und Test, winget-Index, Standard-Bereich, automatische Nachinstallation von winget, Offline-Quellen, [Proxyserver](#proxy) |
+| Repository & winget | Repository-Pfad und Test, winget-Index, Standard-Bereich, [neue Versionen zurückstellen](#winget-release), automatische Nachinstallation von winget, Offline-Quellen, [Proxyserver](#proxy) |
 | Fernsitzungen | Status von guacd, eigene Anmeldung, Tastaturlayout, aktive Sitzungen |
 | Sicherung | automatische Sicherung (täglich und vor Updates), Anzahl Versionen, Jetzt sichern, Herunterladen |
 | E-Mail & Benachrichtigungen | SMTP-Server mit Testmail, Benachrichtigungen bei Ereignissen (siehe [Benachrichtigungen](#alerts)) |

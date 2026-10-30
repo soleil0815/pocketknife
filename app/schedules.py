@@ -347,7 +347,7 @@ def winget_candidates(s, cids=None, online_only=True):
         return {}
     w = s["winget"]
     q = ",".join("?" * len(targets))
-    rows = db.q(f"""SELECT DISTINCT s.computer_id, s.winget_id FROM software s JOIN computers c ON c.id = s.computer_id
+    rows = db.q(f"""SELECT DISTINCT s.computer_id, s.winget_id, s.version FROM software s JOIN computers c ON c.id = s.computer_id
                     WHERE s.outdated = 1 AND s.winget_id IS NOT NULL AND COALESCE(s.winget_sure, 1) = 1
                       {"AND c.online = 1 AND c.winrm = 1" if online_only else ""}
                       AND (c.os_build IS NULL OR c.os_build = '' OR CAST(c.os_build AS INTEGER) >= 17763
@@ -374,13 +374,22 @@ def winget_candidates(s, cids=None, online_only=True):
             k = (r["cid"], r["wid"] or "")
             fails[k] = fails.get(k, 0) + 1 if r["status"] == "failed" else 0
     out = {}
+    from . import wingetrelease
+    rel = {}
     for r in rows:
         wl = r["winget_id"].lower()
         if (only and wl not in only) or wl in excl or (r["computer_id"], wl) in busy:
             continue
         if maxa and fails.get((r["computer_id"], wl), 0) >= maxa:
             continue
-        out.setdefault(r["winget_id"], []).append(r["computer_id"])
+        # 2.36: neue Version zurückgestellt → nur Computer mit einer älteren als der freigegebenen Version
+        if wl not in rel:
+            rel[wl] = wingetrelease.target(r["winget_id"])
+        t = rel[wl]
+        if t["state"] == "hold" or (t["state"] == "pin" and not (r["version"] and util.vcmp(str(r["version"]), t["version"]) < 0)):
+            continue
+        if r["computer_id"] not in out.get(r["winget_id"], []):
+            out.setdefault(r["winget_id"], []).append(r["computer_id"])
     # 2.35: Computer ohne winget nur, wenn das Paket aus dem winget-Cache für sie passt (Windows-Version, Architektur,
     # wirklich neuer) – sonst würden sie bei jedem Lauf vorgemerkt/geweckt und dann doch ausgelassen
     from . import wingetcache

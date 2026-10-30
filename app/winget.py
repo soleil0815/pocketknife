@@ -111,6 +111,11 @@ def load():
             _idx.update({"loaded": True, "schema": schema, "count": len(pkgs), "pkgs": pkgs, "by_id": by_id,
                          "by_pc": by_pc, "by_name": by_name, "error": None,
                          "updated": util.fmt(__import__("datetime").datetime.fromtimestamp(os.path.getmtime(p)))})
+        try:
+            from . import wingetrelease
+            wingetrelease.sync()  # 2.36: erste Sichtung neuer Versionen (Zurückstellung)
+        except Exception as e:  # noqa: BLE001
+            pklog.warn("winget", f"Freigabe neuer Versionen: Abgleich fehlgeschlagen: {e}")
         return True
     except Exception as e:
         _idx["error"] = f"Index konnte nicht gelesen werden: {e}"

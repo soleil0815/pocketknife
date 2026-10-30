@@ -666,6 +666,26 @@ The older **Ignore** in a program's details only removes its winget mapping; the
 
 The winget mapping takes variants such as ESR, beta or language versions into account. Uncertain mappings are not updated automatically.
 
+## Deferring new winget versions {#winget-release}
+
+**Settings → Repository & winget → winget → New versions** determines when a new version from the winget catalog is distributed:
+
+| Setting | Effect |
+|---|---|
+| release immediately | as before – the latest version (default) |
+| defer by … days | a new version is only distributed after the set number of days; releasing it earlier individually is possible |
+| only after release in the package | a new version is only distributed once it is released |
+
+The winget catalog has no release date – counting starts on the day POCKET KNIFE **first sees** the version in the catalog (when loading the winget index). The version found the first time counts as released ("baseline"), so nothing stalls after switching it on.
+
+As long as the latest version is not released:
+- **Schedules** (keep software up to date, patch day) only update computers that have an older version than the last released one – and install exactly that one.
+- **winget steps in packages, nested packages and the kiosk** install the last released version (`winget --version`). If the same or a newer version is already installed, the step is skipped (never downgrade). A step with a fixed version stays unchanged.
+- The **winget cache** only downloads the released version; if it is already in the cache, it stays. Entries with "Do not require the catalog checksum" keep their state (the vendor always delivers the latest there).
+- The **Update** button under Software deliberately installs the latest version – it is triggered manually. The "outdated" display still follows the catalog.
+
+**Release or block individually:** Under **Packages** the **Release** column shows the state of each winget package (e.g. "24.08 instead of 24.09"). Right-click → **Release version … now** releases the latest immediately; **Release …** shows all known versions with "first seen" and state and offers **Release**, **Block** (never distribute a faulty version – also with "release immediately"), **Unblock** and **Withdraw release**. After a release the winget cache downloads the version right away. Everything is logged; main admins only.
+
 ## winget cache – updates for computers without winget {#winget-cache}
 
 winget exists only from Windows 10 1809 / Windows Server 2019. For older systems (e.g. Server 2016, 2012 R2) POCKET KNIFE keeps the **current version** of selected programs in the repository – without building packages yourself: **winget cache** in the left bar or **Packages → winget cache …** (main admins only).
@@ -1228,7 +1248,7 @@ The settings are divided into sections (list on the left).
 | Connection & Accounts | domain data, Test LDAPS, **sign out when idle**, **service account** and optionally a repository account (verified before saving, stored encrypted) |
 | Active Directory | include/exclude containers (the closest rule wins), sync interval, handling of removed and disabled computers (deleted only once a computer has been missing from AD **for 7 days**; if no container is included or suddenly almost all computers are missing, nothing is changed), AD collections |
 | Schedules & Performance | heartbeat, parallel scans/installations, timeouts, retention of log and history, [notification on the client](#toast), [message on restart](#rebootmsg) |
-| Repository & winget | repository path and test, winget index, default scope, automatic installation of winget, offline sources, [proxy server](#proxy) |
+| Repository & winget | repository path and test, winget index, default scope, [deferring new versions](#winget-release), automatic installation of winget, offline sources, [proxy server](#proxy) |
 | Remote sessions | guacd status, own credentials, keyboard layout, active sessions |
 | Backup | automatic backup (daily and before updates), versions to keep, back up now, download |
 | E-mail & notifications | SMTP server with test e-mail, notifications on events (see [Notifications](#alerts)) |
