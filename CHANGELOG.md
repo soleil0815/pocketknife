@@ -1,5 +1,10 @@
 # Änderungen
 
+## pocketknife-2.35.3 (30.10.2026)
+- **Neu – winget-Cache: ZIP mit Installer:** Liegt der Installer in einem ZIP (z. B. paint.net), lädt POCKET KNIFE das ZIP, prüft seine Prüfsumme, entpackt es (nur relative Pfade mit gültigen Namen, Größe begrenzt, erst in einen Zwischenordner) und installiert die im Manifest genannte Datei mit deren Schaltern. ZIPs ohne Installer („portable“) bleiben „Nicht möglich“
+- **Neu – „Prüfsumme des Katalogs nicht verlangen“ (je Eintrag, Rechtsklick):** für Hersteller, die unter derselben Adresse immer die neueste Datei liefern (z. B. Google Chrome) – dort passt die Prüfsumme im winget-Katalog oft nicht. POCKET KNIFE lädt dann über HTTPS vom Hersteller, nur wenn sich die Datei geändert hat (ETag bzw. Datum/Größe), merkt sich ihre Prüfsumme (Bruchprüfung) und liest bei MSI die Version aus der Datei. Der Fehlertext bei falscher Prüfsumme nennt die Möglichkeit
+- **Selbsttest:** ZIP entpacken (auch: Pfad nach außen abgelehnt, genannte Datei fehlt, portable), Adresse ohne Version (Fehler mit Hinweis, Häkchen, gleiches ETag lädt nicht neu, neue Datei ersetzt alte)
+
 ## pocketknife-2.35.2 (30.10.2026)
 - **Neu – winget-Cache auch für Computer mit winget:** Liegt ein Programm im winget-Cache und passt, installieren jetzt auch Computer mit winget aus dem Repository im LAN statt jeder für sich aus dem Internet – deutlich schneller, und der Internetzugang lädt jedes Programm nur einmal. Gilt für jeden winget-Schritt (Installieren, Aktualisieren) in Paketen, Zeitplänen, verschachtelten Paketen, Kiosk und „Aktualisieren“. Bei eigenen winget-Argumenten, Installation nur für einen Benutzer, anderer Architektur, fester anderer Version oder wenn „Aktualisieren“ ein nicht installiertes Programm träfe, bleibt es bei winget. Abschaltbar: Einstellungen des winget-Caches → „Auch mit winget“
 - **Verbessert – keine doppelten Pakete:** Die erzeugten Pakete „… (winget-Cache)“ stehen nicht mehr in der Paketliste und nicht mehr zur Auswahl beim Bereitstellen, in Zeitplänen, verschachtelten Paketen und im Kiosk – das winget-Paket trägt nur die Markierung „winget-Cache“. Verwaltet wird über die Seite „winget-Cache“

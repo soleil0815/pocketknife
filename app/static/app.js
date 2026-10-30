@@ -3042,7 +3042,8 @@ async function viewWingetCache() {
     btn('Aus dem Bestand …', () => wcSuggestDlg(), { icon: 'list', title: 'Programme, die auf Computern ohne winget installiert sind' }),
     btn('Hinzufügen …', () => wingetPicker(async (id) => { const r = await run(() => POST('/api/wingetcache', { winget_id: id })); if (r) { toast(`${id} aufgenommen – wird geladen`, 'ok'); route(); } }), { icon: 'plus', cls: 'primary' }));
   const d = await GET('/api/wingetcache');
-  const badge = (r) => h('span.badge', { class: { ok: 'ok', error: 'err', unsupported: 'warn', checking: 'info', new: 'info' }[r.status] || '', title: r.message || '' }, tr(r.status_text));
+  const badge = (r) => h('span.row', { style: { gap: '4px' } }, h('span.badge', { class: { ok: 'ok', error: 'err', unsupported: 'warn', checking: 'info', new: 'info' }[r.status] || '', title: r.message || '' }, tr(r.status_text)),
+    r.ignore_hash ? h('span.badge.warn', { title: tr('Prüfsumme des Katalogs wird nicht verlangt – Datei vom Hersteller per HTTPS, danach von der Bruchprüfung bewacht') }, tr('ohne Katalog-Prüfsumme')) : null);
   const t = table([
     { key: 'winget_id', label: 'winget-ID', cls: 'mono' },
     { key: 'name', label: 'Name' },
@@ -3061,6 +3062,12 @@ async function viewWingetCache() {
     onContext: (r, e, selRows) => contextMenu(e.clientX, e.clientY, [
       { label: 'Jetzt prüfen', icon: 'refresh', onClick: () => wcRefresh(selRows.map((x) => x.id)) },
       { label: 'Neu laden (Datei erneut herunterladen)', icon: 'refresh', onClick: () => wcRefresh(selRows.map((x) => x.id), true) },
+      selRows.length === 1 ? (r.ignore_hash
+        ? { label: 'Prüfsumme des Katalogs wieder verlangen', icon: 'key', onClick: async () => { if (await run(() => PUT(`/api/wingetcache/${r.id}`, { ignore_hash: false }))) route(); } }
+        : { label: 'Prüfsumme des Katalogs nicht verlangen …', icon: 'key', onClick: async () => {
+          if (!(await confirmDlg(`${r.winget_id}: Prüfsumme des winget-Katalogs nicht verlangen?\n\nNur für Hersteller, die unter derselben Adresse immer die neueste Datei liefern (z. B. Google Chrome) – dort passt die Prüfsumme im Katalog oft nicht. POCKET KNIFE lädt dann über HTTPS direkt vom Hersteller, merkt sich die Prüfsumme der geladenen Datei (Bruchprüfung) und liest bei MSI die Version aus der Datei. Ohne Abgleich mit dem Katalog verlassen Sie sich auf HTTPS und den Hersteller.`, 'Nicht verlangen', true))) return;
+          if (await run(() => PUT(`/api/wingetcache/${r.id}`, { ignore_hash: true }))) { toast('Wird neu geladen', 'ok'); route(); }
+        } }) : null,
       '-',
       { label: selRows.length > 1 ? `${selRows.length} entfernen …` : 'Entfernen …', icon: 'trash', onClick: () => wcRemove(selRows) },
     ]) });

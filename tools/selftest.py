@@ -6457,6 +6457,125 @@ def _():
     assert not bad, ("DOM-Methoden zeigen null als Text", bad)
 
 
+@test("2.35.3 winget-Cache: ZIP mit Installer darin (entpackt, nie außerhalb), „Prüfsumme des Katalogs nicht verlangen“ (Adressen ohne Version wie Google Chrome)")
+def _():
+    import hashlib as _h, io as _io, sqlite3 as _sq, tempfile as _tf, json as _j, zipfile as _zf
+    from app import wingetcache as wc, winget, config
+    root = _tf.mkdtemp(prefix="pk-wc3-", dir=TMP)
+    old_repo, ip = db.setting("repo_path"), winget.index_path()
+    old_idx = open(ip, "rb").read() if os.path.exists(ip) else None
+    db.set_setting("repo_path", root)
+    files, heads, calls = {}, {}, []
+
+    def zipbytes(entries):
+        b = _io.BytesIO()
+        with _zf.ZipFile(b, "w") as z:
+            for n, d in entries:
+                z.writestr(n, d)
+        return b.getvalue()
+
+    def publish(wid, ver, inst_yaml, url, data, sha=None):
+        mf = (f"PackageIdentifier: {wid}\nPackageVersion: '{ver}'\nPackageName: {wid}\nInstallers:\n- Architecture: x64\n  Scope: machine\n"
+              f"  InstallerUrl: {url}\n  InstallerSha256: {sha or _h.sha256(data).hexdigest()}\n{inst_yaml}ManifestType: merged\n").encode()
+        rp = f"manifests/{wid}/{ver}/m.yaml"
+        vd = _mszip(f"vD:\n- v: '{ver}'\n  rP: {rp}\n  s256H: {_h.sha256(mf).hexdigest()}\n".encode())
+        hx = _h.sha256(vd).hexdigest()
+        files.update({f"{wc.BASE}/packages/{wid}/{hx[:8]}/versionData.mszyml": vd, f"{wc.BASE}/{rp}": mf, url: data})
+        con = _sq.connect(ip)
+        con.execute("CREATE TABLE IF NOT EXISTS packages(rowid INTEGER PRIMARY KEY, id TEXT, name TEXT, moniker TEXT, latest_version TEXT, arp_min_version TEXT, arp_max_version TEXT, hash BLOB)")
+        con.execute("DELETE FROM packages WHERE id=?", (wid,))
+        con.execute("INSERT INTO packages(id, name, latest_version, hash) VALUES(?, ?, ?, ?)", (wid, wid, ver, bytes.fromhex(hx)))
+        con.commit(); con.close()
+
+    class _R(_io.BytesIO):
+        headers = {}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake_open(req, timeout=0):
+        u = req.full_url
+        calls.append((req.get_method(), u))
+        if req.get_method() == "HEAD":
+            r = _R(b"")
+            r.headers = heads.get(u, {})
+            return r
+        if u not in files:
+            raise OSError(f"404 {u}")
+        return _R(files[u])
+    old_open = wc.proxy.urlopen
+    wc.proxy.urlopen = fake_open
+    ids = []
+    try:
+        if os.path.exists(ip):
+            os.remove(ip)
+        # --- ZIP mit Installer
+        z = zipbytes([("sub/setup.exe", b"MZ-zip" * 100), ("sub/data.cab", b"cab"), ("readme.txt", b"hi")])
+        publish("Zip.Tool", "5.1", "  InstallerType: zip\n  NestedInstallerType: nullsoft\n  NestedInstallerFiles:\n  - RelativeFilePath: sub\\setup.exe\n"
+                "  InstallerSwitches:\n    Silent: /auto\n", "https://dl.example.test/zt.zip", z)
+        ids.append(wc.add("Zip.Tool"))
+        e = wc.refresh_entry(ids[-1])
+        assert e["status"] == "ok" and e["installer_type"] == "zip/nullsoft" and e["file"] == "sub\\setup.exe", dict(e)
+        d = os.path.join(root, *e["folder"].split("\\"))
+        assert open(os.path.join(d, "sub", "setup.exe"), "rb").read() == b"MZ-zip" * 100 and os.path.isfile(os.path.join(d, "sub", "data.cab"))
+        assert not [x for x in os.listdir(os.path.dirname(d)) if x.endswith(".pk-part")], "kein halber Ordner"
+        st = _j.loads(db.val("SELECT steps FROM packages WHERE id=?", (e["package_id"],)))["main"][0]
+        assert st["folder"] == e["folder"] + "\\sub" and st["install_file"] == "setup.exe" and st["arguments"] == "/auto", st
+        # ZIP mit Pfad nach außen: abgelehnt, nichts außerhalb geschrieben
+        evil = zipbytes([("../../boese.exe", b"x"), ("setup.exe", b"MZ")])
+        publish("Zip.Evil", "1.0", "  InstallerType: zip\n  NestedInstallerType: exe\n  NestedInstallerFiles:\n  - RelativeFilePath: setup.exe\n"
+                "  InstallerSwitches:\n    Silent: /S\n", "https://dl.example.test/ev.zip", evil)
+        ids.append(wc.add("Zip.Evil"))
+        e2 = wc.refresh_entry(ids[-1])
+        assert e2["status"] == "error" and "Ungültiger Pfad im ZIP" in e2["message"], dict(e2)
+        assert not os.path.exists(os.path.join(root, "boese.exe")) and not os.path.exists(os.path.join(os.path.dirname(root), "boese.exe"))
+        # genannte Datei fehlt im ZIP → Fehler, Ordner weg
+        publish("Zip.Miss", "1.0", "  InstallerType: zip\n  NestedInstallerType: msi\n  NestedInstallerFiles:\n  - RelativeFilePath: fehlt.msi\n",
+                "https://dl.example.test/zm.zip", zipbytes([("anders.msi", b"x")]))
+        ids.append(wc.add("Zip.Miss"))
+        e3 = wc.refresh_entry(ids[-1])
+        assert e3["status"] == "error" and "nicht im ZIP" in e3["message"] and not os.listdir(os.path.join(root, "winget-cache", "Zip.Miss")), dict(e3)
+        must_fail(wc.choose, {"Installers": [{"Architecture": "x64", "InstallerType": "zip", "NestedInstallerType": "portable",
+                                               "NestedInstallerFiles": [{"RelativeFilePath": "a.exe"}]}]}, contains="Kein passender")
+        # --- Adresse ohne Version: Prüfsumme passt nicht → Fehler mit Hinweis; mit Häkchen: laden, eigene Prüfsumme merken
+        url = "https://dl.example.test/latest/chromish.exe"
+        publish("Latest.Tool", "100.0", "  InstallerType: inno\n", url, b"MZ-alt", sha="0" * 64)
+        files[url] = b"MZ-neu-1"
+        heads[url] = {"ETag": '"v1"'}
+        ids.append(wc.add("Latest.Tool"))
+        e4 = wc.refresh_entry(ids[-1])
+        assert e4["status"] == "error" and "Prüfsumme des Katalogs nicht verlangen" in e4["message"], dict(e4)
+        wc.set_ignore_hash(ids[-1], True, "selftest")
+        e5 = wc.refresh_entry(ids[-1])
+        assert e5["status"] == "ok" and e5["sha256"] == _h.sha256(b"MZ-neu-1").hexdigest() and e5["remote_sig"] == 'etag:"v1"', dict(e5)
+        assert "ohne Prüfsumme des Katalogs" in (e5["message"] or "")
+        n = len([c for c in calls if c == ("GET", url)])
+        e6 = wc.refresh_entry(ids[-1])
+        assert len([c for c in calls if c == ("GET", url)]) == n and e6["folder"] == e5["folder"], "gleiches ETag: nicht neu laden"
+        files[url], heads[url] = b"MZ-neu-2", {"ETag": '"v2"'}
+        e7 = wc.refresh_entry(ids[-1])
+        assert e7["sha256"] == _h.sha256(b"MZ-neu-2").hexdigest() and e7["folder"] != e5["folder"], dict(e7)
+        assert sorted(os.listdir(os.path.join(root, "winget-cache", "Latest.Tool"))) == [e7["folder"].rsplit("\\", 1)[-1]], "alte Datei weg"
+        from app import main as _m
+        assert ("PUT", "/api/wingetcache/{eid}") not in _m.access.ROUTES
+    finally:
+        wc.proxy.urlopen = old_open
+        for i in ids:
+            try:
+                wc.remove(i, "selftest")
+            except Exception:
+                db.ex("DELETE FROM winget_cache WHERE id=?", (i,))
+        db.set_setting("repo_path", old_repo or "")
+        if old_idx is not None:
+            open(ip, "wb").write(old_idx)
+        elif os.path.exists(ip):
+            os.remove(ip)
+        winget.load()
+
+
 def main():
     ok = 0
     for name, fn in RESULTS:
