@@ -2,6 +2,24 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.35.3",
+   "date": "2026-10-30",
+   "items": [
+    {
+     "kind": "improved",
+     "audience": "admin",
+     "de": "winget-Cache: Programme, deren Installer in einem ZIP steckt (z. B. paint.net), gehen jetzt auch.",
+     "en": "winget cache: programs whose installer comes inside a ZIP (e.g. paint.net) now work too."
+    },
+    {
+     "kind": "new",
+     "audience": "admin",
+     "de": "winget-Cache: Für Programme wie Google Chrome, deren Prüfsumme im Katalog oft nicht passt, lässt sie sich je Eintrag abschalten (Rechtsklick).",
+     "en": "winget cache: for programs like Google Chrome, whose catalog checksum often does not match, it can be switched off per entry (right-click)."
+    }
+   ]
+  },
+  {
    "version": "2.35.2",
    "date": "2026-10-30",
    "items": [

@@ -151,8 +151,9 @@ def _get(url, limit):
     return data
 
 
-def _download(url, sha, max_bytes):
-    """Installer in eine temporäre Datei laden und die SHA-256 prüfen. Gibt (pfad, größe) zurück."""
+def _download(url, sha, max_bytes, verify=True):
+    """Installer in eine temporäre Datei laden und die SHA-256 prüfen (verify=False: nur berechnen – Eintrag mit
+    „Prüfsumme des Katalogs nicht verlangen“). Gibt (pfad, größe, sha256) zurück."""
     if not re.match(r"^https?://", url or "", re.I):
         raise CacheError("Download-Adresse fehlt oder ist ungültig.")
     fd, tmp = tempfile.mkstemp(dir=config.WINGET_DIR, prefix=TMP_PREFIX, suffix=".part")
@@ -171,16 +172,112 @@ def _download(url, sha, max_bytes):
                 h.update(b)
                 f.write(b)
         got = h.hexdigest()
-        if not sha or got.lower() != str(sha).lower():
+        if verify and (not sha or got.lower() != str(sha).lower()):
             raise CacheError(f"Prüfsumme stimmt nicht (Manifest {str(sha)[:16]}…, geladen {got[:16]}…) – der Hersteller "
-                             "hat die Datei vermutlich ausgetauscht. Nicht übernommen; nächster Versuch beim nächsten Lauf.")
-        return tmp, size
+                             "hat die Datei vermutlich ausgetauscht. Nicht übernommen; nächster Versuch beim nächsten Lauf. "
+                             "Liefert der Hersteller unter derselben Adresse immer die neueste Datei (z. B. Google Chrome): "
+                             "Rechtsklick → „Prüfsumme des Katalogs nicht verlangen“.")
+        return tmp, size, got
     except CacheError:
         os.remove(tmp)
         raise
     except Exception as e:
         os.remove(tmp)
         raise CacheError(f"Download fehlgeschlagen: {proxy.safe_error(e)}")
+
+
+def _head_sig(url):
+    """Kennzeichen der Datei unter der Adresse (ETag, sonst Datum + Größe) – um bei Adressen ohne Version nicht jeden
+    Tag neu zu laden. "" = unbekannt (dann wird geladen und verglichen)."""
+    try:
+        req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": "POCKETKNIFE/" + config.VERSION})
+        with proxy.urlopen(req, timeout=30) as r:
+            h = r.headers
+            et = (h.get("ETag") or "").strip()
+            lm, ln = (h.get("Last-Modified") or "").strip(), (h.get("Content-Length") or "").strip()
+            return (f"etag:{et}" if et else f"lm:{lm}|{ln}" if lm and ln else "")[:300]
+    except Exception:
+        return ""
+
+
+def _zip_members(path, max_bytes):
+    """Einträge eines ZIP prüfen: nur relative Pfade mit gültigen Windows-Namen, Anzahl und Gesamtgröße begrenzt."""
+    import zipfile
+    from . import repofiles
+    out = []
+    try:
+        z = zipfile.ZipFile(path)
+    except zipfile.BadZipFile:
+        raise CacheError("Die geladene Datei ist kein gültiges ZIP.")
+    with z:
+        infos = z.infolist()
+        if len(infos) > 5000:
+            raise CacheError("Das ZIP enthält zu viele Dateien.")
+        total = 0
+        for i in infos:
+            name = i.filename.replace("\\", "/")
+            parts = [x for x in name.split("/") if x]
+            if not parts or name.startswith("/") or ":" in name or ".." in parts:
+                raise CacheError(f"Ungültiger Pfad im ZIP: {i.filename[:80]}")
+            try:
+                for x in parts:
+                    repofiles.valid_name(x)
+            except Exception:
+                raise CacheError(f"Ungültiger Dateiname im ZIP: {i.filename[:80]}")
+            total += i.file_size
+            if total > max_bytes * 4:
+                raise CacheError("Das ZIP ist entpackt unplausibel groß.")
+            out.append((i, "\\".join(parts), i.is_dir()))
+    return out
+
+
+def _put_zip(tmp, folder, max_bytes):
+    """ZIP ins Repository entpacken – zuerst in „<Ordner>.pk-part“, am Ende umbenennen (nie halb fertig sichtbar)."""
+    import zipfile
+    members = _zip_members(tmp, max_bytes)
+    part = f"{folder}.pk-part"
+    remote.repo_delete(part)
+    remote.repo_mkdir(part)
+    with zipfile.ZipFile(tmp) as z:
+        for info, rel, isdir in members:
+            if isdir:
+                remote.repo_mkdir(f"{part}\\{rel}")
+                continue
+            if "\\" in rel:
+                remote.repo_mkdir(f"{part}\\{rel.rsplit(chr(92), 1)[0]}")
+            with z.open(info) as src, remote.repo_open_write(f"{part}\\{rel}", "wb") as dst:
+                while True:
+                    b = src.read(1024 * 1024)
+                    if not b:
+                        break
+                    dst.write(b)
+    remote.repo_delete(folder)
+    remote.repo_rename(part, folder)
+    remote.repo_cache_refresh()
+    return [rel for _i, rel, isdir in members if not isdir]
+
+
+def _put(tmp, folder, file, p, max_bytes):
+    """Geladene Datei in den Cache-Ordner legen: einzelner Installer (über „.pk-part“ umbenannt) oder ZIP entpackt."""
+    if p.get("nested"):
+        files = _put_zip(tmp, folder, max_bytes)
+        if file.lower() not in {f.lower() for f in files}:
+            remote.repo_delete(folder)
+            raise CacheError(f"Die im Manifest genannte Datei „{file}“ ist nicht im ZIP.")
+        return
+    remote.repo_mkdir(folder)
+    target = f"{folder}\\{file}"
+    part = f"{target}.pk-part"
+    remote.repo_delete(part)
+    with open(tmp, "rb") as src, remote.repo_open_write(part, "wb") as dst:
+        while True:
+            b = src.read(1024 * 1024)
+            if not b:
+                break
+            dst.write(b)
+    remote.repo_delete(target)
+    remote.repo_rename(part, target)
+    remote.repo_cache_apply("add", target, size=os.path.getsize(tmp))
 
 
 def index_entry(wid):
@@ -260,7 +357,13 @@ def choose(man, arch="x64", scope="machine", locale=None):
     for i in insts:
         typ = str(i.get("InstallerType") or "").lower()
         a = str(i.get("Architecture") or "").lower()
-        if typ not in SUPPORTED or i.get("NestedInstallerType"):
+        if typ == "zip":
+            # 2.35.3: ZIP mit einem Installer darin (NestedInstallerType/-Files) – „portable“ (nur kopieren) nicht
+            nt = str(i.get("NestedInstallerType") or "").lower()
+            nf = [x for x in (i.get("NestedInstallerFiles") or []) if isinstance(x, dict) and x.get("RelativeFilePath")]
+            if nt not in SUPPORTED or not nf:
+                continue
+        elif typ not in SUPPORTED or i.get("NestedInstallerType"):
             continue
         plat = [str(x) for x in (i.get("Platform") or [])]
         if plat and "Windows.Desktop" not in plat:
@@ -291,6 +394,13 @@ def choose(man, arch="x64", scope="machine", locale=None):
 def plan(man, inst, scope="machine"):
     """Installationsschritt aus Manifest + Installer: Typ, Schalter, Erfolgscodes, Erkennung, Hinweise."""
     typ = str(inst.get("InstallerType") or "").lower()
+    nested = ""
+    if typ == "zip":
+        nf = [x for x in (inst.get("NestedInstallerFiles") or []) if isinstance(x, dict) and x.get("RelativeFilePath")]
+        nested = "\\".join(x for x in str(nf[0]["RelativeFilePath"]).replace("/", "\\").split("\\") if x not in ("", "."))
+        if not nested or ".." in nested.split("\\") or ":" in nested:
+            raise CacheError("Ungültige Angabe der Datei im ZIP (NestedInstallerFiles).")
+        typ = str(inst.get("NestedInstallerType") or "").lower()
     sw = inst.get("InstallerSwitches") if isinstance(inst.get("InstallerSwitches"), dict) else {}
     custom = str(sw.get("Custom") or "").strip()
     hints = []
@@ -331,7 +441,8 @@ def plan(man, inst, scope="machine"):
     pc = str(inst.get("ProductCode") or (arp[0].get("ProductCode") if arp else "") or "").strip()
     return {"install_type": it, "arguments": args, "success_codes": ",".join(str(c) for c in codes),
             "detect_name": detect[:200], "detect_version": dver[:50], "product_code": pc[:60] if pc.startswith("{") else "",
-            "min_os": str(inst.get("MinimumOSVersion") or "").strip(), "type": typ, "hints": hints}
+            "min_os": str(inst.get("MinimumOSVersion") or "").strip(), "type": f"zip/{typ}" if nested else typ,
+            "hints": hints, "nested": nested}
 
 
 def _file_name(url, wid, version, it):
@@ -542,49 +653,81 @@ def refresh_entry(eid, force=False, user=None):
             inst = choose(man, e["arch"] or "x64", e["scope"] or "machine")
             p = plan(man, inst, e["scope"] or "machine")
             ver = str(man.get("PackageVersion") or "")
-            sha = str(inst.get("InstallerSha256") or "").lower()
-            if not re.match(r"^[0-9a-f]{64}$", sha):
+            url = inst.get("InstallerUrl")
+            msha = str(inst.get("InstallerSha256") or "").lower()
+            ign = bool(e["ignore_hash"])
+            if not ign and not re.match(r"^[0-9a-f]{64}$", msha):
                 raise CacheError("Im Manifest fehlt die Prüfsumme des Installers.")
-            # Ordner je Version UND Prüfsumme: tauscht der Katalog bei gleicher Version die Datei, entsteht ein neuer
-            # Ordner – der bestätigte Stand der alten Datei (Bruchprüfung) bleibt stimmig
-            vdir = f"{_safe_dir(ver)}_{sha[:8]}"
-            folder = f"{root}\\{_safe_dir(e['winget_id'])}\\{vdir}"
-            file = _file_name(inst.get("InstallerUrl"), e["winget_id"], ver, p["install_type"])
-            target = f"{folder}\\{file}"
-            exists = remote.repo_stat(target) == "file"
+            mx = max(16, int(db.setting("winget_cache_max_mb") or 2048)) * 1024 * 1024
+            base = f"{root}\\{_safe_dir(e['winget_id'])}"
             msg = []
-            size = e["size"]
-            if not exists or force:
-                mx = max(16, int(db.setting("winget_cache_max_mb") or 2048)) * 1024 * 1024
-                tmp, size = _download(inst.get("InstallerUrl"), sha, mx)
-                try:
-                    same = False
-                    if exists:
-                        try:
-                            same = (remote.repo_sha256(target) or "").lower() == sha
-                        except Exception:
-                            same = False
-                    if exists and not same and _users(folder, e["package_id"]):
-                        raise CacheError("Die Datei im Cache ist beschädigt, wird aber gerade von einer Bereitstellung "
-                                         "benutzt – nächster Versuch beim nächsten Lauf.")
-                    if not same:
-                        remote.repo_mkdir(folder)
-                        part = f"{target}.pk-part"
-                        remote.repo_delete(part)
-                        with open(tmp, "rb") as src, remote.repo_open_write(part, "wb") as dst:
-                            while True:
-                                b = src.read(1024 * 1024)
-                                if not b:
-                                    break
-                                dst.write(b)
-                        remote.repo_delete(target)
-                        remote.repo_rename(part, target)
-                        remote.repo_cache_apply("add", target, size=size)
-                finally:
-                    os.remove(tmp)
+            size, sig = e["size"], e["remote_sig"]
+
+            def names(sha_, ver_):
+                # Ordner je Version UND Prüfsumme: tauscht der Katalog/Hersteller bei gleicher Version die Datei, entsteht
+                # ein neuer Ordner – der bestätigte Stand der alten Datei (Bruchprüfung) bleibt stimmig
+                folder_ = f"{base}\\{_safe_dir(ver_)}_{sha_[:8]}"
+                if p["nested"]:
+                    return folder_, p["nested"]
+                return folder_, _file_name(url, e["winget_id"], ver_, p["install_type"])
+
+            if ign:
+                # Prüfsumme des Katalogs nicht verlangen (Adresse ohne Version, z. B. Google Chrome): nur laden, wenn sich
+                # die Datei unter der Adresse geändert hat; Prüfsumme der geladenen Datei merken, Version aus der MSI
+                sig = _head_sig(url)
+                keep = (not force and sig and sig == e["remote_sig"] and e["folder"] and e["file"] and e["sha256"]
+                        and remote.repo_stat(f"{e['folder']}\\{e['file']}") == "file")
+                if keep:
+                    sha, ver = e["sha256"], e["version"] or ver
+                    folder, file = e["folder"], e["file"]
+                    exists = True
+                    p["detect_version"] = e["detect_version"] or p["detect_version"]
+                else:
+                    tmp, size, sha = _download(url, None, mx, verify=False)
+                    try:
+                        if p["install_type"] == "msi" and not p["nested"]:
+                            try:
+                                from . import msi
+                                with open(tmp, "rb") as fh:
+                                    mv = str(msi.read(fh).get("version") or "").strip()
+                                if mv:
+                                    ver, p["detect_version"] = mv, mv
+                            except Exception:
+                                pass
+                        folder, file = names(sha, ver)
+                        exists = remote.repo_stat(f"{folder}\\{file}") == "file"
+                        if not exists:
+                            _put(tmp, folder, file, p, mx)
+                    finally:
+                        os.remove(tmp)
+                    msg.append("ohne Prüfsumme des Katalogs (Datei vom Hersteller per HTTPS)")
+            else:
+                sha = msha
+                folder, file = names(sha, ver)
+                target = f"{folder}\\{file}"
+                exists = remote.repo_stat(target) == "file"
+                if not exists or force:
+                    tmp, size, _got = _download(url, sha, mx)
+                    try:
+                        same = False
+                        if exists and not p["nested"]:
+                            try:
+                                same = (remote.repo_sha256(target) or "").lower() == sha
+                            except Exception:
+                                same = False
+                        if exists and not same and _users(folder, e["package_id"]):
+                            raise CacheError("Die Datei im Cache ist beschädigt, wird aber gerade von einer Bereitstellung "
+                                             "benutzt – nächster Versuch beim nächsten Lauf.")
+                        if not same:
+                            _put(tmp, folder, file, p, mx)
+                    finally:
+                        os.remove(tmp)
+            vdir = folder.rsplit("\\", 1)[-1]
+            ver = str(ver)
             if not entry(eid):
                 return None
-            pid = _save_package({**e, "name": man.get("PackageName") or e["name"]}, man, p, folder, file)
+            sfolder, sfile = (f"{folder}\\{file.rsplit(chr(92), 1)[0]}", file.rsplit(chr(92), 1)[1]) if chr(92) in file else (folder, file)
+            pid = _save_package({**e, "name": man.get("PackageName") or e["name"]}, man, p, sfolder, sfile)
             if pid is None:
                 # Paket wurde während des Ladens in der Paketliste gelöscht → Eintrag und Ordner mit weg
                 remove(eid, user, package_gone=True)
@@ -594,10 +737,10 @@ def refresh_entry(eid, force=False, user=None):
                 msg.append("alte Version wird noch verwendet, wird beim nächsten Lauf gelöscht: " + ", ".join(left))
             msg += p["hints"]
             db.ex("""UPDATE winget_cache SET status='ok', message=?, name=?, version=?, detect_version=?, folder=?, file=?,
-                     size=?, sha256=?, installer_type=?, min_os=?, package_id=?, checked_at=?,
+                     size=?, sha256=?, installer_type=?, min_os=?, package_id=?, checked_at=?, remote_sig=?,
                      updated_at=CASE WHEN COALESCE(version, '') = ? THEN updated_at ELSE ? END WHERE id=?""",
                   ("; ".join(msg) or None, man.get("PackageName") or e["name"], ver, p["detect_version"] or ver, folder, file,
-                   size, sha, p["type"], p["min_os"] or None, pid, now, ver, now, eid))
+                   size, sha, p["type"], p["min_os"] or None, pid, now, sig if ign else None, ver, now, eid))
             if not exists or (e["version"] != ver):
                 pklog.info("winget", f"winget-Cache: {e['winget_id']} {ver} geladen ({(size or 0) // 1048576} MB, {p['type']}) – "
                                      f"Paket „{man.get('PackageName') or e['winget_id']} (winget-Cache)“ aktualisiert.", user=user)
@@ -667,6 +810,16 @@ def cleanup(user=None):
     if gone:
         pklog.info("winget", f"winget-Cache aufgeräumt: {', '.join(gone)}.", user=user)
     return gone
+
+
+def set_ignore_hash(eid, on, user=None):
+    """Je Eintrag: Prüfsumme des Katalogs nicht verlangen (für Adressen ohne Version, die immer die neueste Datei liefern)."""
+    e = entry(eid)
+    if not e:
+        raise CacheError("Eintrag nicht gefunden.")
+    db.ex("UPDATE winget_cache SET ignore_hash=?, remote_sig=NULL WHERE id=?", (1 if on else 0, eid))
+    pklog.info("winget", f"winget-Cache: „{e['winget_id']}“ – Prüfsumme des Katalogs {'nicht mehr verlangt' if on else 'wieder verlangt'}.",
+               user=user)
 
 
 def set_folder(value, user=None):

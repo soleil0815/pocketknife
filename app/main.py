@@ -1967,6 +1967,19 @@ def api_wc_remove(eid: int, user=U):
         _err(e)
 
 
+@app.put("/api/wingetcache/{eid:int}")
+def api_wc_entry(eid: int, data: dict = Body(...), user=U):
+    """2.35.3: je Eintrag „Prüfsumme des Katalogs nicht verlangen“ – danach gleich neu prüfen."""
+    _wc_main(user)
+    try:
+        if "ignore_hash" in data:
+            wingetcache.set_ignore_hash(eid, bool(data.get("ignore_hash")), user["username"])
+    except wingetcache.CacheError as e:
+        _err(e)
+    scheduler._bg("wingetcache", lambda: wingetcache.refresh_all(user["username"], ids={eid}))
+    return _wc_view()
+
+
 @app.put("/api/wingetcache/settings")
 def api_wc_settings(data: dict = Body(...), user=U):
     _wc_main(user)
