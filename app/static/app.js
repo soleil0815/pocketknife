@@ -3012,6 +3012,51 @@ function wcBadge(e) {
   const txt = e.status === 'ok' ? `✓ ${e.version || ''}` : e.version && e.status !== 'unsupported' ? `${e.version} · ${tr(e.status_text)}` : tr(e.status_text);
   return h('span.badge', { class: cls, title: e.message || '' }, txt);
 }
+// 2.36: Freigabe neuer winget-Versionen (nur Hauptadmins)
+async function wrList() {
+  if (isOU()) return null;
+  try { return await GET('/api/wingetrelease'); } catch (e) { return null; }
+}
+function wrBadge(it, wr) {
+  if (!it) return '';
+  if (it.state === 'latest') return wr && wr.mode !== 'off' ? h('span.badge.ok', { title: tr('Neueste Version freigegeben') }, `✓ ${it.latest || ''}`) : '';
+  if (it.state === 'pin') return h('span.badge.warn', { title: tr(it.reason || '') }, fmtT('{0} statt {1}', it.version, it.latest));
+  return h('span.badge.err', { title: tr(it.reason || '') }, tr('nichts freigegeben'));
+}
+function wrDlg(wid, onDone) {
+  const body = h('div');
+  let dlg = null, changed = false;
+  const act = async (action, v) => {
+    const r = await run(() => POST(`/api/wingetrelease/${action}`, { winget_id: wid, version: v }),
+      { approve: 'Version freigegeben', block: 'Version gesperrt', reset: 'Zurück auf die Regel' }[action]);
+    if (r !== undefined) { changed = true; await draw(); }
+  };
+  const ST = { baseline: 'freigegeben (Ausgangsstand)', approved: 'freigegeben', blocked: 'gesperrt' };
+  async function draw() {
+    const wr = await GET('/api/wingetrelease');
+    const it = wr.items[wid.toLowerCase()];
+    const MODE = { off: 'sofort freigeben', days: fmtT('zurückstellen um {0} Tage', wr.days), manual: 'nur nach Freigabe' };
+    if (!it) { body.replaceChildren(h('p.muted', 'Für dieses Programm ist noch keine Version vermerkt (nach dem nächsten Laden des winget-Index).')); return; }
+    const rows = [...it.versions].reverse();
+    body.replaceChildren(
+      h('p.small.muted', { style: { marginTop: 0 } }, fmtT('Regel in den Einstellungen: {0}.', tr(MODE[wr.mode] || wr.mode)), ' ',
+        it.state === 'latest' ? tr('Die neueste Version ist freigegeben.') : it.state === 'pin'
+          ? fmtT('Installiert und aktualisiert wird {0} – {1}.', it.version, tr(it.reason || '')) : tr(it.reason || '')),
+      h('table', h('thead', h('tr', h('th', 'Version'), h('th', 'Zuerst gesehen'), h('th', 'Stand'), h('th', ''))),
+        h('tbody', rows.map((v) => h('tr',
+          h('td.mono', v.version, v.latest ? h('span.badge.info', { style: { marginLeft: '6px' } }, tr('neueste')) : null),
+          h('td', fmtDate(v.first_seen)),
+          h('td', v.status ? tr(ST[v.status] || v.status) + (v.by ? ` (${v.by})` : '')
+            : v.released ? tr('freigegeben (Regel)') : v.release_at ? fmtT('zurückgestellt bis {0}', fmtDate(v.release_at)) : tr('wartet auf Freigabe')),
+          h('td', h('span.row', { style: { gap: '4px', justifyContent: 'flex-end' } },
+            !v.released ? btn('Freigeben', () => act('approve', v.version), { cls: 'small primary' }) : null,
+            v.status !== 'blocked' ? btn('Sperren', () => act('block', v.version), { cls: 'small danger' }) : null,
+            v.status === 'blocked' || v.status === 'approved' ? btn(v.status === 'blocked' ? 'Sperre aufheben' : 'Freigabe zurücknehmen', () => act('reset', v.version), { cls: 'small ghost' }) : null)))))));
+  }
+  dlg = modal(fmtT('Freigabe: {0}', wid), body, [{ label: 'Schließen' }], { wide: true, onClose: () => { if (changed && onDone) onDone(); } });
+  draw().catch((e) => body.replaceChildren(h('div.err', e.message)));
+  return dlg;
+}
 async function wcAdd(ids) {
   const r = await run(() => POST('/api/wingetcache', { winget_ids: ids }));
   if (!r) return false;
@@ -3255,7 +3300,8 @@ let PKG_META = null;
 async function pkgMeta(force) { if (!PKG_META || force) PKG_META = await GET('/api/packages/meta'); return PKG_META; }
 
 async function viewPackages(_p, params) {
-  const [rows, meta, wcl] = await Promise.all([GET('/api/packages'), pkgMeta(true), wcList(true)]);
+  const [rows, meta, wcl, wr] = await Promise.all([GET('/api/packages'), pkgMeta(true), wcList(true), wrList()]);
+  const wrOf = (r) => (wr && r.winget_id && r.type === 'winget' ? wr.items[r.winget_id.toLowerCase()] : null);
   const wcOf = (r) => (wcl && r.winget_id && r.type === 'winget' ? wcl.byId[r.winget_id.toLowerCase()] : null);
   const isCachePkg = (r) => !!(wcl && wcl.byPkg[r.id]);
   let t = null;
@@ -3280,6 +3326,9 @@ async function viewPackages(_p, params) {
     { key: 'version', label: 'Version', value: (r) => (r.type === 'winget' ? (r.winget_version || (r.latest ? `${r.latest} (neueste)` : 'neueste')) : r.version || ''),
       title: (r) => (r.type === 'winget' && !r.winget_version ? 'Ohne feste Version wird immer die aktuelle Katalogversion installiert.' : '') },
     { key: 'latest', label: 'Katalog', value: (r) => r.latest || '', title: () => 'Neueste Version im winget-Katalog' },
+    wr ? { key: 'release', label: 'Freigabe', render: (r) => wrBadge(wrOf(r), wr), value: (r) => { const it = wrOf(r); return it ? (it.state === 'latest' ? it.latest || '' : it.reason || '') : ''; },
+      sort: (r) => ({ hold: 0, pin: 1, latest: 2 })[(wrOf(r) || {}).state] ?? 3,
+      title: () => tr('Freigabe neuer winget-Versionen (Einstellungen → winget) – Rechtsklick → „Freigabe …“') } : null,
     { key: 'kind', label: 'Typ', render: (r) => h('span.row', { style: { gap: '4px' } }, h('span.badge', { class: r.type === 'winget' ? 'info' : 'accent' }, kind(r)),
       isCachePkg(r) ? h('span.badge.info', { title: tr('Automatisch aus dem winget-Cache – wird bei jeder neuen Version neu erzeugt') }, 'winget-Cache') : null), value: (r) => kind(r) + (isCachePkg(r) ? ' winget-Cache' : '') },
     wcl ? { key: 'wcache', label: 'winget-Cache', render: (r) => wcBadge(wcOf(r)), value: (r) => { const e = wcOf(r); return e ? (e.version || e.status_text) : ''; },
@@ -3317,6 +3366,11 @@ async function viewPackages(_p, params) {
       { label: 'Exportieren', icon: 'download', onClick: () => exportPackages([r.id]) },
       r.type === 'winget' && r.outdated_installs ? { label: `Veraltete Installationen anzeigen (${r.outdated_installs})`, icon: 'list', onClick: () => go(`#/software?outdated=1&q=${encodeURIComponent(r.winget_id)}`) } : null,
       wcl && r.type === 'winget' && r.winget_id && !wcOf(r) ? { label: 'In den winget-Cache aufnehmen', icon: 'db', onClick: async () => { if (await wcAdd([r.winget_id])) route(); } } : null,
+      wr && r.type === 'winget' && r.winget_id && wrOf(r) && wrOf(r).state !== 'latest' && !wrOf(r).versions.some((v) => v.latest && v.status === 'blocked')
+        ? { label: fmtT('Version {0} jetzt freigeben', wrOf(r).latest), icon: 'shield', onClick: async () => {
+          if (await run(() => POST('/api/wingetrelease/approve', { winget_id: r.winget_id, version: wrOf(r).latest }), 'Version freigegeben') !== undefined) route();
+        } } : null,
+      wr && r.type === 'winget' && r.winget_id ? { label: 'Freigabe …', icon: 'shield', onClick: () => wrDlg(r.winget_id, () => route()) } : null,
       wcl && (wcOf(r) || isCachePkg(r)) ? { label: 'Im winget-Cache anzeigen', icon: 'db', onClick: () => go('#/wingetcache') } : null,
       '-',
       { label: 'Löschen', icon: 'trash', onClick: async () => {
@@ -5809,6 +5863,8 @@ async function viewSettings() {
     }, { cls: 'small' }), btn('Durchsuchen', () => repoBrowser(() => {}), { cls: 'small' }))))));
 
   const w = sys.winget;
+  const relDays = h('span.row', { style: { gap: '6px', alignItems: 'center', display: s.winget_release_mode === 'days' ? '' : 'none' } },
+    n('winget_release_days', { min: 1, max: 365, style: { width: '80px' } }), h('span', tr('Tage')));
   const file = h('input', { type: 'file', accept: '.msix', onchange: (e) => { const sp = e.target.nextSibling; if (sp) sp.textContent = e.target.files[0] ? e.target.files[0].name : 'source2.msix wählen …'; } });
   const wg = h('div.card', h('div.card-h', h('h2', 'winget')), h('div.card-b',
     kv([['Index', w.loaded ? `${num(w.count)} Pakete (Format ${w.schema})` : (w.error || 'nicht geladen')], ['Stand', fmtDate(w.updated)],
@@ -5817,6 +5873,12 @@ async function viewSettings() {
       field('Automatisch aktualisieren', h('label.chk', c('winget_auto_refresh'), 'Index regelmäßig von cdn.winget.microsoft.com laden')),
       field('Intervall (Std.)', n('winget_refresh_hours', { min: 1 })),
       field('Standard-Bereich', inputs.winget_scope = sel([['machine', 'Computer (--scope machine)'], ['', 'Paketstandard'], ['user', 'Benutzer']], s.winget_scope)),
+      // 2.36: neue winget-Versionen zurückstellen bzw. nur nach Freigabe
+      field('Neue Versionen', h('div.row', { style: { gap: '8px', alignItems: 'center' } },
+        inputs.winget_release_mode = sel([['off', 'sofort freigeben'], ['days', 'zurückstellen um …'], ['manual', 'nur nach Freigabe im Paket']], s.winget_release_mode || 'off',
+          { onchange: (e) => { relDays.style.display = e.target.value === 'days' ? '' : 'none'; } }),
+        relDays),
+        'Gilt für winget-Schritte in Paketen, Kiosk, Zeitpläne und den winget-Cache: Solange die neueste Version nicht freigegeben ist, bekommen die Computer die zuletzt freigegebene (winget --version), der Cache lädt nur diese. Einzeln freigeben oder sperren: Pakete → Rechtsklick auf ein winget-Paket → „Freigabe …“. Der Knopf „Aktualisieren“ unter Software installiert bewusst die neueste. Gezählt wird ab dem Tag, an dem POCKET KNIFE die Version im Katalog zum ersten Mal sieht.'),
       field('Fehlendes winget', h('label.chk', c('winget_bootstrap'), 'automatisch nachinstallieren (z. B. Windows Server 2019/2022/2025)'),
         'Vor jedem winget-Schritt wird geprüft, ob winget vorhanden ist. Fehlt es, wird der App-Installer samt Abhängigkeiten installiert. Auf Systemen vor Windows 10 1809 / Server 2019 wird der Schritt übersprungen statt fehlzuschlagen.'),
       field('Offline-Quelle', t('winget_bootstrap_folder', { placeholder: 'z. B. _winget (Ordner im Repository)' }),

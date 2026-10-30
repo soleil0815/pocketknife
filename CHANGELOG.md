@@ -1,5 +1,10 @@
 # Änderungen
 
+## pocketknife-2.36.0 (30.10.2026)
+- **Neu – neue winget-Versionen zurückstellen oder nur nach Freigabe:** Einstellungen → Repository & winget → winget → **Neue Versionen**: „sofort freigeben“ (wie bisher), „zurückstellen um … Tage“ oder „nur nach Freigabe im Paket“. Gezählt wird ab der ersten Sichtung der Version im winget-Katalog; die beim Einschalten vorgefundene Version gilt als freigegeben. Solange die neueste Version nicht freigegeben ist, aktualisieren Zeitpläne nur Computer mit einer älteren als der zuletzt freigegebenen Version und installieren genau diese, winget-Schritte in Paketen, verschachtelten Paketen und im Kiosk installieren sie per `winget --version` (nie herunterstufen; feste Versionen bleiben), und der winget-Cache lädt nur die freigegebene Version. Der Knopf „Aktualisieren“ unter Software installiert bewusst die neueste
+- **Neu – Freigabe je winget-Paket:** Spalte **Freigabe** in der Paketliste; Rechtsklick → **Version … jetzt freigeben** bzw. **Freigabe …** mit allen bekannten Versionen: Freigeben, Sperren (eine fehlerhafte Version nie verteilen), Sperre aufheben, Freigabe zurücknehmen. Nach einer Freigabe lädt der winget-Cache die Version gleich; alles im Protokoll (nur Hauptadmins)
+- **Selbsttest:** sofort/Tage/manuell, Ausgangsstand, Freigeben/Sperren, Schritt mit fester Version, Knopf „Aktualisieren“, Zeitpläne nur ältere Versionen, Cache behält die freigegebene Version
+
 ## pocketknife-2.35.6 (30.10.2026)
 - **Verbessert – Dateien (Explorer): versteckte Einträge ausgeblendet:** Ordner und Dateien mit dem Attribut „versteckt“ (z. B. `ProgramData`, `$Recycle.Bin`, `System Volume Information`, `desktop.ini`) erscheinen wie im Windows-Explorer nicht mehr in der Liste. **Versteckte anzeigen** in der Werkzeugleiste blendet sie ein (der Browser merkt sich die Wahl); oben rechts steht die Anzahl der ausgeblendeten Einträge. Ein gezielt geöffneter Eintrag (z. B. Treffer der Suche) bleibt sichtbar, Hochladen fragt weiterhin auch bei versteckten Dateien vor dem Überschreiben
 - **Selbsttest:** versteckte Einträge im Explorer

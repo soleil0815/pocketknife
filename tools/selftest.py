@@ -6677,6 +6677,95 @@ def _():
     assert '"hidden": bool(attr & 0x2)' in src, "Server liefert das Attribut versteckt"
 
 
+@test("2.36 Freigabe neuer winget-Versionen: sofort / Tage / manuell, freigeben, sperren, Ausgangsstand, Schritt mit --version, Zeitpläne, Cache")
+def _():
+    from app import wingetrelease as wr, wingetcache as wc, util as u
+    W = "Selftest.RelApp"
+    cat = {"v": "2.0"}
+    old_latest, old_mode, old_days = wr._latest, db.setting("winget_release_mode"), db.setting("winget_release_days")
+    wr._latest = lambda wid: cat["v"] if str(wid).lower() == W.lower() else old_latest(wid)
+    db.ex("DELETE FROM winget_releases WHERE winget_id=?", (W,))
+    try:
+        db.set_setting("winget_release_mode", "days"); db.set_setting("winget_release_days", 2)
+        assert wr.target(W)["state"] == "latest", "unbekannte ID: keine Einschränkung"
+        # Ausgangsstand beim ersten Kontakt freigegeben (sonst stünde nach dem Einschalten alles still)
+        db.ex("INSERT INTO software(computer_id, name, version, winget_id, winget_sure) VALUES(NULL, 'RelApp', '1.0', ?, 1)", (W,))
+        cat["v"] = "1.5"
+        wr.sync()
+        assert db.val("SELECT base FROM winget_releases WHERE winget_id=? AND version='1.5'", (W,)) == 1
+        assert wr.target(W)["state"] == "latest"
+        # neue Version 2.0: 2 Tage zurückgestellt → 1.5 wird installiert
+        cat["v"] = "2.0"
+        wr.sync()
+        t = wr.target(W)
+        assert t["state"] == "pin" and t["version"] == "1.5" and "zurückgestellt bis" in t["reason"], t
+        st = {"type": "install", "source": "winget", "winget_id": W, "winget_action": "install", "winget_version": ""}
+        s2, why = wr.apply_step(st)
+        assert s2["winget_version"] == "1.5" and why is None
+        assert wr.apply_step({**st, "winget_version": "1.9"})[0]["winget_version"] == "1.9", "feste Version bleibt"
+        assert wr.apply_step(st, {"release_bypass": True})[0] is st, "Knopf „Aktualisieren“: neueste"
+        assert wr.apply_step({**st, "winget_action": "uninstall"})[0]["winget_version"] == "", "Deinstallieren unverändert"
+        assert wr.allowed_update(W, "1.0") and not wr.allowed_update(W, "1.5") and not wr.allowed_update(W, "")
+        # nach Ablauf der Tage frei
+        db.ex("UPDATE winget_releases SET first_seen=? WHERE winget_id=? AND version='2.0'", (u.ago(days=3), W))
+        assert wr.target(W)["state"] == "latest" and wr.allowed_update(W, "1.5")
+        # manuell: wartet, bis freigegeben
+        db.set_setting("winget_release_mode", "manual")
+        t = wr.target(W)
+        assert t["state"] == "pin" and "wartet auf Freigabe" in t["reason"], t
+        wr.set_status(W, "2.0", "approved", "selftest")
+        assert wr.target(W)["state"] == "latest"
+        # sofort, aber gesperrt → die vorige; alles gesperrt → nichts
+        db.set_setting("winget_release_mode", "off")
+        wr.set_status(W, "2.0", "blocked", "selftest")
+        t = wr.target(W)
+        assert t["state"] == "pin" and t["version"] == "1.5" and "gesperrt" in t["reason"], t
+        wr.set_status(W, "1.5", "blocked", "selftest")
+        assert wr.target(W)["state"] == "hold" and wr.apply_step(st)[0] is None and not wr.allowed_update(W, "1.0")
+        wr.set_status(W, "1.5", "", "selftest"); wr.set_status(W, "2.0", "", "selftest")
+        assert wr.target(W)["state"] == "latest", "zurück auf die Regel (sofort)"
+        try:
+            wr.set_status(W, "9.9", "approved", "selftest")
+            raise AssertionError("unbekannte Version angenommen")
+        except ValueError:
+            pass
+        # Katalog neuer als der letzte Abgleich: wird bei der Abfrage als erste Sichtung vermerkt
+        db.set_setting("winget_release_mode", "days")
+        cat["v"] = "2.1"
+        t = wr.target(W)
+        assert t["state"] == "pin" and t["version"] == "2.0" and db.val("SELECT 1 FROM winget_releases WHERE winget_id=? AND version='2.1'", (W,))
+        # winget-Cache: freigegebene Version liegt schon im Cache → nichts laden, Stand behalten
+        eid = db.ex("INSERT INTO winget_cache(winget_id, status, version, folder, file, created_at) VALUES(?, 'ok', '2.0', 'x\\y', 'a.msi', ?)", (W, u.now()))
+        old_fm = wc.fetch_manifest
+        wc.fetch_manifest = lambda *a, **k: (_ for _ in ()).throw(AssertionError("darf nichts laden"))
+        try:
+            e = wc.refresh_entry(eid)
+            assert e["status"] == "ok" and e["version"] == "2.0" and "bleibt 2.0" in (e["message"] or ""), dict(e)
+            # gesperrte Version im Cache wird nicht benutzt
+            assert wc._released(dict(e))
+            wr.set_status(W, "2.0", "blocked", "selftest")
+            assert not wc._released(dict(wc.entry(eid))) and wr.version_ok(W, "1.5") and wr.version_ok(W, "0.1")
+            wr.set_status(W, "2.0", "", "selftest")
+        finally:
+            wc.fetch_manifest = old_fm
+            db.ex("DELETE FROM winget_cache WHERE id=?", (eid,))
+        src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "schedules.py"), encoding="utf-8").read()
+        assert "wingetrelease.target(" in src and 'util.vcmp(str(r["version"]), t["version"]) < 0' in src, "Zeitpläne: nur ältere als die freigegebene"
+        stp = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "steps.py"), encoding="utf-8").read()
+        assert stp.index("wingetrelease.apply_step(") < stp.index("wingetcache.step_for(st, self.c, pkg)"), "Freigabe vor dem winget-Cache"
+        assert "util.vcmp(str(v), pin) >= 0" in stp, "nie herunterstufen"
+        mn = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "main.py"), encoding="utf-8").read()
+        assert 'pkg["release_bypass"] = True' in mn and '"winget_release_days": (1, 365)' in mn
+        wcs = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "wingetcache.py"), encoding="utf-8").read()
+        assert 'pkg.get("release_bypass")' in wcs, "„Aktualisieren“: neueste per winget statt Cache"
+
+    finally:
+        wr._latest = old_latest
+        db.set_setting("winget_release_mode", old_mode); db.set_setting("winget_release_days", old_days)
+        db.ex("DELETE FROM winget_releases WHERE winget_id=?", (W,))
+        db.ex("DELETE FROM software WHERE winget_id=?", (W,))
+
+
 def main():
     ok = 0
     for name, fn in RESULTS:

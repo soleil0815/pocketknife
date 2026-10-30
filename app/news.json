@@ -2,6 +2,24 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.36.0",
+   "date": "2026-10-30",
+   "items": [
+    {
+     "kind": "new",
+     "audience": "admin",
+     "de": "Neue winget-Versionen zurückstellen (z. B. 2 Tage) oder nur nach Freigabe verteilen – Einstellungen → winget → „Neue Versionen“.",
+     "en": "Defer new winget versions (e.g. 2 days) or distribute them only after release – Settings → winget → \"New versions\"."
+    },
+    {
+     "kind": "new",
+     "audience": "admin",
+     "de": "Pakete: Spalte „Freigabe“ und Rechtsklick → „Freigabe …“ – einzelne Versionen freigeben oder sperren.",
+     "en": "Packages: \"Release\" column and right-click → \"Release …\" – release or block individual versions."
+    }
+   ]
+  },
+  {
    "version": "2.35.6",
    "date": "2026-10-30",
    "items": [

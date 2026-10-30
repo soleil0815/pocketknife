@@ -627,7 +627,17 @@ def preview(st, pkg):
         lines.append("C:\\Program Files\\WindowsApps\\Microsoft.DesktopAppInstaller_<Version>_x64__8wekyb3d8bbwe\\winget.exe "
                      + deploy.command_preview({**st, "type": "winget"}).replace("winget.exe ", "", 1))
         if not st.get("winget_version"):
-            notes.append("Ohne feste Version wird immer die aktuelle Version aus dem winget-Katalog installiert.")
+            from . import wingetrelease
+            if wingetrelease.mode() == "off":
+                notes.append("Ohne feste Version wird immer die aktuelle Version aus dem winget-Katalog installiert.")
+            else:
+                notes.append("Ohne feste Version wird die neueste freigegebene Version installiert (Einstellungen → winget → „Neue Versionen“).")
+            if st.get("winget_id") and (st.get("winget_action") or "install") != "uninstall":
+                t = wingetrelease.target(st["winget_id"])
+                if t["state"] == "pin":
+                    notes.append(f"Zurzeit: {t['reason']} – installiert wird {t['version']} (--version {t['version']}).")
+                elif t["state"] == "hold":
+                    notes.append(f"Zurzeit: {t['reason']} – der Schritt wird übersprungen.")
         if db.setting("winget_bootstrap"):
             notes.append("Fehlt winget auf dem Computer (z. B. Windows Server), wird der App-Installer vorher automatisch nachinstalliert. "
                          "Vor Windows 10 1809 / Server 2019 wird der Schritt übersprungen.")
@@ -1006,6 +1016,27 @@ class Runner:
         return "failed", "Unbekannter Schritt"
 
     def _client_step(self, st, pkg, phase, depth, t0):
+        # 2.36: neue winget-Versionen zurückgestellt → die zuletzt freigegebene Version (vor dem winget-Cache: der hält
+        # genau diese Version bereit)
+        if st["type"] == "install" and st.get("source") == "winget":
+            from . import wingetrelease
+            try:
+                st2, why = wingetrelease.apply_step(st, pkg)
+            except Exception:
+                st2, why = st, None
+            if st2 is None:
+                self._record(phase, st, "skipped", why, t0=t0, depth=depth)
+                return "skipped", why
+            if st2 is not st:
+                pin = st2["winget_version"]
+                # nie herunterstufen: ist schon dieselbe oder eine neuere Version installiert, nichts tun
+                have = [r["version"] for r in db.q("SELECT version FROM software WHERE computer_id=? AND lower(winget_id)=?",
+                                                    (self.c.get("id"), str(st2.get("winget_id") or "").lower())) if r["version"]]
+                if any(util.vcmp(str(v), pin) >= 0 for v in have):
+                    why = f"{st2.get('release_note')} – installiert ist schon {max(have, key=__import__('functools').cmp_to_key(lambda a, b: util.vcmp(str(a), str(b))))}"
+                    self._record(phase, st, "skipped", why, t0=t0, depth=depth)
+                    return "skipped", why
+                st = {**st2, "title": f"{step_title(st)} – freigegebene Version {pin} ({st2.get('release_note')})"}
         # 2.35.1: Computer ohne winget – winget-Schritt aus dem winget-Cache, wenn er dort bereitliegt
         if st["type"] == "install" and st.get("source") == "winget":
             try:
