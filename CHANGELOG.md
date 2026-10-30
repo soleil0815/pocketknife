@@ -1,5 +1,9 @@
 # Änderungen
 
+## pocketknife-2.35.6 (30.10.2026)
+- **Verbessert – Dateien (Explorer): versteckte Einträge ausgeblendet:** Ordner und Dateien mit dem Attribut „versteckt“ (z. B. `ProgramData`, `$Recycle.Bin`, `System Volume Information`, `desktop.ini`) erscheinen wie im Windows-Explorer nicht mehr in der Liste. **Versteckte anzeigen** in der Werkzeugleiste blendet sie ein (der Browser merkt sich die Wahl); oben rechts steht die Anzahl der ausgeblendeten Einträge. Ein gezielt geöffneter Eintrag (z. B. Treffer der Suche) bleibt sichtbar, Hochladen fragt weiterhin auch bei versteckten Dateien vor dem Überschreiben
+- **Selbsttest:** versteckte Einträge im Explorer
+
 ## pocketknife-2.35.5 (30.10.2026)
 Ergebnis eines Code-Reviews von 2.35.1–2.35.4:
 - **Behoben – „Prüfsumme des Katalogs nicht verlangen“ nur noch über HTTPS:** auch eine Weiterleitung des Herstellers muss HTTPS bleiben (Download und Abfrage des Kennzeichens). Vorher war http möglich – ohne Prüfsumme hätte dann jemand im Netz eine Datei unterschieben können

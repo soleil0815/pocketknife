@@ -7308,6 +7308,11 @@ async function viewFiles(parts, params) {
   let redirects = 0;
   let curNames = new Set(); // Namen im aktuellen Ordner – Hochladen überschreibt nicht ungefragt
   let selected = new Set();
+  // Versteckte Einträge (Attribut „versteckt“, z. B. ProgramData, $Recycle.Bin, desktop.ini) wie im Windows-Explorer
+  // standardmäßig ausgeblendet (2.35.6); umschaltbar, die Wahl merkt sich der Browser
+  let showHidden = false;
+  try { showHidden = localStorage.getItem('pk-files-hidden') === '1'; } catch (e) { /* egal */ }
+  let lastList = null;
 
   let loadGen = 0;
   const navGen = S.nav;
@@ -7338,6 +7343,7 @@ async function viewFiles(parts, params) {
     }
     redirects = 0;
     curNames = new Set((d.items || d.entries || []).map((x) => String(x.name || '').toLowerCase()));
+    lastList = d;
     drawList(d);
     drawCrumbs();
     drawTools();
@@ -7451,6 +7457,12 @@ async function viewFiles(parts, params) {
         if (await run(() => POST(`/api/computers/${cid}/files/mkdir`, { path: cur, name: n }), 'Ordner angelegt') !== undefined) load(cur);
       }, { cls: 'small', icon: 'folder' }));
       els.push(uploadBtn());
+      els.push(btn(showHidden ? 'Versteckte ausblenden' : 'Versteckte anzeigen', () => {
+        showHidden = !showHidden;
+        try { localStorage.setItem('pk-files-hidden', showHidden ? '1' : '0'); } catch (e) { /* egal */ }
+        drawTools();
+        if (lastList && !searching) drawList(lastList);
+      }, { cls: 'small ghost', title: tr('Versteckte Ordner und Dateien (z. B. ProgramData, $Recycle.Bin, desktop.ini) ein- oder ausblenden') }));
       if (FILE_CLIP && FILE_CLIP.cid === cid && FILE_CLIP.names.length) {
         els.push(btn(`Einfügen (${FILE_CLIP.names.length}${FILE_CLIP.action === 'move' ? ', verschieben' : ''})`, () => paste(), { cls: 'small primary', icon: 'send' }));
       }
@@ -7517,8 +7529,14 @@ async function viewFiles(parts, params) {
     window.location.href = url;
   }
 
-  function drawList(d) {
-    info.textContent = `${d.items.length} ${d.items.length === 1 ? 'Eintrag' : 'Einträge'}`;
+  function drawList(d0) {
+    // Ausgeblendet wird nur, was versteckt ist – der gesuchte Eintrag („focus“) bleibt immer sichtbar
+    const fl = (focusName || '').toLowerCase();
+    const items = showHidden ? d0.items : d0.items.filter((x) => !x.hidden || (fl && x.name.toLowerCase() === fl));
+    const nHid = d0.items.length - items.length;
+    const d = { ...d0, items };
+    info.textContent = `${d.items.length} ${d.items.length === 1 ? 'Eintrag' : 'Einträge'}`
+      + (nHid ? ` · ${fmtT('{0} versteckt', nHid)}` : '');
     const open = (r) => { if (r.dir) load(cur.replace(/\\+$/, '') + '\\' + r.name); else if (!r.denied) download(r); };
     const t = table([
       { key: 'name', label: 'Name', render: (r) => h('span.row', { style: { gap: '6px', flexWrap: 'nowrap' } },
@@ -7531,7 +7549,7 @@ async function viewFiles(parts, params) {
       { key: 'modified', label: 'Geändert', render: (r) => fmtDate(r.modified), sort: (r) => r.modified || '' },
     ], d.items, { key: null, noun: 'Einträge', sort: 'name', selectable: true, id: (r) => r.name, ...fxTableOpts(''),
       // Nichts im Ordner gefunden → gleich die Suche in den Unterordnern anbieten
-      empty: 'Leerer Ordner',
+      empty: nHid ? fmtT('Nur versteckte Einträge ({0}) – „Versteckte anzeigen“', nHid) : 'Leerer Ordner',
       onRow: (r) => open(r),
       onSelect: (sx) => { selected = new Set(sx.map((x) => x.name)); },
       onContext: (r, e, selRows) => {

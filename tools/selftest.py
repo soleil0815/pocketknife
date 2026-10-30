@@ -6661,6 +6661,22 @@ def _():
         db.ex("DELETE FROM packages WHERE id=?", (pid,))
 
 
+@test("2.35.6 Dateien (Explorer): versteckte Einträge ausgeblendet, umschaltbar; Anzahl, Hochladen-Rückfrage und gezielter Eintrag bleiben")
+def _():
+    js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
+    i = js.index("async function viewFiles(")
+    v = js[i:js.index("\nasync function ", i + 10)]
+    assert "showHidden ? d0.items : d0.items.filter((x) => !x.hidden" in v, "versteckte Einträge nicht gefiltert"
+    assert "x.name.toLowerCase() === fl" in v, "gezielt geöffneter Eintrag (focus) muss sichtbar bleiben"
+    assert "localStorage.setItem('pk-files-hidden'" in v and "'Versteckte anzeigen'" in v, "Umschalter fehlt"
+    # Hochladen prüft gegen ALLE Namen (auch versteckte) – sonst würde eine versteckte Datei ungefragt überschrieben
+    assert "curNames = new Set((d.items || d.entries || []).map(" in v
+    assert v.index("curNames = new Set((d.items") < v.index("lastList = d;")
+    from app import clientfiles
+    src = open(clientfiles.__file__, encoding="utf-8").read()
+    assert '"hidden": bool(attr & 0x2)' in src, "Server liefert das Attribut versteckt"
+
+
 def main():
     ok = 0
     for name, fn in RESULTS:
