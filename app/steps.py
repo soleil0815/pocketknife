@@ -1006,6 +1006,13 @@ class Runner:
         return "failed", "Unbekannter Schritt"
 
     def _client_step(self, st, pkg, phase, depth, t0):
+        # 2.35.1: Computer ohne winget – winget-Schritt aus dem winget-Cache, wenn er dort bereitliegt
+        if st["type"] == "install" and st.get("source") == "winget":
+            try:
+                from . import wingetcache
+                st = wingetcache.step_for(st, self.c) or st
+            except Exception:
+                pass
         ra, note = effective_run_as(st, pkg)
         name = f"{self.did}_{self.tid}_{self.n}_{self.token}"
         try:

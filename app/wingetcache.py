@@ -767,6 +767,38 @@ def split(wid, ids):
     return wg, cache, skip, e
 
 
+def step_for(st, c):
+    """2.35.1: winget-Schritt (Installieren/Aktualisieren) auf einem Computer ohne winget → der Installationsschritt aus
+    dem winget-Cache, wenn er dort bereitliegt und passt – sonst None (der Schritt wird wie bisher übersprungen).
+    Gilt damit überall: Pakete, Zeitpläne „Pakete verteilen“, verschachtelte Pakete, Kiosk."""
+    from . import deploy, integrity, steps
+    if st.get("type") != "install" or st.get("source") != "winget" or (st.get("winget_action") or "install") == "uninstall":
+        return None
+    if deploy.winget_ok((c or {}).get("os_build")):
+        return None
+    e = ready().get(str(st.get("winget_id") or "").lower())
+    if not e:
+        return None
+    if st.get("winget_version") and str(st["winget_version"]) != str(e["version"]):
+        return None  # feste andere Version verlangt – der Cache hat nur die aktuelle
+    sw = db.q("SELECT version, arch, scope FROM software WHERE computer_id=? AND lower(winget_id)=?",
+              ((c or {}).get("id"), str(e["winget_id"]).lower()))
+    if not os_ok(c or {}, e["min_os"]) or not _arch_ok(c or {}, sw, e["arch"] or "x64"):
+        return None
+    try:
+        row, pkg = package_for(e)
+        integrity.guard(pkg, package_id=row["id"], name=row["name"])  # Datei im Cache unverändert?
+    except Exception:
+        return None
+    base = next((x for _ph, x in steps.iter_steps(steps.normalize(pkg)) if x.get("type") == "install"), None)
+    if not base:
+        return None
+    return {**base, "id": st.get("id"), "enabled": True, "on_error": st.get("on_error", "stop"),
+            "conditions": st.get("conditions") or base.get("conditions"), "run_as": st.get("run_as") or "inherit",
+            "timeout_min": st.get("timeout_min") or 0,
+            "title": f"{steps.step_title(st)} – aus dem winget-Cache ({e['version']})"}
+
+
 def package_for(e):
     from . import deploy
     row = db.q1("SELECT * FROM packages WHERE id=?", (e["package_id"],))

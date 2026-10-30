@@ -5514,5 +5514,14 @@
  "aktueller Stand des Pakets": "current state of the package",
  "mit dem Stand dieser Bereitstellung": "with the state of this deployment",
  "mit dem aktuellen Stand des Pakets": "with the current state of the package",
- "Wiederholen (Fehlgeschlagene erneut, Alle erneut, Schritte wählen, Schritt wiederholen):": "Repeat (Retry failed, Retry all, Choose steps, Retry step):"
+ "Wiederholen (Fehlgeschlagene erneut, Alle erneut, Schritte wählen, Schritt wiederholen):": "Repeat (Retry failed, Retry all, Choose steps, Retry step):",
+ "Automatisch aus dem winget-Cache – wird bei jeder neuen Version neu erzeugt": "Automatically from the winget cache – recreated with every new version",
+ "Computer ohne winget bekommen diesen Schritt dann aus dem Repository – automatisch, auch in Zeitplänen und im Kiosk.": "Computers without winget then get this step from the repository – automatically, also in schedules and the kiosk.",
+ "Im winget-Cache anzeigen": "Show in the winget cache",
+ "Im winget-Cache für Computer ohne winget bereitgehalten (Rechtsklick → aufnehmen)": "Kept in the winget cache for computers without winget (right-click → add)",
+ "In den winget-Cache aufnehmen": "Add to the winget cache",
+ "für Computer ohne winget (vor Windows 10 1809 / Server 2019)": "for computers without winget (before Windows 10 1809 / Server 2019)",
+ "winget-Cache öffnen": "Open winget cache",
+ "{0} Programm(e) in den winget-Cache aufgenommen – werden geladen": "{0} program(s) added to the winget cache – being downloaded",
+ "{0} – aus dem winget-Cache ({1})": "{0} – from the winget cache ({1})"
 }
