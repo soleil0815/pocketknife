@@ -6151,6 +6151,9 @@ def _():
         con.commit(); con.close()
 
     class _R(_io.BytesIO):
+        def geturl(self):
+            return ""
+
         def __enter__(self):
             return self
 
@@ -6392,16 +6395,24 @@ def _():
         # 2.35.2: Cache-Pakete nicht in der Paketliste, nicht zur Auswahl (Bereitstellen, Zeitpläne, verschachtelt, Kiosk)
         from app import main as _m2
         hu = {"username": "haupt", "scope": None}
-        assert cpid not in {r["id"] for r in _m2.api_packages(hu)} and cpid not in {r["id"] for r in _m2.api_packages_meta(hu)["packages"]}
-        assert cpid not in {r["id"] for r in _m2.api_kiosk_admin(hu)["packages"]}
+        assert cpid not in {r["id"] for r in _m2.api_packages(hu)}
+        # 2.35.5: Auswahllisten bekommen sie mit Kennzeichen (bereits gewählte bleiben sichtbar), angeboten werden sie nicht
+        assert {r["id"]: r["cache"] for r in _m2.api_packages_meta(hu)["packages"]}.get(cpid) is True
+        assert {r["id"]: r["cache"] for r in _m2.api_kiosk_admin(hu)["packages"]}.get(cpid) is True
         assert wc.step_for(dict(ws, winget_action="uninstall"), c_alt) is None and wc.step_for(dict(ws, winget_version="1.5"), c_alt) is None
         db.ex("INSERT INTO software(computer_id, name, version, arch, scope, winget_id) VALUES(?, 'Cache Tool', '1.0', 'x64', 'Computer', 'Cache.Tool')", (alt,))
         assert wc.step_for(dict(ws, winget_action="upgrade", winget_version="2.0"), c_alt), "gleiche feste Version geht"
         db.ex("DELETE FROM software WHERE computer_id=?", (alt,))
         assert wc.step_for(ws, dict(c_alt, os_arch="32-Bit")) is None, "x64 nicht auf 32-Bit-Windows"
+        # 2.35.5: nie als angemeldeter Benutzer, nie Bereich „Benutzer“, nie herunterstufen
+        assert wc.step_for(ws, c_alt, {"run_as": "user"}) is None and wc.step_for(ws, c_alt, {"run_as": "deploy"})
+        assert wc.step_for(dict(ws, winget_scope="user"), c_alt) is None, "Benutzer-Bereich auch ohne winget nicht"
+        db.ex("INSERT INTO software(computer_id, name, version, arch, scope, winget_id) VALUES(?, 'Cache Tool', '3.0', 'x64', 'Computer', 'Cache.Tool')", (alt,))
+        assert wc.step_for(ws, c_alt) is None, "installierte 3.0 nicht durch 2.0 ersetzen"
+        db.ex("DELETE FROM software WHERE computer_id=?", (alt,))
         src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "steps.py"), encoding="utf-8").read()
         cs = src[src.index("    def _client_step(self, st, pkg, phase, depth, t0):"):]
-        assert cs.index("wingetcache.step_for(st, self.c)") < cs.index("effective_run_as(st, pkg)"), "vor der Ausführung ersetzen"
+        assert cs.index("wingetcache.step_for(st, self.c, pkg)") < cs.index("effective_run_as(st, pkg)"), "vor der Ausführung ersetzen (mit dem Paket: Ausführen als)"
         # Kiosk: winget-Paket auf altem Windows nur, wenn der Cache es abdeckt
         db.set_setting("kiosk_enabled", 1)
         wp = stp.clean_package({"name": "WG Cache Tool", "steps": {"main": [dict(ws, id="k1")]}})
@@ -6429,6 +6440,8 @@ def _():
     pk = js[js.index("async function viewPackages("):js.index("// --- 2.32: Pakete zu einem neuen zusammenfassen")]
     assert "go('#/wingetcache')" in pk and "key: 'wcache'" in pk and "In den winget-Cache aufnehmen" in pk and "].filter(Boolean), shown," in pk
     assert "const w = wcStepField(st);" in js
+    assert "(!x.cache || x.id === Number(st.package_id))" in js and "meta.packages.filter((x) => !x.cache)" in js
+    assert "(!inCat.has(p.id) && !p.cache) || p.id === x.package_id" in js and "!p.cache || p.id === x.uninstall_package_id" in js
 
 
 @test("2.35.1 Oberfläche: kein „null“ als Text – replaceChildren/append bekommen nie null (Paket-Eigenschaften zeigten seit 2.27.1 „null“)")
@@ -6489,12 +6502,17 @@ def _():
 
     class _R(_io.BytesIO):
         headers = {}
+        final = ""
+
+        def geturl(self):
+            return self.final
 
         def __enter__(self):
             return self
 
         def __exit__(self, *a):
             return False
+    redirects = {}
 
     def fake_open(req, timeout=0):
         u = req.full_url
@@ -6502,10 +6520,13 @@ def _():
         if req.get_method() == "HEAD":
             r = _R(b"")
             r.headers = heads.get(u, {})
+            r.final = redirects.get(u, u)
             return r
         if u not in files:
             raise OSError(f"404 {u}")
-        return _R(files[u])
+        r = _R(files[u])
+        r.final = redirects.get(u, u)
+        return r
     old_open = wc.proxy.urlopen
     wc.proxy.urlopen = fake_open
     ids = []
@@ -6559,6 +6580,26 @@ def _():
         e7 = wc.refresh_entry(ids[-1])
         assert e7["sha256"] == _h.sha256(b"MZ-neu-2").hexdigest() and e7["folder"] != e5["folder"], dict(e7)
         assert sorted(os.listdir(os.path.join(root, "winget-cache", "Latest.Tool"))) == [e7["folder"].rsplit("\\", 1)[-1]], "alte Datei weg"
+        upd = db.val("SELECT updated_at FROM packages WHERE id=?", (e7["package_id"],))
+        db.ex("UPDATE packages SET updated_at='2000-01-01 00:00:00' WHERE id=?", (e7["package_id"],))
+        wc.refresh_entry(ids[-1])
+        assert db.val("SELECT updated_at FROM packages WHERE id=?", (e7["package_id"],)) == "2000-01-01 00:00:00", "unverändert: Paket nicht neu geschrieben"
+        # 2.35.5: ohne Katalog-Prüfsumme nur HTTPS – auch nach Weiterleitung
+        files[url], heads[url] = b"MZ-neu-3", {"ETag": '"v3"'}
+        redirects[url] = "http://dl.example.test/latest/chromish.exe"
+        e8 = wc.refresh_entry(ids[-1])
+        assert e8["status"] == "error" and "nur über HTTPS" in e8["message"] and e8["sha256"] == e7["sha256"], dict(e8)
+        redirects.clear()
+        must_fail(wc._download, "http://dl.example.test/x.exe", None, 10 ** 6, False, contains="nur über HTTPS")
+        # ZIP: Namen, die sich nur in der Schreibung unterscheiden → abgelehnt; Datei mit der Schreibung aus dem ZIP
+        zp = os.path.join(TMP, "case.zip")
+        open(zp, "wb").write(zipbytes([("Setup.exe", b"a"), ("setup.EXE", b"b")]))
+        must_fail(wc._zip_members, zp, 10 ** 6, contains="Groß-/Kleinschreibung")
+        publish("Zip.Case", "1.0", "  InstallerType: zip\n  NestedInstallerType: nullsoft\n  NestedInstallerFiles:\n  - RelativeFilePath: setup.exe\n",
+                "https://dl.example.test/zc.zip", zipbytes([("Setup.EXE", b"MZ")]))
+        ids.append(wc.add("Zip.Case"))
+        e9 = wc.refresh_entry(ids[-1])
+        assert e9["status"] == "ok" and e9["file"] == "Setup.EXE", dict(e9)
         from app import main as _m
         assert ("PUT", "/api/wingetcache/{eid}") not in _m.access.ROUTES
     finally:
@@ -6592,6 +6633,32 @@ def _():
     assert not wc._arch_ok({"os_arch": "64-Bit"}, [{"arch": "x86"}], "x64"), "x86 installiert, x64-Installer: nein"
     src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "wingetcache.py"), encoding="utf-8").read()
     assert src.count('e["inst_arch"] or e["arch"]') == 2, "Aufteilen und winget-Schritt nehmen die Architektur des Installers"
+
+
+@test("2.35.5 Wiederholen mit aktuellem Stand: Ausschnitt fest markiert (auch bei gekürztem Namen), ausgeschaltete Schritte bleiben aus")
+def _():
+    import json as _j
+    from app import deploy, steps as stp
+    cur = stp.clean_package({"name": "S" * 190, "steps": {"main": [
+        {"id": "a", "type": "command", "command": "echo a2"}, {"id": "b", "type": "command", "command": "echo b2", "enabled": False},
+        {"id": "c", "type": "command", "command": "echo c2"}]}})
+    cur["steps"], cur["conditions"] = _j.dumps(cur["steps"]), _j.dumps(cur["conditions"])
+    pid = db.ex(f"INSERT INTO packages({', '.join(deploy.PKG_FIELDS)}, created_at, updated_at) VALUES({', '.join('?' * len(deploy.PKG_FIELDS))}, ?, ?)",
+                tuple(cur[k] for k in deploy.PKG_FIELDS) + ("2026-10-01 10:00:00", "2026-10-02 10:00:00"))
+    full = stp.normalize(deploy.row_to_package(dict(cur, id=pid)))
+    sl, _t = deploy.retry_package(full, "a", "from")  # ab „a“: b (ausgeschaltet) und c mit
+    assert sl.get("slice") is True
+    did = db.ex("INSERT INTO deployments(name, package_id, package_json, status, created_at) VALUES(?, ?, ?, 'failed', '2026-10-01 12:00:00')",
+                (("S" * 190 + " – ab „" + "x" * 50 + "“ wiederholt")[:200], pid, _j.dumps(sl)))
+    try:
+        d = db.q1("SELECT * FROM deployments WHERE id=?", (did,))
+        assert not deploy.RETRY_SUFFIX.search(d["name"]), "Name gekürzt – Endung fehlt"
+        p = stp.normalize(deploy.source_package(d, True))
+        got = [(x["id"], x.get("enabled", True)) for _ph, x in stp.iter_steps(p)]
+        assert got == [("a", True), ("b", False), ("c", True)] and p.get("slice"), got
+    finally:
+        db.ex("DELETE FROM deployments WHERE id=?", (did,))
+        db.ex("DELETE FROM packages WHERE id=?", (pid,))
 
 
 def main():

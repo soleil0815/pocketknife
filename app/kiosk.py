@@ -181,7 +181,7 @@ def _cache_covers(row, cid):
         ws = [{"type": "install", "source": "winget", "winget_id": row.get("winget_id"),
                "winget_action": row.get("winget_action") or "install", "winget_version": row.get("winget_version")}]
     try:
-        return bool(ws) and all(wingetcache.step_for(s, c) for s in ws)
+        return bool(ws) and all(wingetcache.step_for(s, c, p) for s in ws)
     except Exception:
         return False
 

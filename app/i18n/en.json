@@ -5555,5 +5555,11 @@
  "winget-Cache: „{0}“ – Prüfsumme des Katalogs {1}.": "winget cache: \"{0}\" – catalog checksum {1}.",
  "Das Programm gibt es nur in dieser Architektur": "The program only exists in this architecture",
  "UpgradeBehavior": "UpgradeBehavior",
- "UnsupportedOSArchitectures": "UnsupportedOSArchitectures"
+ "UnsupportedOSArchitectures": "UnsupportedOSArchitectures",
+ "Das ZIP enthält Namen, die sich nur in der Groß-/Kleinschreibung unterscheiden: {0}": "The ZIP contains names that differ only in upper/lower case: {0}",
+ "MSI-Version der Datei: {0}": "MSI version of the file: {0}",
+ "Ohne Prüfsumme des Katalogs nur über HTTPS – der Hersteller leitet auf http weiter.": "Without the catalog checksum only via HTTPS – the vendor redirects to http.",
+ "Ohne Prüfsumme des Katalogs nur über HTTPS – die Adresse im Manifest ist http.": "Without the catalog checksum only via HTTPS – the address in the manifest is http.",
+ "eine laufende Bereitstellung": "a running deployment",
+ "winget-Cache: „{0}“ nicht benutzt – Datei im Repository geändert oder nicht lesbar ({1}). Bitte im winget-Cache „Neu laden“.": "winget cache: \"{0}\" not used – file in the repository changed or not readable ({1}). Please \"Reload\" in the winget cache."
 }

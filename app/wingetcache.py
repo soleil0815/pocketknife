@@ -155,15 +155,20 @@ def _get(url, limit):
 
 def _download(url, sha, max_bytes, verify=True):
     """Installer in eine temporäre Datei laden und die SHA-256 prüfen (verify=False: nur berechnen – Eintrag mit
-    „Prüfsumme des Katalogs nicht verlangen“). Gibt (pfad, größe, sha256) zurück."""
+    „Prüfsumme des Katalogs nicht verlangen“; dann nur HTTPS, auch nach Weiterleitungen). Gibt (pfad, größe, sha256)
+    zurück."""
     if not re.match(r"^https?://", url or "", re.I):
         raise CacheError("Download-Adresse fehlt oder ist ungültig.")
+    if not verify and not re.match(r"^https://", url, re.I):
+        raise CacheError("Ohne Prüfsumme des Katalogs nur über HTTPS – die Adresse im Manifest ist http.")
     fd, tmp = tempfile.mkstemp(dir=config.WINGET_DIR, prefix=TMP_PREFIX, suffix=".part")
     os.close(fd)
     h, size = hashlib.sha256(), 0
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "POCKETKNIFE/" + config.VERSION})
         with proxy.urlopen(req, timeout=120) as r, open(tmp, "wb") as f:
+            if not verify and not str(r.geturl() or "").lower().startswith("https://"):
+                raise CacheError("Ohne Prüfsumme des Katalogs nur über HTTPS – der Hersteller leitet auf http weiter.")
             while True:
                 b = r.read(1024 * 1024)
                 if not b:
@@ -192,8 +197,12 @@ def _head_sig(url):
     """Kennzeichen der Datei unter der Adresse (ETag, sonst Datum + Größe) – um bei Adressen ohne Version nicht jeden
     Tag neu zu laden. "" = unbekannt (dann wird geladen und verglichen)."""
     try:
+        if not re.match(r"^https://", url or "", re.I):
+            return ""
         req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": "POCKETKNIFE/" + config.VERSION})
         with proxy.urlopen(req, timeout=30) as r:
+            if not str(r.geturl() or "").lower().startswith("https://"):
+                return ""
             h = r.headers
             et = (h.get("ETag") or "").strip()
             lm, ln = (h.get("Last-Modified") or "").strip(), (h.get("Content-Length") or "").strip()
@@ -215,7 +224,7 @@ def _zip_members(path, max_bytes):
         infos = z.infolist()
         if len(infos) > 5000:
             raise CacheError("Das ZIP enthält zu viele Dateien.")
-        total = 0
+        total, seen = 0, {}
         for i in infos:
             name = i.filename.replace("\\", "/")
             parts = [x for x in name.split("/") if x]
@@ -227,9 +236,14 @@ def _zip_members(path, max_bytes):
             except Exception:
                 raise CacheError(f"Ungültiger Dateiname im ZIP: {i.filename[:80]}")
             total += i.file_size
-            if total > max_bytes * 4:
+            if total > max_bytes * 2:
                 raise CacheError("Das ZIP ist entpackt unplausibel groß.")
-            out.append((i, "\\".join(parts), i.is_dir()))
+            rel = "\\".join(parts)
+            other = seen.get(rel.lower())
+            if other is not None and other != rel:
+                raise CacheError(f"Das ZIP enthält Namen, die sich nur in der Groß-/Kleinschreibung unterscheiden: {rel[:80]}")
+            seen[rel.lower()] = rel
+            out.append((i, rel, i.is_dir()))
     return out
 
 
@@ -240,6 +254,23 @@ def _put_zip(tmp, folder, max_bytes):
     part = f"{folder}.pk-part"
     remote.repo_delete(part)
     remote.repo_mkdir(part)
+    try:
+        _unzip_to(tmp, members, part)
+    except BaseException:
+        try:
+            remote.repo_delete(part)  # keinen halben Ordner (evtl. mehrere GB) liegen lassen
+        except Exception:
+            pass
+        raise
+    remote.repo_delete(folder)
+    remote.repo_rename(part, folder)
+    remote.repo_cache_apply("add", folder, isdir=True)
+    remote.repo_cache_refresh()
+    return [rel for _i, rel, isdir in members if not isdir]
+
+
+def _unzip_to(tmp, members, part):
+    import zipfile
     with zipfile.ZipFile(tmp) as z:
         for info, rel, isdir in members:
             if isdir:
@@ -253,20 +284,18 @@ def _put_zip(tmp, folder, max_bytes):
                     if not b:
                         break
                     dst.write(b)
-    remote.repo_delete(folder)
-    remote.repo_rename(part, folder)
-    remote.repo_cache_refresh()
-    return [rel for _i, rel, isdir in members if not isdir]
 
 
 def _put(tmp, folder, file, p, max_bytes):
     """Geladene Datei in den Cache-Ordner legen: einzelner Installer (über „.pk-part“ umbenannt) oder ZIP entpackt."""
     if p.get("nested"):
         files = _put_zip(tmp, folder, max_bytes)
-        if file.lower() not in {f.lower() for f in files}:
+        real = {f.lower(): f for f in files}.get(file.lower())
+        if not real:
             remote.repo_delete(folder)
+            remote.repo_cache_apply("remove", folder)
             raise CacheError(f"Die im Manifest genannte Datei „{file}“ ist nicht im ZIP.")
-        return
+        return real  # Schreibweise wie im ZIP (Repository im Container unterscheidet Groß/Klein)
     remote.repo_mkdir(folder)
     target = f"{folder}\\{file}"
     part = f"{target}.pk-part"
@@ -280,6 +309,7 @@ def _put(tmp, folder, file, p, max_bytes):
     remote.repo_delete(target)
     remote.repo_rename(part, target)
     remote.repo_cache_apply("add", target, size=os.path.getsize(tmp))
+    return file
 
 
 def index_entry(wid):
@@ -533,7 +563,7 @@ def remove(eid, user=None, package_gone=False):
             used = _usage(own)
             if used:
                 raise CacheError("Das Paket aus dem Cache wird noch verwendet: " + ", ".join(used) + " – dort zuerst entfernen.")
-        busy = _users(folder, own)
+        busy = _users(folder, own) or ("eine laufende Bereitstellung" if _runtime_busy(e["winget_id"]) else "")
         if busy and not package_gone:
             raise CacheError(f"Der Ordner wird noch benutzt ({busy}) – bitte danach entfernen.")
         if own and not package_gone:
@@ -588,11 +618,21 @@ def _list_dir(rel):
         return []
 
 
+def _runtime_busy(wid):
+    """Läuft gerade eine Bereitstellung, die diese winget-ID enthält? Ihr winget-Schritt kann zur Laufzeit den Ordner
+    im Cache benutzen (step_for) – dann alte Ordner erst beim nächsten Lauf löschen."""
+    w = str(wid or "").lower()
+    return bool(w) and any(w in (r["package_json"] or "").lower()
+                           for r in db.q("SELECT package_json FROM deployments WHERE status='running'"))
+
+
 def _cleanup_versions(e, keep, own_pid):
     """Ältere Versionsordner dieses Programms löschen – nicht, solange etwas anderes sie noch braucht (geplante oder
     laufende Bereitstellung, anderes Paket)."""
     base = f"{folder_root()}\\{_safe_dir(e['winget_id'])}"
     left = []
+    if _runtime_busy(e["winget_id"]):
+        return [it["name"] for it in _list_dir(base) if it.get("dir") and it["name"].lower() != keep.lower()]
     for it in _list_dir(base):
         if not it.get("dir") or it["name"].lower() == keep.lower() or it.get("link"):
             continue
@@ -607,6 +647,17 @@ def _cleanup_versions(e, keep, own_pid):
             left.append(it["name"])
             pklog.warn("winget", f"winget-Cache: alte Version „{rel}“ ließ sich nicht löschen: {ex}")
     return left
+
+
+def _same_steps(a, b):
+    """Gleiche Schritte, unabhängig von den zufälligen Schritt-IDs?"""
+    def strip(x):
+        try:
+            d = json.loads(x) if isinstance(x, str) else (x or {})
+        except ValueError:
+            return x
+        return {ph: [{k: v for k, v in st.items() if k != "id"} for st in (d.get(ph) or [])] for ph in ("pre", "main", "post")}
+    return strip(a) == strip(b)
 
 
 def _save_package(e, man, p, folder, file):
@@ -630,6 +681,10 @@ def _save_package(e, man, p, folder, file):
     if pid and not db.val("SELECT 1 FROM packages WHERE id=?", (pid,)):
         return None  # Paket wurde gerade gelöscht (Paketliste) – nicht neu anlegen, der Eintrag wird mit entfernt
     if pid:
+        old = db.q1("SELECT * FROM packages WHERE id=?", (pid,))
+        if all(str(old.get(k) if old.get(k) is not None else "") == str(v.get(k) if v.get(k) is not None else "")
+               for k in deploy.PKG_FIELDS if k != "steps") and _same_steps(old.get("steps"), v.get("steps")):
+            return pid  # nichts geändert – „Paket geändert“ in Bereitstellungen nicht jeden Tag
         db.ex(f"UPDATE packages SET {', '.join(k + '=?' for k in deploy.PKG_FIELDS)}, updated_at=? WHERE id=?",
               tuple(v.get(k) for k in deploy.PKG_FIELDS) + (util.now(), pid))
     else:
@@ -688,18 +743,24 @@ def refresh_entry(eid, force=False, user=None):
                     tmp, size, sha = _download(url, None, mx, verify=False)
                     try:
                         if p["install_type"] == "msi" and not p["nested"]:
+                            # Produktcode aus der geladenen Datei (der im Manifest gehört zu einer älteren). Die Version
+                            # bleibt die des Katalogs: ProductVersion der MSI weicht bei manchen Herstellern von der
+                            # Anzeigeversion ab – Erkennung und „ist neuer“ vergleichen mit der Anzeigeversion
                             try:
                                 from . import msi
                                 with open(tmp, "rb") as fh:
-                                    mv = str(msi.read(fh).get("version") or "").strip()
-                                if mv:
-                                    ver, p["detect_version"] = mv, mv
+                                    info = msi.read(fh)
+                                pc = str(info.get("product_code") or "").strip()
+                                if pc.startswith("{"):
+                                    p["product_code"] = pc[:60]
+                                if info.get("version"):
+                                    msg.append(f"MSI-Version der Datei: {str(info['version'])[:40]}")
                             except Exception:
                                 pass
                         folder, file = names(sha, ver)
                         exists = remote.repo_stat(f"{folder}\\{file}") == "file"
                         if not exists:
-                            _put(tmp, folder, file, p, mx)
+                            file = _put(tmp, folder, file, p, mx)
                     finally:
                         os.remove(tmp)
                     msg.append("ohne Prüfsumme des Katalogs (Datei vom Hersteller per HTTPS)")
@@ -721,7 +782,7 @@ def refresh_entry(eid, force=False, user=None):
                             raise CacheError("Die Datei im Cache ist beschädigt, wird aber gerade von einer Bereitstellung "
                                              "benutzt – nächster Versuch beim nächsten Lauf.")
                         if not same:
-                            _put(tmp, folder, file, p, mx)
+                            file = _put(tmp, folder, file, p, mx)
                     finally:
                         os.remove(tmp)
             vdir = folder.rsplit("\\", 1)[-1]
@@ -817,10 +878,15 @@ def cleanup(user=None):
 
 def set_ignore_hash(eid, on, user=None):
     """Je Eintrag: Prüfsumme des Katalogs nicht verlangen (für Adressen ohne Version, die immer die neueste Datei liefern)."""
-    e = entry(eid)
-    if not e:
-        raise CacheError("Eintrag nicht gefunden.")
-    db.ex("UPDATE winget_cache SET ignore_hash=?, remote_sig=NULL WHERE id=?", (1 if on else 0, eid))
+    _lock_entry(10)
+    try:
+        e = entry(eid)
+        if not e:
+            raise CacheError("Eintrag nicht gefunden.")
+        # Status „neu“: ein gerade laufender Durchgang nimmt den Eintrag am Ende mit
+        db.ex("UPDATE winget_cache SET ignore_hash=?, remote_sig=NULL, status='new' WHERE id=?", (1 if on else 0, eid))
+    finally:
+        _elock.release()
     pklog.info("winget", f"winget-Cache: „{e['winget_id']}“ – Prüfsumme des Katalogs {'nicht mehr verlangt' if on else 'wieder verlangt'}.",
                user=user)
 
@@ -854,11 +920,8 @@ def set_folder(value, user=None):
 def ready():
     """{winget-id klein: Eintrag} – Paket aus dem Cache bereit (auch während einer Prüfung oder nach einem Fehler beim
     Laden einer neueren Version: dann gilt die bisherige)."""
-    out = {}
-    for e in db.q("SELECT * FROM winget_cache WHERE package_id IS NOT NULL AND COALESCE(version, '') != ''"):
-        if db.val("SELECT 1 FROM packages WHERE id=?", (e["package_id"],)):
-            out[e["winget_id"].lower()] = e
-    return out
+    return {e["winget_id"].lower(): e for e in db.q(
+        """SELECT w.* FROM winget_cache w JOIN packages p ON p.id = w.package_id WHERE COALESCE(w.version, '') != ''""")}
 
 
 def os_ok(c, min_os):
@@ -925,21 +988,49 @@ def split(wid, ids):
     return wg, cache, skip, e
 
 
-def step_for(st, c):
+_guard_cache = {}   # (package_id, updated_at) → (Zeit, ok) – Bruchprüfung nicht für jedes Ziel neu
+GUARD_TTL = 120
+
+
+def _guard_ok(row, pkg):
+    from . import integrity
+    import time as _t
+    k = (row["id"], row.get("updated_at"))
+    hit = _guard_cache.get(k)
+    if hit and _t.time() - hit[0] < GUARD_TTL:
+        return hit[1]
+    try:
+        integrity.guard(pkg, package_id=row["id"], name=row["name"])
+        ok = True
+    except Exception as ex:
+        ok = False
+        pklog.warn("winget", f"winget-Cache: „{row['name']}“ nicht benutzt – Datei im Repository geändert oder nicht "
+                             f"lesbar ({str(ex)[:200]}). Bitte im winget-Cache „Neu laden“.")
+    if len(_guard_cache) > 500:
+        _guard_cache.clear()
+    _guard_cache[k] = (_t.time(), ok)
+    return ok
+
+
+def step_for(st, c, pkg=None):
     """winget-Schritt (Installieren/Aktualisieren) → der Installationsschritt aus dem winget-Cache, wenn er dort
     bereitliegt und passt – sonst None (dann wie bisher: winget bzw. ohne winget „Übersprungen“).
     2.35.1: Computer ohne winget. 2.35.2: auch Computer mit winget (Einstellung „winget_cache_all“, Standard an) –
     schneller aus dem LAN, einmal geladen statt je Computer aus dem Internet. Gilt überall: Pakete, Zeitpläne,
     verschachtelte Pakete, Kiosk, Aktualisieren."""
-    from . import deploy, integrity, steps
+    from . import deploy, steps
     act = st.get("winget_action") or "install"
     if st.get("type") != "install" or st.get("source") != "winget" or act == "uninstall":
         return None
+    if st.get("winget_scope") == "user":
+        return None  # Installation nur für einen Benutzer: der Cache installiert für den Computer
+    if pkg is not None and steps.effective_run_as(st, pkg)[0] == "user":
+        return None  # läuft als angemeldeter Benutzer – ein Installer für alle Benutzer bräuchte Administratorrechte
     has_wg = deploy.winget_ok((c or {}).get("os_build"))
     if has_wg and not db.setting("winget_cache_all"):
         return None
-    if has_wg and (str(st.get("extra_args") or "").strip() or st.get("winget_scope") == "user"):
-        return None  # eigene winget-Argumente oder Benutzer-Installation: das kann nur winget
+    if has_wg and str(st.get("extra_args") or "").strip():
+        return None  # eigene winget-Argumente: das kann nur winget
     e = ready().get(str(st.get("winget_id") or "").lower())
     if not e:
         return None
@@ -951,12 +1042,15 @@ def step_for(st, c):
         return None  # „Aktualisieren“ installiert nichts neu (wie winget upgrade) – nicht installiert: winget entscheidet
     if not os_ok(c or {}, e["min_os"]) or not _arch_ok(c or {}, sw, e["inst_arch"] or e["arch"] or "x64"):
         return None
+    if sw and not _newer(e, sw):
+        return None  # installierte Version ist nicht älter – nie herunterstufen (winget entscheidet bzw. „Übersprungen“)
     try:
-        row, pkg = package_for(e)
-        integrity.guard(pkg, package_id=row["id"], name=row["name"])  # Datei im Cache unverändert?
-    except Exception:
+        row, cpkg = package_for(e)
+    except CacheError:
         return None
-    base = next((x for _ph, x in steps.iter_steps(steps.normalize(pkg)) if x.get("type") == "install"), None)
+    if not _guard_ok(row, cpkg):  # Datei im Cache unverändert?
+        return None
+    base = next((x for _ph, x in steps.iter_steps(steps.normalize(cpkg)) if x.get("type") == "install"), None)
     if not base:
         return None
     return {**base, "id": st.get("id"), "enabled": True, "on_error": st.get("on_error", "stop"),

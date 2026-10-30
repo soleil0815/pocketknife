@@ -1010,7 +1010,7 @@ class Runner:
         if st["type"] == "install" and st.get("source") == "winget":
             try:
                 from . import wingetcache
-                st = wingetcache.step_for(st, self.c) or st
+                st = wingetcache.step_for(st, self.c, pkg) or st
             except Exception:
                 pass
         ra, note = effective_run_as(st, pkg)
