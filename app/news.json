@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.35.4",
+   "date": "2026-10-30",
+   "items": [
+    {
+     "kind": "fixed",
+     "audience": "admin",
+     "de": "winget-Cache: weitere ZIP-Pakete (z. B. MobaXterm) gehen jetzt; Programme, die es nur als 32-Bit gibt, werden richtig verteilt.",
+     "en": "winget cache: more ZIP packages (e.g. MobaXterm) now work; programs that only exist as 32-bit are distributed correctly."
+    }
+   ]
+  },
+  {
    "version": "2.35.3",
    "date": "2026-10-30",
    "items": [

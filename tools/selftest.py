@@ -6576,6 +6576,24 @@ def _():
         winget.load()
 
 
+@test("2.35.4 winget-Cache: Angaben auf oberster Ebene des Manifests gelten für alle Installer (ZIP-Datei, z. B. MobaXterm); Programm nur als x86 auch im x64-Eintrag")
+def _():
+    from app import wingetcache as wc
+    man = {"PackageIdentifier": "Mobatek.MobaXterm", "PackageVersion": "26.6.0.5560", "PackageName": "MobaXterm", "InstallerType": "zip",
+           "NestedInstallerType": "wix", "NestedInstallerFiles": [{"RelativeFilePath": "MobaXterm_installer_26.6.msi"}],
+           "ProductCode": "{498DB265-E4C3-4580-B8D0-482C79F36E7D}", "AppsAndFeaturesEntries": [{"UpgradeCode": "{745A604F-05A1-4867-8881-59888EC8B806}"}],
+           "Installers": [{"Architecture": "x86", "InstallerUrl": "https://dl.example.test/m.zip", "InstallerSha256": "C4" * 32}]}
+    i = wc.choose(man, "x64")
+    p = wc.plan(man, i)
+    assert p["nested"] == "MobaXterm_installer_26.6.msi" and p["install_type"] == "msi" and p["type"] == "zip/wix" and p["product_code"].startswith("{498D"), p
+    # Installer x86 im x64-Eintrag: installiertes x86-Programm passt, 32-Bit-Windows auch; x64-Installer nie auf 32 Bit
+    assert wc._arch_ok({"os_arch": "64-Bit"}, [{"arch": "x86", "scope": "Computer"}], "x86")
+    assert wc._arch_ok({"os_arch": "32-Bit"}, [], "x86") and not wc._arch_ok({"os_arch": "32-Bit"}, [], "x64")
+    assert not wc._arch_ok({"os_arch": "64-Bit"}, [{"arch": "x86"}], "x64"), "x86 installiert, x64-Installer: nein"
+    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "wingetcache.py"), encoding="utf-8").read()
+    assert src.count('e["inst_arch"] or e["arch"]') == 2, "Aufteilen und winget-Schritt nehmen die Architektur des Installers"
+
+
 def main():
     ok = 0
     for name, fn in RESULTS:

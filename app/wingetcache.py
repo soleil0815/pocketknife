@@ -32,9 +32,11 @@ STATUS = {"new": "Noch nicht geladen", "ok": "Aktuell", "error": "Fehler", "unsu
 # msiexec selbst mit /qn /norestart auf – hier nur Eigenschaften.
 SILENT = {"inno": "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-", "nullsoft": "/S", "burn": "/quiet /norestart"}
 SUPPORTED = ("msi", "wix", "inno", "nullsoft", "burn", "exe")
-INSTALLER_KEYS = ("InstallerLocale", "Platform", "MinimumOSVersion", "InstallerType", "NestedInstallerType", "Scope",
-                  "InstallerSwitches", "InstallerSuccessCodes", "ExpectedReturnCodes", "ProductCode",
-                  "AppsAndFeaturesEntries", "Dependencies", "ElevationRequirement")
+# Felder, die im Manifest auf oberster Ebene für alle Installer gelten (der Installer selbst überschreibt sie)
+INSTALLER_KEYS = ("InstallerLocale", "Platform", "MinimumOSVersion", "InstallerType", "NestedInstallerType",
+                  "NestedInstallerFiles", "Scope", "InstallerSwitches", "InstallerSuccessCodes", "ExpectedReturnCodes",
+                  "ProductCode", "AppsAndFeaturesEntries", "Dependencies", "ElevationRequirement", "UpgradeBehavior",
+                  "UnsupportedOSArchitectures")
 # Rückgabewerte, die als Erfolg gelten (ExpectedReturnCodes → ReturnResponse)
 OK_RESPONSES = ("rebootRequiredToFinish", "rebootRequiredForInstall", "rebootInitiated", "alreadyInstalled")
 MAX_YAML = 20 * 1024 * 1024
@@ -737,10 +739,11 @@ def refresh_entry(eid, force=False, user=None):
                 msg.append("alte Version wird noch verwendet, wird beim nächsten Lauf gelöscht: " + ", ".join(left))
             msg += p["hints"]
             db.ex("""UPDATE winget_cache SET status='ok', message=?, name=?, version=?, detect_version=?, folder=?, file=?,
-                     size=?, sha256=?, installer_type=?, min_os=?, package_id=?, checked_at=?, remote_sig=?,
+                     size=?, sha256=?, installer_type=?, min_os=?, package_id=?, checked_at=?, remote_sig=?, inst_arch=?,
                      updated_at=CASE WHEN COALESCE(version, '') = ? THEN updated_at ELSE ? END WHERE id=?""",
                   ("; ".join(msg) or None, man.get("PackageName") or e["name"], ver, p["detect_version"] or ver, folder, file,
-                   size, sha, p["type"], p["min_os"] or None, pid, now, sig if ign else None, ver, now, eid))
+                   size, sha, p["type"], p["min_os"] or None, pid, now, sig if ign else None,
+                   str(inst.get("Architecture") or e["arch"] or "x64").lower(), ver, now, eid))
             if not exists or (e["version"] != ver):
                 pklog.info("winget", f"winget-Cache: {e['winget_id']} {ver} geladen ({(size or 0) // 1048576} MB, {p['type']}) – "
                                      f"Paket „{man.get('PackageName') or e['winget_id']} (winget-Cache)“ aktualisiert.", user=user)
@@ -870,12 +873,14 @@ def os_ok(c, min_os):
 
 def _arch_ok(c, sw_rows, arch):
     """32-Bit-Windows nur x86; installiertes x86-Programm nicht durch x64 ersetzen (und umgekehrt); Installation nur
-    für einen Benutzer nicht durch eine für den Computer."""
+    für einen Benutzer nicht durch eine für den Computer. arch: Architektur des geladenen Installers (2.35.4 – ein
+    Programm, das es nur als x86 gibt, ist auch im x64-Eintrag x86)."""
+    arch = (arch or "x64").lower()
     osa = str(c.get("os_arch") or "").lower()
-    if "32" in osa and "64" not in osa and arch != "x86":
+    if "32" in osa and "64" not in osa and arch not in ("x86", "neutral"):
         return False
     archs = {str(r.get("arch") or "").lower() for r in sw_rows if r.get("arch")}
-    if archs and arch not in archs and not (arch == "x64" and archs <= {"x64", "amd64"}):
+    if archs and arch != "neutral" and arch not in archs and not (arch == "x64" and archs <= {"x64", "amd64"}):
         return False
     scopes = {str(r.get("scope") or "").lower() for r in sw_rows}
     if scopes and scopes <= {"benutzer", "user"}:
@@ -913,7 +918,7 @@ def split(wid, ids):
         c = rows.get(i) or {}
         if deploy.winget_ok(c.get("os_build")):
             wg.append(i)
-        elif e and os_ok(c, e["min_os"]) and _arch_ok(c, sw.get(i, []), e["arch"] or "x64") and _newer(e, sw.get(i, [])):
+        elif e and os_ok(c, e["min_os"]) and _arch_ok(c, sw.get(i, []), e["inst_arch"] or e["arch"] or "x64") and _newer(e, sw.get(i, [])):
             cache.append(i)
         else:
             skip.append(i)
@@ -944,7 +949,7 @@ def step_for(st, c):
               ((c or {}).get("id"), str(e["winget_id"]).lower()))
     if act == "upgrade" and not sw:
         return None  # „Aktualisieren“ installiert nichts neu (wie winget upgrade) – nicht installiert: winget entscheidet
-    if not os_ok(c or {}, e["min_os"]) or not _arch_ok(c or {}, sw, e["arch"] or "x64"):
+    if not os_ok(c or {}, e["min_os"]) or not _arch_ok(c or {}, sw, e["inst_arch"] or e["arch"] or "x64"):
         return None
     try:
         row, pkg = package_for(e)
