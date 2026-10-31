@@ -2,6 +2,7 @@
 
 ## pocketknife-2.36.1 (31.10.2026)
 - **Lizenz: GNU Affero General Public License, Version 3 (AGPL-3.0-only).** Datei `LICENSE` im Repository und im Container (`/opt/pocketknife/LICENSE`), Kennzeichnung des Images (`org.opencontainers.image.licenses`), Abschnitt „Lizenz“ in Hilfe und README, Link „AGPL-3.0“ unten in der Seitenleiste und auf der Anmeldeseite
+- **Sicherheit:** pyasn1 0.6.4 → 0.6.5 (vier neue Schwachstellen „Denial of Service“ beim Entschlüsseln von ASN.1-Daten, u. a. CVE-2026-119194 – betrifft die LDAP-/Kerberos-Anbindung)
 - **Selbsttest:** Lizenztext unverändert, im Image enthalten, Hinweis in Hilfe und Oberfläche
 
 ## pocketknife-2.36.0 (30.10.2026)
