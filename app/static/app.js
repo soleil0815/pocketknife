@@ -937,8 +937,12 @@ const mayBuild = () => !isOU() || !!S.me.may_build;
 
 // Webseite des Autors (nur ein Link – es wird nichts aus dem Internet geladen)
 const WEBSITE = 'https://helfi.space';
-function websiteLink(cls = '') {
-  return h('a.raw', { class: cls, href: WEBSITE, target: '_blank', rel: 'noopener noreferrer', title: 'Webseite – öffnet in einem neuen Tab' }, 'helfi.space');
+function websiteLink(cls = '', loggedIn = true) {
+  // 2.36.1: Lizenzhinweis (AGPL-3.0) – führt zur Hilfe „Lizenz“ (Quellcode, Lizenztext), nichts aus dem Internet
+  return h('span', { class: cls },
+    h('a.raw', { href: WEBSITE, target: '_blank', rel: 'noopener noreferrer', title: 'Webseite – öffnet in einem neuen Tab' }, 'helfi.space'),
+    ' · ', loggedIn ? h('a.raw', { href: '#/help?s=license', title: tr('Freie Software unter der GNU Affero General Public License 3 – Quellcode und Lizenztext') }, 'AGPL-3.0')
+      : h('span', { title: tr('Freie Software unter der GNU Affero General Public License 3') }, 'AGPL-3.0'));
 }
 
 // Tabellenspalten: Rohwerte (r[key] ohne eigene Darstellung) sind Daten – ein Ordner „Daten“ bleibt „Daten“.
@@ -1305,7 +1309,7 @@ function renderLogin(msg = '') {
   }, h('label', 'Benutzername'), user, h('label', 'Passwort'), pass, submit, err);
   $('#app').replaceChildren(h('div.login', h('div.box',
     h('div.logo', h('img', { src: '/static/logo.svg', alt: '' }), h('div', h('b', 'POCKET KNIFE'), h('span.muted', 'Anmeldung mit Domänenkonto'))),
-    form, h('div.row', { style: { marginTop: '12px', justifyContent: 'space-between' } }, websiteLink('login-web'), langSwitch()))));
+    form, h('div.row', { style: { marginTop: '12px', justifyContent: 'space-between' } }, websiteLink('login-web', false), langSwitch()))));
   setTimeout(() => user.focus(), 30);
 }
 

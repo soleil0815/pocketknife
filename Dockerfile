@@ -66,7 +66,7 @@ ENV TMPDIR=/data/tmp \
     HOME=/nonexistent
 
 COPY app ./app
-COPY run.py healthcheck.py VERSION CHANGELOG.md ./
+COPY run.py healthcheck.py VERSION CHANGELOG.md LICENSE ./
 COPY tools/selftest.py ./tools/selftest.py
 # 2.33: the files for the Docker host that belong to exactly this version – update.sh takes a newer docker-compose.yml
 # from here (nothing else of the program is ever placed on the host)

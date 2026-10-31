@@ -1493,6 +1493,15 @@ Die Zuordnung bleibt **nur in Ihrer Datenbank**. Nennt Ihnen jemand einen Platzh
 | PowerShell-Scanner liefert nichts | Scanner-Dialog → Testen; das Profil „PowerShell“ braucht einen Auslöser |
 | Fernsitzung: guacd nicht erreichbar | Container `pocketknife-guacd` läuft? `docker compose up -d` |
 
+# Lizenz {#license}
+
+Copyright (C) 2026 soleil0815 (helfi.space)
+
+POCKET KNIFE ist freie Software unter der **GNU Affero General Public License, Version 3** (AGPL-3.0-only). Sie dürfen es nutzen – auch im Unternehmen –, weitergeben und ändern. Wer es verändert und weitergibt oder anderen über das Netzwerk zur Verfügung stellt, muss den geänderten Quellcode unter derselben Lizenz anbieten. POCKET KNIFE wird **ohne jede Gewährleistung** bereitgestellt.
+
+- Quellcode und vollständiger Lizenztext: `https://github.com/soleil0815/pocketknife` (Datei `LICENSE`; im Container unter `/opt/pocketknife/LICENSE`)
+- Mitgelieferte Fremdkomponenten behalten ihre eigenen Lizenzen, z. B. Apache Guacamole (Apache-2.0, `app/static/vendor/guacamole-LICENSE.txt`) und die Python-Bibliotheken (MIT, BSD, Apache-2.0, LGPL-3.0 – Liste in `requirements.lock`)
+
 # Glossar {#glossary}
 
 | Begriff | Erklärung |
