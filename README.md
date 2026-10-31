@@ -2,7 +2,7 @@ English version: [README.en.md](README.en.md)
 
 # POCKET KNIFE
 
-Aktuelle Version: **pocketknife-2.36.0** – siehe `CHANGELOG.md`.
+Aktuelle Version: **pocketknife-2.36.1** – siehe `CHANGELOG.md`.
 
 Webseite: [helfi.space](https://helfi.space)
 
@@ -623,3 +623,13 @@ app/
 ├── sso.py           Kiosk: Anmeldung mit Windows (Kerberos/SPNEGO, Keytab)
 └── static/          Oberfläche (index.html, app.css, app.js, logo.svg)
 ```
+
+## Lizenz
+
+Copyright (C) 2026 soleil0815 ([helfi.space](https://helfi.space))
+
+POCKET KNIFE ist freie Software: Sie dürfen es unter den Bedingungen der **GNU Affero General Public License, Version 3** (`AGPL-3.0-only`) nutzen, weitergeben und ändern – siehe [LICENSE](LICENSE). Es wird ohne jede Gewährleistung bereitgestellt.
+
+Kurz gesagt: Nutzung, auch im Unternehmen, ist frei. Wer POCKET KNIFE verändert und weitergibt **oder anderen über das Netzwerk zur Verfügung stellt**, muss den geänderten Quellcode unter derselben Lizenz anbieten.
+
+Mitgelieferte Fremdkomponenten behalten ihre eigenen Lizenzen (z. B. Apache Guacamole: `app/static/vendor/guacamole-LICENSE.txt`, Python-Bibliotheken: siehe `requirements.lock`).

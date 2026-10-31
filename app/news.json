@@ -2,6 +2,24 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.36.1",
+   "date": "2026-10-31",
+   "items": [
+    {
+     "kind": "security",
+     "audience": "admin",
+     "de": "Sicherheitsupdate: pyasn1 0.6.5 (Schwachstellen beim Entschlüsseln von ASN.1-Daten, LDAP/Kerberos).",
+     "en": "Security update: pyasn1 0.6.5 (vulnerabilities when decoding ASN.1 data, LDAP/Kerberos)."
+    },
+    {
+     "kind": "improved",
+     "audience": "all",
+     "de": "POCKET KNIFE steht jetzt unter der freien Lizenz AGPL-3.0 – Details unter Hilfe → Lizenz.",
+     "en": "POCKET KNIFE is now licensed under the free AGPL-3.0 license – details under Help → License."
+    }
+   ]
+  },
+  {
    "version": "2.36.0",
    "date": "2026-10-30",
    "items": [

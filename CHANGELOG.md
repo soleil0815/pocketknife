@@ -1,5 +1,10 @@
 # Änderungen
 
+## pocketknife-2.36.1 (31.10.2026)
+- **Lizenz: GNU Affero General Public License, Version 3 (AGPL-3.0-only).** Datei `LICENSE` im Repository und im Container (`/opt/pocketknife/LICENSE`), Kennzeichnung des Images (`org.opencontainers.image.licenses`), Abschnitt „Lizenz“ in Hilfe und README, Link „AGPL-3.0“ unten in der Seitenleiste und auf der Anmeldeseite
+- **Sicherheit:** pyasn1 0.6.4 → 0.6.5 (vier neue Schwachstellen „Denial of Service“ beim Entschlüsseln von ASN.1-Daten, u. a. CVE-2026-119194 – betrifft die LDAP-/Kerberos-Anbindung)
+- **Selbsttest:** Lizenztext unverändert, im Image enthalten, Hinweis in Hilfe und Oberfläche
+
 ## pocketknife-2.36.0 (30.10.2026)
 - **Neu – neue winget-Versionen zurückstellen oder nur nach Freigabe:** Einstellungen → Repository & winget → winget → **Neue Versionen**: „sofort freigeben“ (wie bisher), „zurückstellen um … Tage“ oder „nur nach Freigabe im Paket“. Gezählt wird ab der ersten Sichtung der Version im winget-Katalog; die beim Einschalten vorgefundene Version gilt als freigegeben. Solange die neueste Version nicht freigegeben ist, aktualisieren Zeitpläne nur Computer mit einer älteren als der zuletzt freigegebenen Version und installieren genau diese, winget-Schritte in Paketen, verschachtelten Paketen und im Kiosk installieren sie per `winget --version` (nie herunterstufen; feste Versionen bleiben), und der winget-Cache lädt nur die freigegebene Version. Der Knopf „Aktualisieren“ unter Software installiert bewusst die neueste
 - **Neu – Freigabe je winget-Paket:** Spalte **Freigabe** in der Paketliste; Rechtsklick → **Version … jetzt freigeben** bzw. **Freigabe …** mit allen bekannten Versionen: Freigeben, Sperren (eine fehlerhafte Version nie verteilen), Sperre aufheben, Freigabe zurücknehmen. Nach einer Freigabe lädt der winget-Cache die Version gleich; alles im Protokoll (nur Hauptadmins)

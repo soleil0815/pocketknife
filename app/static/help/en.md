@@ -1493,6 +1493,15 @@ The mapping stays **only in your database**. If someone gives you a placeholder 
 | PowerShell scanner returns nothing | Scanner dialog → Test; the "PowerShell" profile needs a trigger |
 | Remote session: guacd not reachable | Is the `pocketknife-guacd` container running? `docker compose up -d` |
 
+# License {#license}
+
+Copyright (C) 2026 soleil0815 (helfi.space)
+
+POCKET KNIFE is free software under the **GNU Affero General Public License, version 3** (AGPL-3.0-only). You may use it – also in companies –, redistribute and modify it. Anyone who modifies it and distributes it or makes it available to others over a network must offer the modified source code under the same license. POCKET KNIFE comes **without any warranty**.
+
+- Source code and full license text: `https://github.com/soleil0815/pocketknife` (file `LICENSE`; in the container at `/opt/pocketknife/LICENSE`)
+- Bundled third-party components keep their own licenses, e.g. Apache Guacamole (Apache-2.0, `app/static/vendor/guacamole-LICENSE.txt`) and the Python libraries (MIT, BSD, Apache-2.0, LGPL-3.0 – list in `requirements.lock`)
+
 # Glossary {#glossary}
 
 | Term | Explanation |

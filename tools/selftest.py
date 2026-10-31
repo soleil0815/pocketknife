@@ -6766,6 +6766,27 @@ def _():
         db.ex("DELETE FROM software WHERE winget_id=?", (W,))
 
 
+@test("2.36.1 Lizenz AGPL-3.0: Lizenztext unverändert, im Image, Kennzeichnung, Hinweis in Hilfe und Oberfläche")
+def _():
+    import hashlib
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+    rd = lambda *p: open(os.path.join(root, *p), encoding="utf-8").read()
+    lic = open(os.path.join(root, "LICENSE"), "rb").read()
+    assert hashlib.sha256(lic).hexdigest() == "8486a10c4393cee1c25392769ddd3b2d6c242d6ec7928e1414efff7dfb2f07ef", "LICENSE ist nicht der unveränderte Text der AGPL-3.0"
+    # Im Image fehlen Dockerfile, Workflows und README (dort beweist schon die vorhandene LICENSE, dass sie mitkommt)
+    if os.path.exists(os.path.join(root, "Dockerfile")):
+        assert "LICENSE ./" in rd("Dockerfile"), "Lizenztext gehört ins Image"
+    if os.path.exists(os.path.join(root, ".github", "workflows", "release.yml")):
+        assert "org.opencontainers.image.licenses=AGPL-3.0-only" in rd(".github", "workflows", "release.yml")
+    for f in ("de.md", "en.md"):
+        assert "{#license}" in rd("app", "static", "help", f) and "github.com/soleil0815/pocketknife" in rd("app", "static", "help", f)
+    js = rd("app", "static", "app.js")
+    assert "'#/help?s=license'" in js and "'AGPL-3.0'" in js, "Lizenzhinweis in der Oberfläche"
+    for f in ("README.md", "README.en.md"):
+        if os.path.exists(os.path.join(root, f)):
+            assert "AGPL-3.0-only" in rd(f) and "(LICENSE)" in rd(f)
+
+
 def main():
     ok = 0
     for name, fn in RESULTS:

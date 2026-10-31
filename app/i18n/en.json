@@ -5617,5 +5617,8 @@
  "winget-ID und Version angeben.": "Specify winget ID and version.",
  "zurück auf die Regel gesetzt": "set back to the rule",
  "{0} – keine freigegebene Version": "{0} – no released version",
- "{0} – {1} im Cache ist nicht freigegeben und wird nicht benutzt": "{0} – {1} in the cache is not released and is not used"
+ "{0} – {1} im Cache ist nicht freigegeben und wird nicht benutzt": "{0} – {1} in the cache is not released and is not used",
+ "AGPL-3.0": "AGPL-3.0",
+ "Freie Software unter der GNU Affero General Public License 3": "Free software under the GNU Affero General Public License 3",
+ "Freie Software unter der GNU Affero General Public License 3 – Quellcode und Lizenztext": "Free software under the GNU Affero General Public License 3 – source code and license text"
 }
