@@ -792,7 +792,7 @@ If a package condition is not met, the computer is **skipped**; for a step condi
 The setting applies to the package and can be overridden per step. **Running** shows the exact command executed on the client for each step, e.g.:
 
 ```
-Directly as service account CONTOSO\svc-pocketknife (separate process, no scheduled task):
+Directly as service account FIRMA\svc-pocketknife (separate process, no scheduled task):
 msiexec.exe /i "C:\Windows\Temp\PocketKnife\<run>\7z2408-x64.msi" /qn /norestart ALLUSERS=1 /l*v "...\pk_msi.log"
 ```
 
