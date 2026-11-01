@@ -1,13 +1,16 @@
 # POCKET KNIFE – wöchentliches Sicherheitsupdate (montags): Basis-Image, Debian- und Python-Pakete und guacd auf den
 # neuesten Stand bringen (tools/pin-versions.sh --update), ohne Cache neu bauen, Selbsttest, Schwachstellen-Prüfung
 # (Trivy) – und NUR wenn alles bestanden ist: Sicherheitsupdate-Nummer (z. B. 2.29.7 → 2.29.7-s1 – gleiches Programm, nur neue Pakete), Eintrag in CHANGELOG und
-# Neuigkeiten, Commit auf main und Release starten. Der Release-Workflow baut dann amd64 und arm64, testet und prüft
-# beide noch einmal und veröffentlicht unter <Version> und :latest – zusammen mit guacd als …/pocketknife-guacd (Container-Verwaltung wie Dockhand oder sudo sh update.sh).
+# Neuigkeiten – als eigener Zweig mit Pull Request (2.37: nichts landet ohne Review auf main, kein Release von selbst).
+# Nach dem Zusammenführen startet der Besitzer das Release (Actions → Release → Run workflow); der Release-Workflow baut
+# dann amd64 und arm64, testet und prüft beide noch einmal und veröffentlicht unter <Version> und :latest – zusammen mit
+# guacd als …/pocketknife-guacd.
 #
 # Hat sich nichts geändert, passiert nichts. Schlägt ein Schritt fehl, wird NICHTS veröffentlicht – GitHub schickt
 # eine Mail an den Besitzer. Von Hand: Actions → Wöchentliches Sicherheitsupdate → Run workflow.
-# Hinweis: GitHub pausiert geplante Läufe nach 60 Tagen ohne Änderung im Repository – durch die wöchentlichen
-# Commits passiert das hier normalerweise nicht.
+# Hinweis: GitHub pausiert geplante Läufe nach 60 Tagen ohne Änderung im Repository. Für den Pull Request muss unter
+# Settings → Actions → General „Allow GitHub Actions to create and approve pull requests“ eingeschaltet sein – sonst
+# wird nur der Zweig angelegt (Link im Lauf).
 name: Wöchentliches Sicherheitsupdate
 
 on:
@@ -60,8 +63,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 150
     permissions:
-      contents: write     # Commit auf main
-      actions: write      # Release-Workflow starten
+      contents: write        # Zweig anlegen (nie main)
+      pull-requests: write   # Pull Request öffnen
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -121,26 +124,32 @@ jobs:
           if [ -f trivy-guacd.md ]; then cat trivy-guacd.md >> "$GITHUB_STEP_SUMMARY"; fi
           [ "$rc" = 0 ] || echo "::warning title=guacd::$G hat Befunde (oder ließ sich nicht prüfen) – Korrektur nur durch das Guacamole-Projekt."
 
-      - name: Neue Version eintragen und auf main speichern
+      - name: Neue Version eintragen – Zweig und Pull Request
         id: ver
         if: steps.diff.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BASE: ${{ github.event.repository.default_branch }}
         run: |
           VER=$(python3 tools/security-release.py "$RUNNER_TEMP/vorher")
           echo "version=$VER" >> "$GITHUB_OUTPUT"
+          BR="sicherheitsupdate-$VER"
+          git switch -c "$BR"
           git add -A Dockerfile requirements.lock requirements.caps build-requirements.txt docker/apt-build.txt docker/apt-runtime.txt \
             docker/guacd.txt VERSION CHANGELOG.md app/news.json README.md README.en.md
           git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
             commit -qm "pocketknife $VER: wöchentliches Sicherheitsupdate (Basis-Image und Pakete)"
-          git push -q "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:${{ github.event.repository.default_branch }}"
-          echo "Neue Version **$VER** auf ${{ github.event.repository.default_branch }} gespeichert – Release wird gestartet." >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Release starten
-        if: steps.diff.outputs.changed == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref "${{ github.event.repository.default_branch }}"
+          git push -q "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$BR"
+          {
+            echo "Wöchentliches Sicherheitsupdate **$VER**: Basis-Image und Pakete aktualisiert, Bau ohne Cache, Selbsttest und Trivy bestanden."
+            echo
+            [ -f trivy.md ] && cat trivy.md
+            echo
+            echo "Nach dem Zusammenführen das Release starten (Actions → Release → Run workflow)."
+          } > pr.md
+          gh pr create --base "$BASE" --head "$BR" --title "$VER: wöchentliches Sicherheitsupdate" --body-file pr.md \
+            || echo "::warning::Pull Request nicht angelegt (Einstellung „Allow GitHub Actions to create … pull requests“?). Zweig: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/tree/$BR"
+          echo "Sicherheitsupdate **$VER** als Pull Request vorgelegt – kein Release ohne Zusammenführen." >> "$GITHUB_STEP_SUMMARY"
 
   unterbau:
     # Eigener Job: meldet rechtzeitig, wann Python-Reihe oder Debian-Version keine Updates mehr bekommen (rot ab 180

@@ -835,7 +835,7 @@ For networks without direct internet access: **Settings → Repository & winget 
 
 ## winget on Servers {#wingetbootstrap}
 
-Before every winget step, POCKET KNIFE checks whether winget is present. If it is missing (Windows Server, older Windows 10 builds), the App Installer and its dependencies are installed – from a repository folder (offline) or directly from GitHub. winget is not available before Windows 10 1809 or Server 2019; winget steps are **skipped** there. You configure this under **Settings → Repository & winget**.
+Before every winget step, POCKET KNIFE checks whether winget is present. If it is missing (Windows Server, older Windows 10 builds), the App Installer and its dependencies are installed – **always from the repository**, never by a download on the client (from 2.37). POCKET KNIFE itself downloads the App Installer once into the **Offline source** folder (default `_winget`): when first needed, then once a day, but only for a new version (current release of microsoft/winget-cli, checksum from GitHub; Windows additionally checks the Microsoft signature). **Download now** in the settings fetches it immediately. Without internet: place the files `*.msixbundle`, `*License*.xml` and `DesktopAppInstaller_Dependencies.zip` in the folder yourself. winget is not available before Windows 10 1809 or Server 2019; winget steps are **skipped** there. You configure this under **Settings → Repository & winget**.
 
 # Repository {#repository}
 
@@ -888,7 +888,7 @@ The same software should exist only once – either central or with exactly one 
 - the **MSI product code** (from the step or from the MSI file),
 - the **fingerprint (SHA-256)** of the installation file – also detects renamed copies.
 
-If the same software exists in **another scope** (central, tenant A, tenant B – also between two tenants), it is rejected, naming the existing package: please use that one – **everyone may deploy all packages**. Within the same scope it is allowed (e.g. two variants with different arguments). The name alone does not count. Main admins can override (**Save anyway** or **Upload anyway**); this is logged. A duplicate that already existed before 2.27 does not prevent saving other changes; if POCKET KNIFE finds it later (e.g. once the fingerprint is computed), a note is written to the log.
+If the same software exists in **another scope** (central, tenant A, tenant B – also between two tenants), it is rejected, naming the existing package: please use that one. OU admins see and deploy central packages and those of their tenant; if the duplicate belongs to another tenant, the message does not name it (the main admin can provide it centrally). Within the same scope it is allowed (e.g. two variants with different arguments). The name alone does not count. Main admins can override (**Save anyway** or **Upload anyway**); this is logged. A duplicate that already existed before 2.27 does not prevent saving other changes; if POCKET KNIFE finds it later (e.g. once the fingerprint is computed), a note is written to the log.
 
 ## Find file (repair by fingerprint) {#repair}
 
@@ -1166,7 +1166,7 @@ In the example the domain is `firma.local` (NetBIOS `FIRMA`), the kiosk `pocketk
 
 # Remote Sessions {#remote}
 
-Computer → **Remote Desktop** (or Tools → VNC in browser) opens the session in a separate tab – no plugin required. You can sign in with your own POCKET KNIFE credentials (the password is kept only encrypted in memory), with different credentials, or on the computer itself. For **VNC** there are “Without password / server prompts”, “With password” and – if stored under **Settings → Remote sessions** – the **central VNC password** (stored encrypted and then preselected in the dialog; classic VNC only uses the first 8 characters). Within the session: Ctrl+Alt+Del, Windows key, clipboard, full screen, fit to window. This requires the `pocketknife-guacd` container, which starts automatically with `docker compose`.
+Computer → **Remote Desktop** (or Tools → VNC in browser) opens the session in a separate tab – no plugin required. You can sign in with your own POCKET KNIFE credentials (the password is kept only encrypted in memory), with different credentials, or on the computer itself. When credentials are passed, POCKET KNIFE only connects with **NLA** (Network Level Authentication, from 2.37) – Windows checks the sign-in before a desktop is created. If the computer belongs to a tenant with OU admins, the dialog warns before using your own sign-in: others are administrators there too and could capture a password that is sent – better use an account that is only valid there. For **VNC** there are “Without password / server prompts”, “With password” and – if stored under **Settings → Remote sessions** – the **central VNC password** (stored encrypted and then preselected in the dialog; classic VNC only uses the first 8 characters). Within the session: Ctrl+Alt+Del, Windows key, clipboard, full screen, fit to window. This requires the `pocketknife-guacd` container, which starts automatically with `docker compose`.
 
 # Reports and Log {#reports}
 
@@ -1274,7 +1274,7 @@ Members of the group then sign in as usual. "OU admin: Hamburg" is shown at the 
 |---|---|---|
 | Computers, inventory, software, log | all | only the tenant's computers |
 | Actions on computers (services, files, remote session, LAPS/BitLocker, run tools) | all | own computers only |
-| Packages (central, those of other tenants and those a main admin created for the tenant) | change and deploy | view **all** and deploy to own computers; change only their own (see [What belongs to whom](#tenant-ownership); copy: only if the software does not exist yet – duplicate block) |
+| Packages (central, those of other tenants and those a main admin created for the tenant) | change and deploy | view central ones and those of the own tenant and deploy to own computers – packages of other tenants are invisible (from 2.37); change only their own (see [What belongs to whom](#tenant-ownership); copy: only if the software does not exist yet – duplicate block) |
 | Repository | everything | only the tenant's folder: upload, folders, rename, move, delete (see [Repository](#repository)) |
 | Own packages and schedules | – | only if enabled for the tenant; files only from its repository folder; command/PowerShell steps only with a separate approval (see [Securing tenants](#tenant-security)) |
 | Collections | all | view those of their scope; create their own (if enabled for the tenant) – never contain more than the tenant's computers |
@@ -1493,6 +1493,24 @@ The mapping stays **only in your database**. If someone gives you a placeholder 
 | Warning "/repo is not readable" | The service runs as UID 10001: on the Docker host `chmod -R o+rX` or `chown -R 10001` the repository folder |
 | PowerShell scanner returns nothing | Scanner dialog → Test; the "PowerShell" profile needs a trigger |
 | Remote session: guacd not reachable | Is the `pocketknife-guacd` container running? `docker compose up -d` |
+
+# Privacy {#privacy}
+
+POCKET KNIFE runs entirely in your network; data is only stored under `/data` on the Docker host (SQLite database, log files, certificate, winget index).
+
+| What | Why | How long |
+|---|---|---|
+| Computer inventory (hardware, software, services, network, local administrators, signed-in user) | management, reports, software deployment | as long as the computer exists; removed immediately on deletion |
+| Data from Active Directory (computers, groups, OU) | sync, tenants | until the next sync |
+| Log (who did what and when, with user name) | traceability | default 90 days |
+| Scan log | troubleshooting | default 14 days |
+| Deployments with output, decided kiosk requests (user name, computer, time) | evidence, troubleshooting | default 180 days |
+| Software changes | history | default 365 days |
+| Sessions | sign-in | until they expire |
+
+The retention periods are under **Settings → Schedules & performance**. Passwords, keys, LAPS and BitLocker values are stored only encrypted in the database and never appear in the log or the [diagnostics package](#diagnostics).
+
+**What leaves the network** – only what you enable: winget catalog and winget cache (`cdn.winget.microsoft.com` and the vendors), the App Installer for computers without winget (github.com), the notice about new versions (github.com, once a day, without data from your network) and e-mails to the configured recipients. The interface loads nothing from the internet. The diagnostics package is never sent – only downloaded, anonymized by default.
 
 # License {#license}
 

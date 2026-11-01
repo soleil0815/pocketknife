@@ -2066,6 +2066,24 @@ def api_winget_status(user=U):
     return winget.status()
 
 
+@app.get("/api/winget/bootstrap")
+def api_winget_boot_status(user=U):
+    _wc_main(user)
+    from . import wingetboot
+    return wingetboot.status()
+
+
+@app.post("/api/winget/bootstrap/refresh")
+def api_winget_boot_refresh(user=U):
+    """2.37: App-Installer (winget) für Computer ohne winget jetzt in das Repository laden."""
+    _wc_main(user)
+    from . import wingetboot
+    try:
+        return {"message": wingetboot.refresh(user["username"], force=True), **wingetboot.status()}
+    except wingetboot.BootError as e:
+        _err(str(e))
+
+
 @app.post("/api/winget/refresh")
 def api_winget_refresh(user=U):
     scheduler.run_now("winget")
@@ -3532,7 +3550,8 @@ INTERNAL_SETTINGS = {"ldap_cert_fingerprint", "ldap_cert_fingerprints", "ldap_ce
                      "proxy_url", "proxy_user", "proxy_clients",
                      "update_check_enabled", "update_repo", "winget_cache_all",
                      # 2.35: winget-Cache nur über /api/wingetcache/settings (Ordner geprüft: eigener, leerer Ordner)
-                     "winget_cache_folder", "winget_cache_locale", "winget_cache_max_mb", "winget_cache_auto"}  # 2.28: nur über /api/system/updates (geprüft)  # Proxy: nur über /api/system/proxy (geprüft, Kennwort im Tresor)
+                     "winget_cache_folder", "winget_cache_locale", "winget_cache_max_mb", "winget_cache_auto",
+                     "winget_bootstrap_tag"}  # 2.28: nur über /api/system/updates (geprüft)  # Proxy: nur über /api/system/proxy (geprüft, Kennwort im Tresor)
 def rebootmsg_clean(v, limit):
     from . import rebootmsg
     return rebootmsg.clean(v, limit)
@@ -3551,8 +3570,10 @@ SETTING_BOUNDS = {"repo_upload_max_mb": (1, 102400), "repo_tenant_quota_mb": (0,
 
 # --- Fernsitzungen (RDP/VNC im Browser) -------------------------------------------------
 @app.get("/api/remote/status")
-def api_remote_status(user=U):
-    return {"guacd": remote_desktop.guacd_status(), "own_login": remote_desktop.own_login(user["token_hash"]),
+def api_remote_status(computer_id: int = 0, user=U):
+    # 2.37: Hauptadmin, Computer eines Mandanten mit OU-Admins → Hinweis vor „eigener Anmeldung“
+    tn = remote_desktop.tenant_names(computer_id) if computer_id and not access.scoped(user) and access.can_computer(user, computer_id) else []
+    return {"tenant_names": tn, "guacd": remote_desktop.guacd_status(), "own_login": remote_desktop.own_login(user["token_hash"]),
             "sso_enabled": bool(db.setting("remote_sso")), "keyboard": db.setting("remote_keyboard"),
             "layouts": remote_desktop.LAYOUTS, "color_depths": remote_desktop.COLOR_DEPTHS,
             "ports": remote_desktop.DEFAULT_PORTS, "vnc_password_set": bool(remote_desktop.vnc_password())}

@@ -835,7 +835,7 @@ Für Netze ohne direkten Internetzugang: **Einstellungen → Repository & winget
 
 ## winget auf Servern {#wingetbootstrap}
 
-Vor jedem winget-Schritt prüft POCKET KNIFE, ob winget vorhanden ist. Fehlt es (Windows Server, ältere Windows-10-Builds), wird der App-Installer samt Abhängigkeiten nachinstalliert – aus einem Repository-Ordner (offline) oder direkt von GitHub. Vor Windows 10 1809 bzw. Server 2019 gibt es kein winget; dort werden winget-Schritte **übersprungen**. Einstellbar unter **Einstellungen → Repository & winget**.
+Vor jedem winget-Schritt prüft POCKET KNIFE, ob winget vorhanden ist. Fehlt es (Windows Server, ältere Windows-10-Builds), wird der App-Installer samt Abhängigkeiten nachinstalliert – **immer aus dem Repository**, nie per Download auf dem Client (ab 2.37). Den App-Installer lädt POCKET KNIFE selbst einmal in den Ordner **Offline-Quelle** (Standard `_winget`): beim ersten Bedarf, danach einmal täglich, aber nur bei einer neuen Version (aktuelles Release von microsoft/winget-cli, Prüfsumme aus GitHub; Windows prüft zusätzlich die Microsoft-Signatur). **Jetzt laden** in den Einstellungen holt ihn sofort. Ohne Internet: die Dateien `*.msixbundle`, `*License*.xml` und `DesktopAppInstaller_Dependencies.zip` selbst in den Ordner legen. Vor Windows 10 1809 bzw. Server 2019 gibt es kein winget; dort werden winget-Schritte **übersprungen**. Einstellbar unter **Einstellungen → Repository & winget**.
 
 # Repository {#repository}
 
@@ -888,7 +888,7 @@ Dieselbe Software soll es nur einmal geben – entweder zentral oder bei genau e
 - den **MSI-Produktcode** (aus dem Schritt oder aus der MSI-Datei),
 - den **Fingerabdruck (SHA-256)** der Installationsdatei – erkennt auch umbenannte Kopien.
 
-Gibt es dieselbe Software in einem **anderen Bereich** (zentral, Mandant A, Mandant B – auch zwischen zwei Mandanten), wird abgelehnt, mit dem vorhandenen Paket in der Meldung: bitte dieses verwenden – **verteilen dürfen alle alle Pakete**. Im selben Bereich ist es erlaubt (z. B. zwei Varianten mit anderen Argumenten). Der Name allein zählt nicht. Hauptadmins können übersteuern (**Trotzdem speichern** bzw. **Trotzdem hochladen**); das steht im Protokoll. Ein schon vorhandenes Duplikat aus der Zeit vor 2.27 verhindert das Speichern anderer Änderungen nicht; findet POCKET KNIFE es später (z. B. sobald der Fingerabdruck berechnet ist), steht ein Hinweis im Protokoll.
+Gibt es dieselbe Software in einem **anderen Bereich** (zentral, Mandant A, Mandant B – auch zwischen zwei Mandanten), wird abgelehnt, mit dem vorhandenen Paket in der Meldung: bitte dieses verwenden. OU-Admins sehen und verteilen zentrale Pakete und die ihres Mandanten; liegt das Duplikat bei einem anderen Mandanten, nennt die Meldung es nicht (der Hauptadmin kann es zentral bereitstellen). Im selben Bereich ist es erlaubt (z. B. zwei Varianten mit anderen Argumenten). Der Name allein zählt nicht. Hauptadmins können übersteuern (**Trotzdem speichern** bzw. **Trotzdem hochladen**); das steht im Protokoll. Ein schon vorhandenes Duplikat aus der Zeit vor 2.27 verhindert das Speichern anderer Änderungen nicht; findet POCKET KNIFE es später (z. B. sobald der Fingerabdruck berechnet ist), steht ein Hinweis im Protokoll.
 
 ## Datei suchen (Reparatur per Fingerabdruck) {#repair}
 
@@ -1166,7 +1166,7 @@ Im Beispiel heißt die Domäne `firma.local` (NetBIOS `FIRMA`), der Kiosk `pocke
 
 # Fernsitzungen {#remote}
 
-Computer → **Remotedesktop** (oder Tools → VNC im Browser) öffnet die Sitzung in einem eigenen Tab – ohne Plugin. Anmelden können Sie sich mit der eigenen POCKET KNIFE-Anmeldung (das Kennwort liegt nur verschlüsselt im Arbeitsspeicher), mit anderen Anmeldedaten oder erst auf dem Computer. Bei **VNC** gibt es „Ohne Kennwort / Nachfrage vom Server“, „Mit Kennwort“ und – wenn unter **Einstellungen → Fernsitzungen** hinterlegt – das **zentrale VNC-Kennwort** (verschlüsselt gespeichert, im Dialog dann vorausgewählt; klassisches VNC nutzt nur die ersten 8 Zeichen). In der Sitzung: Strg+Alt+Entf, Windows-Taste, Zwischenablage, Vollbild, Anpassen an das Fenster. Voraussetzung ist der Container `pocketknife-guacd`, der mit `docker compose` automatisch startet.
+Computer → **Remotedesktop** (oder Tools → VNC im Browser) öffnet die Sitzung in einem eigenen Tab – ohne Plugin. Anmelden können Sie sich mit der eigenen POCKET KNIFE-Anmeldung (das Kennwort liegt nur verschlüsselt im Arbeitsspeicher), mit anderen Anmeldedaten oder erst auf dem Computer. Werden Anmeldedaten mitgegeben, verbindet POCKET KNIFE nur mit **NLA** (Network Level Authentication, ab 2.37) – Windows prüft die Anmeldung, bevor ein Desktop entsteht. Gehört der Computer zu einem Mandanten mit OU-Admins, warnt der Dialog vor der eigenen Anmeldung: Dort sind auch andere Administratoren und könnten ein gesendetes Kennwort abgreifen – besser ein Konto, das nur dort gilt. Bei **VNC** gibt es „Ohne Kennwort / Nachfrage vom Server“, „Mit Kennwort“ und – wenn unter **Einstellungen → Fernsitzungen** hinterlegt – das **zentrale VNC-Kennwort** (verschlüsselt gespeichert, im Dialog dann vorausgewählt; klassisches VNC nutzt nur die ersten 8 Zeichen). In der Sitzung: Strg+Alt+Entf, Windows-Taste, Zwischenablage, Vollbild, Anpassen an das Fenster. Voraussetzung ist der Container `pocketknife-guacd`, der mit `docker compose` automatisch startet.
 
 # Berichte und Protokoll {#reports}
 
@@ -1274,7 +1274,7 @@ Danach melden sich die Mitglieder der Gruppe ganz normal an. Unten links steht �
 |---|---|---|
 | Computer, Inventar, Software, Protokoll | alle | nur die Computer des Mandanten |
 | Aktionen auf Computern (Dienste, Dateien, Fernsitzung, LAPS/BitLocker, Tools ausführen) | alle | nur eigene Computer |
-| Pakete (zentrale, die anderer Mandanten und die ein Hauptadmin für den Mandanten angelegt hat) | ändern und verteilen | **alle** ansehen und auf eigene Computer verteilen; ändern nur die eigenen (siehe [Was gehört wem](#tenant-ownership); Kopie: nur, wenn es die Software nicht schon gibt – Duplikatsperre) |
+| Pakete (zentrale, die anderer Mandanten und die ein Hauptadmin für den Mandanten angelegt hat) | ändern und verteilen | zentrale und die des eigenen Mandanten ansehen und auf eigene Computer verteilen – Pakete anderer Mandanten sind unsichtbar (ab 2.37); ändern nur die eigenen (siehe [Was gehört wem](#tenant-ownership); Kopie: nur, wenn es die Software nicht schon gibt – Duplikatsperre) |
 | Repository | alles | nur der Ordner des Mandanten: hochladen, Ordner, umbenennen, verschieben, löschen (siehe [Repository](#repository)) |
 | Eigene Pakete und Zeitpläne | – | nur mit Freigabe beim Mandanten; Dateien nur aus dessen Repository-Ordner; Befehls-/PowerShell-Schritte nur mit eigener Freigabe (siehe [Mandanten absichern](#tenant-security)) |
 | Sammlungen | alle | die ihres Bereichs ansehen; eigene anlegen (mit Freigabe beim Mandanten) – enthalten nie mehr als die Computer des Mandanten |
@@ -1493,6 +1493,24 @@ Die Zuordnung bleibt **nur in Ihrer Datenbank**. Nennt Ihnen jemand einen Platzh
 | Warnung „/repo ist nicht lesbar“ | Der Dienst läuft als UID 10001: auf dem Docker-Host `chmod -R o+rX` oder `chown -R 10001` auf den Repository-Ordner |
 | PowerShell-Scanner liefert nichts | Scanner-Dialog → Testen; das Profil „PowerShell“ braucht einen Auslöser |
 | Fernsitzung: guacd nicht erreichbar | Container `pocketknife-guacd` läuft? `docker compose up -d` |
+
+# Datenschutz {#privacy}
+
+POCKET KNIFE läuft vollständig in Ihrem Netz; Daten liegen nur unter `/data` auf dem Docker-Host (SQLite-Datenbank, Protokolldateien, Zertifikat, winget-Index).
+
+| Was | Wozu | Wie lange |
+|---|---|---|
+| Inventar der Computer (Hardware, Software, Dienste, Netzwerk, lokale Administratoren, angemeldeter Benutzer) | Verwaltung, Berichte, Softwareverteilung | solange der Computer existiert; beim Löschen sofort weg |
+| Daten aus dem Active Directory (Computer, Gruppen, OU) | Abgleich, Mandanten | bis zum nächsten Abgleich |
+| Protokoll (wer hat wann was getan, mit Benutzername) | Nachvollziehbarkeit | Standard 90 Tage |
+| Scan-Protokoll | Fehlersuche | Standard 14 Tage |
+| Bereitstellungen samt Ausgabe, entschiedene Kiosk-Anfragen (Benutzername, Computer, Zeit) | Nachweis, Fehlersuche | Standard 180 Tage |
+| Softwareänderungen | Verlauf | Standard 365 Tage |
+| Sitzungen | Anmeldung | bis zum Ablauf |
+
+Die Fristen stehen unter **Einstellungen → Zeitpläne & Leistung**. Kennwörter, Schlüssel, LAPS- und BitLocker-Werte liegen nur verschlüsselt in der Datenbank und erscheinen nie im Protokoll oder im [Diagnosepaket](#diagnostics).
+
+**Was das Netz verlässt** – nur, was Sie einschalten: winget-Katalog und winget-Cache (`cdn.winget.microsoft.com` und die Hersteller), der App-Installer für Computer ohne winget (github.com), der Hinweis auf neue Versionen (github.com, einmal täglich, ohne Daten aus Ihrem Netz) und E-Mails an die eingetragenen Empfänger. Die Oberfläche lädt nichts aus dem Internet. Das Diagnosepaket wird nie verschickt – nur heruntergeladen, standardmäßig anonymisiert.
 
 # Lizenz {#license}
 

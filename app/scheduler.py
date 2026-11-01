@@ -254,6 +254,11 @@ def tick():
     if db.setting("winget_auto_refresh") and _due("winget", db.setting("winget_refresh_hours") * 60):
         _last["winget"] = time.time()
         _bg("winget", winget.refresh)
+    if db.setting("winget_bootstrap") and _due("wingetboot", 24 * 60):
+        # 2.37: App-Installer für Computer ohne winget einmal täglich aktuell halten (nur bei neuem Release laden)
+        _last["wingetboot"] = time.time()
+        from . import wingetboot
+        _bg("wingetboot", lambda: wingetboot.refresh())
     if db.setting("winget_cache_auto") and _due("wingetcache", 24 * 60):
         # 2.35: winget-Cache einmal täglich auf neue Versionen prüfen (nur wenn Einträge da sind)
         _last["wingetcache"] = time.time()
@@ -292,6 +297,7 @@ def start():
     if st["updated"]:
         age = time.time() - time.mktime(time.strptime(st["updated"], "%Y-%m-%d %H:%M:%S"))
         _last["winget"] = time.time() - age
+    _last["wingetboot"] = time.time() - (24 * 60 - 40) * 60  # 2.37: erste Prüfung 40 Minuten nach dem Start
     _last["wingetcache"] = time.time() - (24 * 60 - 30) * 60  # 2.35: erste Prüfung des winget-Caches 30 Minuten nach dem Start
     threading.Thread(target=_loop, name="scheduler", daemon=True).start()
 

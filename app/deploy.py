@@ -96,11 +96,9 @@ def winget_ok(os_build):
     return b == 0 or b >= WINGET_MIN_BUILD
 
 # Findet winget.exe; fehlt es, wird der App-Installer (winget) samt Abhängigkeiten als bereitgestelltes Paket
-# nachinstalliert – aus dem Repository-Ordner (offline) oder vom offiziellen GitHub-Release von microsoft/winget-cli.
+# nachinstalliert – nur aus dem Repository-Ordner (2.37: POCKET KNIFE lädt ihn einmal dorthin, siehe wingetboot.py).
 WINGET_FIND = r"""
 $PKProxy = __PROXY__
-$pkWeb = @{}
-if ($PKProxy) { $pkWeb.Proxy = $PKProxy; $pkWeb.ProxyUseDefaultCredentials = $true }
 function PK-WingetProxy {
   # Proxy aus POCKET KNIFE als winget-Administratoreinstellung „DefaultProxy“ setzen – und nur selbst gesetzte wieder entfernen
   # Merker in HKLM (nur Administratoren/SYSTEM) – nicht in %ProgramData%, dort dürfen Benutzer Ordner vorab anlegen (Audit 2.29)
@@ -147,17 +145,11 @@ function PK-InstallWinget {
   $arch = switch ($env:PROCESSOR_ARCHITECTURE) { 'ARM64' { 'arm64' } 'x86' { 'x86' } default { 'x64' } }
   $src = Join-Path $PKDir 'winget'
   New-Item -ItemType Directory -Path $src -Force | Out-Null
+  # 2.37: nie aus dem Internet je PC – POCKET KNIFE legt den App-Installer einmal in das Repository (Offline-Quelle)
   if (-not (Get-ChildItem $src -Filter *.msixbundle -ErrorAction SilentlyContinue)) {
-    Write-Output 'winget fehlt – lade den App-Installer von github.com/microsoft/winget-cli …'
-    [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
-    $rel = Invoke-RestMethod -Uri 'https://api.github.com/repos/microsoft/winget-cli/releases/latest' -UseBasicParsing -Headers @{ 'User-Agent' = 'POCKET-KNIFE' } @pkWeb
-    foreach ($a in $rel.assets) {
-      if ($a.name -match '\.msixbundle$|License.*\.xml$|^DesktopAppInstaller_Dependencies\.zip$') {
-        Invoke-WebRequest -Uri $a.browser_download_url -OutFile (Join-Path $src $a.name) -UseBasicParsing @pkWeb
-      }
-    }
-    Write-Output ('Version ' + $rel.tag_name + ' heruntergeladen.')
-  } else { Write-Output 'winget fehlt – installiere den App-Installer aus dem Repository …' }
+    throw 'Der App-Installer liegt noch nicht im Repository (Einstellungen → winget → Offline-Quelle: „Jetzt laden“).'
+  }
+  Write-Output 'winget fehlt – installiere den App-Installer aus dem Repository …'
   foreach ($z in @(Get-ChildItem $src -Filter *.zip -ErrorAction SilentlyContinue)) { Expand-Archive -Path $z.FullName -DestinationPath (Join-Path $src 'deps') -Force }
   $bundle = Get-ChildItem $src -Filter *.msixbundle | Select-Object -First 1
   if (-not $bundle) { throw 'Keine App-Installer-Datei (*.msixbundle) gefunden.' }
@@ -918,14 +910,25 @@ def _computer_lock(cid):
         return _comp_locks.setdefault(cid, threading.Lock())
 
 
+REQUEUE_SECONDS = 5
+
+
 def _run_target_safe(did, tid):
     # Je Computer immer nur eine Bereitstellung gleichzeitig (z. B. mehrere Deinstallationen oder winget-Updates als
     # eigene Bereitstellungen): zwei msiexec gleichzeitig enden sonst mit 1618. Wer wartet, bleibt „in Warteschlange“
     # und lässt sich normal abbrechen.
     cid = db.val("SELECT computer_id FROM deployment_targets WHERE id=?", (tid,))
     lk = _computer_lock(cid) if cid else None
-    if lk:
-        lk.acquire()
+    if lk and not lk.acquire(blocking=False):
+        # 2.37: nicht blockierend warten – sonst belegen viele Bereitstellungen für denselben Computer alle Plätze des
+        # Pools, und andere Computer kommen nicht dran. Ziel bleibt „in Warteschlange“ und wird später neu eingereiht.
+        if db.val("SELECT status FROM deployment_targets WHERE id=?", (tid,)) == "queued":
+            t = threading.Timer(REQUEUE_SECONDS, lambda: pool().submit(_run_target_safe, did, tid))
+            t.daemon = True
+            t.start()
+        else:
+            _finish_check(did)
+        return
     try:
         _run_target(did, tid)
     except Exception as e:  # pragma: no cover

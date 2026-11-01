@@ -45,6 +45,20 @@ jobs:
           fi
           tail -n 1 selftest.txt
 
+      - name: Selbsttest auf dem Checkout (Workflows, Compose, update.sh)
+        run: |
+          # 2.37: im Image fehlen Workflows, Dockerfile, docker-compose.yml und update.sh – die Prüfungen dazu werden dort
+          # übersprungen. Hier laufen sie mit dem Checkout (Programm und Abhängigkeiten aus dem gebauten Image).
+          if ! docker run --rm -e PK_SELFTEST_TRACE=1 -e PK_DATA_DIR=/tmp/pk-data -v "$PWD:/src:ro" -w /src --entrypoint python3 \
+               pocketknife-test:amd64 -I tools/selftest.py > selftest-repo.txt 2>&1; then
+            tail -n 120 selftest-repo.txt
+            msg=$( (grep -A14 "✗" selftest-repo.txt || tail -n 60 selftest-repo.txt) | head -n 150 | sed -e ':a' -e 'N' -e '$!ba' -e 's/%/%25/g' -e 's/\r/%0D/g' -e 's/\n/%0A/g')
+            echo "::error title=Selbsttest auf dem Checkout::${msg:-Selbsttest fehlgeschlagen (siehe Log)}"
+            exit 1
+          fi
+          grep -c "übersprungen" selftest-repo.txt || true
+          tail -n 1 selftest-repo.txt
+
       - name: Schwachstellen prüfen (Trivy)
         env:
           PK_TRIVY_REPORT: trivy.md

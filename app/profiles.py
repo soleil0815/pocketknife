@@ -421,6 +421,17 @@ def _last_month_day(d):
     return (nxt - datetime.timedelta(days=1)).day
 
 
+def fires(t, occ, last, now):
+    """Ist der Auslöser fällig? occ: letzter planmäßiger Zeitpunkt, last: zuletzt ausgelöst (beides Ortszeit).
+    2.37: Bei der Umstellung auf Winterzeit läuft die Uhr eine Stunde zurück – „zuletzt ausgelöst“ liegt dann in der
+    Zukunft, und ein Intervall in Minuten/Stunden setzte eine Stunde aus. Dann einmal auslösen (danach gilt die neue Zeit)."""
+    if not occ:
+        return False
+    if last is None or occ > last:
+        return True
+    return t.get("type") == "interval" and t.get("unit") in ("m", "h") and last > now
+
+
 def last_occurrence(t, now):
     """Letzter planmäßiger Zeitpunkt ≤ now (oder None)."""
     typ = t["type"]
@@ -540,7 +551,7 @@ def _evaluate_profile(p, now, nows, state, online):
             continue
         occ = last_occurrence(t, now)
         last = util.parse(state.get((p["id"], t["id"])))
-        if occ and (last is None or occ > last):
+        if fires(t, occ, last, now):
             targets = mem if t.get("catch_up") else (mem & online)
             _mark_pending(p["id"], targets, nows)
             db.ex("INSERT INTO profile_trigger_state(profile_id, trigger_id, last_fired) VALUES(?,?,?) "

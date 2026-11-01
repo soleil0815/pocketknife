@@ -124,6 +124,23 @@ def set_vnc_password(pw):
     db.set_setting("vnc_password", vault.encrypt(pw) if pw else "")
 
 
+def tenant_names(cid):
+    """2.37: Mandanten, zu deren Bereich der Computer gehört (Hinweis vor „eigener Anmeldung“ eines Hauptadmins)."""
+    from . import access, collections_
+    out = []
+    for t in db.q("SELECT * FROM tenants ORDER BY name COLLATE NOCASE"):
+        if not (t.get("admin_group") or "").strip():
+            continue  # ohne OU-Admins verwaltet niemand sonst den Computer
+        for col in access.tenant_cols(t):
+            try:
+                if int(cid) in collections_.member_ids(col):
+                    out.append(t["name"])
+                    break
+            except Exception:
+                continue
+    return out
+
+
 def prepare(computer, user, token_hash, data):
     """Prüft die Anfrage und erzeugt ein Einmal-Token mit allen Verbindungsparametern."""
     proto = data.get("protocol") or "rdp"
@@ -162,8 +179,10 @@ def prepare(computer, user, token_hash, data):
         login_label = f"{p.get('domain')}\\{p.get('username')}" if p.get("domain") else p.get("username", "")
         layout = data.get("keyboard") or db.setting("remote_keyboard")
         depth = str(data.get("color_depth") or "")
+        # 2.37: wird ein Kennwort mitgegeben, nur mit NLA – dann prüft Windows die Anmeldung, bevor ein Desktop
+        # entsteht, und das Kennwort geht nicht an einen Anmeldebildschirm, den ein anderes Gerät nachbauen könnte
         p.update({
-            "security": "any", "ignore-cert": "true", "server-layout": layout if layout in LAYOUTS else "de-de-qwertz",
+            "security": "nla" if mode in ("own", "manual") else "any", "ignore-cert": "true", "server-layout": layout if layout in LAYOUTS else "de-de-qwertz",
             "resize-method": "display-update", "enable-font-smoothing": "true",
             "enable-wallpaper": "true" if data.get("wallpaper") else "false",
             "enable-theming": "true", "enable-full-window-drag": "false", "enable-menu-animations": "false",

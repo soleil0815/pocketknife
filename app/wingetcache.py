@@ -41,7 +41,16 @@ INSTALLER_KEYS = ("InstallerLocale", "Platform", "MinimumOSVersion", "InstallerT
 OK_RESPONSES = ("rebootRequiredToFinish", "rebootRequiredForInstall", "rebootInitiated", "alreadyInstalled")
 MAX_YAML = 20 * 1024 * 1024
 _lock = threading.Lock()       # immer nur ein Lauf (Laden in das Repository)
-_elock = threading.RLock()     # ein Eintrag: Prüfen/Laden und Entfernen nie gleichzeitig
+_elocks = {}                   # 2.37: je Eintrag eine Sperre – Prüfen/Laden und Entfernen desselben Eintrags nie gleichzeitig
+_elocks_guard = threading.Lock()  # (vorher eine Sperre für alle: Löschen wartete bis zu 30 Minuten auf fremde Downloads)
+
+
+def _entry_lock(eid):
+    with _elocks_guard:
+        lk = _elocks.get(int(eid))
+        if lk is None:
+            lk = _elocks[int(eid)] = threading.RLock()
+        return lk
 _state = {"running": False, "current": None}
 TMP_PREFIX = "pk-wc-"
 
@@ -551,15 +560,17 @@ def _users(rel, own_pid=None):
     return repofiles.usage_summary(hits) if hits else ""
 
 
-def _lock_entry(timeout=3):
-    if not _elock.acquire(timeout=timeout):
+def _lock_entry(eid, timeout=3):
+    lk = _entry_lock(eid)
+    if not lk.acquire(timeout=timeout):
         raise CacheError("Der Eintrag wird gerade geprüft bzw. geladen – bitte gleich noch einmal.")
+    return lk
 
 
 def remove(eid, user=None, package_gone=False):
     """Eintrag entfernen und alles dazu aufräumen: Ordner im Repository und das erzeugte Paket. package_gone: das Paket
     wurde gerade gelöscht (Paketliste) – nur noch Ordner und Eintrag."""
-    _lock_entry(1800 if package_gone else 3)
+    lk = _lock_entry(eid, 1800 if package_gone else 3)
     try:
         e = entry(eid)
         if not e:
@@ -594,7 +605,10 @@ def remove(eid, user=None, package_gone=False):
                    user=user)
         return {"ok": True, "folder_removed": gone}
     finally:
-        _elock.release()
+        lk.release()
+        if not entry(eid):
+            with _elocks_guard:
+                _elocks.pop(int(eid), None)
 
 
 def check_package_delete(pid):
@@ -705,7 +719,7 @@ def _save_package(e, man, p, folder, file):
 def refresh_entry(eid, force=False, user=None):
     """Eine winget-ID prüfen und bei Bedarf die neue Version in den Cache laden. Gibt den Eintrag zurück (None, wenn er
     inzwischen entfernt wurde)."""
-    with _elock:
+    with _entry_lock(eid):
         e = entry(eid)
         if not e:
             return None
@@ -900,7 +914,7 @@ def cleanup(user=None):
 
 def set_ignore_hash(eid, on, user=None):
     """Je Eintrag: Prüfsumme des Katalogs nicht verlangen (für Adressen ohne Version, die immer die neueste Datei liefern)."""
-    _lock_entry(10)
+    lk = _lock_entry(eid, 10)
     try:
         e = entry(eid)
         if not e:
@@ -908,7 +922,7 @@ def set_ignore_hash(eid, on, user=None):
         # Status „neu“: ein gerade laufender Durchgang nimmt den Eintrag am Ende mit
         db.ex("UPDATE winget_cache SET ignore_hash=?, remote_sig=NULL, status='new' WHERE id=?", (1 if on else 0, eid))
     finally:
-        _elock.release()
+        lk.release()
     pklog.info("winget", f"winget-Cache: „{e['winget_id']}“ – Prüfsumme des Katalogs {'nicht mehr verlangt' if on else 'wieder verlangt'}.",
                user=user)
 

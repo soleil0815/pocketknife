@@ -1765,7 +1765,7 @@ async function scanIds(ids, profileId) {
 }
 
 function addComputerDlg() {
-  const name = h('input', { placeholder: 'PC-0815 oder pc-0815.firma.local' });
+  const name = h('input', { placeholder: 'PC-0001 oder pc-0001.firma.local' });
   modal('Computer hinzufügen', h('div.form', field('Computername / FQDN', name,
     'Nur nötig für Computer, die nicht automatisch über das AD gefunden werden.')), [
     { label: 'Abbrechen' },
@@ -5856,7 +5856,7 @@ async function viewSettings() {
   refreshDns();
 
   const repo = h('div.card', h('div.card-h', h('h2', 'Software-Repository')), h('div.card-b', h('div.form',
-    field('Repository-Pfad', t('repo_path', { placeholder: '\\\\fileserver\\software$  oder  /repo', oninput: () => repoChanged() }),
+    field('Repository-Pfad', t('repo_path', { placeholder: '\\\\fs01\\PAKETE  oder  /repo', oninput: () => repoChanged() }),
       'UNC-Pfad (Zugriff per SMB mit dem Repository-/Dienstkonto) oder ein im Container eingebundener Ordner.'),
     field('Zugriffskonto', h('span', sys.repo_user, h('span.muted.small', ' – änderbar unter „Dienstkonto & Repository-Konto“'))),
     repoPwRow,
@@ -5867,6 +5867,9 @@ async function viewSettings() {
     }, { cls: 'small' }), btn('Durchsuchen', () => repoBrowser(() => {}), { cls: 'small' }))))));
 
   const w = sys.winget;
+  const bootInfo = h('div.muted.small', { style: { marginTop: '4px' } });
+  const bootText = (b) => (b.present ? fmtT('Im Repository: {0} ({1})', b.tag || tr('vorhanden'), b.folder) : fmtT('Noch nicht geladen ({0})', b.folder));
+  GET('/api/winget/bootstrap').then((b) => { bootInfo.textContent = bootText(b); }).catch(() => {});
   const relDays = h('span.row', { style: { gap: '6px', alignItems: 'center', display: s.winget_release_mode === 'days' ? '' : 'none' } },
     n('winget_release_days', { min: 1, max: 365, style: { width: '80px' } }), h('span', tr('Tage')));
   const file = h('input', { type: 'file', accept: '.msix', onchange: (e) => { const sp = e.target.nextSibling; if (sp) sp.textContent = e.target.files[0] ? e.target.files[0].name : 'source2.msix wählen …'; } });
@@ -5885,8 +5888,13 @@ async function viewSettings() {
         'Gilt für winget-Schritte in Paketen, Kiosk, Zeitpläne und den winget-Cache: Solange die neueste Version nicht freigegeben ist, bekommen die Computer die zuletzt freigegebene (winget --version), der Cache lädt nur diese. Einzeln freigeben oder sperren: Pakete → Rechtsklick auf ein winget-Paket → „Freigabe …“. Der Knopf „Aktualisieren“ unter Software installiert bewusst die neueste – außer sie ist gesperrt. Beim Wechsel der Regel bleiben bisher freigegebene Versionen freigegeben. Gezählt wird ab dem Tag, an dem POCKET KNIFE die Version im Katalog zum ersten Mal sieht.'),
       field('Fehlendes winget', h('label.chk', c('winget_bootstrap'), 'automatisch nachinstallieren (z. B. Windows Server 2019/2022/2025)'),
         'Vor jedem winget-Schritt wird geprüft, ob winget vorhanden ist. Fehlt es, wird der App-Installer samt Abhängigkeiten installiert. Auf Systemen vor Windows 10 1809 / Server 2019 wird der Schritt übersprungen statt fehlzuschlagen.'),
-      field('Offline-Quelle', t('winget_bootstrap_folder', { placeholder: 'z. B. _winget (Ordner im Repository)' }),
-        'Optional: Ordner im Repository mit Microsoft.DesktopAppInstaller_8wekyb3d8bbwe.msixbundle, der *_License1.xml und DesktopAppInstaller_Dependencies.zip aus dem GitHub-Release von microsoft/winget-cli. Leer = der Client lädt die Dateien selbst von github.com.')),
+      field('Offline-Quelle', h('div', h('div.row', { style: { gap: '6px', alignItems: 'center' } },
+        t('winget_bootstrap_folder', { placeholder: '_winget (Standard – Ordner im Repository)' }),
+        btn('Jetzt laden', async () => {
+          const r = await run(() => POST('/api/winget/bootstrap/refresh'));
+          if (r) { toast(r.message, 'ok'); bootInfo.textContent = bootText(r); }
+        }, { cls: 'small', icon: 'download' })), bootInfo),
+        'Ordner im Repository für den App-Installer (winget) samt Abhängigkeiten. POCKET KNIFE lädt das aktuelle Release von microsoft/winget-cli einmal täglich selbst dorthin (nur bei einer neuen Version, Prüfsumme aus GitHub) – die Clients installieren nur von dort und laden nie selbst aus dem Internet.')),
     h('div.form', { style: { marginTop: '12px' } },
       field('Katalog', h('div.row',
         btn('Index jetzt laden', () => run(() => POST('/api/winget/refresh'), 'Download gestartet'), { icon: 'refresh', cls: 'small' }),
@@ -5898,7 +5906,7 @@ async function viewSettings() {
           route();
         }, { cls: 'small' })), 'Für Netze ohne Internet: source2.msix von einem anderen Rechner laden (https://cdn.winget.microsoft.com/cache/source2.msix) und hier hochladen.'))));
 
-  const hostIn = h('input', { placeholder: 'pc-0815.firma.local' });
+  const hostIn = h('input', { placeholder: 'pc-0001.firma.local' });
   // Diagnosepaket: ZIP zur Fehlersuche – wird nur heruntergeladen, nie verschickt
   const diagDays = sel([['0', 'Seit dem letzten Update'], ['1', '1 Tag'], ['3', '3 Tage'], ['7', '7 Tage'], ['14', '14 Tage'], ['30', '30 Tage']], '7');
   const diagAnon = h('input', { type: 'checkbox', checked: true });

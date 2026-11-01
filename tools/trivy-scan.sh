@@ -16,7 +16,8 @@
 #
 # Ausnahmen (bewusst hingenommen, z. B. nicht ausnutzbar): .trivyignore im Programmordner – je Zeile eine CVE-Nummer,
 # mit Begründung als Kommentar darüber und Ablaufdatum („CVE-2026-12345 exp:2026-12-31“).
-# Optional: PK_TRIVY_SEVERITY (Standard HIGH,CRITICAL), PK_TRIVY_REPORT (Datei für den Bericht, Markdown).
+# Optional: PK_TRIVY_SEVERITY (Standard HIGH,CRITICAL), PK_TRIVY_REPORT (Datei für den Bericht, Markdown),
+# PK_TRIVY_PLATFORM (2.37: z. B. linux/arm64 – bei Images aus der Registry die Architektur, sonst die des Rechners).
 set -eu
 cd "$(dirname "$0")/.."
 
@@ -25,6 +26,8 @@ SHA_LINUX_64="c7cbe3137fb8a48a17574bede3dd6beb16742d1e9772929940fc90082c39d9c0"
 SHA_LINUX_ARM64="e174dff2a6dba5e3ae41f8d0537a6324405bd08132497340304c6b20e0f16a1f"
 SEVERITY="${PK_TRIVY_SEVERITY:-HIGH,CRITICAL}"
 REPORT="${PK_TRIVY_REPORT:-}"
+PLAT="${PK_TRIVY_PLATFORM:-}"
+case "$PLAT" in ""|linux/amd64|linux/arm64) ;; *) echo "PK_TRIVY_PLATFORM: nur linux/amd64 oder linux/arm64" >&2; exit 2 ;; esac
 DB="mirror.gcr.io/aquasec/trivy-db:2,ghcr.io/aquasecurity/trivy-db:2"
 
 [ $# -ge 1 ] || { sed -n '2,20p' "$0"; exit 2; }
@@ -60,7 +63,7 @@ for IMG in "$@"; do
   echo
   echo "== Prüfe $IMG (Stufen: $SEVERITY, nur mit verfügbarer Korrektur)"
   # shellcheck disable=SC2086
-  if ! "$T" image --quiet --cache-dir "$CACHE" --db-repository "$DB" --scanners vuln --pkg-types os,library \
+  if ! "$T" image --quiet --cache-dir "$CACHE" --db-repository "$DB" --scanners vuln --pkg-types os,library ${PLAT:+--platform "$PLAT"} \
          --severity "$SEVERITY" --ignore-unfixed $IGN --format json --output "$WORK/r.json" "$IMG"; then
     echo "FEHLER: Trivy konnte $IMG nicht prüfen (Image nicht gefunden, keine Anmeldung, Datenbank nicht ladbar)." >&2
     RC=3
