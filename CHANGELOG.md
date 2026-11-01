@@ -1,5 +1,9 @@
 # Änderungen
 
+## pocketknife-2.38.3 (01.11.2026)
+- **Behoben – Auswahlkästchen in Listen:** Ein Klick auf das Kästchen einer Zeile (z. B. Computer abwählen, nachdem alle ausgewählt wurden) blieb teils wirkungslos. Ursache: Computer-Zeilen lassen sich auf Sammlungen ziehen – schon eine kleine Mausbewegung beim Klicken (Touchpad, Fernsitzung) startete ein Ziehen statt eines Klicks. Jetzt startet auf dem Kästchen kein Ziehen mehr, die ganze Kästchen-Zelle ist anklickbar, und wird außerhalb losgelassen, schaltet trotzdem nur das Kästchen um (statt nur diese Zeile auszuwählen). Zeilen ziehen geht weiter wie gewohnt über den Rest der Zeile
+- **Selbsttest:** Kästchen-Zelle startet kein Ziehen und schaltet zuverlässig um
+
 ## pocketknife-2.38.2 (01.11.2026)
 - **Sicherheit – Registry-Schritte:** Werte mit Namen wie `Password`, `Passwd`, `Pwd`, `Kennwort`, `Secret`, `Token`, `Credential` oder `ApiKey` stehen nicht mehr in der Ausgabe der Bereitstellung (`******** (verborgen)`). Beispiel: das TightVNC-Kennwort (REG_BINARY) ist nur mit einem öffentlich bekannten Schlüssel verschlüsselt und stand bisher als Zahlenfolge im Protokoll – sichtbar für alle, die die Bereitstellung öffnen dürfen, und so lange gespeichert wie diese. Die Zeile „gesetzt … → Password“ bleibt, nur der Inhalt fehlt
 - **Selbsttest:** Werte mit solchen Namen nie in der Ausgabe (auch im eingeschränkten Sprachmodus)
