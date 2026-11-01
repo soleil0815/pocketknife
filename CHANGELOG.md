@@ -1,5 +1,16 @@
 # Änderungen
 
+## pocketknife-2.36.3 (01.11.2026)
+Ergebnis des monatlichen vollständigen Code-Audits (Stand 2.36.1):
+- **Behoben – Direktaktionen nur unter bestätigter Adresse:** Dateien, Dienste, Prozesse, Ereignisanzeige, Live-Abfragen, Tools, Speicherplatz-Analyse, Fernsteuerung, Neustart/Herunterfahren/gpupdate, angemeldete Benutzer, Scanner-Test und Test-Benachrichtigung verbinden sich nicht mehr mit einem Gerät, das die Identitätsprüfung als fremd oder nicht bestätigt markiert hat (wie schon Bereitstellungen und Scans). Vorher hätte z. B. ein geänderter oder veralteter DNS-Name eines Computers das Dienstkonto (bei der Fernsteuerung die eigenen Anmeldedaten) an einen anderen Server geschickt
+- **Behoben – Skript-Ausweichweg:** lädt POCKET KNIFE eine .ps1 wegen der Ausführungsrichtlinie selbst, werden im Pfad auch typografische Apostrophe (’) korrekt maskiert – ein solcher Dateiname führte zu einem Syntaxfehler
+- **Behoben – Datenschutz:** Kiosk-Anfragen (Benutzername, Anzeigename, Computer) werden mit der Frist der Bereitstellungen gelöscht (offene bleiben), die gelöschter Computer beim nächsten Aufräumen
+- **Behoben – OU-Admins:** Computer → Sammlungen zeigt keine Sammlungen fremder Mandanten mehr; die Scanprofil-Liste enthält nur noch eigene Computer und sichtbare Sammlungen, die Zahlen gelten nur für den eigenen Bereich
+- **Behoben – Robustheit:** schlägt das Speichern einer Transaktion fehl (z. B. Datenträger voll), bleibt sie nicht mehr offen und blockiert keine weiteren Schreibzugriffe dieses Threads; der Download des winget-Index ist auf 1 GB begrenzt
+- **Behoben – update.sh:** die Kopie der `.env` beim Zurückspringen ist nie, auch nicht kurz, für andere Benutzer lesbar
+- **Doku:** Beispiele vereinheitlicht (`firma.local`, `FIRMA`, `\\fs01\PAKETE`, `10.0.10.x`), Aufbewahrung von Kiosk-Anfragen und Protokolldateien beschrieben
+- **Selbsttest:** fünf neue Tests für diese Fixes
+
 ## pocketknife-2.36.2 (01.11.2026)
 Ergebnis des wöchentlichen Code-Audits (2.32.11–2.36.1):
 - **Behoben – Sperre einer winget-Version galt nicht für den Knopf „Aktualisieren“:** Er installierte per `winget upgrade` auch eine gesperrte Version (auch für OU-Admins und beim Wiederholen). Jetzt umgeht er nur die Zurückstellung; ist die neueste gesperrt, bekommt der Computer die zuletzt freigegebene Version

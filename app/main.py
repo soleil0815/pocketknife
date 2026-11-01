@@ -418,7 +418,10 @@ def api_computer_loggedon(cid: int, user=U):
     c = db.q1("SELECT * FROM computers WHERE id=?", (cid,))
     if not c:
         raise HTTPException(404)
-    host = c["dns_name"] or c["name"]
+    try:
+        host = presence.direct_host(c)
+    except ValueError as e:
+        _err(e)
     if not remote.is_online(host)[1]:
         return {"ok": False, "user": c["current_user"], "live": False}
     try:
@@ -548,7 +551,9 @@ def api_computer_category(cid: int, cat: str, user=U):
                                "WHERE computer_id=? ORDER BY id DESC"),
                 "profiles": _computer_profiles(cid)}
     if cat == "collections":
-        return _member_collections(cid)
+        # 2.36.3 (Audit): OU-Admins sehen auch hier keine Sammlungen fremder Mandanten (wie in der Sammlungsliste)
+        vis = _visible_collections(user)
+        return [c for c in _member_collections(cid) if vis is None or c["id"] in vis]
     if cat == "storage":
         return {"scans": diskusage.listing(cid)}
     if cat == "disks":
@@ -1090,8 +1095,8 @@ def api_scanner_test(data: dict = Body(...), user=U):
     script = "\n".join([inventory.PRELUDE, scanners.script_for([sc]), inventory.SCAN_END])
     t0 = time.time()
     try:
-        out, err, _ = remote.ps(c["dns_name"] or c["name"], script)
-    except remote.RemoteError as e:
+        out, err, _ = remote.ps(presence.direct_host(c), script)
+    except (ValueError, remote.RemoteError) as e:
         _err(e)
     idx = out.find("PKJSON:")
     if idx < 0:
@@ -1217,8 +1222,15 @@ def _collection_choices(user=None):
 @app.get("/api/scanprofiles")
 def api_profiles(user=U):
     out = []
+    mine = access.computer_ids(user)
+    vis = _visible_collections(user) if mine is not None else None
     for p in profiles.all_profiles():
-        p.update(profiles.summary(p))
+        p.update(profiles.summary(p, only=mine))
+        if mine is not None:
+            # 2.36.3 (Audit): OU-Admins sehen weder fremde Computer-IDs noch Sammlungen fremder Mandanten; die Zahlen
+            # gelten nur für ihren Bereich (wie im Dashboard)
+            p["computers"] = [c for c in p.get("computers") or [] if int(c) in mine]
+            p["collections"] = [c for c in p.get("collections") or [] if c == profiles.ALL_COMPUTERS or c in vis]
         out.append(p)
     return {"profiles": out, "modules": inventory.module_list(), "scanners": scanners.list_all(),
             "collections": _collection_choices(user), "trigger_types": profiles.TRIGGER_TYPES}
@@ -1398,7 +1410,7 @@ def api_power_check(data: dict = Body(...), user=U):
 
 @app.post("/api/computers/{cid}/action")
 def api_action(cid: int, data: dict = Body(...), user=U):
-    c = db.q1("SELECT name, dns_name FROM computers WHERE id=?", (cid,))
+    c = db.q1("SELECT id, name, dns_name, addr_problem, addr_detail FROM computers WHERE id=?", (cid,))
     if not c:
         raise HTTPException(404)
     act = data.get("action")
@@ -1421,8 +1433,8 @@ def api_action(cid: int, data: dict = Body(...), user=U):
     if act not in cmds:
         _err("Unbekannte Aktion")
     try:
-        out, err, _ = remote.ps(c["dns_name"] or c["name"], cmds[act])
-    except remote.RemoteError as e:
+        out, err, _ = remote.ps(presence.direct_host(c), cmds[act])
+    except (ValueError, remote.RemoteError) as e:
         _err(e)
     when = (" sofort" if secs == 0 else f" in {secs} s") if act in ("restart", "shutdown") else ""
     pklog.info("system", f"Aktion '{act}'{when} auf {c['name']} ausgeführt.", user=user["username"], computer_id=cid)

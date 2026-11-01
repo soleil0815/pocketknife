@@ -38,7 +38,7 @@ Webseite: [helfi.space](https://helfi.space)
 4. In der Firewall der Clients **nur für den Docker-Host** **TCP 5985** (bzw. 5986 bei HTTPS) und **TCP 445** freigeben. Für Fernsitzungen zusätzlich **TCP 3389** (RDP) bzw. **5900** (VNC).
 5. AD-Gruppe **POCKETKNIFE-Admins** anlegen und die Bediener aufnehmen (verschachtelte Gruppen werden berücksichtigt).
 6. **LDAPS** muss auf den Domänencontrollern aktiv sein. Ein selbstsigniertes Zertifikat genügt – POCKET KNIFE vertraut ihm automatisch und protokolliert jede Änderung des Fingerabdrucks.
-7. Für eigene Pakete eine Freigabe anlegen, z. B. `\\fileserver\software$`, mit Leserecht für das Dienstkonto.
+7. Für eigene Pakete eine Freigabe anlegen, z. B. `\\fs01\PAKETE`, mit Leserecht für das Dienstkonto.
 
 ## WinRM per Gruppenrichtlinie einrichten und absichern {#winrm-gpo}
 
@@ -196,7 +196,7 @@ Die Zahl der parallelen Scans und Installationen sowie das Heartbeat-Intervall s
 - Optional Ressourcen im Compose begrenzen, z. B. `mem_limit: 8g` und `cpus: 4` beim Dienst `pocketknife`.
 - **Sicherung:** die automatische Sicherung (Einstellungen → Sicherung) auf ein anderes Laufwerk legen (`PK_BACKUP_PATH`) und je Sicherung mit etwa der Datenbankgröße (komprimiert meist deutlich weniger) × Anzahl Versionen rechnen.
 
-**Aufräumen der Datenbank:** Stündlich werden alte Einträge gelöscht – Protokoll (Standard 90 Tage), Scan-Protokoll (14 Tage), Bereitstellungen samt Ausgabe (180 Tage), Softwareänderungen (365 Tage), abgelaufene Sitzungen und Reste ohne Bezug. Die Fristen stehen unter **Einstellungen → Zeitpläne & Leistung**. Einmal täglich (Standard 03:00 Uhr) folgt die **Datenbankwartung**: Statistiken aktualisieren, WAL-Datei zurückschreiben und – wenn mehr als 20 % der Datei frei sind – `VACUUM`, das die Datei verkleinert. Größe, freier Anteil und letzte Wartung zeigt **Einstellungen → Wartung**; dort startet **Jetzt aufräumen** die Wartung sofort. Gelöschte Computer verlieren ihre Inventardaten sofort. Die Protokolldateien unter `/data/logs` werden bei 10 MB rotiert (höchstens 10 Dateien).
+**Aufräumen der Datenbank:** Stündlich werden alte Einträge gelöscht – Protokoll (Standard 90 Tage), Scan-Protokoll (14 Tage), Bereitstellungen samt Ausgabe (180 Tage; dieselbe Frist gilt für entschiedene Kiosk-Anfragen mit Benutzername und Computer), Softwareänderungen (365 Tage), abgelaufene Sitzungen und Reste ohne Bezug. Die Fristen stehen unter **Einstellungen → Zeitpläne & Leistung**. Einmal täglich (Standard 03:00 Uhr) folgt die **Datenbankwartung**: Statistiken aktualisieren, WAL-Datei zurückschreiben und – wenn mehr als 20 % der Datei frei sind – `VACUUM`, das die Datei verkleinert. Größe, freier Anteil und letzte Wartung zeigt **Einstellungen → Wartung**; dort startet **Jetzt aufräumen** die Wartung sofort. Gelöschte Computer verlieren ihre Inventardaten sofort, ihre Kiosk-Anfragen beim nächsten Aufräumen. Die Protokolldateien unter `/data/logs` werden bei 10 MB rotiert (höchstens 10 Dateien); für sie gilt keine Frist in Tagen.
 
 ## Installation {#setup}
 
@@ -272,7 +272,7 @@ Danach sieht der Ordner so aus – `data/` und `data-backup/` entstehen beim ers
 | `PK_PORT` | `8443` | wenn der Port auf dem Host schon belegt ist. |
 | `PK_TIMEZONE` | `Europe/Berlin` | andere Zeitzone. |
 | `PK_WINRM_AUTH` | `ntlm` | lässt sich später in der Oberfläche umstellen und testen (Kerberos wird empfohlen, siehe [Kerberos statt NTLM](#kerberos)). |
-| `PK_REPO_MOUNT` | leer | nur, wenn das Software-Repository als Ordner auf dem Host eingebunden ist (im Container `/repo`). Sonst tragen Sie später in der Oberfläche einen UNC-Pfad ein, z. B. `\\fileserver.firma.local\software$`. |
+| `PK_REPO_MOUNT` | leer | nur, wenn das Software-Repository als Ordner auf dem Host eingebunden ist (im Container `/repo`). Sonst tragen Sie später in der Oberfläche einen UNC-Pfad ein, z. B. `\\fs01.firma.local\PAKETE`. |
 | `PK_UID` / `PK_GID` | `10001` | nur, wenn eingebundene Ordner einem bestimmten Benutzer gehören müssen (z. B. auf einem NAS mit Freigabe-Rechten). |
 | `PK_BREAKGLASS_USER` / `PK_BREAKGLASS_PASSWORD` | leer | Notfallzugang ohne AD – nur bei Bedarf, mit langem, zufälligem Kennwort. |
 
@@ -479,7 +479,7 @@ Links steht der **Sammlungsbaum**, rechts die Computer der gewählten Sammlung. 
 
 „Scannen erlaubt“ abwählen sperrt automatische Scans für einen Computer (z. B. für empfindliche Server); manuelle Scans bleiben möglich.
 
-**Gelber Punkt – Adresse nicht bestätigt:** POCKET KNIFE zeigt einen Computer nur als online, wenn unter seiner Adresse wirklich dieser Computer antwortet. Bei einer neuen Adresse (und spätestens nach 24 Stunden) fragt es ihn über WinRM nach Name und Domäne. Antwortet ein anderes Gerät (z. B. weil DHCP die Adresse eines ausgeschalteten PCs inzwischen einem Drucker oder Handy gegeben hat), ein Gerät außerhalb der Domäne oder unter einer zuvor anderen Adresse ein Gerät ohne WinRM, gilt der Computer als offline. Der Punkt wird gelb, die Computeransicht nennt den Grund (z. B. „Unter 192.168.0.77 antwortet ‚DRUCKER-3OG‘ statt PC-0004“) und bietet „Jetzt erneut prüfen“. Scans und Bereitstellungen laufen dann nicht – sie würden sonst das falsche Gerät treffen. Alle betroffenen Computer zeigt die Standardsammlung **„Falsche Adresse“**; die Spalte „DNS-Adresse“ (einblendbar) zeigt die aktuell aufgelöste Adresse.
+**Gelber Punkt – Adresse nicht bestätigt:** POCKET KNIFE zeigt einen Computer nur als online, wenn unter seiner Adresse wirklich dieser Computer antwortet. Bei einer neuen Adresse (und spätestens nach 24 Stunden) fragt es ihn über WinRM nach Name und Domäne. Antwortet ein anderes Gerät (z. B. weil DHCP die Adresse eines ausgeschalteten PCs inzwischen einem Drucker oder Handy gegeben hat), ein Gerät außerhalb der Domäne oder unter einer zuvor anderen Adresse ein Gerät ohne WinRM, gilt der Computer als offline. Der Punkt wird gelb, die Computeransicht nennt den Grund (z. B. „Unter 10.0.10.77 antwortet ‚DRUCKER-3OG‘ statt PC-0004“) und bietet „Jetzt erneut prüfen“. Scans und Bereitstellungen laufen dann nicht – sie würden sonst das falsche Gerät treffen. Alle betroffenen Computer zeigt die Standardsammlung **„Falsche Adresse“**; die Spalte „DNS-Adresse“ (einblendbar) zeigt die aktuell aufgelöste Adresse.
 
 Ursache ist fast immer ein veralteter Eintrag im DNS der Domäne. Abhilfe: Computer einschalten (er registriert sich neu), den Eintrag korrigieren und dauerhaft die **DNS-Bereinigung (Scavenging)** auf den Domänencontrollern einschalten. Einstellungen dazu: **Einstellungen → Namensauflösung**:
 
@@ -817,7 +817,7 @@ Rechtsklick auf „Zotero“ in der Software → „Deinstallationspaket erstell
 2. Befehl: `reg add "HKLM\SOFTWARE\Firma" /v Konfiguriert /d 1 /f`.
 3. Abschluss → Scannen mit dem Profil „Registry“.
 
-**Archiv lässt sich nicht entpacken (Exitcode -1978335140):** Manche winget-Pakete (z. B. TeamViewer, Microsoft GameInput) kommen als ZIP-Archiv. Als Lokales System scheitert das Entpacken über die Windows-Shell häufig. POCKET KNIFE wiederholt den Schritt dann einmal mit `tar.exe` und setzt dafür in den winget-Einstellungen des Kontos Lokales System (`…\systemprofile\AppData\Local\Microsoft\WinGet\Settings\defaultState\settings.json`) `installBehavior.archiveExtractionMethod = tar`; vorhandene Einstellungen bleiben erhalten. Eigene, nicht lesbare Einstellungsdateien bleiben unverändert.
+**Archiv lässt sich nicht entpacken (Exitcode -1978335140):** Manche winget-Pakete (z. B. Microsoft GameInput) kommen als ZIP-Archiv. Als Lokales System scheitert das Entpacken über die Windows-Shell häufig. POCKET KNIFE wiederholt den Schritt dann einmal mit `tar.exe` und setzt dafür in den winget-Einstellungen des Kontos Lokales System (`…\systemprofile\AppData\Local\Microsoft\WinGet\Settings\defaultState\settings.json`) `installBehavior.archiveExtractionMethod = tar`; vorhandene Einstellungen bleiben erhalten. Eigene, nicht lesbare Einstellungsdateien bleiben unverändert.
 
 ## Proxyserver {#proxy}
 
@@ -1047,8 +1047,8 @@ Computer auswählen → **Tools ▾** oder Rechtsklick → Tools.
 | Variable | Wert | Beispiel |
 |---|---|---|
 | `$(Computer)` | Computername (NetBIOS) | `PC-0815` |
-| `$(Host)` | vollständiger DNS-Name; falls unbekannt der Computername | `pc-0815.firma.local` |
-| `$(IP)` | erste IP-Adresse aus dem letzten Scan | `192.168.10.25` |
+| `$(Host)` | vollständiger DNS-Name; falls unbekannt der Computername | `pc-0001.firma.local` |
+| `$(IP)` | erste IP-Adresse aus dem letzten Scan | `10.0.10.25` |
 | `$(MAC)` | erste MAC-Adresse aus dem letzten Scan (Scanner „Netzwerkkarten“) | `00:11:22:33:44:55` |
 | `$(User)` | zuletzt erkannter angemeldeter Benutzer (Scan/Heartbeat) | `FIRMA\mmuster` |
 | `$(Domain)` | Domäne des Computers aus dem Scan, sonst die Domäne aus den Einstellungen | `FIRMA` |
@@ -1234,7 +1234,7 @@ Geprüft wird jede Minute. Jeder Fall (z. B. „PC-17 Laufwerk C:“) wird **nur
 
 **Testmail senden** speichert die Eingaben und schickt eine Testnachricht; Fehler (Anmeldung, Zertifikat, Port) werden im Klartext angezeigt. Der Container braucht Netzwerkzugriff auf den SMTP-Port. Schutz gegen Mailfluten: höchstens 120 Mails pro Stunde.
 
-**Sauber und ohne Spam-Einstufung versenden:** Am zuverlässigsten ist die Anmeldung an Ihrem eigenen Mailserver bzw. Microsoft 365 (Port 587, STARTTLS, Zertifikat prüfen) mit einem eigenen Postfach, z. B. `pocketknife@firma.de`, und **genau dieser Adresse als Absender**. Dann signiert und versendet Ihr Mailserver wie bei jeder normalen Mail (SPF/DKIM/DMARC passen). POCKET KNIFE schickt nie direkt ins Internet; Ruf und Blacklists betreffen nur Ihren Mailserver, und die Mailmenge ist gering (höchstens 120 Mails pro Stunde).
+**Sauber und ohne Spam-Einstufung versenden:** Am zuverlässigsten ist die Anmeldung an Ihrem eigenen Mailserver bzw. Microsoft 365 (Port 587, STARTTLS, Zertifikat prüfen) mit einem eigenen Postfach, z. B. `pocketknife@firma.local`, und **genau dieser Adresse als Absender**. Dann signiert und versendet Ihr Mailserver wie bei jeder normalen Mail (SPF/DKIM/DMARC passen). POCKET KNIFE schickt nie direkt ins Internet; Ruf und Blacklists betreffen nur Ihren Mailserver, und die Mailmenge ist gering (höchstens 120 Mails pro Stunde).
 
 **Mail „gesendet“, kommt aber nicht an?** Nach der Testmail zeigt POCKET KNIFE den vollständigen SMTP-Dialog und die letzte Antwort des Servers (meist mit Queue-ID, z. B. `250 2.0.0 Ok: queued as 4F3A2`). Hat der Server so geantwortet, hat er die Mail übernommen – die Zustellung liegt dann beim Mailserver. Häufige Ursachen: Spam-Ordner/Quarantäne, Absenderadresse existiert nicht (Unzustellbarkeitsberichte gehen ins Leere), Relay nach außen nicht erlaubt, SPF/DMARC der Absenderdomäne passt nicht, anonymer Relay verwirft Mails unbekannter Hosts. Mit Queue-ID oder Message-ID lässt sich die Mail im Protokoll des Mailservers verfolgen (Exchange: Nachrichtenablaufverfolgung). POCKET KNIFE meldet sich beim Server mit `PK_PUBLIC_HOSTNAME.PK_DOMAIN` (z. B. `pocketknife.firma.local`).
 
@@ -1374,10 +1374,10 @@ POCKET KNIFE meldet sich mit dem Dienstkonto per **WinRM** (PowerShell) und **SM
 
 **Voraussetzungen**
 
-- Computer mit **vollständigem DNS-Namen** (z. B. `pc-0815.firma.local`, kommt aus dem AD-Abgleich). Kerberos funktioniert nicht mit IP-Adressen. Kurznamen ergänzt POCKET KNIFE um `PK_DOMAIN`.
+- Computer mit **vollständigem DNS-Namen** (z. B. `pc-0001.firma.local`, kommt aus dem AD-Abgleich). Kerberos funktioniert nicht mit IP-Adressen. Kurznamen ergänzt POCKET KNIFE um `PK_DOMAIN`.
 - **Uhrzeit**: Docker-Host und Domänencontroller dürfen höchstens 5 Minuten auseinanderliegen (NTP auf dem Docker-Host).
 - Docker-Host erreicht die Domänencontroller auf **Port 88** (TCP). Die DCs werden per DNS gefunden (`_kerberos._tcp.<domäne>`), sonst in der `.env` `PK_KDC=dc1.firma.local,dc2.firma.local` setzen.
-- **Repository-Pfad** mit DNS-Namen, z. B. `\\fileserver.firma.local\software$` statt `\\fileserver\software$` oder einer IP.
+- **Repository-Pfad** mit DNS-Namen, z. B. `\\fs01.firma.local\PAKETE` statt `\\fs01\PAKETE` oder einer IP.
 - Das Dienstkonto braucht nichts Besonderes. Bei „Verschlüsselungstyp nicht unterstützt“: im AD „Dieses Konto unterstützt Kerberos AES 256-Bit-Verschlüsselung“ setzen und das Kennwort einmal neu vergeben.
 - SPNs müssen **nicht** angelegt werden: Jeder Domänencomputer hat `HOST/<name>`, darauf werden `HTTP` (WinRM) und `cifs` (SMB) abgebildet – auch bei Samba-AD.
 

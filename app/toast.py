@@ -438,7 +438,8 @@ def results(out):
 def test(c, user):
     """„Test-Benachrichtigung senden“ aus den Einstellungen."""
     script, data = build_send_script([("installed", "POCKET KNIFE", config.VERSION)])
-    out, _err, _ = remote.ps(c["dns_name"] or c["name"], script)
+    from . import presence
+    out, _err, _ = remote.ps(presence.direct_host(c), script)
     if "PK_TOAST:nouser" in (out or ""):
         return {"ok": False, "message": "Auf diesem Computer ist niemand angemeldet."}
     res = results(out)

@@ -1405,12 +1405,14 @@ function PK-RunPs1([string]$Path, [string]$Arguments) {
   $global:PKLoaded = $true
   Write-Output 'Windows lässt die Skriptdatei nicht zu (Ausführungsrichtlinie oder Sicherheitszone) – POCKET KNIFE lädt ihren Inhalt.'
   $pkC = [string](Get-Content -LiteralPath $Path -Raw)
+  # 2.36.3: wie util.psq auch typografische Apostrophe (U+2018–U+201B) verdoppeln – PowerShell wertet sie als '
+  $pkApo = "['\u2018-\u201B]"
   # „using namespace/module/assembly“ muss ganz vorne stehen – nicht in den Block, sondern davor
   $pkU = (@(($pkC -split "`r?`n") | Where-Object { $_ -match '^\s*using\s+(namespace|module|assembly)\s' }) -join "`r`n")
   if ($pkU) { $pkC = $pkC -replace '(?im)^\s*using\s+(namespace|module|assembly)\s.*$', '' }
   $pkC = $pkC -replace '(?i)\$PSScriptRoot\b|\$\{PSScriptRoot\}', '$$PKScriptRoot' -replace '(?i)\$PSCommandPath\b|\$\{PSCommandPath\}|\$MyInvocation\.MyCommand\.Path\b', '$$PKScriptPath'
   # $PKLoadOk: nur gesetzt, wenn PowerShell den Inhalt übersetzen konnte – sonst Exitcode 1 statt „Erfolgreich“
-  $pkH = $(if ($pkU) { $pkU + "`r`n" } else { '' }) + '$PKLoadOk = $true' + "`r`n" + '$PKScriptRoot = ''' + (Split-Path -Parent $Path).Replace("'", "''") + "'`r`n" + '$PKScriptPath = ''' + $Path.Replace("'", "''") + "'`r`n"
+  $pkH = $(if ($pkU) { $pkU + "`r`n" } else { '' }) + '$PKLoadOk = $true' + "`r`n" + '$PKScriptRoot = ''' + ((Split-Path -Parent $Path) -replace $pkApo, '$0$0') + "'`r`n" + '$PKScriptPath = ''' + ($Path -replace $pkApo, '$0$0') + "'`r`n"
   $pkLf = Join-Path $PKDir ('pk_load_' + [guid]::NewGuid().ToString('N') + '.ps1')
   Set-Content -LiteralPath $pkLf -Value ($pkH + '& {' + "`r`n" + $pkC + "`r`n} " + $Arguments) -Encoding UTF8
   PK-Run "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" ('__PSFLAGS__ __PSLOADPRE__' + $pkLf + '__PSLOADPOST__')

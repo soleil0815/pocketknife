@@ -129,7 +129,8 @@ def prepare(computer, user, token_hash, data):
     proto = data.get("protocol") or "rdp"
     if proto not in PROTOCOLS:
         raise ValueError("Unbekanntes Protokoll.")
-    host = (computer.get("dns_name") or computer.get("name") or "").strip()
+    from . import presence
+    host = presence.direct_host(computer)  # 2.36.3: Anmeldedaten nie an ein Gerät unter einer fremden Adresse
     if not re.match(r"^[A-Za-z0-9._-]{1,253}$", host):
         raise ValueError("Ungültiger Hostname.")
     try:

@@ -402,7 +402,8 @@ def run(tool, cid):
     c = db.q1("SELECT * FROM computers WHERE id=?", (cid,))
     if not c:
         raise ValueError("Computer nicht gefunden")
-    host = c["dns_name"] or c["name"]
+    from . import presence
+    host = presence.direct_host(c)
     t0 = time.time()
     name = f"tool_{tool['id']}_{secrets.token_hex(3)}"
     rp = tool.get("repo_path")

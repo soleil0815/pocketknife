@@ -174,6 +174,23 @@ def probe(c, now=None, force=False):
     return _verdict(fields["addr_problem"])
 
 
+def direct_host(c):
+    """2.36.3 (Audit): Adresse für Direktaktionen (Dateien, Dienste, Prozesse, Tools, Speicherplatz, Fernsteuerung, Neustart …).
+    Wie Bereitstellung und Scan nie mit dem Dienstkonto (oder eigenen Anmeldedaten) zu einem Gerät verbinden, das die
+    Identitätsprüfung als fremd/nicht bestätigt markiert hat – sonst erreicht z. B. ein geänderter dNSHostName einen
+    anderen Server (\\server\C$, WinRM). Bei ausgeschalteter Prüfung gilt ein alter Vermerk nicht mehr."""
+    host = (c.get("dns_name") or c.get("name") or "").strip()
+    prob = c.get("addr_problem") if "addr_problem" in c else (
+        (db.q1("SELECT addr_problem, addr_detail FROM computers WHERE id=?", (c["id"],)) or {}).get("addr_problem")
+        if c.get("id") else None)
+    if prob and db.setting("identity_check"):
+        detail = c.get("addr_detail")
+        if detail is None and c.get("id"):
+            detail = (db.q1("SELECT addr_detail FROM computers WHERE id=?", (c["id"],)) or {}).get("addr_detail")
+        raise ValueError(f"Nicht ausgeführt – {detail or PROBLEM_TEXT.get(prob, prob)}")
+    return host
+
+
 def _verdict(prob):
     """(online, winrm) für einen bekannten Problemfall: falsches Gerät/keine Domäne → offline; nicht bestätigt →
     erreichbar, aber nicht nutzbar (keine Scans/Bereitstellungen)."""

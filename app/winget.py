@@ -143,6 +143,24 @@ def install_msix(path):
     rematch_all()
 
 
+MAX_MSIX = 1024 ** 3  # 2.36.3 (Audit): Schutzgrenze – die Quelle ist üblicherweise nur einige MB groß
+
+
+def _copy_limited(src, dst, limit=None):
+    """Download nach /data (gleicher Datenträger wie die Datenbank) nur bis zur Schutzgrenze – ein fehlerhafter oder
+    abfangender Proxy darf den Datenträger nicht volllaufen lassen."""
+    limit = MAX_MSIX if limit is None else limit
+    n = 0
+    while True:
+        b = src.read(1024 * 1024)
+        if not b:
+            return n
+        n += len(b)
+        if n > limit:
+            raise ValueError(f"Die Datei ist unplausibel groß (über {limit // 1024 ** 2} MB) – abgebrochen.")
+        dst.write(b)
+
+
 def refresh(user=None):
     if _refreshing["on"]:
         return False
@@ -155,7 +173,7 @@ def refresh(user=None):
             try:
                 req = urllib.request.Request(url, headers={"User-Agent": "POCKETKNIFE/" + config.VERSION})
                 with proxy.urlopen(req, timeout=180) as r, open(tmp, "wb") as f:
-                    shutil.copyfileobj(r, f)
+                    _copy_limited(r, f)
                 install_msix(tmp)
                 pklog.info("winget", f"winget-Index aktualisiert ({_idx['count']} Pakete, Format {_idx['schema']}).",
                            user=user)

@@ -22,10 +22,14 @@ class FileError(Exception):
 
 def _host(cid):
     from . import db
-    c = db.q1("SELECT id, name, dns_name, online FROM computers WHERE id=?", (cid,))
+    from . import presence
+    c = db.q1("SELECT id, name, dns_name, online, addr_problem, addr_detail FROM computers WHERE id=?", (cid,))
     if not c:
         raise FileError("Computer nicht gefunden")
-    return c, kerberos.host(c["dns_name"] or c["name"])
+    try:
+        return c, kerberos.host(presence.direct_host(c))
+    except ValueError as e:
+        raise FileError(str(e))
 
 
 def _parse(path):
@@ -240,7 +244,7 @@ def search(cid, path, q, limit=300, seconds=300, user_key=None):
         try:
             script = search_script(start, q, limit)
             try:
-                out, err, _ = remote.ps(c["dns_name"] or c["name"], script, timeout=seconds)
+                out, err, _ = remote.ps(host, script, timeout=seconds)
             except remote.RemoteConnectError:
                 try:
                     res = _search_smb(cid, drive, rel, q)

@@ -38,7 +38,7 @@ Website: [helfi.space](https://helfi.space)
 4. In the client firewall, allow **TCP 5985** (or 5986 for HTTPS) and **TCP 445** **only from the Docker host**. For remote sessions, also allow **TCP 3389** (RDP) or **5900** (VNC).
 5. Create the AD group **POCKETKNIFE-Admins** and add the operators (nested groups are supported).
 6. **LDAPS** must be enabled on the domain controllers. A self-signed certificate is sufficient – POCKET KNIFE trusts it automatically and logs every change of the fingerprint.
-7. For custom packages, create a share, e.g. `\\fileserver\software$`, with read access for the service account.
+7. For custom packages, create a share, e.g. `\\fs01\PAKETE`, with read access for the service account.
 
 ## Set up and secure WinRM by Group Policy {#winrm-gpo}
 
@@ -196,7 +196,7 @@ Parallel scans and installations and the heartbeat interval are set under **Sett
 - Optionally limit resources in Compose, e.g. `mem_limit: 8g` and `cpus: 4` for the `pocketknife` service.
 - **Backup:** put the automatic backup (Settings → Backup) on another drive (`PK_BACKUP_PATH`) and plan about the database size (compressed usually much less) × number of versions.
 
-**Database cleanup:** Old entries are deleted every hour – log (default 90 days), scan log (14 days), deployments including output (180 days), software changes (365 days), expired sessions and leftovers without a reference. The periods are set under **Settings → Schedules & Performance**. Once a day (default 3:00 AM) the **database maintenance** follows: update statistics, write back the WAL file and – if more than 20 % of the file is free – `VACUUM`, which shrinks the file. Size, free share and the last maintenance are shown under **Settings → Maintenance**; **Clean up now** starts the maintenance immediately. Deleted computers lose their inventory data at once. The log files under `/data/logs` rotate at 10 MB (at most 10 files).
+**Database cleanup:** Old entries are deleted every hour – log (default 90 days), scan log (14 days), deployments including output (180 days; the same period applies to decided kiosk requests with user name and computer), software changes (365 days), expired sessions and leftovers without a reference. The periods are set under **Settings → Schedules & Performance**. Once a day (default 3:00 AM) the **database maintenance** follows: update statistics, write back the WAL file and – if more than 20 % of the file is free – `VACUUM`, which shrinks the file. Size, free share and the last maintenance are shown under **Settings → Maintenance**; **Clean up now** starts the maintenance immediately. Deleted computers lose their inventory data at once, their kiosk requests at the next cleanup. The log files under `/data/logs` rotate at 10 MB (at most 10 files); no period in days applies to them.
 
 ## Installation {#setup}
 
@@ -272,7 +272,7 @@ Open the `.env` (e.g. `nano .env`). Every line has the form `NAME=value`, withou
 | `PK_PORT` | `8443` | if the port is already in use on the host. |
 | `PK_TIMEZONE` | `Europe/Berlin` | another time zone. |
 | `PK_WINRM_AUTH` | `ntlm` | can be switched and tested later in the interface (Kerberos is recommended, see [Kerberos instead of NTLM](#kerberos)). |
-| `PK_REPO_MOUNT` | empty | only if the software repository is mounted as a folder on the host (in the container `/repo`). Otherwise enter a UNC path in the interface later, e.g. `\\fileserver.firma.local\software$`. |
+| `PK_REPO_MOUNT` | empty | only if the software repository is mounted as a folder on the host (in the container `/repo`). Otherwise enter a UNC path in the interface later, e.g. `\\fs01.firma.local\PAKETE`. |
 | `PK_UID` / `PK_GID` | `10001` | only if mounted folders must belong to a specific user (e.g. on a NAS with share permissions). |
 | `PK_BREAKGLASS_USER` / `PK_BREAKGLASS_PASSWORD` | empty | emergency access without AD – only if needed, with a long random password. |
 
@@ -479,7 +479,7 @@ The **collection tree** is on the left, the computers of the selected collection
 
 Clearing "Scanning allowed" blocks automatic scans for a computer (e.g. for sensitive servers); manual scans remain possible.
 
-**Yellow dot – address not confirmed:** POCKET KNIFE only shows a computer as online if this very computer answers at its address. For a new address (and at the latest after 24 hours) it asks the computer via WinRM for its name and domain. If another device answers (e.g. because DHCP has meanwhile given a switched-off PC's address to a printer or phone), a device outside the domain, or – at a previously different address – a device without WinRM, the computer counts as offline. The dot turns yellow, the computer view names the reason (e.g. “At 192.168.0.77 ‘PRINTER-3F’ answers instead of PC-0004”) and offers “Check again now”. Scans and deployments do not run then – they would hit the wrong device. The built-in collection **“Wrong address”** lists all affected computers; the column “DNS address” (can be shown) displays the currently resolved address.
+**Yellow dot – address not confirmed:** POCKET KNIFE only shows a computer as online if this very computer answers at its address. For a new address (and at the latest after 24 hours) it asks the computer via WinRM for its name and domain. If another device answers (e.g. because DHCP has meanwhile given a switched-off PC's address to a printer or phone), a device outside the domain, or – at a previously different address – a device without WinRM, the computer counts as offline. The dot turns yellow, the computer view names the reason (e.g. “At 10.0.10.77 ‘PRINTER-3F’ answers instead of PC-0004”) and offers “Check again now”. Scans and deployments do not run then – they would hit the wrong device. The built-in collection **“Wrong address”** lists all affected computers; the column “DNS address” (can be shown) displays the currently resolved address.
 
 The cause is almost always an outdated record in the domain's DNS. Remedy: switch the computer on (it registers again), correct the record and permanently enable **DNS scavenging** on the domain controllers. Settings: **Settings → Name resolution**:
 
@@ -817,7 +817,7 @@ Right-click "Zotero" in Software → "Create uninstall package …". The step fi
 2. Command: `reg add "HKLM\SOFTWARE\Contoso" /v Konfiguriert /d 1 /f`.
 3. Finalize → Scan with the "Registry" profile.
 
-**Archive cannot be extracted (exit code -1978335140):** Some winget packages (e.g. TeamViewer, Microsoft GameInput) come as a ZIP archive. As Local System, extraction via the Windows shell often fails. POCKET KNIFE then repeats the step once with `tar.exe` and sets `installBehavior.archiveExtractionMethod = tar` in the winget settings of the Local System account (`…\systemprofile\AppData\Local\Microsoft\WinGet\Settings\defaultState\settings.json`); existing settings are kept. Own settings files that cannot be read stay unchanged.
+**Archive cannot be extracted (exit code -1978335140):** Some winget packages (e.g. Microsoft GameInput) come as a ZIP archive. As Local System, extraction via the Windows shell often fails. POCKET KNIFE then repeats the step once with `tar.exe` and sets `installBehavior.archiveExtractionMethod = tar` in the winget settings of the Local System account (`…\systemprofile\AppData\Local\Microsoft\WinGet\Settings\defaultState\settings.json`); existing settings are kept. Own settings files that cannot be read stay unchanged.
 
 ## Proxy server {#proxy}
 
@@ -1047,10 +1047,10 @@ Select computers → **Tools ▾** or right-click → Tools.
 | Variable | Value | Example |
 |---|---|---|
 | `$(Computer)` | computer name (NetBIOS) | `PC-0815` |
-| `$(Host)` | fully qualified DNS name; the computer name if unknown | `pc-0815.corp.local` |
-| `$(IP)` | first IP address from the last scan | `192.168.10.25` |
+| `$(Host)` | fully qualified DNS name; the computer name if unknown | `pc-0001.firma.local` |
+| `$(IP)` | first IP address from the last scan | `10.0.10.25` |
 | `$(MAC)` | first MAC address from the last scan (scanner "Network adapters") | `00:11:22:33:44:55` |
-| `$(User)` | last detected logged-on user (scan/heartbeat) | `CORP\jdoe` |
+| `$(User)` | last detected logged-on user (scan/heartbeat) | `FIRMA\jdoe` |
 | `$(Domain)` | the computer's domain from the scan, otherwise the domain from the settings | `CORP` |
 
 Case-sensitive; unknown values are replaced with an empty string. In a **URL** the values are URL-encoded; addresses with `javascript:`, `data:`, `vbscript:` or `blob:` are rejected.
@@ -1224,7 +1224,7 @@ Checks run every minute. Each case (e.g. "PC-17 drive C:") is reported **only on
 
 | Field | Note |
 |---|---|
-| SMTP server, port | e.g. `mail.company.local` or Exchange/Microsoft 365 (`smtp.office365.com`, port 587) |
+| SMTP server, port | e.g. `mail.firma.local` or Exchange/Microsoft 365 (`smtp.office365.com`, port 587) |
 | Encryption | **STARTTLS** (587), **SSL/TLS** (465) or unencrypted (25, internal relay only) |
 | Verify certificate | leave on; only turn off for internal servers with a self-signed certificate |
 | User, password | empty = no login (relay by IP). The password is stored encrypted (`pocketknife.key`). |
@@ -1234,9 +1234,9 @@ Checks run every minute. Each case (e.g. "PC-17 drive C:") is reported **only on
 
 **Send test e-mail** saves the values and sends a test message; errors (login, certificate, port) are shown in plain language. The container needs network access to the SMTP port. Flood protection: at most 120 e-mails per hour.
 
-**Sending cleanly without being flagged as spam:** The most reliable setup is logging in to your own mail server or Microsoft 365 (port 587, STARTTLS, verify certificate) with a dedicated mailbox, e.g. `pocketknife@company.com`, and **exactly this address as the sender**. Your mail server then signs and sends it like any normal e-mail (SPF/DKIM/DMARC match). POCKET KNIFE never sends directly to the internet; reputation and blacklists only concern your mail server, and the volume is low (at most 120 e-mails per hour).
+**Sending cleanly without being flagged as spam:** The most reliable setup is logging in to your own mail server or Microsoft 365 (port 587, STARTTLS, verify certificate) with a dedicated mailbox, e.g. `pocketknife@firma.local`, and **exactly this address as the sender**. Your mail server then signs and sends it like any normal e-mail (SPF/DKIM/DMARC match). POCKET KNIFE never sends directly to the internet; reputation and blacklists only concern your mail server, and the volume is low (at most 120 e-mails per hour).
 
-**E-mail "sent" but nothing arrives?** After the test e-mail POCKET KNIFE shows the full SMTP dialogue and the server's last reply (usually with a queue ID, e.g. `250 2.0.0 Ok: queued as 4F3A2`). If the server replied like that, it took over the e-mail – delivery is then up to the mail server. Common causes: spam folder/quarantine, sender address doesn't exist (non-delivery reports go nowhere), relaying to external recipients not allowed, SPF/DMARC of the sender domain don't match, an anonymous relay discards mail from unknown hosts. With the queue ID or Message-ID the e-mail can be traced in the mail server log (Exchange: message tracking). POCKET KNIFE identifies itself to the server as `PK_PUBLIC_HOSTNAME.PK_DOMAIN` (e.g. `pocketknife.company.local`).
+**E-mail "sent" but nothing arrives?** After the test e-mail POCKET KNIFE shows the full SMTP dialogue and the server's last reply (usually with a queue ID, e.g. `250 2.0.0 Ok: queued as 4F3A2`). If the server replied like that, it took over the e-mail – delivery is then up to the mail server. Common causes: spam folder/quarantine, sender address doesn't exist (non-delivery reports go nowhere), relaying to external recipients not allowed, SPF/DMARC of the sender domain don't match, an anonymous relay discards mail from unknown hosts. With the queue ID or Message-ID the e-mail can be traced in the mail server log (Exchange: message tracking). POCKET KNIFE identifies itself to the server as `PK_PUBLIC_HOSTNAME.PK_DOMAIN` (e.g. `pocketknife.firma.local`).
 
 # Settings {#settings}
 
@@ -1325,7 +1325,7 @@ A tenant should only bring to its computers what is in **its repository folder**
 
 Scripts therefore belong **in the repository as files** – there the integrity check (fingerprint) sees and checks them like any other installation file. Steps written by a main admin may be left unchanged by an OU admin, but not changed or added. Existing packages keep running.
 
-**3. What a tenant package reaches on the network.** Tenant packages always run on the client as **Local System** – never as the service account, even if a main admin saved them. If a script or installer accesses a share, it signs in there with the **computer account** (e.g. `CORP\PC-17$`). It therefore only reaches what is shared with "Domain Computers", "Authenticated Users" or "Everyone".
+**3. What a tenant package reaches on the network.** Tenant packages always run on the client as **Local System** – never as the service account, even if a main admin saved them. If a script or installer accesses a share, it signs in there with the **computer account** (e.g. `FIRMA\PC-17$`). It therefore only reaches what is shared with "Domain Computers", "Authenticated Users" or "Everyone".
 
 > **Important:** every installer is executable code – an MSI can also access shares or the internet in the background. Levels 1 and 2 determine **where** the code comes from; what it **reaches** is determined by the permissions on the network (level 3). Therefore also:
 
@@ -1374,10 +1374,10 @@ POCKET KNIFE signs in with the service account via **WinRM** (PowerShell) and **
 
 **Requirements**
 
-- Computers with a **fully qualified DNS name** (e.g. `pc-0815.corp.local`, from the AD sync). Kerberos does not work with IP addresses. Short names are completed with `PK_DOMAIN`.
+- Computers with a **fully qualified DNS name** (e.g. `pc-0001.firma.local`, from the AD sync). Kerberos does not work with IP addresses. Short names are completed with `PK_DOMAIN`.
 - **Time**: the Docker host and the domain controllers must be within 5 minutes (NTP on the Docker host).
-- The Docker host reaches the domain controllers on **port 88** (TCP). DCs are found via DNS (`_kerberos._tcp.<domain>`); otherwise set `PK_KDC=dc1.corp.local,dc2.corp.local` in the `.env`.
-- **Repository path** with a DNS name, e.g. `\\fileserver.corp.local\software$` instead of `\\fileserver\software$` or an IP.
+- The Docker host reaches the domain controllers on **port 88** (TCP). DCs are found via DNS (`_kerberos._tcp.<domain>`); otherwise set `PK_KDC=dc1.firma.local,dc2.firma.local` in the `.env`.
+- **Repository path** with a DNS name, e.g. `\\fs01.firma.local\PAKETE` instead of `\\fs01\PAKETE` or an IP.
 - The service account needs nothing special. On "encryption type not supported": enable "This account supports Kerberos AES 256 bit encryption" in AD and set the password once more.
 - SPNs do **not** have to be created: every domain computer has `HOST/<name>`, which `HTTP` (WinRM) and `cifs` (SMB) map to – Samba AD included.
 
@@ -1439,7 +1439,7 @@ The mapping stays **only in your database**. If someone gives you a placeholder 
 - Passwords (service account, repository account) are stored encrypted in the database; the key is `/data/pocketknife.key`.
 - The service account password is passed as a parameter when steps run and does not end up in the clients' PowerShell logging.
 - **Account lockout protection:** If AD rejects the service account, POCKET KNIFE pauses all automatic access until the cause is fixed ("Check & continue"). This applies to NTLM and Kerberos.
-- **Failed sign-ins to the interface:** at most 8 per user and IP and 30 per IP within 15 minutes – spellings like `CORP\admin`, `x\admin` or `admin@corp.local` count together.
+- **Failed sign-ins to the interface:** at most 8 per user and IP and 30 per IP within 15 minutes – spellings like `FIRMA\admin`, `x\admin` or `admin@firma.local` count together.
 - **Sign-out when idle:** without mouse or keyboard input the session ends after 30 minutes (adjustable 5–720 minutes under Settings → Connection & Accounts; it cannot be turned off). Input in a remote session counts, automatic refreshes of open pages do not. A notice appears shortly before; open remote sessions are ended as well.
 - **Changing the repository server:** whoever changes the server or share of the repository confirms this with the password of the access account – so the stored credentials never go to a mistyped or foreign server. Subfolders of the same share and mounted folders (`/repo`) need no confirmation.
 - **Container without root:** the service runs as user `pocketknife` (UID 10001, `PK_UID`/`PK_GID`), with a read-only program file system, without capabilities and with `no-new-privileges`. On start, `/data` and `/backup` are handed over to it once. A mounted repository folder must be readable for it.

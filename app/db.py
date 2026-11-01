@@ -427,11 +427,27 @@ class tx:
         return self
 
     def __exit__(self, et, ev, tb):
+        # 2.36.3 (Audit): schlägt COMMIT fehl (z. B. Datenträger voll), bliebe die Transaktion auf der Verbindung dieses
+        # Threads offen – jedes weitere BEGIN des (langlebigen) Threads scheiterte dann. ROLLBACK nur, wenn noch eine
+        # Transaktion offen ist, und nie so, dass es den eigentlichen Fehler verdeckt.
+        c = conn()
         if et is None:
-            conn().execute("COMMIT")
+            try:
+                c.execute("COMMIT")
+            except Exception:
+                _rollback(c)
+                raise
         else:
-            conn().execute("ROLLBACK")
+            _rollback(c)
         return False
+
+
+def _rollback(c):
+    if c.in_transaction:
+        try:
+            c.execute("ROLLBACK")
+        except sqlite3.Error:
+            pass
 
 
 # Spalten, die in späteren Versionen hinzugekommen sind (Tabelle, Spalte, Typ)

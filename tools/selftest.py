@@ -6880,6 +6880,153 @@ def _():
             assert "AGPL-3.0-only" in rd(f) and "(LICENSE)" in rd(f)
 
 
+
+@test("2.36.3 Audit: Direktaktionen (Dateien, Dienste, Tools, Speicherplatz, Fernsteuerung, Neustart …) nie unter einer Adresse, die die Identitätsprüfung als fremd markiert hat")
+def _():
+    from app import actions, presence, remote_desktop, tools
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+    old = db.setting("identity_check")
+    cid = db.ex("INSERT INTO computers(name, dns_name, addr_problem, addr_detail) VALUES('PC-AUD363', 'fs01.firma.local', 'other', "
+                "'Unter 10.0.10.5 antwortet „FS01“ statt PC-AUD363')")
+    try:
+        db.set_setting("identity_check", 1)
+        must_fail(actions._host, cid, contains="FS01")
+        try:
+            clientfiles._host(cid)
+            raise AssertionError("Dateien: kein Fehler")
+        except clientfiles.FileError as e:
+            assert "Nicht ausgeführt" in str(e)
+        c = db.q1("SELECT * FROM computers WHERE id=?", (cid,))
+        must_fail(tools.run, {"id": 1, "repo_path": "", "script": "x", "type": "cmd", "run_as": "service"}, cid, contains="Nicht ausgeführt")
+        must_fail(diskusage.start, cid, "C:\\", 2, "test", contains="Nicht ausgeführt")
+        must_fail(remote_desktop.prepare, c, {"username": "haupt"}, "x", {"protocol": "rdp", "auth": "manual", "username": "a"},
+                  contains="Nicht ausgeführt")
+        # nur id übergeben (ohne Spalten): Vermerk wird nachgelesen
+        must_fail(presence.direct_host, {"id": cid, "name": "PC-AUD363", "dns_name": "fs01.firma.local"}, contains="FS01")
+        # Prüfung aus: alter Vermerk gilt nicht mehr; ohne Vermerk die normale Adresse
+        db.set_setting("identity_check", 0)
+        assert actions._host(cid)[1] == "fs01.firma.local"
+        db.set_setting("identity_check", 1)
+        db.ex("UPDATE computers SET addr_problem=NULL, addr_detail=NULL WHERE id=?", (cid,))
+        assert actions._host(cid)[1] == "fs01.firma.local"
+        # Alle Direktwege benutzen die Prüfung (Quelltext)
+        rd = lambda f: open(os.path.join(root, "app", f), encoding="utf-8").read()  # noqa: E731
+        mn = rd("main.py")
+        assert 'remote.ps(presence.direct_host(c), cmds[act])' in mn, "Neustart/Herunterfahren/gpupdate"
+        assert 'remote.ps(presence.direct_host(c), script)' in mn, "Scanner testen"
+        assert "host = presence.direct_host(c)\n    except ValueError as e:\n        _err(e)\n    if not remote.is_online(host)[1]" in mn, "angemeldete Benutzer"
+        assert "presence.direct_host(c)" in rd("toast.py") and "presence.direct_host(c)" in rd("kiosk.py")
+        assert 'remote.ps(c["dns_name"] or c["name"], script, timeout=seconds)' not in rd("clientfiles.py"), "Dateisuche über _host"
+    finally:
+        db.set_setting("identity_check", old)
+        db.ex("DELETE FROM computers WHERE id=?", (cid,))
+
+
+@test("2.36.3 Audit: Lade-Ausweichweg von PK-RunPs1 verdoppelt auch typografische Apostrophe; .env-Kopie in update.sh nie für andere lesbar")
+def _():
+    import re as _re
+    from app import remote
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+    w = remote.WRAPPER
+    assert '.Replace("\'", "\'\'")' not in w, "nur ASCII-Apostroph verdoppelt"
+    m = _re.search(r'\$pkApo = "(\[[^"]+\])"', w)
+    assert m and "-replace $pkApo, '$0$0'" in w
+    # Gleiche Wirkung wie util.psq (PowerShell-Regex ≙ Python-Regex für diese Klasse)
+    pat = m.group(1).replace("\\u2018", "\u2018").replace("\\u201B", "\u201b")
+    for name in ("C:\\Pakete\\Mike’s Setup.ps1", "C:\\a'b‚c‛d‘e.ps1"):
+        assert "'" + _re.sub(pat, lambda x: x.group(0) * 2, name) + "'" == util.psq(name)
+    us = os.path.join(root, "update.sh")
+    if os.path.exists(us):  # im Image liegt update.sh nicht
+        t = open(us, encoding="utf-8").read()
+        assert "( umask 077; rm -f .env.pk-alt; cp .env .env.pk-alt )" in t and "\n  cp .env .env.pk-alt" not in t
+
+
+@test("2.36.3 Audit: Kiosk-Anfragen mit Frist gelöscht (offene bleiben), Reste gelöschter Computer weg")
+def _():
+    from app import scheduler
+    old = db.setting("deployment_retention_days")
+    cid = db.ex("INSERT INTO computers(name) VALUES('PC-KR363')")
+    ids = {}
+    try:
+        db.set_setting("deployment_retention_days", 30)
+        alt, neu = util.ago(days=40), util.now()
+        for key, created, status, comp in (("alt_fertig", alt, "started", cid), ("alt_offen", alt, "pending", cid),
+                                           ("alt_start", alt, "starting", cid), ("neu", neu, "rejected", cid),
+                                           ("verwaist", neu, "pending", 987654)):
+            ids[key] = db.ex("INSERT INTO kiosk_requests(created_at, username, computer_id, status, action) VALUES(?,?,?,?,'install')",
+                             (created, "m.muster", comp, status))
+        scheduler._cleanup()
+        left = {r["id"] for r in db.q("SELECT id FROM kiosk_requests")}
+        assert ids["alt_fertig"] not in left and ids["verwaist"] not in left, left
+        assert {ids["alt_offen"], ids["alt_start"], ids["neu"]} <= left
+        db.set_setting("deployment_retention_days", 0)  # 0 = nie löschen
+        db.ex("UPDATE kiosk_requests SET status='success' WHERE id=?", (ids["alt_offen"],))
+        scheduler._cleanup()
+        assert db.val("SELECT 1 FROM kiosk_requests WHERE id=?", (ids["alt_offen"],))
+    finally:
+        db.set_setting("deployment_retention_days", old)
+        db.ex("DELETE FROM kiosk_requests WHERE username='m.muster'")
+        db.ex("DELETE FROM computers WHERE id=?", (cid,))
+
+
+@test("2.36.3 Audit: db.tx – fehlgeschlagenes COMMIT lässt keine offene Transaktion zurück; Download des winget-Index begrenzt")
+def _():
+    import io
+    c = db.conn()
+    c.execute("CREATE TABLE IF NOT EXISTS t363_p(id INTEGER PRIMARY KEY)")
+    c.execute("CREATE TABLE IF NOT EXISTS t363_c(pid INTEGER REFERENCES t363_p(id) DEFERRABLE INITIALLY DEFERRED)")
+    try:
+        try:
+            with db.tx():
+                db.ex("INSERT INTO t363_c(pid) VALUES(4711)")  # Fremdschlüssel erst beim COMMIT geprüft → COMMIT scheitert
+            raise AssertionError("COMMIT hätte scheitern müssen")
+        except Exception as e:  # noqa: BLE001
+            assert "FOREIGN KEY" in str(e).upper(), e
+        assert not c.in_transaction, "Transaktion blieb offen"
+        with db.tx():
+            db.ex("INSERT INTO t363_p(id) VALUES(1)")
+        assert db.val("SELECT COUNT(*) FROM t363_p") == 1 and db.val("SELECT COUNT(*) FROM t363_c") == 0
+        # Fehler im Block: ROLLBACK, ursprünglicher Fehler bleibt sichtbar
+        try:
+            with db.tx():
+                db.ex("INSERT INTO t363_p(id) VALUES(2)")
+                raise KeyError("eigentlicher Fehler")
+        except KeyError:
+            pass
+        assert db.val("SELECT COUNT(*) FROM t363_p") == 1 and not c.in_transaction
+    finally:
+        c.execute("DROP TABLE IF EXISTS t363_c")
+        c.execute("DROP TABLE IF EXISTS t363_p")
+    out = io.BytesIO()
+    assert winget._copy_limited(io.BytesIO(b"x" * 3000), out, limit=3000) == 3000 and len(out.getvalue()) == 3000
+    must_fail(winget._copy_limited, io.BytesIO(b"x" * 3001), io.BytesIO(), 3000, contains="unplausibel groß")
+    src = open(winget.__file__, encoding="utf-8").read()
+    assert "_copy_limited(r, f)" in src and "shutil.copyfileobj(r, f)" not in src
+
+
+@test("2.36.3 Audit: OU-Admins sehen in Computer → Sammlungen und in der Scanprofil-Liste keine fremden Sammlungen/Computer")
+def _():
+    from app import access, main as _m, profiles
+    ou = {"username": "ou363", "scope": [1]}
+    o_vis, o_mem, o_ids, o_all = _m._visible_collections, _m._member_collections, access.computer_ids, profiles.all_profiles
+    try:
+        _m._member_collections = lambda cid: [{"id": 11, "name": "Eigene"}, {"id": 22, "name": "Kunde B"}]
+        _m._visible_collections = lambda user, *a, **k: None if not user.get("scope") else {11}
+        assert [c["id"] for c in _m.api_computer_category(1, "collections", ou)] == [11]
+        assert [c["id"] for c in _m.api_computer_category(1, "collections", {"username": "h", "scope": None})] == [11, 22]
+        access.computer_ids = lambda user: {1} if user.get("scope") else None
+        profiles.all_profiles = lambda: [{"id": 99, "name": "P", "collections": [profiles.ALL_COMPUTERS, 11, 22],
+                                          "computers": [1, 2, 3], "triggers": []}]
+        p = _m.api_profiles(ou)["profiles"][0]
+        assert p["computers"] == [1] and p["collections"] == [profiles.ALL_COMPUTERS, 11], p
+        n_all = db.val("SELECT COUNT(*) FROM computers")
+        assert p["members"] <= 1, "Zähler nur über den eigenen Bereich"
+        h = _m.api_profiles({"username": "h", "scope": None})["profiles"][0]
+        assert h["computers"] == [1, 2, 3] and h["members"] == n_all
+    finally:
+        _m._visible_collections, _m._member_collections, access.computer_ids, profiles.all_profiles = o_vis, o_mem, o_ids, o_all
+
+
 def main():
     ok = 0
     for name, fn in RESULTS:
