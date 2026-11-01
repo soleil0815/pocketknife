@@ -380,7 +380,8 @@ def ps_variables(c):
 def ps_tool_winrm(script, workdir=None):
     """PowerShell-Tool direkt per WinRM. 2.38: das Skript läuft als Datei (& datei.ps1) – so beendet „exit N“ nur das
     Skript und kommt als Exitcode an, ebenso der Exitcode eines zuletzt fehlgeschlagenen Programms ($LASTEXITCODE).
-    Erzwingt eine Gruppenrichtlinie AllSigned/Restricted, läuft es wie bisher direkt (dann ohne „exit N“).
+    Erzwingt eine Gruppenrichtlinie AllSigned/Restricted oder sperrt Softwareeinschränkung/AppLocker Skripte in %TEMP%
+    (2.38.1: ein Probeskript zeigt es vorher), läuft es wie bisher direkt (dann ohne „exit N“).
     Ohne .NET-Aufrufe (Constrained Language Mode). Fehler zählen nur, wenn sie tatsächlich ausgegeben werden – mit
     -ErrorAction SilentlyContinue unterdrückte Fehler landen zwar in $Error, sind aber gewollt."""
     fmt = ("*>&1 | ForEach-Object { if ($_ -is [System.Management.Automation.ErrorRecord]) { $global:pkErr = 1 }; $_ }"
@@ -390,8 +391,14 @@ def ps_tool_winrm(script, workdir=None):
             + "$pkF = Join-Path $env:TEMP ('pk_tool_' + [guid]::NewGuid().ToString('N') + '.ps1')\n"
             + util.ps_write("$pkF", script)
             + "try { Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force -ErrorAction Stop } catch {}\n"
+            # 2.38.1: darf hier überhaupt ein Skript aus %TEMP% laufen? (Softwareeinschränkung/AppLocker nach Pfad)
+            + "$pkP = Join-Path $env:TEMP ('pk_probe_' + [guid]::NewGuid().ToString('N') + '.ps1')\n"
+            + util.ps_write("$pkP", "'PKPROBE'")
+            + "$pkFileOk = $false\n"
+            + "try { $pkFileOk = @(& $pkP 2>$null) -contains 'PKPROBE' } catch {}\n"
+            + "Remove-Item -LiteralPath $pkP -Force -ErrorAction SilentlyContinue\n"
             + "$global:LASTEXITCODE = 0\n"
-            + "if (@('Restricted', 'AllSigned') -contains [string](Get-ExecutionPolicy)) {\n"
+            + "if (-not $pkFileOk -or @('Restricted', 'AllSigned') -contains [string](Get-ExecutionPolicy)) {\n"
             + "  & {\n" + script + "\n} " + fmt + "\n"
             + "} else {\n  & $pkF " + fmt + "\n}\n"
             + "$pkCode = $LASTEXITCODE\n"
