@@ -601,10 +601,27 @@ function table(cols, rows, opt = {}) {
       const id = idOf(r);
       const tr = h('tr', { class: (opt.onRow ? 'clickable ' : '') + (st.sel.has(id) ? 'selected' : '') });
       if (opt.selectable) {
-        tr.appendChild(h('td.chk', h('input', {
+        const cb = h('input', {
           type: 'checkbox', checked: st.sel.has(id),
           onclick: (e) => { e.stopPropagation(); if (e.target.checked) st.sel.add(id); else st.sel.delete(id); st.anchor = idx; tr.classList.toggle('selected', e.target.checked); selChanged(); updateCount(list); },
-        })));
+        });
+        // 2.38.3: Die ganze Zelle schaltet das Kästchen um. Ziehbare Zeilen (Computer → Sammlung): beim Drücken auf
+        // die Zelle nicht ziehen – sonst schluckte schon eine kleine Mausbewegung (Touchpad, Fernsitzung) den Klick
+        // und das Kästchen blieb unverändert.
+        // Losgelassen außerhalb der Zelle: der Klick geht an die Zeile – auch dann nur das Kästchen umschalten.
+        let chkDown = false;
+        const cell = h('td.chk', {
+          onclick: (e) => { if (e.target !== cb) { e.stopPropagation(); cb.click(); } },
+          onmousedown: (e) => {
+            if (e.button !== 0) return;
+            chkDown = true;
+            const drag = tr.draggable;
+            tr.draggable = false;
+            document.addEventListener('mouseup', () => { tr.draggable = drag; setTimeout(() => { chkDown = false; }, 0); }, { once: true, capture: true });
+          },
+        }, cb);
+        tr.pkChk = () => { if (!chkDown) return false; chkDown = false; cb.click(); return true; };
+        tr.appendChild(cell);
       }
       for (const c of vcols) {
         const v = c.render ? c.render(r) : val(c, r);
@@ -618,6 +635,7 @@ function table(cols, rows, opt = {}) {
       if (opt.selectable) {
         // Wie im Explorer: Klick wählt aus (Strg = hinzufügen, Umschalt = Bereich), Doppelklick öffnet
         tr.addEventListener('click', (e) => {
+          if (tr.pkChk && tr.pkChk()) return;
           if (e.target.closest('button,a,input,select')) return;
           if (e.shiftKey && st.anchor !== null) {
             const [a, b] = [Math.min(st.anchor, idx), Math.max(st.anchor, idx)];

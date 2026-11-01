@@ -172,6 +172,7 @@ tbody tr:hover { background: var(--panel-2); }
 tbody tr.clickable { cursor: pointer; }
 tbody tr.selected { background: var(--sel); }
 td.chk, th.chk { width: 30px; padding-right: 0; }
+td.chk { cursor: pointer; }
 td.wrap { white-space: normal; word-break: break-word; min-width: 220px; }
 td.trunc { max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tbl-foot { padding: 6px 12px; color: var(--muted); font-size: 12px; display: flex; gap: 10px; align-items: center; border-top: 1px solid var(--line-2); background: var(--panel); }

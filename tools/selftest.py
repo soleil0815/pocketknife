@@ -7365,6 +7365,21 @@ def _():
         assert "******** (verborgen)" in out and "68" not in out and "5900" in out and "a; b" in out, out
 
 
+
+@test("2.38.3 Tabellen: Auswahlkästchen schaltet zuverlässig um (ziehbare Zeilen schlucken den Klick nicht)")
+def _():
+    js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
+    i = js.index("const cell = h('td.chk', {")
+    blk = js[i:i + 900]
+    # Drücken auf die Kästchen-Zelle: Zeile vorübergehend nicht ziehbar (sonst startet bei kleiner Bewegung ein Ziehen)
+    assert "tr.draggable = false" in blk and "tr.draggable = drag" in blk and "'mouseup'" in blk, blk
+    # Klick auf den Rand der Zelle schaltet das Kästchen um
+    assert "if (e.target !== cb) { e.stopPropagation(); cb.click(); }" in blk, blk
+    # Losgelassen außerhalb der Zelle: die Zeile wählt nicht „nur diese“ aus, sondern schaltet das Kästchen um
+    j = js.index("tr.addEventListener('click', (e) => {", i)
+    assert js[j:j + 120].split("\n")[1].strip() == "if (tr.pkChk && tr.pkChk()) return;", js[j:j + 120]
+
+
 def main():
     ok = 0
     for name, fn in RESULTS:

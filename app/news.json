@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.38.3",
+   "date": "2026-11-01",
+   "items": [
+    {
+     "kind": "fixed",
+     "audience": "all",
+     "de": "Listen: Ein Klick auf das Auswahlkästchen schaltet jetzt zuverlässig um – auch mit Touchpad oder in einer Fernsitzung.",
+     "en": "Lists: clicking a row's checkbox now reliably toggles it – also with a touchpad or in a remote session."
+    }
+   ]
+  },
+  {
    "version": "2.38.2",
    "date": "2026-11-01",
    "items": [
