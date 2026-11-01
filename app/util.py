@@ -146,10 +146,35 @@ def like_pattern(value, mode="contains"):
     return v
 
 
-# Kodierung für .cmd-Dateien: cmd.exe liest Batchdateien in der Codepage der Konsole. Der Wrapper stellt die
-# Konsole auf UTF-8 um, über WinRM ohne Konsole gilt die OEM-Codepage – daher zur Laufzeit ermitteln (UTF-8 ohne BOM).
-PS_CMD_ENCODING = ("$(try { $pkE = [Console]::OutputEncoding; if ($pkE.CodePage -eq 65001) { New-Object System.Text.UTF8Encoding $false } "
-                   "else { $pkE } } catch { [System.Text.Encoding]::GetEncoding([System.Globalization.CultureInfo]::CurrentCulture.TextInfo.OEMCodePage) })")
+# 2.38: %VAR% auflösen ohne [Environment]::ExpandEnvironmentVariables (im Constrained Language Mode nicht erlaubt).
+# Unbekannte Variablen bleiben stehen (wie unter Windows).
+PS_EXPAND = r"""function PK-Exp([string]$s) {
+  $o = ''
+  while ($s -match '^([^%]*)%([^%]+)%(.*)$') {
+    $pre = $Matches[1]; $n = $Matches[2]; $rest = $Matches[3]
+    $v = Get-Item -LiteralPath ('env:' + $n) -ErrorAction SilentlyContinue
+    if ($v) { $o += $pre + $v.Value; $s = $rest } else { $o += $pre + '%' + $n; $s = '%' + $rest }
+  }
+  $o + $s
+}
+"""
+
+
+def ps_write(path_expr, text, cmd=False):
+    """2.38: PowerShell-Code, der text in eine Datei schreibt – ohne .NET-Aufrufe, also auch im Constrained Language
+    Mode (Softwareeinschränkung, AppLocker, App Control). path_expr: PowerShell-Ausdruck für den Pfad.
+    Skripte (.ps1): UTF-8 mit BOM (Windows PowerShell liest Umlaute dann richtig).
+    cmd=True (.cmd): cmd.exe liest Batchdateien in der Codepage der Konsole – UTF-8 ohne BOM, wenn die Konsole auf 65001
+    steht (Bytes fertig aus POCKET KNIFE, ein BOM stünde sonst vor „@echo off“), sonst die OEM-Codepage."""
+    t = str(text or "")
+    if not cmd:
+        return f"Set-Content -LiteralPath ({path_expr}) -Value {psq(t)} -Encoding UTF8 -NoNewline\n"
+    raw = t.encode("utf-8")
+    by = ",".join(str(b) for b in raw) if raw else ""
+    utf8 = f"Set-Content -LiteralPath ({path_expr}) -Encoding Byte -Value ([byte[]]@({by}))" if raw else \
+        f"Set-Content -LiteralPath ({path_expr}) -Value '' -NoNewline"
+    return (f"if ((& chcp.com) -match '65001') {{ {utf8} }} "
+            f"else {{ Set-Content -LiteralPath ({path_expr}) -Value {psq(t)} -Encoding Oem -NoNewline }}\n")
 
 
 def first_line(text, default=""):

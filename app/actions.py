@@ -92,7 +92,7 @@ function D($d) { if ($d) { try { ([datetime]$d).ToString('yyyy-MM-dd HH:mm:ss') 
 try { $pl = Get-Process -IncludeUserName -ErrorAction Stop } catch { $pl = Get-Process }
 'PKJSON:' + (ConvertTo-Json -Depth 3 -Compress -InputObject @($pl | Sort-Object ProcessName | ForEach-Object { [ordered]@{
   name = $_.ProcessName; pid = $_.Id; user = $_.UserName; memory = [int64]$_.WorkingSet64
-  cpu_s = $(if ($_.CPU) { [math]::Round($_.CPU, 1) } else { $null }); start = $(try { D $_.StartTime } catch { $null })
+  cpu_s = $(if ($_.CPU) { [int]($_.CPU * 10) / 10 } else { $null }); start = $(try { D $_.StartTime } catch { $null })
   path = $(try { $_.Path } catch { $null }); company = $(try { $_.Company } catch { $null }) } }))
 """
 

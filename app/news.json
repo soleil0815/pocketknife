@@ -2,6 +2,24 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.38.0",
+   "date": "2026-11-01",
+   "items": [
+    {
+     "kind": "new",
+     "audience": "admin",
+     "de": "Gehärtete Clients (Softwareeinschränkung, AppLocker, App Control): Bereitstellungen, Registry-Schritte, Tools und Inventar laufen jetzt auch im eingeschränkten PowerShell-Modus.",
+     "en": "Hardened clients (software restriction, AppLocker, App Control): deployments, registry steps, tools and inventory now also work in constrained PowerShell mode."
+    },
+    {
+     "kind": "fixed",
+     "audience": "admin",
+     "de": "Tools als Dienstkonto melden „exit N“ jetzt als Exitcode.",
+     "en": "Tools run as the service account now report \"exit N\" as the exit code."
+    }
+   ]
+  },
+  {
    "version": "2.37.0",
    "date": "2026-11-01",
    "items": [

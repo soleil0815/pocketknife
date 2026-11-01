@@ -363,11 +363,14 @@ def _():
     assert "'=cmd" in out and "' =1+1" in out
 
 
-@test("2.13 Eigene PowerShell-Scanner: ein Syntaxfehler betrifft nur diesen Scanner (Code als Base64)")
+@test("2.13 Eigene PowerShell-Scanner: ein Syntaxfehler betrifft nur diesen Scanner (2.38: Text-Literal + Invoke-Expression)")
 def _():
     from app import scanners
     body = scanners._body({"type": "powershell", "target": "if ($true) { 'kaputt' ", "extra": "{}"})
-    assert "FromBase64String" in body and "kaputt" not in body
+    # 2.38: kein [ScriptBlock]::Create/Base64 (Constrained Language Mode) – der Code steht als Text-Literal, übersetzt wird
+    # erst zur Laufzeit in try/catch
+    assert "[ScriptBlock]::Create" not in body and "FromBase64String" not in body
+    assert "$pkCode = 'if ($true) { ''kaputt'' '" in body and "try { Invoke-Expression $pkCode" in body
 
 
 @test("2.13 Tools: javascript:-URLs und unkodierte Werte in URL-Tools werden verhindert")
@@ -1838,7 +1841,9 @@ def _():
     script, data = toast.build_send_script([("installed", evil, "1")])
     assert evil not in script and "Remove-Item C:" not in script and "ProgramData" not in script
     assert "Join-Path $env:ProgramFiles 'PocketKnife'" in script, "Anzeigeskript nur dort, wo Benutzer nichts ändern können"
-    inner = _b.b64decode(script.split("FromBase64String('")[2].split("'")[0]).decode("utf-8")
+    from app import util as _u
+    assert _u.psq(toast.USER_PS) in script, "2.38: Anzeigeskript als Text-Literal (Set-Content statt .NET)"
+    inner = toast.USER_PS
     assert evil not in inner and "ConvertFrom-Json" in inner and "SecurityElement]::Escape" in inner and "param([string]$Data, [string]$Rid)" in inner
     assert "GetHistory" in inner and "Done 10" in inner, "prüft, ob Windows die Meldung angenommen hat; sonst Absender Windows PowerShell"
     assert "PK_TOAST:res:" in script and toast.results("PK_TOAST:res:FIRMA\\max:2\n")[0][1] is False
@@ -1887,7 +1892,8 @@ def _():
     script, _d = toast.build_send_script([("installed", "7-Zip", "26.00")])
     i_enc = script.index("-EncodedCommand"); i_file = script.index("-WindowStyle Hidden -File")
     blk = script[script.index("function Action"):script.index("$set = New-ScheduledTaskSettingsSet")]
-    assert "if ($pol -eq 'AllSigned' -or $pol -eq 'Restricted')" in blk and "} else {" in blk and i_enc < i_file
+    assert "if (($pol -eq 'AllSigned' -or $pol -eq 'Restricted') -and $ExecutionContext.SessionState.LanguageMode -eq 'FullLanguage')" in blk \
+        and "} else {" in blk and i_enc < i_file
     assert "EnableScripts" in script and "HKEY_USERS" in script
     u = toast.USER_PS
     assert u.startswith("param([string]$Data, [string]$Rid)") and "function Done([int]$c)" in u and "trap { Done 1 }" in u
@@ -1949,7 +1955,10 @@ def _():
     assert "CreateSubKey('Software\\PocketKnife\\Toast')" in u and "New-Item -Path $rk" not in u
     assert "if (-not (Test-Path $k)) { New-Item -Path $k -Force" in u, "Absender-Schlüssel nie neu anlegen (leeren)"
     sc = toast.build_send_script([("installed", "7-Zip", "26.00")])[0]
-    assert "$have -cne $code" in sc and "$hv -cne" in sc, "Groß-/Kleinschreibung zählt beim Vergleich des Skripts"
+    # 2.38: Vergleich über SHA-256 der Datei (auch reine Groß-/Kleinschreibungs-Änderungen), ohne .NET
+    import hashlib as _hl
+    assert "$have -ne '" + _hl.sha256(b"\xef\xbb\xbf" + toast.USER_PS.encode("utf-8")).hexdigest().upper() + "'" in sc
+    assert "$hv -ne '" in sc and "Get-FileHash" in sc and "[IO.File]" not in sc.split("function Action")[0]
     assert "ToString('yyMMddHHmm')" in sc and "AddMinutes(-30)" in sc and ":14'" in sc
     res = toast.results("PK_TOAST:res:A\\x:13\nPK_TOAST:res:B\\y:14\nPK_TOAST:res:C\\z:-2147023570\nPK_TOAST:res:D\\w:0\n")
     assert [o for _u, o, _t in res] == [False, False, False, True] and "Code -2147023570" in res[2][2]
@@ -7229,6 +7238,88 @@ def _try_lock(wc_, eid):
         return True
     except wc_.CacheError:
         return False
+
+
+@test("2.38 Constrained Language Mode (Softwareeinschränkung, AppLocker, App Control): Client-PowerShell ohne gesperrte .NET-Aufrufe; mit PK_PWSH echt im eingeschränkten Modus ausgeführt")
+def _():
+    import re as _re
+    import subprocess as _sp
+    from app import deploy, diskusage, remote, scanners, steps, toast, tools, util as _u
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+    st_cmd = steps.normalize({"name": "x", "steps": {"main": [{"type": "command", "command": "echo Grüße 'x'"}]}})["steps"]["main"][0]
+    st_ps = steps.normalize({"name": "x", "steps": {"main": [{"type": "powershell", "script": "'a'"}]}})["steps"]["main"][0]
+    st_reg = steps.normalize({"name": "x", "steps": {"main": [{"type": "registry", "view": "32", "entries": [
+        {"action": "set", "path": "HKLM\\SOFTWARE\\Firma", "name": "N", "kind": "REG_DWORD", "data": "4294967295"},
+        {"action": "set", "path": "HKLM\\SOFTWARE\\Firma", "name": "Q", "kind": "REG_QWORD", "data": "18446744073709551615"}]}]}})["steps"]["main"][0]
+    st_fc = steps.normalize({"name": "x", "steps": {"main": [{"type": "filecopy", "source": "a", "target": "%ProgramData%\\Firma"}]}})["steps"]["main"][0]
+    cond = steps.clean_conditions({"files": [{"path": "%SystemDrive%\\x.txt", "mode": "exists"}]})
+    scripts = {
+        "WRAPPER": remote.WRAPPER, "REGISTER": remote.REGISTER, "START_DIRECT": remote.START_DIRECT, "POLL": remote.POLL,
+        "CLEANUP": remote.CLEANUP, "cmd": steps.body_for(st_cmd, {}), "ps": steps.body_for(st_ps, {}), "reg": steps.body_for(st_reg, {}),
+        "filecopy": steps.body_for(st_fc, {}), "cond": steps.cond_script(cond),
+        "winget": deploy._winget_body({"type": "winget", "winget_id": "7zip.7zip", "winget_action": "install"}),
+        "scan_reg": scanners._body({"type": "registry", "target": "HKLM:\\SOFTWARE\\Firma", "extra": "{}"}),
+        "scan_files": scanners._body({"type": "files", "target": "%SystemDrive%\\Users\\**\\*.log", "extra": "{}"}),
+        "scan_ps": scanners._body({"type": "powershell", "target": "Get-Date", "extra": "{}"}),
+        "tool_ps": tools.ps_tool_winrm("'x'; exit 3"), "tool_cmd": tools._cmd_ps("echo x"),
+        # Einrichtung (SYSTEM per WinRM) – ohne das Anzeigeskript selbst: das läuft beim Benutzer aus „Programme“
+        "toast_setup": toast.build_send_script([("installed", "7-Zip", "26.00")])[0].replace(_u.psq(toast.USER_PS), "''").split("function Action")[0],
+        "modules": open(os.path.join(root, "app", "scan_modules.ps1"), encoding="utf-8").read(),
+    }
+    # Im eingeschränkten Modus gesperrt: nur erlaubt in Zeilen, die selbst auf FullLanguage prüfen
+    bad = _re.compile(r"FromBase64String|\[ScriptBlock\]::Create|\[Environment\]::|\[BitConverter\]|::TryParse|\[math\]::|"
+                      r"\[pscustomobject\]|WriteAllText|WriteAllBytes|ReadAllText|\[regex\]::Replace|IsInRole|\[Convert\]::", _re.I)
+    for name, txt in scripts.items():
+        for ln in txt.splitlines():
+            if bad.search(ln) and "FullLanguage" not in ln and not ln.lstrip().startswith("#"):
+                raise AssertionError(f"{name}: im Constrained Language Mode gesperrt: {ln.strip()[:160]}")
+    # Add-Type/.NET-Registry/ADSI nur hinter einer Prüfung des Sprachmodus
+    m = scripts["modules"]
+    assert "if (-not $pkFull) { throw 'CLM' }" in m and m.index("if (-not $pkFull)") < m.index("Add-Type -ErrorAction")
+    assert "Get-CimAssociatedInstance -InputObject $grp -Association Win32_GroupUser" in m and "$k.GetValue(" not in m
+    assert "if ($ExecutionContext.SessionState.LanguageMode -ne 'FullLanguage') {\n    try { PK-RegClm" in scripts["reg"]
+    assert "([int]-1)" in scripts["reg"] and "([long]-1)" in scripts["reg"], "DWORD/QWORD schon umgerechnet"
+    assert "LanguageMode -ne 'FullLanguage') {{ 'PKERR:'" not in diskusage._script("C:\\", 2) and "'PKERR:' + " in diskusage._script("C:\\", 2)
+    assert "S-1-16-12288" in scripts["winget"] and "S-1-16-12288" in open(os.path.join(root, "app", "remote.py"), encoding="utf-8").read()
+    # Schreiben ohne .NET: Inhalt steht als Text-Literal im Aufruf (kein Base64)
+    assert _u.ps_write("$f", "a'b") == "Set-Content -LiteralPath ($f) -Value 'a''b' -Encoding UTF8 -NoNewline\n"
+    w = _u.ps_write("$f", "@echo off\r\nä", cmd=True)
+    assert "-Encoding Byte -Value ([byte[]]@(64,101,99,104,111,32,111,102,102,13,10,195,164))" in w and "-Encoding Oem" in w
+    pw = os.environ.get("PK_PWSH")
+    if not pw or not os.path.exists(pw):
+        return
+    d = tempfile.mkdtemp(prefix="pk-clm-", dir=TMP)
+
+    def run(code, clm=True):
+        f = os.path.join(d, "t.ps1")
+        open(f, "w", encoding="utf-8").write(("$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'\n" if clm else "") + code)
+        r = _sp.run([pw, "-NoProfile", "-NonInteractive", "-File", f], capture_output=True, text=True, timeout=120,
+                    env={**os.environ, "TEMP": d, "PKTEST": "wert"})
+        return r.stdout + r.stderr
+    # Syntax aller erzeugten Skripte (Parser der echten PowerShell)
+    for name, txt in scripts.items():
+        pf = os.path.join(d, name + ".ps1")
+        open(pf, "w", encoding="utf-8").write(txt)
+        out = run(f"$e = $null; [void][System.Management.Automation.Language.Parser]::ParseFile({_u.psq(pf)}, [ref]$null, [ref]$e); "
+                  "if ($e) { $e | ForEach-Object { 'PARSEFEHLER: ' + $_.Message + ' Zeile ' + $_.Extent.StartLineNumber } }", clm=False)
+        assert "PARSEFEHLER" not in out, (name, out[:600])
+    # %VAR% auflösen, Datei schreiben, Werte lesen – im eingeschränkten Modus
+    out = run(_u.PS_EXPAND + "PK-Exp 'a%PKTEST%b%NIX%c'\n" + _u.ps_write(_u.psq(os.path.join(d, "o.txt")), "Grüße 'x' ‘y’")
+              + f"Get-Content -LiteralPath {_u.psq(os.path.join(d, 'o.txt'))} -Encoding UTF8")
+    assert "awertb%NIX%c" in out and "Grüße 'x' ‘y’" in out and "language mode" not in out.lower(), out
+    # Eigener PowerShell-Scanner: Ausgabe und Syntaxfehler (nur dieser Scanner)
+    out = run("function PKO($o) { $o }\n$r = & {" + scanners._body({"type": "powershell", "target": "'eins'; 2", "extra": "{}"}) + "}\n$r | ConvertTo-Json -Compress")
+    assert '"value":"eins"' in out.replace(" ", "") and "language mode" not in out.lower(), out
+    out = run("function PKO($o) { $o }\n$r = & {" + scanners._body({"type": "powershell", "target": "if ($true) { 'x' ", "extra": "{}"}) + "}\n$r | ConvertTo-Json -Compress")
+    assert "fehler" in out and "language mode" not in out.lower(), out
+    # Tool per WinRM: „exit N“ und Exitcode eines Programms kommen an
+    assert "PKEXIT:3" in run(tools.ps_tool_winrm("'x'; exit 3")) and "PKEXIT:0" in run(tools.ps_tool_winrm("'ok'"))
+    out = run(tools.ps_tool_winrm("Get-Item -LiteralPath '/gibt/es/nicht'"))
+    assert "PKEXIT:1" in out, out
+    # Registry-Pfade für die Cmdlets (32-Bit-Ansicht nur unter HKLM\\SOFTWARE umgeleitet)
+    out = run(steps.REG_FUNCS + "PK-RegPath 'HKLM' 'SOFTWARE\\Firma' '32'; PK-RegPath 'HKLM' 'SYSTEM\\X' '32'; PK-RegPath 'HKCU' 'Software\\A' '64'")
+    assert "Registry::HKEY_LOCAL_MACHINE\\SOFTWARE\\WOW6432Node\\Firma" in out and "Registry::HKEY_LOCAL_MACHINE\\SYSTEM\\X" in out \
+        and "Registry::HKEY_CURRENT_USER\\Software\\A" in out, out
 
 
 def main():

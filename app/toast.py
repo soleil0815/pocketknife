@@ -22,7 +22,7 @@ import os
 import re
 import threading
 
-from . import config, db, pklog, remote
+from . import config, db, pklog, remote, util
 
 APP_ID = "POCKETKNIFE.Softwareverteilung"  # Basis; je Absendername eine eigene ID (app_id), s. u.
 PS_APP_ID = r"{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell\v1.0\powershell.exe"
@@ -147,23 +147,22 @@ $ica = Join-Path $env:SystemRoot 'System32\icacls.exe'
 $acl = Get-Acl $dir
 # Schreibrecht für normale Benutzer (Jeder, Benutzer, Authentifizierte/Interaktive Benutzer, Domänen-Benutzer) → abbrechen
 $weak = @($acl.Access | Where-Object { $_.AccessControlType -eq 'Allow' -and
-  ($_.FileSystemRights.ToString() -match 'FullControl|Modify|Write|ChangePermissions|TakeOwnership') -and
+  ("$($_.FileSystemRights)" -match 'FullControl|Modify|Write|ChangePermissions|TakeOwnership') -and
   $(try { $sid = $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value } catch { $sid = '' }
     @('S-1-1-0', 'S-1-5-32-545', 'S-1-5-11', 'S-1-5-4') -contains $sid -or $sid -match '^S-1-5-21-.+-513$') })
 if ($weak) { throw ('Unsichere Rechte auf ' + $dir + ': ' + (($weak | ForEach-Object { $_.IdentityReference }) -join ', ')) }
 $ico = Join-Path $dir 'pk-ok.png'
-$icb = [Convert]::FromBase64String('__ICON__')
+# 2.38: ohne .NET-Aufrufe (Constrained Language Mode): Vergleich über die Prüfsumme, Schreiben mit Set-Content
 $hv = $null
-if (Test-Path $ico) { try { $hv = [Convert]::ToBase64String([IO.File]::ReadAllBytes($ico)) } catch {} }
-if ($hv -cne '__ICON__') { try { [IO.File]::WriteAllBytes($ico, $icb) } catch { if (-not (Test-Path $ico)) { throw } } }
+if (Test-Path $ico) { try { $hv = (Get-FileHash -LiteralPath $ico -Algorithm SHA256).Hash } catch {} }
+if ($hv -ne '__ICONHASH__') { try { Set-Content -LiteralPath $ico -Encoding Byte -Value ([byte[]]@(__ICONBYTES__)) } catch { if (-not (Test-Path $ico)) { throw } } }
 # Das Anzeigeskript liegt ebenfalls unter „Programme“ (Benutzer können es lesen, aber nicht ändern); die Meldung
 # selbst kommt nur als Daten (Base64-JSON) dazu
 $ps = Join-Path $dir 'pk-toast.ps1'
-$code = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('__SCRIPT__'))
 $have = $null
-if (Test-Path $ps) { try { $have = [IO.File]::ReadAllText($ps) } catch {} }
-if ($have -cne $code) {   # -cne: auch reine Groß-/Kleinschreibungs-Änderungen übernehmen
-  try { [IO.File]::WriteAllText($ps, $code, (New-Object Text.UTF8Encoding $true)) }
+if (Test-Path $ps) { try { $have = (Get-FileHash -LiteralPath $ps -Algorithm SHA256).Hash } catch {} }
+if ($have -ne '__SCRIPTHASH__') {   # Prüfsumme: auch reine Groß-/Kleinschreibungs-Änderungen werden übernommen
+  try { Set-Content -LiteralPath $ps -Value __SCRIPT__ -Encoding UTF8 -NoNewline }
   catch { if (-not (Test-Path $ps)) { throw } }   # gerade von einer zweiten Meldung in Gebrauch – vorhandenes nutzen
 }
 # Zeitstempel in der ID: liegengebliebene Rückmeldungen (Abbruch, Zeitüberschreitung) lassen sich später sicher aufräumen
@@ -188,7 +187,7 @@ function GpoPolicy($sid) {
 }
 function Action($sid, $rid) {
   $pol = GpoPolicy $sid
-  if ($pol -eq 'AllSigned' -or $pol -eq 'Restricted') {
+  if (($pol -eq 'AllSigned' -or $pol -eq 'Restricted') -and $ExecutionContext.SessionState.LanguageMode -eq 'FullLanguage') {
     $start = "& ([ScriptBlock]::Create([IO.File]::ReadAllText('" + ($ps -replace "'", "''") + "'))) '__DATA__' '" + $rid + "'; exit 1"
     $a0 = '-NoLogo -NonInteractive -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -EncodedCommand ' +
       [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($start))
@@ -269,12 +268,17 @@ try {
 """
 
 
-def _icon_b64():
+def _icon_bytes():
     try:
         with open(ICON, "rb") as fh:
-            return base64.b64encode(fh.read()).decode("ascii")
+            return fh.read()
     except OSError:
-        return ""
+        return b""
+
+
+def _user_ps_bytes():
+    """So, wie Set-Content -Encoding UTF8 die Datei schreibt (Windows PowerShell: mit BOM) – für den Prüfsummen-Vergleich."""
+    return b"\xef\xbb\xbf" + USER_PS.encode("utf-8")
 
 
 FOUND_RX = re.compile(r"(?:Found|Gefunden)\s+(.+?) \[([^\]]+)\] Version (\S+)")
@@ -373,9 +377,13 @@ def build_send_script(items):
             "icon": ICON_CLIENT, "title": title, "body": body}
     # Skript unter „Programme“ (nur Administratoren dürfen schreiben), Meldung nur als Base64-Daten im Aufruf
     b64 = base64.b64encode(json.dumps(data, ensure_ascii=False).encode("utf-8")).decode("ascii")
-    return (SEND_PS.replace("__ICON__", _icon_b64())
-            .replace("__SCRIPT__", base64.b64encode(USER_PS.encode("utf-8")).decode("ascii"))
-            .replace("__DATA__", b64)), data
+    ico = _icon_bytes()
+    out = (SEND_PS.replace("__ICONHASH__", hashlib.sha256(ico).hexdigest().upper())
+           .replace("__ICONBYTES__", ",".join(str(b) for b in ico))
+           .replace("__SCRIPTHASH__", hashlib.sha256(_user_ps_bytes()).hexdigest().upper())
+           .replace("__DATA__", b64))
+    # zuletzt: das Anzeigeskript als Text-Literal (sein Inhalt wird nicht mehr ersetzt)
+    return out.replace("__SCRIPT__", util.psq(USER_PS), 1), data
 
 
 def maybe_notify(c, host, p, runner):

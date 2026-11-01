@@ -50,7 +50,7 @@ SEED = [
      "service", 1, ""),
     ("WINDOWS UPDATE", "Update-Verlauf (letzte 20)", "powershell",
      "$s = New-Object -ComObject Microsoft.Update.Session\r\n$h = $s.CreateUpdateSearcher()\r\n$n = $h.GetTotalHistoryCount()\r\n"
-     "$h.QueryHistory(0, [Math]::Min(20, $n)) | Select-Object Date, Title, @{n='Ergebnis';e={switch($_.ResultCode){2{'OK'}3{'OK mit Fehlern'}4{'Fehler'}5{'Abgebrochen'}default{$_.ResultCode}}}} | Format-Table -AutoSize -Wrap",
+     "$h.QueryHistory(0, $(if ($n -lt 20) { $n } else { 20 })) | Select-Object Date, Title, @{n='Ergebnis';e={switch($_.ResultCode){2{'OK'}3{'OK mit Fehlern'}4{'Fehler'}5{'Abgebrochen'}default{$_.ResultCode}}}} | Format-Table -AutoSize -Wrap",
      "service", 0, ""),
     ("WINDOWS UPDATE", "Windows-Update-Dienste zurücksetzen", "powershell",
      "Stop-Service wuauserv, bits -Force\r\nRemove-Item \"$env:SystemRoot\\SoftwareDistribution\\Download\\*\" -Recurse -Force -ErrorAction SilentlyContinue\r\n"
@@ -60,15 +60,15 @@ SEED = [
      "Get-WinEvent -FilterHashtable @{LogName='Application'; Level=2; StartTime=(Get-Date).AddDays(-1)} -MaxEvents 50 -ErrorAction SilentlyContinue | "
      "Format-Table TimeCreated, ProviderName, Id, Message -AutoSize -Wrap", "service", 0, ""),
     ("SYSTEM", "CPU-Last (5 Sekunden)", "powershell",
-     "(Get-Counter '\\Processor(_Total)\\% Processor Time' -SampleInterval 1 -MaxSamples 5).CounterSamples | Format-Table Timestamp, @{n='CPU %';e={[math]::Round($_.CookedValue,1)}}\r\n"
-     "Get-Process | Sort-Object CPU -Descending | Select-Object -First 10 Name, Id, CPU, @{n='RAM MB';e={[math]::Round($_.WorkingSet64/1MB)}} | Format-Table -AutoSize",
+     "(Get-Counter '\\Processor(_Total)\\% Processor Time' -SampleInterval 1 -MaxSamples 5).CounterSamples | Format-Table Timestamp, @{n='CPU %';e={[int]($_.CookedValue * 10) / 10}}\r\n"
+     "Get-Process | Sort-Object CPU -Descending | Select-Object -First 10 Name, Id, CPU, @{n='RAM MB';e={[int]($_.WorkingSet64/1MB)}} | Format-Table -AutoSize",
      "service", 0, ""),
     ("SYSTEM", "Datenträger prüfen (nur lesen)", "cmd", "chkdsk C: /scan", "service", 0, "Online-Prüfung ohne Reparatur."),
     ("SYSTEM", "Systemdateien prüfen (SFC)", "cmd", "sfc /scannow", "system", 1, "Dauert mehrere Minuten."),
     ("SYSTEM", "Uptime", "powershell", "$b = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime\r\n\"Gestartet: $b\"\r\n\"Laufzeit:  $((Get-Date) - $b)\"", "service", 0, ""),
     ("SYSTEM", "Batteriezustand", "powershell",
      "Get-CimInstance -Namespace root\\wmi -ClassName BatteryFullChargedCapacity -ErrorAction SilentlyContinue | ForEach-Object { $f = $_.FullChargedCapacity; "
-     "$d = (Get-CimInstance -Namespace root\\wmi -ClassName BatteryStaticData).DesignedCapacity; \"Kapazität: $f von $d mWh ($([math]::Round(100*$f/$d))%)\" }",
+     "$d = (Get-CimInstance -Namespace root\\wmi -ClassName BatteryStaticData).DesignedCapacity; \"Kapazität: $f von $d mWh ($([int](100*$f/$d))%)\" }",
      "service", 0, ""),
     ("WEB", "Web-Oberfläche des Computers (Port 80)", "url", "http://$(Host)/", "service", 0, ""),
 ]
@@ -377,15 +377,38 @@ def ps_variables(c):
     return "".join(f"$PK_{k} = {util.psq(v)}\n" for k, v in variables(c).items())
 
 
+def ps_tool_winrm(script, workdir=None):
+    """PowerShell-Tool direkt per WinRM. 2.38: das Skript läuft als Datei (& datei.ps1) – so beendet „exit N“ nur das
+    Skript und kommt als Exitcode an, ebenso der Exitcode eines zuletzt fehlgeschlagenen Programms ($LASTEXITCODE).
+    Erzwingt eine Gruppenrichtlinie AllSigned/Restricted, läuft es wie bisher direkt (dann ohne „exit N“).
+    Ohne .NET-Aufrufe (Constrained Language Mode). Fehler zählen nur, wenn sie tatsächlich ausgegeben werden – mit
+    -ErrorAction SilentlyContinue unterdrückte Fehler landen zwar in $Error, sind aber gewollt."""
+    fmt = ("*>&1 | ForEach-Object { if ($_ -is [System.Management.Automation.ErrorRecord]) { $global:pkErr = 1 }; $_ }"
+           " | Out-String -Width 220 -Stream")
+    return ("$ErrorActionPreference = 'Continue'\n$global:pkErr = 0\n"
+            + (f"Set-Location -LiteralPath {util.psq(workdir)}\n" if workdir else "")
+            + "$pkF = Join-Path $env:TEMP ('pk_tool_' + [guid]::NewGuid().ToString('N') + '.ps1')\n"
+            + util.ps_write("$pkF", script)
+            + "try { Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force -ErrorAction Stop } catch {}\n"
+            + "$global:LASTEXITCODE = 0\n"
+            + "if (@('Restricted', 'AllSigned') -contains [string](Get-ExecutionPolicy)) {\n"
+            + "  & {\n" + script + "\n} " + fmt + "\n"
+            + "} else {\n  & $pkF " + fmt + "\n}\n"
+            + "$pkCode = $LASTEXITCODE\n"
+            + "Remove-Item -LiteralPath $pkF -Force -ErrorAction SilentlyContinue\n"
+            + "'PKEXIT:' + $(if ($pkCode) { $pkCode } elseif ($global:pkErr) { 1 } else { 0 })")
+
+
 def _cmd_ps(script, workdir=None):
     """CMD-Befehle als temporäre .cmd-Datei ausführen (mehrzeilig möglich).
     2.32.7: Ausgabe über eine Datei in der Konsolen-Codepage (OEM) lesen – sonst kommen Umlaute als „?“ an;
     workdir: Arbeitsordner (Dateien aus dem Repository)."""
     b = script.replace("\r\n", "\n").replace("\n", "\r\n")
     cd = f'cd /d "{workdir}"\r\n' if workdir else ""
+    wr = util.ps_write("$f", "@echo off\r\n" + cd + b, cmd=True).rstrip()  # 2.38: ohne .NET (Constrained Language Mode)
     return f"""$f = Join-Path $env:TEMP ('pk_tool_' + [guid]::NewGuid().ToString('N') + '.cmd')
 $of = $f + '.out'
-[System.IO.File]::WriteAllText($f, '@echo off' + [Environment]::NewLine + {util.psq(cd)} + {util.psq(b)}, {util.PS_CMD_ENCODING})
+{wr}
 & cmd.exe /d /c ('"' + $f + '" > "' + $of + '" 2>&1')
 $code = $LASTEXITCODE
 if (Test-Path -LiteralPath $of) {{
@@ -450,17 +473,13 @@ def _run(tool, c, host, name, with_files):
     # beendet und der Ordner lässt sich danach löschen (WinRM bricht nur das Warten ab)
     if tool["run_as"] == "system" or with_files:
         # Als SYSTEM über eine temporäre geplante Aufgabe (wie bei Bereitstellungen)
-        b64 = base64.b64encode(script.replace("\r\n", "\n").encode("utf-8")).decode()
+        sc = script.replace("\r\n", "\n")
+        # 2.38: ohne .NET (Constrained Language Mode) – util.ps_write
         if tool["type"] == "powershell":
-            body = (f"$sf = Join-Path $PKDir 'pk_tool.ps1'\n"
-                    f"[System.IO.File]::WriteAllText($sf, [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{b64}')), "
-                    f"(New-Object System.Text.UTF8Encoding $true))\n"
-                    "PK-RunPs1 $sf ''")
+            body = ("$sf = Join-Path $PKDir 'pk_tool.ps1'\n" + util.ps_write("$sf", sc) + "PK-RunPs1 $sf ''")
         else:
-            body = (f"$cf = Join-Path $PKDir 'pk_tool.cmd'\n"
-                    f"$txt = '@echo off' + [Environment]::NewLine + [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{b64}')).Replace(\"`n\", \"`r`n\")\n"
-                    f"[System.IO.File]::WriteAllText($cf, $txt, {util.PS_CMD_ENCODING})\n"
-                    f"PK-Run 'cmd.exe' ('/c \"' + $cf + '\"')")
+            body = ("$cf = Join-Path $PKDir 'pk_tool.cmd'\n" + util.ps_write("$cf", "@echo off\r\n" + sc.replace("\n", "\r\n"), cmd=True)
+                    + "PK-Run 'cmd.exe' ('/c \"' + $cf + '\"')")
         try:
             code, out = remote.run_as_system(host, body, name, timeout_s=timeout,
                                              run_as="system" if tool["run_as"] == "system" else "deploy")
@@ -479,10 +498,7 @@ def _run(tool, c, host, name, with_files):
         else:
             # Fehler nur zählen, wenn sie tatsächlich ausgegeben werden – mit -ErrorAction SilentlyContinue
             # unterdrückte Fehler landen zwar in $Error, sind aber gewollt
-            ps = ("$ErrorActionPreference = 'Continue'\n$global:pkErr = 0\n"
-                  + (f"Set-Location -LiteralPath {util.psq(workdir)}\n" if workdir else "") + "& {\n" + script +
-                  "\n} *>&1 | ForEach-Object { if ($_ -is [System.Management.Automation.ErrorRecord]) { $global:pkErr = 1 }; $_ }"
-                  " | Out-String -Width 220 -Stream\n'PKEXIT:' + $global:pkErr")
+            ps = ps_tool_winrm(script, workdir)
         try:
             out, err, _ = remote.ps(host, ps, timeout=timeout)
         except remote.RemoteTimeout:
