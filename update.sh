@@ -271,7 +271,8 @@ update() {
   fi
 
   # The .env names exactly these images (container managers and "docker compose up" use the same ones)
-  cp .env .env.pk-alt && chmod 600 .env.pk-alt
+  # 2.36.3: the copy holds passwords – never readable by others, not even briefly (remove first, create with umask 077)
+  ( umask 077; rm -f .env.pk-alt; cp .env .env.pk-alt ) && chmod 600 .env.pk-alt
   set_img() {  # key value default – the default (…:latest) is not written into the .env
     if [ "$2" = "$3" ]; then
       if [ -n "$(envval .env "$1")" ]; then env_set .env "$1" "$2"; fi

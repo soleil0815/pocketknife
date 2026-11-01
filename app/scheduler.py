@@ -90,11 +90,16 @@ def _cleanup():
     if days and days > 0:
         db.ex("DELETE FROM deployments WHERE created_at < ? AND status NOT IN ('running','queued','scheduled')",
               (util.ago(days=days),))
+        # 2.36.3 (Audit, Datenschutz): Kiosk-Anfragen (Benutzer, Anzeigename, Computer) mit derselben Frist –
+        # offene Anfragen bleiben, bis sie entschieden sind
+        db.ex("DELETE FROM kiosk_requests WHERE created_at < ? AND COALESCE(status,'') NOT IN ('pending','starting')",
+              (util.ago(days=days),))
     # Reste ohne Bezug (z. B. aus Vorabversionen oder nach Abbrüchen)
     db.ex("DELETE FROM deployment_targets WHERE deployment_id NOT IN (SELECT id FROM deployments)")
     db.ex("DELETE FROM schedule_targets WHERE schedule_id NOT IN (SELECT id FROM schedules)")
     db.ex("DELETE FROM schedule_trigger_state WHERE schedule_id NOT IN (SELECT id FROM schedules)")
     db.ex("DELETE FROM inventory_data WHERE computer_id NOT IN (SELECT id FROM computers)")
+    db.ex("DELETE FROM kiosk_requests WHERE computer_id IS NOT NULL AND computer_id NOT IN (SELECT id FROM computers)")
     notify.cleanup()
     _tmp_cleanup()
     try:

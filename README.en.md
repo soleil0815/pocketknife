@@ -2,7 +2,7 @@ Deutsche Fassung: [README.md](README.md)
 
 # POCKET KNIFE
 
-Current version: **pocketknife-2.36.1** – see `CHANGELOG.md` (German).
+Current version: **pocketknife-2.36.3** – see `CHANGELOG.md` (German).
 
 Website: [helfi.space](https://helfi.space)
 
@@ -92,7 +92,7 @@ The container only downloads the winget **catalog** (index for version compariso
 6. Create the AD group **POCKETKNIFE-Admins** and add the operators (nested groups are taken into account).
 7. **LDAPS** must be active on the DCs. Samba AD provides it by default (also with a self-signed certificate). With Microsoft AD, the DC needs a server certificate (e.g. from AD CS); since POCKET KNIFE trusts the certificate automatically, a self-signed one is also sufficient.
 8. For winget: the **App Installer** (Microsoft.DesktopAppInstaller) must be present on the clients (Windows 10 21H2+ / Windows 11 / Server 2025). The computer view shows whether it was found.
-9. For custom packages: create a share, e.g. `\\fileserver\software$`, with read permission for the service account (or a separate repository account). For uploading, renaming, moving and deleting through the web interface (from 2.27) additionally **write permission**; other admins then no longer need direct access to the share.
+9. For custom packages: create a share, e.g. `\\fs01\PAKETE`, with read permission for the service account (or a separate repository account). For uploading, renaming, moving and deleting through the web interface (from 2.27) additionally **write permission**; other admins then no longer need direct access to the share.
 
 ## System requirements and sizing
 
@@ -343,7 +343,7 @@ msiexec.exe /i "C:\Windows\Temp\PocketKnife\<Lauf>\7z2408-x64.msi" /qn /norestar
 Repository structure:
 
 ```
-\\fileserver\software$
+\\fs01\PAKETE
 ├── 7zip\24.08\7z2408-x64.msi
 ├── Greenshot\1.3\Greenshot-INSTALLER-1.3.exe
 └── Firmen-Tools\2.0\install.ps1  (+ any other files)
@@ -407,8 +407,8 @@ Variables (replaced by the computer's values before execution):
 | Variable | Value | Example |
 |---|---|---|
 | `$(Computer)` | computer name (NetBIOS) | `PC-0815` |
-| `$(Host)` | fully qualified DNS name; if unknown, the computer name | `pc-0815.firma.local` |
-| `$(IP)` | first IP address from the last scan | `192.168.10.25` |
+| `$(Host)` | fully qualified DNS name; if unknown, the computer name | `pc-0001.firma.local` |
+| `$(IP)` | first IP address from the last scan | `10.0.10.25` |
 | `$(MAC)` | first MAC address from the last scan ("Network Adapters" scanner) | `00:11:22:33:44:55` |
 | `$(User)` | most recently detected logged-on user (scan/heartbeat) | `FIRMA\mmuster` |
 | `$(Domain)` | domain of the computer from the scan, otherwise the domain from the settings | `FIRMA` |

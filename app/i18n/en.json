@@ -5620,5 +5620,6 @@
  "{0} – {1} im Cache ist nicht freigegeben und wird nicht benutzt": "{0} – {1} in the cache is not released and is not used",
  "AGPL-3.0": "AGPL-3.0",
  "Freie Software unter der GNU Affero General Public License 3": "Free software under the GNU Affero General Public License 3",
- "Freie Software unter der GNU Affero General Public License 3 – Quellcode und Lizenztext": "Free software under the GNU Affero General Public License 3 – source code and license text"
+ "Freie Software unter der GNU Affero General Public License 3 – Quellcode und Lizenztext": "Free software under the GNU Affero General Public License 3 – source code and license text",
+ "Die Datei ist unplausibel groß (über {0} MB) – abgebrochen.": "The file is implausibly large (over {0} MB) – aborted."
 }

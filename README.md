@@ -2,7 +2,7 @@ English version: [README.en.md](README.en.md)
 
 # POCKET KNIFE
 
-Aktuelle Version: **pocketknife-2.36.1** – siehe `CHANGELOG.md`.
+Aktuelle Version: **pocketknife-2.36.3** – siehe `CHANGELOG.md`.
 
 Webseite: [helfi.space](https://helfi.space)
 
@@ -92,7 +92,7 @@ Der Container lädt nur den winget-**Katalog** (Index für den Versionsvergleich
 6. AD-Gruppe **POCKETKNIFE-Admins** anlegen und die Bediener aufnehmen (verschachtelte Gruppen werden berücksichtigt).
 7. **LDAPS** muss auf den DCs aktiv sein. Samba AD stellt es standardmäßig bereit (auch mit selbstsigniertem Zertifikat). Bei Microsoft AD braucht der DC ein Serverzertifikat (z. B. aus der AD-CS); da POCKET KNIFE dem Zertifikat automatisch vertraut, reicht auch ein selbstsigniertes.
 8. Für winget: Der **App-Installer** (Microsoft.DesktopAppInstaller) muss auf den Clients vorhanden sein (Windows 10 21H2+ / Windows 11 / Server 2025). In der Computeransicht sehen Sie, ob er gefunden wurde.
-9. Für eigene Pakete: Freigabe anlegen, z. B. `\\fileserver\software$`, Leserecht für das Dienstkonto (oder ein eigenes Repository-Konto). Für Hochladen, Umbenennen, Verschieben und Löschen über die Oberfläche (ab 2.27) zusätzlich **Schreibrecht**; andere Admins brauchen dann keinen direkten Zugriff mehr auf die Freigabe.
+9. Für eigene Pakete: Freigabe anlegen, z. B. `\\fs01\PAKETE`, Leserecht für das Dienstkonto (oder ein eigenes Repository-Konto). Für Hochladen, Umbenennen, Verschieben und Löschen über die Oberfläche (ab 2.27) zusätzlich **Schreibrecht**; andere Admins brauchen dann keinen direkten Zugriff mehr auf die Freigabe.
 
 ## Systemanforderungen und Größenplanung
 
@@ -341,7 +341,7 @@ msiexec.exe /i "C:\Windows\Temp\PocketKnife\<Lauf>\7z2408-x64.msi" /qn /norestar
 Repository-Aufbau:
 
 ```
-\\fileserver\software$
+\\fs01\PAKETE
 ├── 7zip\24.08\7z2408-x64.msi
 ├── Greenshot\1.3\Greenshot-INSTALLER-1.3.exe
 └── Firmen-Tools\2.0\install.ps1  (+ beliebige weitere Dateien)
@@ -405,8 +405,8 @@ Variablen (werden vor dem Ausführen durch die Werte des Computers ersetzt):
 | Variable | Wert | Beispiel |
 |---|---|---|
 | `$(Computer)` | Computername (NetBIOS) | `PC-0815` |
-| `$(Host)` | vollständiger DNS-Name; falls unbekannt der Computername | `pc-0815.firma.local` |
-| `$(IP)` | erste IP-Adresse aus dem letzten Scan | `192.168.10.25` |
+| `$(Host)` | vollständiger DNS-Name; falls unbekannt der Computername | `pc-0001.firma.local` |
+| `$(IP)` | erste IP-Adresse aus dem letzten Scan | `10.0.10.25` |
 | `$(MAC)` | erste MAC-Adresse aus dem letzten Scan (Scanner „Netzwerkkarten“) | `00:11:22:33:44:55` |
 | `$(User)` | zuletzt erkannter angemeldeter Benutzer (Scan/Heartbeat) | `FIRMA\mmuster` |
 | `$(Domain)` | Domäne des Computers aus dem Scan, sonst die Domäne aus den Einstellungen | `FIRMA` |

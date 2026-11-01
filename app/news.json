@@ -2,6 +2,24 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.36.3",
+   "date": "2026-11-01",
+   "items": [
+    {
+     "kind": "fixed",
+     "audience": "admin",
+     "de": "Direktaktionen (Dateien, Dienste, Tools, Fernsteuerung, Neustart …) verbinden sich nicht mehr mit einem Gerät, das die Identitätsprüfung als fremd markiert hat.",
+     "en": "Direct actions (files, services, tools, remote control, restart …) no longer connect to a device the identity check has flagged as a different device."
+    },
+    {
+     "kind": "fixed",
+     "audience": "admin",
+     "de": "Kiosk-Anfragen werden mit der Aufbewahrungsfrist der Bereitstellungen gelöscht.",
+     "en": "Kiosk requests are deleted with the retention period of deployments."
+    }
+   ]
+  },
+  {
    "version": "2.36.1",
    "date": "2026-10-31",
    "items": [

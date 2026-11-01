@@ -1,5 +1,16 @@
 # Änderungen
 
+## pocketknife-2.36.3 (01.11.2026)
+Ergebnis des monatlichen vollständigen Code-Audits (Stand 2.36.1):
+- **Behoben – Direktaktionen nur unter bestätigter Adresse:** Dateien, Dienste, Prozesse, Ereignisanzeige, Live-Abfragen, Tools, Speicherplatz-Analyse, Fernsteuerung, Neustart/Herunterfahren/gpupdate, angemeldete Benutzer, Scanner-Test und Test-Benachrichtigung verbinden sich nicht mehr mit einem Gerät, das die Identitätsprüfung als fremd oder nicht bestätigt markiert hat (wie schon Bereitstellungen und Scans). Vorher hätte z. B. ein geänderter oder veralteter DNS-Name eines Computers das Dienstkonto (bei der Fernsteuerung die eigenen Anmeldedaten) an einen anderen Server geschickt
+- **Behoben – Skript-Ausweichweg:** lädt POCKET KNIFE eine .ps1 wegen der Ausführungsrichtlinie selbst, werden im Pfad auch typografische Apostrophe (’) korrekt maskiert – ein solcher Dateiname führte zu einem Syntaxfehler
+- **Behoben – Datenschutz:** Kiosk-Anfragen (Benutzername, Anzeigename, Computer) werden mit der Frist der Bereitstellungen gelöscht (offene bleiben), die gelöschter Computer beim nächsten Aufräumen
+- **Behoben – OU-Admins:** Computer → Sammlungen zeigt keine Sammlungen fremder Mandanten mehr; die Scanprofil-Liste enthält nur noch eigene Computer und sichtbare Sammlungen, die Zahlen gelten nur für den eigenen Bereich
+- **Behoben – Robustheit:** schlägt das Speichern einer Transaktion fehl (z. B. Datenträger voll), bleibt sie nicht mehr offen und blockiert keine weiteren Schreibzugriffe dieses Threads; der Download des winget-Index ist auf 1 GB begrenzt
+- **Behoben – update.sh:** die Kopie der `.env` beim Zurückspringen ist nie, auch nicht kurz, für andere Benutzer lesbar
+- **Doku:** Beispiele vereinheitlicht (`firma.local`, `FIRMA`, `\\fs01\PAKETE`, `10.0.10.x`), Aufbewahrung von Kiosk-Anfragen und Protokolldateien beschrieben
+- **Selbsttest:** fünf neue Tests für diese Fixes
+
 ## pocketknife-2.36.1 (31.10.2026)
 - **Lizenz: GNU Affero General Public License, Version 3 (AGPL-3.0-only).** Datei `LICENSE` im Repository und im Container (`/opt/pocketknife/LICENSE`), Kennzeichnung des Images (`org.opencontainers.image.licenses`), Abschnitt „Lizenz“ in Hilfe und README, Link „AGPL-3.0“ unten in der Seitenleiste und auf der Anmeldeseite
 - **Sicherheit:** pyasn1 0.6.4 → 0.6.5 (vier neue Schwachstellen „Denial of Service“ beim Entschlüsseln von ASN.1-Daten, u. a. CVE-2026-119194 – betrifft die LDAP-/Kerberos-Anbindung)

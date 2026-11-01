@@ -585,9 +585,11 @@ def dispatch():
                   (r["computer_id"], r["profile_id"]))
 
 
-def summary(p):
-    """Kennzahlen eines Profils für die Liste."""
+def summary(p, only=None):
+    """Kennzahlen eines Profils für die Liste. only: nur diese Computer zählen (OU-Admin: sein Bereich)."""
     mem = members(p) if has_targets(p) else set()
+    if only is not None:
+        mem &= set(only)
     rows = db.q("SELECT computer_id, last_scan, status, pending FROM profile_scans WHERE profile_id=?", (p["id"],))
     rows = [r for r in rows if r["computer_id"] in mem]
     return {"members": len(mem), "scanned": sum(1 for r in rows if r["last_scan"]),

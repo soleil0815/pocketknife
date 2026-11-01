@@ -10,10 +10,11 @@ START_MODES = {"auto": "Automatic", "manual": "Manual", "disabled": "Disabled"}
 
 
 def _host(cid):
-    c = db.q1("SELECT id, name, dns_name FROM computers WHERE id=?", (cid,))
+    from . import presence
+    c = db.q1("SELECT id, name, dns_name, addr_problem, addr_detail FROM computers WHERE id=?", (cid,))
     if not c:
         raise ValueError("Computer nicht gefunden")
-    return c, c["dns_name"] or c["name"]
+    return c, presence.direct_host(c)
 
 
 def _json(out):

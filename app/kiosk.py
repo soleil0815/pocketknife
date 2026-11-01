@@ -63,7 +63,11 @@ def _logged_on(c, fresh=False):
         hit = _live.get(c["id"])
     if hit and not fresh and now - hit[0] < LIVE_TTL:
         return hit[1]
-    host = c["dns_name"] or c["name"]
+    from . import presence
+    try:
+        host = presence.direct_host(c)
+    except ValueError:
+        return None  # 2.36.3: Adresse gehört (vermutlich) zu einem anderen Gerät
     if guard.paused() or not remote.is_online(host)[1]:
         return None
     try:

@@ -125,7 +125,8 @@ def _run(jid, cid, path, depth, user):
     j = _jobs[jid]
     c = db.q1("SELECT * FROM computers WHERE id=?", (cid,))
     try:
-        host = c["dns_name"] or c["name"]
+        from . import presence
+        host = presence.direct_host(c)
         out, err, _ = remote.ps(host, _script(path, depth), timeout=1800)
         if "PKERR:" in out:
             raise ValueError(util.first_line(out.split("PKERR:", 1)[1], "Fehler"))
@@ -205,8 +206,11 @@ def scan_fixed(cid, depth=None, user="Zeitplan", host=None):
 def start(cid, path, depth, user):
     path = clean_path(path)
     depth = max(1, min(int(depth or 4), 8))
-    if not db.q1("SELECT id FROM computers WHERE id=?", (cid,)):
+    c = db.q1("SELECT id, name, dns_name, addr_problem, addr_detail FROM computers WHERE id=?", (cid,))
+    if not c:
         raise ValueError("Computer nicht gefunden")
+    from . import presence
+    presence.direct_host(c)  # 2.36.3: nie unter einer fremden Adresse analysieren
     jid = secrets.token_hex(6)
     with _lock:
         for k in [k for k, v in _jobs.items() if v.get("finished") and time.time() - v["finished"] > 3600]:
