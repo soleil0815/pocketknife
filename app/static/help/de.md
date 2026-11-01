@@ -380,7 +380,7 @@ sudo sh update.sh latest        # wieder „immer die neueste“
 
 **Bei einer Version bleiben oder zurückgehen:** `sudo sh update.sh <Version>` (oder in der `.env` `PK_IMAGE=ghcr.io/soleil0815/pocketknife:<Version>` und `PK_GUACD_IMAGE=ghcr.io/soleil0815/pocketknife-guacd:<Version>`, dann `docker compose up -d`). Hat die neuere Version die Datenbank schon erweitert, die Sicherung „vor-<neuere Version>“ zurückspielen (siehe [Sicherung](#backup)). Startet eine ältere Version auf einer Datenbank, die schon eine neuere benutzt hat, sagt POCKET KNIFE das in der Seitenleiste.
 
-**Ohne Internet:** Jedes Release enthält je Plattform ein Archiv beider Images (`pocketknife-<Version>-amd64.tar.gz`, `-arm64.tar.gz`, Prüfsummen in `pocketknife-<Version>.sha256`). Auf den Docker-Host kopieren und `sudo sh update.sh pocketknife-<Version>-amd64.tar.gz` – lädt die Images (`docker load`), prüft die Prüfsumme, legt die Version in der `.env` fest und startet.
+**Ohne Internet:** Jedes Release enthält je Plattform ein Archiv beider Images (`pocketknife-<Version>-amd64.tar.gz`, `-arm64.tar.gz`, Prüfsummen in `pocketknife-<Version>.sha256`). Auf den Docker-Host kopieren und `sudo sh update.sh pocketknife-<Version>-amd64.tar.gz` – prüft die Prüfsumme (die `.sha256` muss im selben Ordner liegen, sonst bricht es ab), lädt die Images (`docker load`), legt die Version in der `.env` fest und startet.
 
 **Private Registry:** einmal auf dem Docker-Host als der Benutzer, der die Updates ausführt (bei `sudo` root, bei einer Container-Verwaltung deren Benutzer), anmelden: `docker login ghcr.io -u <GitHub-Benutzer>`, Kennwort = **persönliches Zugriffstoken** mit `read:packages`. Das Token steht nicht in der `.env`.
 
@@ -682,7 +682,8 @@ Solange die neueste Version nicht freigegeben ist:
 - **Zeitpläne** (Software aktuell halten, Patchday) aktualisieren nur Computer, die eine ältere als die zuletzt freigegebene Version haben – und installieren genau diese.
 - **winget-Schritte in Paketen, verschachtelten Paketen und im Kiosk** installieren die zuletzt freigegebene Version (`winget --version`). Ist dieselbe oder eine neuere Version schon installiert, wird der Schritt übersprungen (nie herunterstufen). Ein Schritt mit fester Version bleibt unverändert.
 - Der **winget-Cache** lädt nur die freigegebene Version; liegt sie schon im Cache, bleibt er dabei. Einträge mit „Prüfsumme des Katalogs nicht verlangen“ behalten ihren Stand (der Hersteller liefert dort immer die neueste).
-- Der Knopf **Aktualisieren** unter Software installiert bewusst die neueste Version – er wird von Hand ausgelöst. Die Anzeige „veraltet“ richtet sich weiter nach dem Katalog.
+- Der Knopf **Aktualisieren** unter Software installiert bewusst die neueste Version – er wird von Hand ausgelöst. Eine **gesperrte** Version installiert er nie (dann die zuletzt freigegebene). Die Anzeige „veraltet“ richtet sich weiter nach dem Katalog.
+- **Wechsel der Regel** (z. B. von „sofort freigeben“ auf „nur nach Freigabe im Paket“): Alle bis dahin freigegebenen Versionen bleiben freigegeben; erst danach erscheinende Versionen folgen der neuen Regel.
 
 **Einzeln freigeben oder sperren:** Unter **Pakete** zeigt die Spalte **Freigabe** den Stand jedes winget-Pakets (z. B. „24.08 statt 24.09“). Rechtsklick → **Version … jetzt freigeben** gibt die neueste sofort frei; **Freigabe …** zeigt alle bekannten Versionen mit „zuerst gesehen“ und Stand und bietet **Freigeben**, **Sperren** (eine fehlerhafte Version nie verteilen – auch bei „sofort freigeben“), **Sperre aufheben** und **Freigabe zurücknehmen**. Nach einer Freigabe lädt der winget-Cache die Version gleich. Alles steht im Protokoll; nur Hauptadmins.
 

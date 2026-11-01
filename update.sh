@@ -30,7 +30,8 @@ PREV_GUACD="pocketknife-guacd:previous"
 COMPOSE_IN_IMAGE="/opt/pocketknife/host"
 WATCH_UNIT="pocketknife-update"
 SYSROOT="${PK_SYSROOT:-}"   # only for the self-test (instead of / – nothing is written to the real /etc there)
-WAIT_STEPS="${PK_WAIT_STEPS:-60}"   # health check: 60 × 5 s
+WAIT_STEPS="${PK_WAIT_STEPS:-240}"   # health check: 240 × 5 s = 20 min (2.36.2: backup + migration may take long; image start period 15 min)
+CALLDIR=$(pwd -P 2>/dev/null || pwd)   # 2.36.2: a relative archive path means the folder update.sh was called from
 while [ $# -gt 0 ]; do
   case "$1" in
     -y|--yes) YES=1 ;;
@@ -124,7 +125,7 @@ mounts() {
 }
 
 wait_healthy() {
-  # wait up to 5 minutes for "healthy"
+  # wait up to 20 minutes for "healthy" (during the start period of the image, "starting" is not an error)
   i=0
   while [ $i -lt "$WAIT_STEPS" ]; do
     st=$(docker inspect pocketknife --format '{{ if .State.Health }}{{ .State.Health.Status }}{{ else }}{{ .State.Status }}{{ end }}' 2>/dev/null || echo "?")
@@ -213,7 +214,8 @@ update() {
     "") WANT=${CUR:-$REPO:latest}; WANTG=$(envval .env PK_GUACD_IMAGE)
         if [ -z "$WANTG" ]; then case "$WANT" in *:latest|*@*) WANTG="$GREPO:latest" ;; *) WANTG="$GREPO:${WANT##*:}" ;; esac; fi ;;
     latest) WANT="$REPO:latest"; WANTG="$GREPO:latest" ;;
-    *.tar.gz|*.tar|*.tgz) OFFLINE="$ARG" ;;
+    *.tar.gz|*.tar|*.tgz) OFFLINE=$(resolve "$CALLDIR" "$ARG")
+        [ -f "$OFFLINE" ] || [ ! -f "$INST/$ARG" ] || OFFLINE="$INST/$ARG" ;;   # also next to update.sh
     *) printf '%s' "$ARG" | grep -Eq '^[0-9]+(\.[0-9]+){1,3}(-s[0-9]+)?$' || die "Unknown version or file: \"$ARG\" (e.g. 2.33.1, latest or pocketknife-2.33.1-amd64.tar.gz)"
        WANT="$REPO:$ARG"; WANTG="$GREPO:$ARG" ;;
   esac
@@ -226,11 +228,12 @@ update() {
   if [ -n "$OFFLINE" ]; then
     [ -f "$OFFLINE" ] || die "File not found: $OFFLINE"
     SUMS="$(dirname "$OFFLINE")/$(basename "$OFFLINE" | sed -e 's/-amd64\.t.*$//' -e 's/-arm64\.t.*$//').sha256"
-    if [ -f "$SUMS" ] && command -v sha256sum >/dev/null 2>&1; then
-      ( cd "$(dirname "$OFFLINE")" && grep -F " $(basename "$OFFLINE")" "$(basename "$SUMS")" | sha256sum -c - >/dev/null 2>&1 ) \
-        || die "Checksum of $(basename "$OFFLINE") does not match $(basename "$SUMS") – damaged or altered download. Nothing was changed."
-      say "  Checksum OK ($(basename "$SUMS"))."
-    fi
+    # 2.36.2: the checksum is required (before, a missing .sha256 silently skipped the check)
+    [ -f "$SUMS" ] || die "$(basename "$SUMS") is missing next to $(basename "$OFFLINE") – copy it from the same release into the same folder. Nothing was changed."
+    command -v sha256sum >/dev/null 2>&1 || die "sha256sum was not found – the checksum cannot be checked. Nothing was changed."
+    ( cd "$(dirname "$OFFLINE")" && grep -F " $(basename "$OFFLINE")" "$(basename "$SUMS")" | sha256sum -c - >/dev/null 2>&1 ) \
+      || die "Checksum of $(basename "$OFFLINE") does not match $(basename "$SUMS") – damaged or altered download. Nothing was changed."
+    say "  Checksum OK ($(basename "$SUMS"))."
     info "Loading $(basename "$OFFLINE")"
     LOADED=$(docker load -i "$OFFLINE" | sed -n 's/^Loaded image: //p')
     WANT=$(printf '%s\n' "$LOADED" | grep -v -- '-guacd:' | head -n 1)
@@ -308,7 +311,7 @@ update() {
     say "The new version does not report as healthy. Last log lines:"
     docker compose logs --tail 30 pocketknife || true
     if [ -n "$HAVEPREV" ] && ask "Start the previous version ${OLDVER:-} again?"; then
-      mv .env.pk-alt .env
+      cat .env.pk-alt > .env && rm -f .env.pk-alt   # 2.36.2: same file (owner, rights, link) as before
       [ -n "$NEWCOMPOSE" ] && cp docker-compose.yml.alt docker-compose.yml
       # exactly the images that ran before, under the names the .env expects
       P=$(envval .env PK_IMAGE); P=${P:-$DEFAULT_REPO:latest}

@@ -2,6 +2,24 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.36.2",
+   "date": "2026-11-01",
+   "items": [
+    {
+     "kind": "fixed",
+     "audience": "admin",
+     "de": "Freigabe neuer winget-Versionen: Eine gesperrte Version installiert auch der Knopf „Aktualisieren“ nicht mehr; beim Wechsel der Regel bleiben bisher freigegebene Versionen freigegeben.",
+     "en": "Release of new winget versions: the \"Update\" button no longer installs a blocked version either; when the rule is changed, versions released so far stay released."
+    },
+    {
+     "kind": "fixed",
+     "audience": "admin",
+     "de": "Update: Eine lange Sicherung oder Datenbank-Umstellung beim Start führt nicht mehr zum Rückfall auf die alte Version; ohne Internet ist die Prüfsummendatei jetzt Pflicht.",
+     "en": "Update: a long backup or database migration at start no longer causes a fallback to the old version; without internet, the checksum file is now required."
+    }
+   ]
+  },
+  {
    "version": "2.36.1",
    "date": "2026-10-31",
    "items": [

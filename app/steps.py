@@ -1022,8 +1022,11 @@ class Runner:
             from . import wingetrelease
             try:
                 st2, why = wingetrelease.apply_step(st, pkg)
-            except Exception:
-                st2, why = st, None
+            except Exception as e:
+                # 2.36.2: nicht prüfbar → nicht einfach die neueste (vielleicht gesperrte) Version installieren
+                why = f"Freigabe der winget-Version nicht prüfbar: {str(e)[:200]}"
+                self._record(phase, st, "failed", why, t0=t0, depth=depth)
+                return "failed", why
             if st2 is None:
                 self._record(phase, st, "skipped", why, t0=t0, depth=depth)
                 return "skipped", why
