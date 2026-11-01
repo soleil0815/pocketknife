@@ -93,7 +93,7 @@ async function start() {
   if (!CID) { overlayCard('Fernsitzung', h('p', 'Kein Computer angegeben. Bitte die Fernsitzung aus POCKET KNIFE heraus öffnen.')); return; }
   drawBar();
   try {
-    [S.computer, S.status] = await Promise.all([api(`/api/computers/${CID}`), api('/api/remote/status')]);
+    [S.computer, S.status] = await Promise.all([api(`/api/computers/${CID}`), api(`/api/remote/status?computer_id=${CID}`)]);
   } catch (e) {
     overlayCard('Fernsitzung', h('p.rd-msg', e.message.includes('angemeldet') || e.message.includes('abgelaufen')
       ? 'Sie sind bei POCKET KNIFE nicht (mehr) angemeldet. Bitte im Hauptfenster anmelden und die Sitzung erneut öffnen.' : e.message),
@@ -119,6 +119,11 @@ function optionsDlg(errorText) {
     h('input', { type: 'radio', name: 'auth', checked: authMode.v === v, disabled, onchange: () => { authMode.v = v; drawCred(); } }), label, sub ? h('span.muted.small', ' ', sub) : null);
   function drawCred() {
     credBox.replaceChildren();
+    // 2.37: Computer eines Mandanten – dort sind andere Administrator und könnten ein gesendetes Kennwort abgreifen
+    if (PROTO === 'rdp' && authMode.v === 'own' && (st.tenant_names || []).length) {
+      credBox.append(h('div.rd-msg', { style: { color: 'var(--warn, #c77700)' } },
+        `Achtung: Dieser Computer gehört zum Mandanten ${st.tenant_names.join(', ')}. Dort sind auch andere Administratoren – sie könnten Ihr Kennwort abgreifen. Besser „Andere Anmeldedaten eingeben“ mit einem Konto, das nur hier gilt.`));
+    }
     if (PROTO === 'rdp' && authMode.v === 'manual') {
       credBox.append(h('label', 'Benutzer'), mk('username', { value: pr.username || '', placeholder: 'DOMÄNE\\benutzer, benutzer@domäne oder .\\Administrator', autocomplete: 'username' }),
         h('label', 'Kennwort'), mk('password', { type: 'password', autocomplete: 'current-password' }));
@@ -135,6 +140,7 @@ function optionsDlg(errorText) {
       radio('own', 'Mit meiner POCKET KNIFE-Anmeldung', !own, own ? `(${own})` : st.sso_enabled ? '– nicht verfügbar, bitte neu anmelden' : '– in den Einstellungen ausgeschaltet'),
       radio('manual', 'Andere Anmeldedaten eingeben'),
       radio('prompt', 'Erst auf dem Computer anmelden', false, '(Windows-Anmeldebildschirm; nur ohne NLA)'));
+    // Anmeldedaten gehen nur noch mit NLA an den Computer (2.37)
   } else {
     authSel.append(radio('prompt', 'Ohne Kennwort / Nachfrage vom Server'),
       st.vnc_password_set ? radio('central', 'Zentrales VNC-Kennwort', false, '(aus den Einstellungen)') : null,

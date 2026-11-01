@@ -327,7 +327,8 @@ def all_refs():
         _step_paths(pj.get("steps"), ("dep", d["id"], d["name"], d["status"]), out)
     for t in db.q("SELECT id, name, repo_folder FROM tenants WHERE COALESCE(repo_folder, '') != ''"):
         out.append((norm(t["repo_folder"]), "tenant", False, None, ("tenant", t["id"], t["name"])))
-    wb = norm(db.setting("winget_bootstrap_folder"))
+    from . import wingetboot
+    wb = norm(wingetboot.folder())  # 2.37: auch der Standardordner „_winget“
     if wb:
         out.append((wb, "dir", True, None, ("setting", "winget_bootstrap_folder", "winget-Offline-Kopie (Einstellungen)")))
     return out
@@ -543,7 +544,8 @@ def plan_rewrite(pairs, refs=None):
             if d["status"] == "running":
                 out["problems"].append(f"Bereitstellung „{d['name']}“ läuft gerade und benutzt diese Dateien – bitte warten.")
             out["deployments"].append({"id": d["id"], "name": d["name"], "json": pj, "status": d["status"]})
-    wb = norm(db.setting("winget_bootstrap_folder"))
+    from . import wingetboot
+    wb = norm(wingetboot.folder())
     if wb:
         n = map_path(wb, pairs)
         if n is not None:
@@ -1242,9 +1244,18 @@ def _conflict_text(conf):
 
 def _dup_message(conf, user, upload=False):
     c = conf[0]
+    if access.scoped(user):
+        # 2.37: Pakete anderer Mandanten sind für OU-Admins unsichtbar – weder Name noch Mandant nennen
+        mine = set(access.tenant_ids(user))
+        seen = [x for x in conf if not x["tenant_id"] or int(x["tenant_id"]) in mine]
+        if not seen:
+            msg = ("Diese Software gibt es schon bei einem anderen Mandanten. Bitte den Hauptadmin, sie als zentrales Paket "
+                   "bereitzustellen – zentrale Pakete dürfen Sie verteilen.")
+            return ("Hochladen abgelehnt. " + msg) if upload else msg
+        c, conf = seen[0], seen
     msg = (f"Diese Software gibt es schon: „{c['name']}“ ({scope_name(c['tenant_id'])}, {KIND_TEXT.get(c['kind'], c['kind'])})"
            + (f" und {len(conf) - 1} weitere" if len(conf) > 1 else "") + ". ")
-    msg += ("Bitte das vorhandene Paket verwenden – verteilen dürfen Sie alle Pakete." if access.scoped(user) else
+    msg += ("Bitte das vorhandene Paket verwenden – zentrale Pakete und die Ihres Mandanten dürfen Sie verteilen." if access.scoped(user) else
             "Bitte das vorhandene Paket verwenden – als Hauptadmin können Sie die Sperre übersteuern („Trotzdem …“).")
     if upload:
         msg = "Hochladen abgelehnt. " + msg
@@ -1252,6 +1263,9 @@ def _dup_message(conf, user, upload=False):
 
 
 def _dup_info(conf, user):
+    if access.scoped(user):
+        mine = set(access.tenant_ids(user))
+        conf = [c for c in conf if not c["tenant_id"] or int(c["tenant_id"]) in mine]
     return {"duplicate": [{"id": c["id"], "name": c["name"], "scope": scope_name(c["tenant_id"]), "kind": c["kind"]} for c in conf[:10]],
             "can_override": not access.scoped(user)}
 

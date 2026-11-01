@@ -1100,6 +1100,9 @@ class Runner:
             msg += " – Neustart erforderlich"
         if note:
             out = f"Hinweis: {note}\n{out or ''}"
+        if ra == "user":
+            # 2.37: Arbeitsordner und Ergebnisdatei gehören dann dem angemeldeten Benutzer – er könnte sie verändern
+            msg += " (Ergebnis vom angemeldeten Benutzer gemeldet)"
         self._record(phase, st, "success" if ok else "failed", msg, code=code, out=out, t0=t0, ra=ra, depth=depth)
         return ("success" if ok else "failed"), msg
 
@@ -1196,17 +1199,24 @@ $out = foreach ($r in $roots) { Get-ChildItem -Path $r | ForEach-Object {
         return status, msg
 
     def _winget_offline_copy(self, name):
-        """Fehlt winget und liegt der App-Installer im Repository, die Dateien vorher auf den Client kopieren
-        (sonst lädt der Client sie selbst von GitHub)."""
-        folder = (db.setting("winget_bootstrap_folder") or "").strip().strip("\\/")
-        if not db.setting("winget_bootstrap") or not folder:
+        """Fehlt winget, die Dateien des App-Installers aus dem Repository vorher auf den Client kopieren (2.37: der
+        Client lädt nie selbst aus dem Internet; liegen sie noch nicht dort, lädt POCKET KNIFE sie jetzt)."""
+        from . import wingetboot
+        if not db.setting("winget_bootstrap"):
             return
+        folder = wingetboot.folder()
         try:
             out, _e, _ = remote.ps(self.host, "if (Get-AppxPackage -AllUsers -Name Microsoft.DesktopAppInstaller -ErrorAction SilentlyContinue) "
                                               "{ 'PK_WG_OK' } else { 'PK_WG_MISSING' }")
         except remote.RemoteError:
             return
         if "PK_WG_MISSING" in out:
+            if not wingetboot.present():
+                self.set_status(f"Schritt {self.n}: lade den App-Installer (winget) einmal in das Repository …")
+                try:
+                    wingetboot.refresh(self.user)
+                except Exception:
+                    return  # der Schritt meldet „liegt noch nicht im Repository“
             self.set_status(f"Schritt {self.n}: kopiere den App-Installer (winget) aus dem Repository …")
             remote.copy_package(folder, self.host, name + "\\winget")
 

@@ -264,7 +264,7 @@ def evaluate():
                 continue
             occ = profiles.last_occurrence(t, now)
             last = util.parse(state.get(t["id"]))
-            if occ and (last is None or occ > last):
+            if profiles.fires(t, occ, last, now):
                 state[t["id"]] = util.fmt(now)
                 due = due or t
         if due:
@@ -273,13 +273,24 @@ def evaluate():
                              name=f"mail-{s['id']}").start()
 
 
-def _send_bg(sid, reason):
-    try:
-        send_subscription(sid, reason)
-    except ValueError as e:  # z. B. „läuft gerade“ – wird sonst nirgends protokolliert
-        pklog.warn("mail", f"Berichtsversand #{sid} ({reason}) übersprungen: {e}")
-    except Exception:
-        pass  # bereits protokolliert
+RETRY_MINUTES = (5, 15, 30)  # 2.37: Berichtsversand nach einem Fehler (z. B. SMTP kurz weg) erneut versuchen
+
+
+def _send_bg(sid, reason, sleep=time.sleep):
+    for n in range(len(RETRY_MINUTES) + 1):
+        try:
+            send_subscription(sid, reason if not n else f"{reason}, {n + 1}. Versuch")
+            return
+        except ValueError as e:  # z. B. „läuft gerade“ – wird sonst nirgends protokolliert
+            pklog.warn("mail", f"Berichtsversand #{sid} ({reason}) übersprungen: {e}")
+            return
+        except Exception as e:  # bereits protokolliert
+            if n >= len(RETRY_MINUTES) or not db.val("SELECT enabled FROM mail_reports WHERE id=?", (sid,)):
+                return
+            wait = RETRY_MINUTES[n]
+            db.ex("UPDATE mail_reports SET last_status=? WHERE id=?",
+                  (f"FEHLER: {e} – neuer Versuch in {wait} Minuten"[:500], sid))
+            sleep(wait * 60)
 
 
 # =================================================================================================

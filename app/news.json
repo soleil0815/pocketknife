@@ -2,6 +2,42 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.37.0",
+   "date": "2026-11-01",
+   "items": [
+    {
+     "kind": "security",
+     "audience": "admin",
+     "de": "OU-Admins sehen nur noch zentrale Pakete und die ihres Mandanten.",
+     "en": "OU admins only see central packages and those of their tenant."
+    },
+    {
+     "kind": "security",
+     "audience": "admin",
+     "de": "Computer ohne winget laden den App-Installer nicht mehr selbst aus dem Internet – POCKET KNIFE legt ihn einmal in das Repository.",
+     "en": "Computers without winget no longer download the App Installer from the internet – POCKET KNIFE places it in the repository once."
+    },
+    {
+     "kind": "security",
+     "audience": "all",
+     "de": "Fernsteuerung mit Anmeldedaten nur noch mit NLA; Hinweis vor der eigenen Anmeldung auf Computern eines Mandanten.",
+     "en": "Remote control with credentials only with NLA; notice before using your own sign-in on a tenant's computers."
+    },
+    {
+     "kind": "improved",
+     "audience": "admin",
+     "de": "Berichtsversand wird nach Fehlern wiederholt; Bereitstellungen für denselben Computer blockieren andere nicht mehr.",
+     "en": "Report mailing is retried after errors; deployments for the same computer no longer block others."
+    },
+    {
+     "kind": "fixed",
+     "audience": "admin",
+     "de": "Intervall-Auslöser setzen bei der Umstellung auf Winterzeit nicht mehr eine Stunde aus.",
+     "en": "Interval triggers no longer skip an hour when the clocks go back."
+    }
+   ]
+  },
+  {
    "version": "2.36.3",
    "date": "2026-11-01",
    "items": [

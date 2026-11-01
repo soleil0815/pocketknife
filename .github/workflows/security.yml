@@ -40,8 +40,13 @@ jobs:
           PK_TRIVY_REPORT: trivy.md
         run: |
           IMG="ghcr.io/${GITHUB_REPOSITORY,,}:latest"
-          rc=0; sh tools/trivy-scan.sh "$IMG" || rc=$?
-          if [ -f trivy.md ]; then cat trivy.md >> "$GITHUB_STEP_SUMMARY"; fi
+          # 2.37: beide veröffentlichten Architekturen (arm64 hat eigene Pakete, z. B. Raspberry Pi/NAS)
+          rc=0
+          for arch in amd64 arm64; do
+            r=0; PK_TRIVY_PLATFORM="linux/$arch" PK_TRIVY_REPORT="trivy-$arch.md" sh tools/trivy-scan.sh "$IMG" || r=$?
+            if [ -f "trivy-$arch.md" ]; then { echo "### $arch"; cat "trivy-$arch.md"; } >> "$GITHUB_STEP_SUMMARY"; fi
+            [ "$r" -gt "$rc" ] && rc=$r
+          done
           if [ "$rc" = 1 ]; then
             echo "::error title=Sicherheits-Scan::Im veröffentlichten Image gibt es Schwachstellen mit verfügbarer Korrektur. Abhilfe: Actions → Wöchentliches Sicherheitsupdate → Run workflow."
           fi

@@ -290,6 +290,7 @@ DEFAULT_SETTINGS = {
     "winget_scope": "machine",
     "winget_bootstrap": 1,
     "winget_bootstrap_folder": "",
+    "winget_bootstrap_tag": "",              # 2.37: zuletzt in das Repository geladenes Release des App-Installers
     "winget_cache_folder": "winget-cache",   # 2.35: winget-Cache im Repository (für Computer ohne winget)
     "winget_cache_locale": "de-DE",
     "winget_cache_max_mb": 2048,
@@ -603,12 +604,23 @@ def _repair(c):
         c.executescript(SCHEMA)  # Indizes der neu aufgebauten Tabellen
 
 
+EXTRA_INDEXES = [
+    "CREATE INDEX IF NOT EXISTS ix_dt_status ON deployment_targets(status)",
+    "CREATE INDEX IF NOT EXISTS ix_dep_sched ON deployments(schedule_id)",
+    "CREATE INDEX IF NOT EXISTS ix_st_c ON schedule_targets(computer_id)",
+    "CREATE INDEX IF NOT EXISTS ix_cm_c ON collection_members(computer_id)",
+]
+
+
 def init():
     config.ensure_dirs()
     c = conn()
     c.executescript(SCHEMA)
     _migrate(c)
     _repair(c)
+    # 2.37: Indizes für häufige Abfragen (nach den Migrationen – manche Spalten kamen erst später dazu)
+    for ix in EXTRA_INDEXES:
+        c.execute(ix)
     c.execute("DELETE FROM inventory_data WHERE category IN ('video', 'profiles', 'startup')")
     for k, v in DEFAULT_SETTINGS.items():
         c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES(?, ?)", (k, str(v)))

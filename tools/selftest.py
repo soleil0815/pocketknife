@@ -1646,7 +1646,9 @@ def _():
         assert _b64.b64decode(auth.split()[-1]).decode() == "FIRMA\\px:Pr0xy:Geh@im", "Basic-Anmeldung am Proxy"
         assert proxy.client_proxy() == url, "Clients: nur die Adresse, nie Anmeldedaten"
         f = deploy._winget_find()
-        assert f"$PKProxy = '{url}'" in f and "@pkWeb" in f and "settings set DefaultProxy" in f and "Geh@im" not in f
+        assert f"$PKProxy = '{url}'" in f and "settings set DefaultProxy" in f and "Geh@im" not in f
+        # 2.37: der Client lädt nie selbst aus dem Internet (App-Installer kommt aus dem Repository)
+        assert "Invoke-WebRequest" not in f and "Invoke-RestMethod" not in f and "api.github.com" not in f
         assert "PK-WingetProxy" in f.split("9009; return }")[-1], "erst nach dem Finden von winget"
         assert "***@" in proxy.safe_error(Exception("<urlopen error http://FIRMA%5Cpx:Pr0xy@127.0.0.1:1>"))
         z = _zf.ZipFile(_io.BytesIO(diagnostics.build(1, True)[0]))
@@ -2097,13 +2099,14 @@ def _():
     dash = _asgi("GET", "/api/dashboard", ou)[1]
     assert dash["computers"] == 2 and dash["guard"] is None, dash
 
-    # 5) Pakete: alle sichtbar (2.27: auch fremde Mandanten), nur eigene änderbar; eigene landen im eigenen Mandanten
+    # 5) Pakete: zentrale sichtbar (nicht änderbar), fremde Mandanten unsichtbar (2.37); eigene landen im eigenen Mandanten
     pk = {p["name"]: p for p in _asgi("GET", "/api/packages", ou)[1]}
     assert "Zentral (Test)" in pk and pk["Zentral (Test)"]["editable"] is False
-    assert "Süd-Paket" in pk and pk["Süd-Paket"]["editable"] is False, "fremde Mandanten-Pakete: sehen ja, ändern nein"
-    assert _asgi("GET", f"/api/packages/{p_sued}", ou)[0] == 200
-    assert _asgi("PUT", f"/api/packages/{p_sued}", ou, {"name": "x"})[0] == 403
-    assert _asgi("DELETE", f"/api/packages/{p_sued}", ou)[0] == 403
+    assert "Süd-Paket" not in pk, "2.37: Pakete anderer Mandanten sind für OU-Admins unsichtbar"
+    assert _asgi("GET", f"/api/packages/{p_sued}", ou)[0] == 404
+    assert "Süd-Paket" not in {p["name"] for p in _asgi("GET", "/api/packages/meta", ou)[1]["packages"]}
+    assert _asgi("PUT", f"/api/packages/{p_sued}", ou, {"name": "x"})[0] in (403, 404)
+    assert _asgi("DELETE", f"/api/packages/{p_sued}", ou)[0] in (403, 404)
     assert _asgi("PUT", f"/api/packages/{p_central}", ou, {"name": "x"})[0] == 403
     assert _asgi("DELETE", f"/api/packages/{p_central}", ou)[0] == 403
     st, r = _asgi("POST", "/api/packages", ou, {"name": "Nord-Paket (Test)", "tenant_id": t_sued,
@@ -2113,17 +2116,15 @@ def _():
     assert st == 200 and db.val("SELECT tenant_id FROM packages WHERE id=?", (r["id"],)) == t_nord, (st, r)
     p_nord = r["id"]
     st, r = _asgi("POST", "/api/packages", ou, {"name": "Verschachtelt (Test)", "steps": {"main": [{"type": "nested", "package_id": p_sued}]}})
-    assert st == 403, ("verschachtelt nur zentrale/eigene Pakete", st, r)
+    assert st in (403, 404), ("verschachtelt nur zentrale/eigene Pakete", st, r)
     st, r = _asgi("POST", f"/api/packages/{p_central}/duplicate", ou)
     assert st == 200 and db.val("SELECT tenant_id FROM packages WHERE id=?", (r["id"],)) == t_nord, ("Kopie eines zentralen Pakets gehört dem eigenen Mandanten", st, r)
     assert _asgi("GET", "/api/repository?path=Kunden\\Sued", ou)[0] == 403, "Repository nur im eigenen Ordner"
     # 6) Bereitstellen: nur eigene Computer, nur sichtbare Pakete
     assert _asgi("POST", "/api/deployments", ou, {"package_id": p_central, "computer_ids": [cout], "scheduled_at": "2099-01-01 00:00"})[0] == 403
-    # 2.27: Pakete anderer Mandanten dürfen auf eigene Computer verteilt werden (nutzen ja, ändern nein)
+    # 2.37: Pakete anderer Mandanten sind für OU-Admins unsichtbar – auch nicht verteilbar
     st, r = _asgi("POST", "/api/deployments", ou, {"package_id": p_sued, "computer_ids": [cin1], "scheduled_at": "2099-01-01 00:00"})
-    assert st == 200, ("fremdes Mandanten-Paket verteilen", st, r)
-    db.ex("DELETE FROM deployment_targets WHERE deployment_id=?", (r["id"],))
-    db.ex("DELETE FROM deployments WHERE id=?", (r["id"],))
+    assert st == 404, ("fremdes Mandanten-Paket verteilen", st, r)
     st, r = _asgi("POST", "/api/deployments", ou, {"package_id": p_nord, "computer_ids": [cin1], "scheduled_at": "2099-01-01 00:00"})
     assert st == 200, (st, r)
     d_mine = r["id"]
@@ -2940,9 +2941,13 @@ def _():
             raise AssertionError("ohne Freigabe kein Import")
         except HTTPException as e:
             assert e.status_code == 403
-        # 2.27: OU-Admins sehen (und exportieren) alle Pakete – auch die anderer Mandanten
+        # 2.37: Pakete anderer Mandanten sind für OU-Admins unsichtbar – auch nicht exportierbar
         db.ex("UPDATE packages SET tenant_id=? WHERE id=?", (tid + 1000, a))
-        assert pkgexport.export(ou, [a])[0]["packages"], "fremdes Paket ist sichtbar und exportierbar"
+        try:
+            got = pkgexport.export(ou, [a])[0]["packages"]
+        except HTTPException as e:
+            got = [] if e.status_code == 404 else None
+        assert got == [], "fremdes Paket nicht exportierbar"
         db.ex("UPDATE packages SET tenant_id=NULL WHERE id=?", (a,))
         # Verschachtelung nie auf ein gleichnamiges Paket eines ANDEREN Mandanten (dessen OU-Admin könnte es ändern)
         other = db.ex("INSERT INTO tenants(name, allow_packages) VALUES('Exp-Sued', 1)")
@@ -2968,10 +2973,16 @@ def _():
         dup["packages"] = [dict(p, name="Exp-Doppelt", key=k) for p, k in ((dup["packages"][1], "x1"), (dup["packages"][1], "x2"))]
         r = pkgexport.run_import(admin, dup, conflict="skip", dry_run=True, pkg_values=_m._pkg_values)
         assert [x["status"] for x in r["items"]] == ["new", "skip"], r
-        # Export: verschachteltes Paket eines anderen Mandanten – seit 2.27 sichtbar, also mit exportiert
+        # Export: verschachteltes Paket eines anderen Mandanten – 2.37 für OU-Admins unsichtbar, Export abgelehnt
         db.ex("UPDATE tenants SET allow_packages=1 WHERE id=?", (tid,))
         db.ex("UPDATE packages SET tenant_id=? WHERE id=?", (tid + 1000, a))
-        assert len(pkgexport.export(ou, [b])[0]["packages"]) == 2
+        try:
+            got = [x["name"] for x in pkgexport.export(ou, [b])[0]["packages"]]
+        except HTTPException as e:
+            got = [] if e.status_code in (400, 403, 404) else ("HTTP", e.status_code, e.detail)
+        fname = db.val("SELECT name FROM packages WHERE id=?", (a,))
+        assert isinstance(got, list) and fname not in got, ("verschachteltes fremdes Paket exportiert", got)
+        assert len(pkgexport.export(admin, [b])[0]["packages"]) == 2, "Hauptadmin: beide"
         db.ex("UPDATE packages SET tenant_id=NULL WHERE id=?", (a,))
         # Fehlermeldungen des Repositorys: für OU-Admins ohne Pfad, Server und Konto (auch andere Schreibweise)
         o_login = _m.config.repo_login
@@ -3450,7 +3461,9 @@ def _():
         assert e.info["can_override"] is False and e.info["duplicate"][0]["kind"] == "winget"
         db.ex("DELETE FROM pkg_ident WHERE package_id IN (?, ?)", (p_wz, created[-1]))
         p_wn = mk({"name": "Dup Nord", "tenant_id": t_nord, **wg}, user=nord)
-        expect(lambda: mk({"name": "Dup Süd", "tenant_id": t_sued, **wg}, user=sued), repofiles.Duplicate, "Nord27")
+        # 2.37: OU-Admin eines anderen Mandanten – abgelehnt, ohne Namen/Mandant des fremden Pakets zu verraten
+        e = expect(lambda: mk({"name": "Dup Süd", "tenant_id": t_sued, **wg}, user=sued), repofiles.Duplicate, "anderen Mandanten")
+        assert "Nord27" not in str(e) and "Dup Nord" not in str(e) and not e.info["duplicate"], (str(e), e.info)
         e = expect(lambda: mk({"name": "Dup Süd", "tenant_id": t_sued, **wg}), repofiles.Duplicate, "übersteuern")
         assert e.info["can_override"] is True
         mk({"name": "Dup Süd (Hauptadmin)", "tenant_id": t_sued, "allow_duplicate": True, **wg})
@@ -3464,7 +3477,7 @@ def _():
               (th, "ou-sued27", "Test", util.now(), "2099-01-01 00:00:00", "127.0.0.1", util.now(), "admin", json.dumps([t_sued])))
         auth._checked[th] = _t.time() + 10 ** 6
         st, r = _asgi("POST", "/api/packages", tok, {"name": "Dup API", **wg})
-        assert st == 409 and r["detail"]["duplicate"] and "message" in r["detail"], (st, r)
+        assert st == 409 and "message" in r["detail"] and r["detail"]["duplicate"] == [], (st, r)  # 2.37: fremdes Paket nicht genannt
         st, r = _asgi("POST", "/api/repository/mkdir", tok, {"folder": "Mandanten\\Sued", "name": "Neu"})
         assert st == 200 and os.path.isdir(disk("Mandanten\\Sued\\Neu")), (st, r)
         st, r = _asgi("POST", "/api/repository/mkdir", tok, {"folder": "Mandanten\\Nord27", "name": "Fremd"})
@@ -3483,7 +3496,8 @@ def _():
         db.ex("DELETE FROM sessions WHERE token_hash=?", (th,))
         # gleiche Datei (SHA-256) eines Pakets von Nord: Süd darf sie nicht hochladen; Hauptadmin nach Rückfrage schon
         tool = open(disk("Mandanten\\Nord27\\App2\\tool2.exe"), "rb").read()
-        e = expect(lambda: upload(sued, "Mandanten\\Sued", "kopie.exe", tool), repofiles.Duplicate, "Nord-Tool")
+        e = expect(lambda: upload(sued, "Mandanten\\Sued", "kopie.exe", tool), repofiles.Duplicate, "anderen Mandanten")
+        assert "Nord-Tool" not in str(e), "2.37: fremdes Paket nicht genannt"
         assert not os.path.exists(disk("Mandanten\\Sued\\kopie.exe")) and not os.listdir(disk(".pk-uploads")), "Mandant: verworfen"
         e = expect(lambda: upload(admin, "Basis", "kopie.exe", tool), repofiles.Duplicate, "Nord-Tool")
         assert e.info["token"] and not os.path.exists(disk("Basis\\kopie.exe"))
@@ -4179,11 +4193,13 @@ def _():
     t = open(wf, encoding="utf-8").read()
     assert '"23 3 * * 1"' in t, "montags"
     order = ["pin-versions.sh --update", "git diff --quiet", "tools/trivy-scan.sh pocketknife:local", "tools/security-release.py",
-             "git push", "gh workflow run release.yml"]
+             'git switch -c "$BR"', 'git push', "gh pr create"]
     pos = [t.index(x) for x in order]
-    assert pos == sorted(pos), "Reihenfolge: aktualisieren/bauen/testen → Trivy → Version → speichern → Release"
+    assert pos == sorted(pos), "Reihenfolge: aktualisieren/bauen/testen → Trivy → Version → Zweig → Pull Request"
     assert t.count("if: steps.diff.outputs.changed == 'true'") >= 3, "ohne Änderung keine neue Version"
-    assert "actions: write" in t and "contents: write" in t and "packages: write" not in t, "veröffentlichen tut nur release.yml"
+    # 2.37: nie direkt auf main, kein Release von selbst – nur Zweig + Pull Request (Release nach dem Zusammenführen)
+    assert "gh workflow run" not in t and "actions: write" not in t and "HEAD:${{" not in t, "kein Push auf main, kein Release"
+    assert "pull-requests: write" in t and "contents: write" in t and "packages: write" not in t, "veröffentlichen tut nur release.yml"
     # 2.32.5: eigene Gruppe (sonst verwirft GitHub einen wartenden Release) und nur auf einen veröffentlichten Stand
     assert "group: weekly-security" in t and "group: release" in open(os.path.join(root, ".github", "workflows", "release.yml"), encoding="utf-8").read()
     assert 'gh release view "v$VER"' in t and "needs: stand" in t and "if: needs.stand.outputs.released == 'true'" in t
@@ -7025,6 +7041,192 @@ def _():
         assert h["computers"] == [1, 2, 3] and h["members"] == n_all
     finally:
         _m._visible_collections, _m._member_collections, access.computer_ids, profiles.all_profiles = o_vis, o_mem, o_ids, o_all
+
+
+@test("2.37 Vorschläge aus dem Audit: App-Installer nur aus dem Repository (Server lädt einmal), NLA, Hinweis Mandanten-PC, Bruchprüfung, Sperre je Computer ohne Blockade, Berichtsversand wiederholt, Cache-Sperre je Eintrag, Winterzeit, Indizes, Lieferkette")
+def _():
+    import datetime as _dt
+    import hashlib as _h
+    import io as _io
+    import json as _j
+    import tempfile as _tf
+    import time
+    from app import deploy, notify, profiles, proxy, remote_desktop, wingetboot, wingetcache as wc
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+    # --- App-Installer: der Client lädt nie selbst; der Server holt das Release einmal in das Repository
+    f = deploy._winget_find()
+    assert "Invoke-WebRequest" not in f and "Invoke-RestMethod" not in f and "github.com" not in f and "liegt noch nicht im Repository" in f
+    repo = _tf.mkdtemp(prefix="pk-boot-", dir=TMP)
+    old_repo, old_tag, old_boot = db.setting("repo_path"), db.setting("winget_bootstrap_tag"), db.setting("winget_bootstrap")
+    bundle, lic = b"MSIX-BUNDLE" * 100, b"<License/>"
+    files = {"https://dl.example.test/AppInstaller.msixbundle": bundle, "https://dl.example.test/x_License1.xml": lic}
+    rel = {"tag_name": "v1.99.0", "assets": [
+        {"name": "Microsoft.DesktopAppInstaller_8wekyb3d8bbwe.msixbundle", "browser_download_url": "https://dl.example.test/AppInstaller.msixbundle",
+         "digest": "sha256:" + _h.sha256(bundle).hexdigest()},
+        {"name": "x_License1.xml", "browser_download_url": "https://dl.example.test/x_License1.xml", "digest": "sha256:" + _h.sha256(lic).hexdigest()},
+        {"name": "Source.zip", "browser_download_url": "https://dl.example.test/src.zip"}]}
+    calls = []
+
+    class _R(_io.BytesIO):
+        def geturl(self):
+            return calls[-1]
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake(req, timeout=0):
+        u = req.full_url
+        calls.append(u)
+        if u == wingetboot.API:
+            return _R(_j.dumps(rel).encode())
+        if u in files:
+            return _R(files[u])
+        raise OSError("404 " + u)
+    old_open = proxy.urlopen
+    proxy.urlopen = fake
+    try:
+        db.set_setting("repo_path", repo); db.set_setting("winget_bootstrap", 1); db.set_setting("winget_bootstrap_tag", "")
+        db.set_setting("winget_bootstrap_folder", "")
+        assert wingetboot.folder() == "_winget" and not wingetboot.present()
+        msg = wingetboot.refresh("selftest")
+        assert "v1.99.0" in msg and wingetboot.present()
+        assert open(os.path.join(repo, "_winget", "Microsoft.DesktopAppInstaller_8wekyb3d8bbwe.msixbundle"), "rb").read() == bundle
+        assert not os.path.exists(os.path.join(repo, "_winget", "Source.zip")), "nur App-Installer, Lizenz, Abhängigkeiten"
+        n = len(calls)
+        assert "liegt schon" in wingetboot.refresh("selftest") and all(c == wingetboot.API for c in calls[n:]), "gleiches Release: nichts laden"
+        files["https://dl.example.test/AppInstaller.msixbundle"] = b"ANDERS"
+        rel["tag_name"] = "v1.99.1"
+        try:
+            wingetboot.refresh("selftest")
+            raise AssertionError("falsche Prüfsumme angenommen")
+        except wingetboot.BootError as e:
+            assert "Prüfsumme" in str(e)
+        assert open(os.path.join(repo, "_winget", "Microsoft.DesktopAppInstaller_8wekyb3d8bbwe.msixbundle"), "rb").read() == bundle, "alter Stand bleibt"
+        db.set_setting("winget_bootstrap", 0)
+        assert "ausgeschaltet" in wingetboot.refresh("selftest")
+    finally:
+        proxy.urlopen = old_open
+        db.set_setting("repo_path", old_repo or ""); db.set_setting("winget_bootstrap_tag", old_tag or ""); db.set_setting("winget_bootstrap", old_boot)
+    # --- Fernsteuerung: mit Anmeldedaten nur NLA; ohne (Anmeldung am Computer) wie bisher
+    cid = db.ex("INSERT INTO computers(name, dns_name) VALUES('PC-0137', 'pc-0137.firma.local')")
+    try:
+        comp = db.q1("SELECT * FROM computers WHERE id=?", (cid,))
+        u = {"username": "admin", "scope": None}
+        tk = remote_desktop.prepare(comp, u, "th37", {"protocol": "rdp", "auth": "manual", "username": "FIRMA\\x", "password": "p"})
+        assert remote_desktop._tokens[tk]["params"]["security"] == "nla"
+        tk = remote_desktop.prepare(comp, u, "th37", {"protocol": "rdp", "auth": "prompt"})
+        assert remote_desktop._tokens[tk]["params"]["security"] == "any"
+        assert remote_desktop.tenant_names(cid) == []
+    finally:
+        db.ex("DELETE FROM computers WHERE id=?", (cid,))
+    rjs = open(os.path.join(root, "app", "static", "remote.js"), encoding="utf-8").read()
+    assert "st.tenant_names" in rjs and "/api/remote/status?computer_id=" in rjs, "Hinweis vor eigener Anmeldung auf Mandanten-PCs"
+    # --- Bruchprüfung: nicht lesbare Installationsdatei blockiert
+    src = open(os.path.join(root, "app", "integrity.py"), encoding="utf-8").read()
+    assert 'x["kind"] == "unreachable" and x["main"]' in src
+    # --- Sperre je Computer: nie blockierend warten, sondern neu einreihen
+    lcid = db.ex("INSERT INTO computers(name) VALUES('PC-LOCK37')")
+    lk = deploy._computer_lock(lcid)
+    lk.acquire()
+    started = []
+    old_timer = deploy.threading.Timer
+
+    class _T:
+        def __init__(self, sec, fn):
+            started.append(sec)
+            self.daemon = False
+
+        def start(self):
+            pass
+    deploy.threading.Timer = _T
+    did = db.ex("INSERT INTO deployments(name, package_json, status, created_at) VALUES('L', '{}', 'running', ?)", (util.now(),))
+    tid = db.ex("INSERT INTO deployment_targets(deployment_id, computer_id, computer_name, status) VALUES(?, ?, 'X', 'queued')", (did, lcid))
+    try:
+        t0 = time.time()
+        deploy._run_target_safe(did, tid)
+        assert time.time() - t0 < 2 and started == [deploy.REQUEUE_SECONDS], "nicht blockiert, neu eingereiht"
+        assert db.val("SELECT status FROM deployment_targets WHERE id=?", (tid,)) == "queued"
+    finally:
+        deploy.threading.Timer = old_timer
+        lk.release()
+        db.ex("DELETE FROM deployment_targets WHERE deployment_id=?", (did,)); db.ex("DELETE FROM deployments WHERE id=?", (did,))
+        db.ex("DELETE FROM computers WHERE id=?", (lcid,))
+    # --- Berichtsversand: nach einem Fehler erneut versuchen (5/15/30 Minuten), dann aufgeben
+    sid = db.ex("INSERT INTO mail_reports(name, enabled) VALUES('Rt', 1)")
+    tries, waits = [], []
+    old_send = notify.send_subscription
+
+    def boom(s_, reason):
+        tries.append(reason)
+        if len(tries) < 3:
+            raise RuntimeError("SMTP weg")
+    notify.send_subscription = boom
+    try:
+        notify._send_bg(sid, "Zeitplan", sleep=lambda s_: waits.append(s_))
+        assert len(tries) == 3 and waits == [300, 900] and "3. Versuch" in tries[-1], (tries, waits)
+        tries.clear(); waits.clear()
+        notify.send_subscription = lambda s_, r: (_ for _ in ()).throw(RuntimeError("weg"))
+        notify._send_bg(sid, "Zeitplan", sleep=lambda s_: waits.append(s_))
+        assert waits == [300, 900, 1800], "nach drei Wiederholungen Schluss"
+    finally:
+        notify.send_subscription = old_send
+        db.ex("DELETE FROM mail_reports WHERE id=?", (sid,))
+    # --- winget-Cache: Sperre je Eintrag (ein Download blockiert das Löschen anderer Einträge nicht)
+    a, b = wc._entry_lock(1), wc._entry_lock(2)
+    assert a is not b and wc._entry_lock(1) is a
+    a.acquire()
+    try:
+        lk2 = wc._lock_entry(2, timeout=0.1)
+        lk2.release()
+        res = []
+        th = __import__("threading").Thread(target=lambda: res.append(_try_lock(wc, 1)))
+        th.start(); th.join()
+        assert res == [False], "derselbe Eintrag bleibt gesperrt"
+    finally:
+        a.release()
+    # --- Winterzeit: Intervall setzt nicht eine Stunde aus; Tages-Auslöser löst nicht doppelt aus
+    it = {"type": "interval", "unit": "m", "every": 15, "start": "2026-10-01 00:00:00"}
+    now = _dt.datetime(2026, 10, 25, 2, 5)
+    last = _dt.datetime(2026, 10, 25, 2, 59)
+    assert profiles.fires(it, profiles.last_occurrence(it, now), last, now), "Uhr zurück: einmal auslösen"
+    assert not profiles.fires(it, profiles.last_occurrence(it, now), _dt.datetime(2026, 10, 25, 2, 4, 50), now), "danach normal weiter"
+    dl = {"type": "daily", "time": "02:30", "every": 1}
+    assert not profiles.fires(dl, profiles.last_occurrence(dl, now), last, now), "täglich: nicht doppelt"
+    # --- Indizes
+    names = {r["name"] for r in db.q("SELECT name FROM sqlite_master WHERE type='index'")}
+    assert {"ix_dt_status", "ix_dep_sched", "ix_st_c", "ix_cm_c"} <= names
+    # --- Ergebnis „als angemeldeter Benutzer“ gekennzeichnet
+    assert "Ergebnis vom angemeldeten Benutzer gemeldet" in open(os.path.join(root, "app", "steps.py"), encoding="utf-8").read()
+    # --- Lieferkette (nur im Repository; im Image fehlen die Dateien)
+    wfd = os.path.join(root, ".github", "workflows")
+    if os.path.isdir(wfd):
+        rl = open(os.path.join(wfd, "release.yml"), encoding="utf-8").read()
+        assert "actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8" in rl and "attestations: write" in rl
+        g = rl[rl.index("- name: guacd unter eigenem Namen"):rl.index("- name: Archive für Installationen")]
+        assert "run: |" in g and "${{" not in g.split("run: |", 1)[1], "guacd-Schritt: Werte nur über env"
+        sec = open(os.path.join(wfd, "security.yml"), encoding="utf-8").read()
+        assert "for arch in amd64 arm64" in sec and "PK_TRIVY_PLATFORM" in sec
+        tst = open(os.path.join(wfd, "test.yml"), encoding="utf-8").read()
+        assert "Selbsttest auf dem Checkout" in tst and '-v "$PWD:/src:ro"' in tst
+    dc = os.path.join(root, "docker-compose.yml")
+    if os.path.exists(dc):
+        c = open(dc, encoding="utf-8").read()
+        gd = c[c.index("\n  guacd:"):]
+        assert "read_only: true" in gd and "- /tmp" in gd
+    ts = os.path.join(root, "tools", "trivy-scan.sh")
+    if os.path.exists(ts):
+        assert '${PLAT:+--platform "$PLAT"}' in open(ts, encoding="utf-8").read()
+
+
+def _try_lock(wc_, eid):
+    try:
+        wc_._lock_entry(eid, timeout=0.1).release()
+        return True
+    except wc_.CacheError:
+        return False
 
 
 def main():

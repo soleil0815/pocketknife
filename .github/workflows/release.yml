@@ -30,6 +30,8 @@ jobs:
     permissions:
       contents: write     # Release anlegen
       packages: write     # Image nach ghcr.io
+      id-token: write     # 2.37: Herkunftsnachweis (Attestation) signieren
+      attestations: write
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -165,14 +167,29 @@ jobs:
             type=gha,scope=amd64
             type=gha,scope=arm64
 
+      - name: Herkunftsnachweis (Attestation) für das Image
+        # 2.37: von GitHub signiert – belegt, dass genau dieses Image aus diesem Repository und Commit gebaut wurde.
+        # Prüfen: gh attestation verify oci://ghcr.io/<besitzer>/pocketknife:<version> --repo <besitzer>/pocketknife
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8  # v4.2.2
+        with:
+          subject-name: ${{ steps.v.outputs.image }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
       - name: guacd unter eigenem Namen veröffentlichen (amd64 + arm64, unverändert)
         id: guacd
+        env:
+          # 2.37: Werte über env statt direkt im Skript (kein Ausdruck wird zu Shell-Code)
+          GUACD_TAGS: ${{ steps.v.outputs.guacd_tags }}
+          GUACD_SRC: ${{ steps.v.outputs.guacd_src }}
+          GUACD_IMAGE: ${{ steps.v.outputs.guacd_image }}
+          VER: ${{ steps.v.outputs.version }}
         run: |
           # dieselbe, auf ihren Digest festgelegte offizielle guacd-Version – nur unter …/pocketknife-guacd, damit sich die
           # docker-compose.yml für ein guacd-Update nicht ändern muss (Container-Verwaltungen aktualisieren beide)
-          set -- ; for t in ${{ steps.v.outputs.guacd_tags }}; do set -- "$@" -t "$t"; done
-          docker buildx imagetools create "$@" "${{ steps.v.outputs.guacd_src }}"
-          D=$(docker buildx imagetools inspect "${{ steps.v.outputs.guacd_image }}:${{ steps.v.outputs.version }}" --format '{{ .Manifest.Digest }}')
+          set -- ; for t in $GUACD_TAGS; do set -- "$@" -t "$t"; done
+          docker buildx imagetools create "$@" "$GUACD_SRC"
+          D=$(docker buildx imagetools inspect "$GUACD_IMAGE:$VER" --format '{{ .Manifest.Digest }}')
           echo "digest=$D" >> "$GITHUB_OUTPUT"
 
       - name: Archive für Installationen ohne Internet (docker load)

@@ -1,5 +1,21 @@
 # Änderungen
 
+## pocketknife-2.37.0 (01.11.2026)
+Umsetzung der Vorschläge aus dem Code-Audit 2.36.3 (ohne den Umbau für den Constrained Language Mode – der kommt als eigene Version):
+- **Sicherheit – OU-Admins sehen Pakete anderer Mandanten nicht mehr:** sichtbar und verteilbar sind zentrale Pakete und die des eigenen Mandanten (Liste, Auswahllisten, Export, Bereitstellen, Zeitpläne). Die Duplikatsperre nennt ein Paket eines anderen Mandanten nicht mehr beim Namen („gibt es schon bei einem anderen Mandanten – bitte den Hauptadmin, es zentral bereitzustellen“)
+- **Sicherheit – Fernsteuerung:** mit mitgegebenen Anmeldedaten (eigene oder eingegebene) nur noch mit NLA; Hauptadmins bekommen auf Computern eines Mandanten mit OU-Admins vor der eigenen Anmeldung einen deutlichen Hinweis
+- **Sicherheit – App-Installer (winget) nie mehr per Download auf dem Client:** POCKET KNIFE lädt das aktuelle Release von microsoft/winget-cli selbst einmal in den Repository-Ordner „Offline-Quelle“ (Standard `_winget`; Prüfsumme aus GitHub, nur HTTPS, täglich geprüft, nur bei neuer Version), die Clients installieren nur von dort. Einstellungen → winget → Offline-Quelle zeigt den Stand, **Jetzt laden** holt ihn sofort
+- **Sicherheit – Bruchprüfung:** ist die Installationsdatei eines Pakets nicht lesbar, startet die Bereitstellung nicht mehr ungeprüft
+- **Verbessert – Bereitstellungen:** warten nicht mehr blockierend auf denselben Computer – viele Bereitstellungen für einen PC belegen nicht mehr alle Plätze, andere Computer kommen weiter dran
+- **Verbessert – Berichtsversand:** nach einem Fehler (z. B. SMTP kurz nicht erreichbar) neue Versuche nach 5, 15 und 30 Minuten
+- **Verbessert – winget-Cache:** Sperre je Eintrag – ein langer Download blockiert das Entfernen anderer Einträge nicht mehr
+- **Verbessert – Ausführen als angemeldeter Benutzer:** das Ergebnis ist als „vom angemeldeten Benutzer gemeldet“ gekennzeichnet (Arbeitsordner und Ergebnisdatei gehören dann dem Benutzer)
+- **Behoben – Winterzeit:** Intervall-Auslöser in Minuten/Stunden setzten bei der Zeitumstellung eine Stunde aus
+- **Verbessert – Leistung:** zusätzliche Datenbank-Indizes (Ziele nach Status, Bereitstellungen je Zeitplan, Zeitplan-Ziele und Sammlungsmitglieder je Computer)
+- **Lieferkette:** das wöchentliche Sicherheitsupdate legt einen Pull Request an statt direkt auf main zu speichern und selbst zu veröffentlichen; Herkunftsnachweis (Attestation) für jedes Image; täglicher Sicherheits-Scan für amd64 **und** arm64; guacd mit schreibgeschütztem Dateisystem (nur `/tmp` und das guacd-Benutzerverzeichnis im Speicher); Werte im Release-Workflow über Umgebungsvariablen; Selbsttest in der Prüfung zusätzlich auf dem Checkout (Workflows, Compose, update.sh)
+- **Doku:** Abschnitt „Datenschutz“ in Hilfe und README; neutrale Beispiele in der Oberfläche (PC-0001, `\\fs01\PAKETE`)
+- **Selbsttest:** alles oben (App-Installer mit nachgebautem GitHub, NLA, Sperre ohne Blockade, Wiederholungen, Winterzeit, Indizes, Workflows/Compose); bisherige Tests an die neue Sichtbarkeit angepasst
+
 ## pocketknife-2.36.3 (01.11.2026)
 Ergebnis des monatlichen vollständigen Code-Audits (Stand 2.36.1):
 - **Behoben – Direktaktionen nur unter bestätigter Adresse:** Dateien, Dienste, Prozesse, Ereignisanzeige, Live-Abfragen, Tools, Speicherplatz-Analyse, Fernsteuerung, Neustart/Herunterfahren/gpupdate, angemeldete Benutzer, Scanner-Test und Test-Benachrichtigung verbinden sich nicht mehr mit einem Gerät, das die Identitätsprüfung als fremd oder nicht bestätigt markiert hat (wie schon Bereitstellungen und Scans). Vorher hätte z. B. ein geänderter oder veralteter DNS-Name eines Computers das Dienstkonto (bei der Fernsteuerung die eigenen Anmeldedaten) an einen anderen Server geschickt

@@ -634,6 +634,11 @@ def guard(pkg, package_id=None, name=None):
             x["note"] = ("Änderungsdatum der Installationsdatei anders – Fingerabdruck noch nicht fertig (wird im Hintergrund "
                          "berechnet); danach erneut starten")
             res["state"] = "broken"
+        elif x["kind"] == "unreachable" and x["main"] and key(x["path"]) in inst:
+            # 2.37: Installationsdatei nicht lesbar → nicht ungeprüft laufen lassen (vorher „unbekannt“ = Lauf erlaubt)
+            x["level"] = "broken"
+            x["note"] = "Installationsdatei nicht lesbar – nicht geprüft; " + (x.get("note") or "")
+            res["state"] = "broken"
     if res["state"] == "broken":
         bad = {"issues": [x for x in res["issues"] if x["level"] == "broken"], "total": None}
         raise IntegrityError(f"Unterbrochen – Paket „{nm}“: Dateien im Repository haben sich geändert ({summary(bad)}). "

@@ -169,9 +169,15 @@ def sql_in(user, col):
 
 # --- Pakete ----------------------------------------------------------------------------------
 def can_see_package(user, row):
-    """Sehen und verteilen dürfen alle alle Pakete (zentrale und die jedes Mandanten) – ändern nur die eigenen
+    """Sehen und verteilen: Hauptadmins alles; OU-Admins (2.37) zentrale Pakete und die ihrer eigenen Mandanten –
+    Pakete anderer Mandanten (samt Schritten, Pfaden, Skripten) sehen sie nicht. Ändern nur die eigenen
     (can_edit_package)."""
-    return bool(row) or not scoped(user)
+    if not row:
+        return False
+    if not scoped(user):
+        return True
+    t = row.get("tenant_id")
+    return not t or int(t) in tenant_ids(user)
 
 
 def can_edit_package(user, row):
@@ -210,7 +216,7 @@ def own_tenant_for(user, requested):
 def check_nested(user, pkg_steps, tenant_id=None):
     """Verschachtelte Pakete: nur zentrale oder solche desselben Mandanten wie das äußere Paket – für alle, auch
     Hauptadmins. Sonst könnte ein (anderer) Mandant ändern, was in diesem Paket mitläuft – bei einem zentralen Paket auf
-    allen Computern. Sehen und verteilen dürfen alle alle Pakete; das gilt nur fürs Einbauen."""
+    allen Computern. Das gilt nur fürs Einbauen (sehen: can_see_package)."""
     from . import steps as stp
     own = int(tenant_id or 0)
     for _k, s in stp.iter_steps(stp.normalize({"steps": pkg_steps})):

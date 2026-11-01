@@ -747,7 +747,7 @@ def _evaluate_one(s, now, nows, state):
             continue
         occ = profiles.last_occurrence(t, now)
         last = util.parse(state.get((s["id"], t["id"])))
-        if occ and (last is None or occ > last):
+        if profiles.fires(t, occ, last, now):
             db.ex("INSERT INTO schedule_trigger_state(schedule_id, trigger_id, last_fired) VALUES(?,?,?) "
                   "ON CONFLICT(schedule_id, trigger_id) DO UPDATE SET last_fired=excluded.last_fired",
                   (s["id"], t["id"], nows))
