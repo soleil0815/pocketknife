@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.38.1",
+   "date": "2026-11-01",
+   "items": [
+    {
+     "kind": "fixed",
+     "audience": "admin",
+     "de": "Tools als Dienstkonto laufen auch, wenn Softwareeinschränkung Skripte in %TEMP% sperrt.",
+     "en": "Tools run as the service account also work when software restriction blocks scripts in %TEMP%."
+    }
+   ]
+  },
+  {
    "version": "2.38.0",
    "date": "2026-11-01",
    "items": [

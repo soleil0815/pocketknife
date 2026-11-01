@@ -7322,6 +7322,27 @@ def _():
         and "Registry::HKEY_CURRENT_USER\\Software\\A" in out, out
 
 
+@test("2.38.1 Tools als Dienstkonto: darf in %TEMP% kein Skript laufen (Softwareeinschränkung), läuft das Tool direkt")
+def _():
+    import subprocess as _sp
+    from app import tools
+    ps = tools.ps_tool_winrm("'ok'")
+    assert "pk_probe_" in ps and "-contains 'PKPROBE'" in ps and "if (-not $pkFileOk -or" in ps
+    assert ps.index("$pkFileOk") < ps.index("& $pkF "), "erst prüfen, dann als Datei starten"
+    pw = os.environ.get("PK_PWSH")
+    if not pw or not os.path.exists(pw):
+        return
+    d = tempfile.mkdtemp(prefix="pk-probe-", dir=TMP)
+    f = os.path.join(d, "t.ps1")
+    # %TEMP% nicht nutzbar (wie gesperrt) → direkt ausführen, Ausgabe kommt trotzdem
+    open(f, "w", encoding="utf-8").write("$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'\n" + ps)
+    r = _sp.run([pw, "-NoProfile", "-NonInteractive", "-File", f], capture_output=True, text=True, timeout=120,
+                env={**os.environ, "TEMP": os.path.join(d, "gibt-es-nicht")})
+    assert "ok" in r.stdout and "PKEXIT:0" in r.stdout, r.stdout + r.stderr
+    r = _sp.run([pw, "-NoProfile", "-NonInteractive", "-File", f], capture_output=True, text=True, timeout=120, env={**os.environ, "TEMP": d})
+    assert "ok" in r.stdout and "PKEXIT:0" in r.stdout, r.stdout + r.stderr
+
+
 def main():
     ok = 0
     for name, fn in RESULTS:

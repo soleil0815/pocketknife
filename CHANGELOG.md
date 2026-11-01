@@ -1,5 +1,9 @@
 # Änderungen
 
+## pocketknife-2.38.1 (01.11.2026)
+- **Behoben – Tools als Dienstkonto bei Softwareeinschränkung:** Seit 2.38.0 laufen PowerShell-Tools als Datei aus `%TEMP%` (für den Exitcode bei `exit N`). Sperrt Softwareeinschränkung oder AppLocker Skripte dort auch für Administratoren, wäre das Tool gescheitert. Jetzt prüft ein kurzes Probeskript vorher, ob eine Datei dort laufen darf – sonst läuft das Tool wie bis 2.37 direkt (dann ohne `exit N`)
+- **Selbsttest:** gesperrte Datei → Tool läuft trotzdem (direkt)
+
 ## pocketknife-2.38.0 (01.11.2026)
 - **Neu – volle Funktion bei gehärteten Clients (Constrained Language Mode):** Mit Softwareeinschränkung, AppLocker-Skriptregeln oder App Control (WDAC) erlaubt PowerShell keine .NET-Aufrufe. POCKET KNIFE kommt jetzt ohne sie aus:
   - Bereitstellungen, Tools und der Rahmen auf dem Client schreiben ihre Skripte mit `Set-Content` (statt `[IO.File]`/Base64); `.cmd`-Dateien in der Codepage der Konsole
