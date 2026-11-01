@@ -274,7 +274,6 @@ app/winget.py [var-annotated] Need type annotation for "maps"
 app/wingetboot.py [union-attr] Item "None" of "int | str | None" has no attribute "lower"
 app/wingetboot.py [union-attr] Item "int" of "int | str | None" has no attribute "lower"
 app/wingetcache.py [assignment] Incompatible types in assignment (expression has type "Literal[False] | Any", variable has type "str")
-app/wingetcache.py [import-untyped] Library stubs not installed for "yaml"
 app/wingetcache.py [var-annotated] Need type annotation for "_elocks" (hint: "_elocks: dict[<type>, <type>] = ...")
 app/wingetcache.py [var-annotated] Need type annotation for "_guard_cache" (hint: "_guard_cache: dict[<type>, <type>] = ...")
 app/wingetcache.py [var-annotated] Need type annotation for "done" (hint: "done: set[<type>] = ...")
