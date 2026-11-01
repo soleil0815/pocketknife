@@ -594,7 +594,7 @@ Under **Scan profiles → Custom scanners** you create scanners of type Registry
 
 | Type | Input | Result |
 |---|---|---|
-| Registry | `HKLM:\SOFTWARE\Contoso\Agent` | all values of the key |
+| Registry | `HKLM:\SOFTWARE\Firma\Agent` | all values of the key |
 | Files & Folders | `C:\Program Files\Contoso\*.exe` | size, date, file version |
 | Files & Folders | `%SYSTEMDRIVE%\Users\*\ntuser.dat` | one entry per user profile |
 | WMI | `SELECT Name, EstimatedChargeRemaining FROM Win32_Battery` | battery level |
@@ -755,7 +755,7 @@ The **State** column in the package list shows the result (tooltip with the file
 | PowerShell | any script; `exit 1` reports an error |
 | Nested package | the steps of another package at this position |
 | File copy | file/folder from the repository to e.g. `%ProgramData%\Contoso` |
-| Registry | set values (REG_SZ, REG_EXPAND_SZ, REG_DWORD, REG_QWORD, REG_MULTI_SZ, REG_BINARY), delete values or keys, create keys – directly in the package, no file needed. **Import from .reg** turns the content of an exported .reg file into entries. 64- or 32-bit view (WOW6432Node) selectable. HKCU entries apply to the executing account – for user settings use *Run as: Logged-on user*. |
+| Registry | set values (REG_SZ, REG_EXPAND_SZ, REG_DWORD, REG_QWORD, REG_MULTI_SZ, REG_BINARY), delete values or keys, create keys – directly in the package, no file needed. **Import from .reg** turns the content of an exported .reg file into entries. 64- or 32-bit view (WOW6432Node) selectable. HKCU entries apply to the executing account – for user settings use *Run as: Logged-on user*. Values named like `Password`, `Secret` or `Token` do not appear in the deployment output (from 2.38.2). |
 | Scan | inventory scan with a scan profile |
 | Restart | restarts, waits until the computer is back and continues |
 | Wait / Message / Sign out | pause, message to all sessions, sign out users |

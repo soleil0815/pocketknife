@@ -1,5 +1,9 @@
 # Änderungen
 
+## pocketknife-2.38.2 (01.11.2026)
+- **Sicherheit – Registry-Schritte:** Werte mit Namen wie `Password`, `Passwd`, `Pwd`, `Kennwort`, `Secret`, `Token`, `Credential` oder `ApiKey` stehen nicht mehr in der Ausgabe der Bereitstellung (`******** (verborgen)`). Beispiel: das TightVNC-Kennwort (REG_BINARY) ist nur mit einem öffentlich bekannten Schlüssel verschlüsselt und stand bisher als Zahlenfolge im Protokoll – sichtbar für alle, die die Bereitstellung öffnen dürfen, und so lange gespeichert wie diese. Die Zeile „gesetzt … → Password“ bleibt, nur der Inhalt fehlt
+- **Selbsttest:** Werte mit solchen Namen nie in der Ausgabe (auch im eingeschränkten Sprachmodus)
+
 ## pocketknife-2.38.1 (01.11.2026)
 - **Behoben – Tools als Dienstkonto bei Softwareeinschränkung:** Seit 2.38.0 laufen PowerShell-Tools als Datei aus `%TEMP%` (für den Exitcode bei `exit N`). Sperrt Softwareeinschränkung oder AppLocker Skripte dort auch für Administratoren, wäre das Tool gescheitert. Jetzt prüft ein kurzes Probeskript vorher, ob eine Datei dort laufen darf – sonst läuft das Tool wie bis 2.37 direkt (dann ohne `exit N`)
 - **Selbsttest:** gesperrte Datei → Tool läuft trotzdem (direkt)
