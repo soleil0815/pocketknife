@@ -5574,7 +5574,6 @@
  "Freigabe …": "Release …",
  "Freigabe: {0}": "Release: {0}",
  "Für dieses Programm ist noch keine Version vermerkt (nach dem nächsten Laden des winget-Index).": "No version recorded for this program yet (after the next load of the winget index).",
- "Gilt für winget-Schritte in Paketen, Kiosk, Zeitpläne und den winget-Cache: Solange die neueste Version nicht freigegeben ist, bekommen die Computer die zuletzt freigegebene (winget --version), der Cache lädt nur diese. Einzeln freigeben oder sperren: Pakete → Rechtsklick auf ein winget-Paket → „Freigabe …“. Der Knopf „Aktualisieren“ unter Software installiert bewusst die neueste. Gezählt wird ab dem Tag, an dem POCKET KNIFE die Version im Katalog zum ersten Mal sieht.": "Applies to winget steps in packages, kiosk, schedules and the winget cache: as long as the latest version is not released, computers get the last released one (winget --version), and the cache only downloads that one. Release or block individually: Packages → right-click a winget package → \"Release …\". The \"Update\" button under Software deliberately installs the latest. Counting starts on the day POCKET KNIFE first sees the version in the catalog.",
  "Installiert und aktualisiert wird {0} – {1}.": "{0} is installed and updated – {1}.",
  "Neue Versionen": "New versions",
  "Neueste Version freigegeben": "Latest version released",
@@ -5620,5 +5619,9 @@
  "{0} – {1} im Cache ist nicht freigegeben und wird nicht benutzt": "{0} – {1} in the cache is not released and is not used",
  "AGPL-3.0": "AGPL-3.0",
  "Freie Software unter der GNU Affero General Public License 3": "Free software under the GNU Affero General Public License 3",
- "Freie Software unter der GNU Affero General Public License 3 – Quellcode und Lizenztext": "Free software under the GNU Affero General Public License 3 – source code and license text"
+ "Freie Software unter der GNU Affero General Public License 3 – Quellcode und Lizenztext": "Free software under the GNU Affero General Public License 3 – source code and license text",
+ "Gilt für winget-Schritte in Paketen, Kiosk, Zeitpläne und den winget-Cache: Solange die neueste Version nicht freigegeben ist, bekommen die Computer die zuletzt freigegebene (winget --version), der Cache lädt nur diese. Einzeln freigeben oder sperren: Pakete → Rechtsklick auf ein winget-Paket → „Freigabe …“. Der Knopf „Aktualisieren“ unter Software installiert bewusst die neueste – außer sie ist gesperrt. Beim Wechsel der Regel bleiben bisher freigegebene Versionen freigegeben. Gezählt wird ab dem Tag, an dem POCKET KNIFE die Version im Katalog zum ersten Mal sieht.": "Applies to winget steps in packages, kiosk, schedules and the winget cache: as long as the latest version is not released, computers get the last released one (winget --version), and the cache only downloads that one. Release or block individually: Packages → right-click a winget package → \"Release …\". The \"Update\" button under Software deliberately installs the latest – unless it is blocked. When the rule is changed, versions released so far stay released. Counting starts on the day POCKET KNIFE first sees the version in the catalog.",
+ "Freigabe der winget-Version nicht prüfbar: {0}": "Release of the winget version cannot be checked: {0}",
+ "winget-Freigabe: Regel {0} → {1}, {2} bisher freigegebene Version(en) bleiben freigegeben.": "winget release: rule {0} → {1}, {2} version(s) released so far stay released.",
+ "{0} – freigegebene Version {1} ungültig": "{0} – released version {1} invalid"
 }

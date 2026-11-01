@@ -1,5 +1,14 @@
 # Änderungen
 
+## pocketknife-2.36.2 (01.11.2026)
+Ergebnis des wöchentlichen Code-Audits (2.32.11–2.36.1):
+- **Behoben – Sperre einer winget-Version galt nicht für den Knopf „Aktualisieren“:** Er installierte per `winget upgrade` auch eine gesperrte Version (auch für OU-Admins und beim Wiederholen). Jetzt umgeht er nur die Zurückstellung; ist die neueste gesperrt, bekommt der Computer die zuletzt freigegebene Version
+- **Behoben – Wechsel der Regel stellte Programme zurück:** Von „sofort freigeben“ (oder „zurückstellen“) auf „nur nach Freigabe“ galten alle seit der ersten Sichtung erschienenen Versionen plötzlich als nicht freigegeben – neue Computer hätten z. B. eine Monate alte Version bekommen, und der winget-Cache hätte sie wieder geladen. Jetzt bleiben alle bis zum Wechsel freigegebenen Versionen freigegeben
+- **Behoben – Fehler beim Prüfen der Freigabe:** Ist die Freigabe nicht prüfbar (z. B. Datenbankfehler), schlägt der winget-Schritt mit Meldung fehl, statt die neueste – vielleicht gesperrte – Version zu installieren; der winget-Cache wird dann nicht benutzt. Eine freigegebene Version wird vor `winget --version` noch einmal auf gültige Zeichen geprüft
+- **Behoben – update.sh startete die alte Version mitten in der Migration:** Sicherung „vor-<Version>“ und Datenbank-Umstellung laufen vor dem Start der Weboberfläche; nach etwa 3 Minuten meldete Docker „unhealthy“ und update.sh (mit `-y` ohne Rückfrage) startete die alte Version auf einer halb umgestellten Datenbank. Jetzt Startzeit des Gesundheitschecks 15 Minuten (Prüfung alle 10 s), update.sh wartet bis zu 20 Minuten
+- **Behoben – update.sh ohne Internet:** Fehlt die `pocketknife-<Version>.sha256` neben dem Archiv (oder `sha256sum`), bricht es ab, statt ungeprüft zu laden (wie die Hilfe es beschreibt). Ein relativer Archivpfad gilt jetzt ab dem aktuellen Ordner (auch neben update.sh). Beim Zurück auf die alte Version behält die `.env` Besitzer und Rechte
+- **Selbsttest:** Sperre und „Aktualisieren“, Wechsel der Regel, Fehler beim Prüfen, ungültige Version, Gesundheitscheck/Wartezeit, Prüfsumme Pflicht, relativer Pfad, `.env` beim Zurück
+
 ## pocketknife-2.36.1 (31.10.2026)
 - **Lizenz: GNU Affero General Public License, Version 3 (AGPL-3.0-only).** Datei `LICENSE` im Repository und im Container (`/opt/pocketknife/LICENSE`), Kennzeichnung des Images (`org.opencontainers.image.licenses`), Abschnitt „Lizenz“ in Hilfe und README, Link „AGPL-3.0“ unten in der Seitenleiste und auf der Anmeldeseite
 - **Sicherheit:** pyasn1 0.6.4 → 0.6.5 (vier neue Schwachstellen „Denial of Service“ beim Entschlüsseln von ASN.1-Daten, u. a. CVE-2026-119194 – betrifft die LDAP-/Kerberos-Anbindung)

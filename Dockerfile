@@ -77,5 +77,7 @@ EXPOSE 8443
 
 # Starts as root only to hand /data over to the user "pocketknife" (UID 10001) once; run.py drops the
 # privileges immediately – the web server and all access run without root (see app/privileges.py).
-HEALTHCHECK --interval=60s --timeout=10s --start-period=30s CMD ["python", "-I", "/opt/pocketknife/healthcheck.py"]
+# 2.36.2: Sicherung „vor-<Version>“ und Datenbank-Migration laufen vor dem Start der Weboberfläche – bis zu 15 Minuten
+# zählen Fehlschläge nicht (sonst „unhealthy“ nach ~3 Minuten und update.sh startete die alte Version mitten in der Migration)
+HEALTHCHECK --interval=60s --timeout=10s --start-period=15m --start-interval=10s CMD ["python", "-I", "/opt/pocketknife/healthcheck.py"]
 CMD ["python", "run.py"]
