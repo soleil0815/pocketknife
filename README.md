@@ -35,7 +35,7 @@ Webanwendung zur **Inventarisierung** und **Softwareverteilung** für Windows-Co
 - **Handbuch als PDF** in Deutsch und Englisch: `app/static/help/POCKET-KNIFE-Handbuch.pdf` und `POCKET-KNIFE-Manual.pdf` – auch über die Hilfe herunterladbar.
 - **Deutsch und Englisch**: Umschalter **DE / EN** unten links und auf der Anmeldeseite (gilt je Browser).
 
-Für Entwickler: Die Texte des Handbuchs stehen in `app/static/help/de.md` und `en.md`; `python3 tools/build_manual.py` erzeugt daraus die PDFs (benötigt pandoc und Playwright). Die englische Oberfläche kommt aus dem Wörterbuch `app/i18n/en.json`; `python3 tools/i18n_extract.py` listet neue, noch nicht übersetzte Texte, `python3 tools/build_i18n.py` baut daraus `app/static/i18n.js`.
+Für Entwickler: Die Texte des Handbuchs stehen in `app/static/help/de.md` und `en.md`; `python3 tools/build_manual.py` erzeugt daraus die PDFs (benötigt pandoc und Playwright). Die englische Oberfläche kommt aus dem Wörterbuch `app/i18n/en.json`; `python3 tools/i18n_extract.py` listet neue, noch nicht übersetzte Texte, `python3 tools/build_i18n.py` baut daraus `app/static/i18n.js`. **Typprüfung:** `python3 tools/typcheck.py` (mypy, Ausgangsstand in `tools/mypy-baseline.txt`; nur neue Funde lassen die Prüfung auf GitHub scheitern, nach Behebungen `--update`).
 
 ## Funktionen
 
