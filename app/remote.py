@@ -1435,8 +1435,8 @@ REGISTER = r"""$ErrorActionPreference = 'Stop'
 $dir = '__DIR__'
 New-Item -ItemType Directory -Path $dir -Force | Out-Null
 Remove-Item (Join-Path $dir 'pk_exit.txt') -ErrorAction SilentlyContinue
-$w = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('__B64__'))
-[System.IO.File]::WriteAllText((Join-Path $dir 'pk_run.ps1'), $w, (New-Object System.Text.UTF8Encoding $true))
+# 2.38: Skript als Text-Literal und Set-Content (Constrained Language Mode: keine .NET-Aufrufe wie [IO.File]/[Convert])
+Set-Content -LiteralPath (Join-Path $dir 'pk_run.ps1') -Value __CONTENT__ -Encoding UTF8 -NoNewline
 __EXTRA__
 # Windows PowerShell mit vollem Pfad und festen Schaltern (siehe util.PS_FLAGS)
 $pkRunF = Join-Path $dir 'pk_run.ps1'
@@ -1448,7 +1448,7 @@ if ($pkRunAs -eq 'user') {
   $sess = @(Get-CimInstance Win32_Process -Filter "Name='explorer.exe'" | ForEach-Object {
     $o = Invoke-CimMethod -InputObject $_ -MethodName GetOwner -ErrorAction SilentlyContinue
     $q = Invoke-CimMethod -InputObject $_ -MethodName GetOwnerSid -ErrorAction SilentlyContinue
-    if ($o.User) { [pscustomobject]@{ Name = ($o.Domain + '\' + $o.User); Sid = $q.Sid } } })
+    if ($o.User) { New-Object PSObject -Property @{ Name = ($o.Domain + '\' + $o.User); Sid = $q.Sid } } })
   if ($pkSid) { $sess = @($sess | Where-Object { $_.Sid -eq $pkSid }) }
   if (-not $sess) {
     $who = $pkSid
@@ -1478,8 +1478,8 @@ START_DIRECT = r"""$ErrorActionPreference = 'Stop'
 $dir = '__DIR__'
 New-Item -ItemType Directory -Path $dir -Force | Out-Null
 Remove-Item (Join-Path $dir 'pk_exit.txt') -ErrorAction SilentlyContinue
-$w = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('__B64__'))
-[System.IO.File]::WriteAllText((Join-Path $dir 'pk_run.ps1'), $w, (New-Object System.Text.UTF8Encoding $true))
+# 2.38: Skript als Text-Literal und Set-Content (Constrained Language Mode: keine .NET-Aufrufe wie [IO.File]/[Convert])
+Set-Content -LiteralPath (Join-Path $dir 'pk_run.ps1') -Value __CONTENT__ -Encoding UTF8 -NoNewline
 __EXTRA__
 # 2.31: über cmd.exe, damit Fehlermeldungen von PowerShell selbst (Skript nicht ladbar, Richtlinie) in pk_err.txt landen –
 # sonst endet der Prozess „ohne Ergebnis“, und niemand sieht warum
@@ -1498,7 +1498,7 @@ $pf = Join-Path $dir 'pk_pid.txt'
 $st = $null
 if (-not (Test-Path $f) -and (Test-Path $pf)) {
   # Direkt gestarteter Prozess: läuft er noch? (PID nur gelten lassen, wenn die Befehlszeile zum Lauf passt)
-  $id = 0; [void][int]::TryParse((Get-Content $pf -Raw).Trim(), [ref]$id)
+  $id = 0; $pkT = "$(Get-Content $pf -Raw)".Trim(); if ($pkT -match '^\d{1,9}$') { $id = [int]$pkT }
   $p = Get-CimInstance Win32_Process -Filter ('ProcessId=' + $id) -ErrorAction SilentlyContinue
   if ($p -and $p.CommandLine -and $p.CommandLine.Contains($dir)) { $st = 'PK_PROC:running' }
   elseif (-not (Test-Path $f)) { $st = 'PK_PROC:gone' }
@@ -1548,7 +1548,7 @@ elseif (Test-Path $f) {
 CLEANUP = r"""$pf = Join-Path '__DIR__' 'pk_pid.txt'
 if (Test-Path $pf) {
   # Abbruch/Zeitüberschreitung: direkt gestarteten Prozess samt Unterprozessen (Installer) beenden
-  $id = 0; [void][int]::TryParse((Get-Content $pf -Raw).Trim(), [ref]$id)
+  $id = 0; $pkT = "$(Get-Content $pf -Raw)".Trim(); if ($pkT -match '^\d{1,9}$') { $id = [int]$pkT }
   $p = Get-CimInstance Win32_Process -Filter ('ProcessId=' + $id) -ErrorAction SilentlyContinue
   if ($id -gt 0 -and $p -and $p.CommandLine -and $p.CommandLine.Contains('__DIR__')) { & taskkill.exe /PID $id /T /F 2>$null | Out-Null; Start-Sleep -Seconds 2 }
 }
@@ -1577,7 +1577,7 @@ foreach ($d in $dirs) {
   if (Test-Path -LiteralPath $ef) { $codes += ((Get-Content -LiteralPath $ef -Raw).Trim()) }
   $pf = Join-Path $d.FullName 'pk_pid.txt'
   if (Test-Path -LiteralPath $pf) {
-    $id = 0; [void][int]::TryParse((Get-Content -LiteralPath $pf -Raw).Trim(), [ref]$id)
+    $id = 0; $pkT = "$(Get-Content -LiteralPath $pf -Raw)".Trim(); if ($pkT -match '^\d{1,9}$') { $id = [int]$pkT }
     $p = Get-CimInstance Win32_Process -Filter ('ProcessId=' + $id)
     # Ordnername vergleichen, ohne Groß/Klein (C:\WINDOWS vs. C:\Windows) – er enthält Lauf-Nummer und Zufallsteil
     if ($id -gt 0 -and $p -and $p.CommandLine -and $p.CommandLine.ToLower().Contains('\' + $d.Name.ToLower() + '\')) {
@@ -1733,15 +1733,15 @@ def run_as_system(host, body, name, timeout_s=3600, cancel=None, extra_ps="", ru
     d = f"C:\\Windows\\Temp\\PocketKnife\\{name}"
     task = f"PK_{name}"
     wrapper = WRAPPER.replace("__DIR__", d.replace("'", "''")).replace("__BODY__", body)
-    b64 = base64.b64encode(wrapper.encode("utf-8")).decode()
 
     def fill(t):
         return t.replace("__DIR__", d).replace("__TASK__", task)
 
     direct = run_as == "deploy"
-    reg = fill(START_DIRECT if direct else REGISTER).replace("__B64__", b64).replace("__TIMEOUT__", str(max(5, int(timeout_s / 60) + 5))) \
+    reg = fill(START_DIRECT if direct else REGISTER).replace("__TIMEOUT__", str(max(5, int(timeout_s / 60) + 5))) \
         .replace("__EXTRA__", extra_ps or "").replace("__RUNAS__", run_as if run_as in ("user", "deploy") else "system") \
         .replace("__RUNSID__", sid)
+    reg = reg.replace("__CONTENT__", util.psq(wrapper), 1)  # zuletzt: der Inhalt selbst wird nicht mehr ersetzt
     try:
         secure_workdir(host)
         out, err, _ = ps(host, reg)
@@ -1814,12 +1814,17 @@ def test_connection(host):
         return res
     try:
         out, err, _ = ps(host, "$env:COMPUTERNAME; whoami; $PSVersionTable.PSVersion.ToString(); "
-                               "([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent())"
-                               ".IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)")
+                               # 2.38: ohne .NET (Constrained Language Mode) – erhöhtes Token = hohe Integritätsstufe
+                               "[bool](whoami.exe /groups | Select-String -SimpleMatch -Pattern 'S-1-16-12288', 'S-1-16-16384'); "
+                               "$ExecutionContext.SessionState.LanguageMode")
         lines = out.strip().splitlines()
         res.update({"computer": lines[0] if lines else "", "user": lines[1] if len(lines) > 1 else "",
                     "powershell": lines[2] if len(lines) > 2 else "",
-                    "admin": (lines[3].strip().lower() == "true") if len(lines) > 3 else False})
+                    "admin": (lines[3].strip().lower() == "true") if len(lines) > 3 else False,
+                    "language_mode": lines[4].strip() if len(lines) > 4 else ""})
+        if res["language_mode"] and res["language_mode"] != "FullLanguage":
+            res["hinweis"] = ("PowerShell läuft hier eingeschränkt (Softwareeinschränkung, AppLocker oder App Control). POCKET KNIFE "
+                              "kommt damit zurecht; nur die Speicherplatz-Analyse braucht volle PowerShell.")
     except RemoteError as e:
         res["error"] = str(e)
     try:

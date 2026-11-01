@@ -5644,5 +5644,8 @@
  "Automatisches Nachinstallieren von winget ist ausgeschaltet.": "Automatic installation of winget is turned off.",
  "Im aktuellen Release von microsoft/winget-cli fehlt der App-Installer (*.msixbundle).": "The current release of microsoft/winget-cli lacks the App Installer (*.msixbundle).",
  "Läuft bereits.": "Already running.",
- "Unerwarteter Dateiname oder Adresse im Release: {0}": "Unexpected file name or address in the release: {0}"
+ "Unerwarteter Dateiname oder Adresse im Release: {0}": "Unexpected file name or address in the release: {0}",
+ "Die Speicherplatz-Analyse braucht volle PowerShell – auf diesem Computer läuft PowerShell im eingeschränkten Sprachmodus (Softwareeinschränkung, AppLocker oder App Control). Alternative: Dateien (Explorer) bzw. ein Scanner „Dateien & Ordner“.": "The disk usage analysis needs full PowerShell – on this computer PowerShell runs in constrained language mode (software restriction, AppLocker or App Control). Alternative: Files (Explorer) or a \"Files & folders\" scanner.",
+ "PowerShell läuft hier eingeschränkt (Softwareeinschränkung, AppLocker oder App Control). POCKET KNIFE kommt damit zurecht; nur die Speicherplatz-Analyse braucht volle PowerShell.": "PowerShell runs restricted here (software restriction, AppLocker or App Control). POCKET KNIFE copes with this; only the disk usage analysis needs full PowerShell.",
+ "unbekannt (eingeschränkter Sprachmodus)": "unknown (constrained language mode)"
 }

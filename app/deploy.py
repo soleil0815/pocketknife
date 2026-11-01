@@ -112,8 +112,8 @@ function PK-WingetProxy {
     if (Test-Path -LiteralPath $f -PathType Leaf) { $old = ('' + (Get-Content -LiteralPath $f -Raw -ErrorAction SilentlyContinue)).Trim() }
   }
   if ($PKProxy -eq $old) { return }
-  $id = [Security.Principal.WindowsIdentity]::GetCurrent()
-  if (-not $id.IsSystem -and -not ([Security.Principal.WindowsPrincipal]$id).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { return }
+  # SYSTEM oder erhöhter Administrator (hohe/System-Integritätsstufe) – ohne .NET (Constrained Language Mode, 2.38)
+  if (-not (whoami.exe /groups | Select-String -SimpleMatch -Pattern 'S-1-16-12288', 'S-1-16-16384')) { return }
   if ($PKProxy) { $o = & $wg settings set DefaultProxy $PKProxy 2>&1 } else { $o = & $wg settings reset DefaultProxy 2>&1 }
   if ($LASTEXITCODE -eq 0) {
     if ($PKProxy) {
@@ -247,11 +247,13 @@ if ($global:PKExit -eq -1978335140 -and $pkSys) {
       $j = $null
       # Kommentarzeilen (// …, wie in der Vorlage von winget) entfernen – Windows PowerShell 5.1 kann sie nicht lesen
       if (Test-Path $f) { try { $j = ((Get-Content $f -Raw -ErrorAction Stop) -replace '(?m)^\\s*//.*$', '') | ConvertFrom-Json -ErrorAction Stop } catch { Write-Output ('Eigene winget-Einstellungen unverändert: ' + $f); continue } }
-      if ($null -eq $j) { $j = [pscustomobject]@{} }
-      if (-not $j.installBehavior) { $j | Add-Member -NotePropertyName installBehavior -NotePropertyValue ([pscustomobject]@{}) -Force }
+      if ($null -eq $j) { $j = New-Object PSObject }
+      if (-not $j.installBehavior) { $j | Add-Member -NotePropertyName installBehavior -NotePropertyValue (New-Object PSObject) -Force }
       $j.installBehavior | Add-Member -NotePropertyName archiveExtractionMethod -NotePropertyValue 'tar' -Force
       New-Item -ItemType Directory -Force -Path $d | Out-Null
-      [IO.File]::WriteAllText($f, ($j | ConvertTo-Json -Depth 10), (New-Object Text.UTF8Encoding $false))
+      # UTF-8 ohne BOM; im Constrained Language Mode (keine .NET-Aufrufe) mit BOM über Set-Content
+      if ($ExecutionContext.SessionState.LanguageMode -eq 'FullLanguage') { [IO.File]::WriteAllText($f, ($j | ConvertTo-Json -Depth 10), (New-Object Text.UTF8Encoding $false)) }
+      else { Set-Content -LiteralPath $f -Value ($j | ConvertTo-Json -Depth 10) -Encoding UTF8 }
     } catch { Write-Output ('winget-Einstellung nicht geschrieben: ' + $_.Exception.Message) }
   }
   PK-Run $wg $pkA
@@ -288,12 +290,7 @@ def _custom_body(p):
     args = p.get("arguments") or ""
     body = _detect(p)
     if it == "script":
-        b64 = base64.b64encode(p["script"].encode("utf-8")).decode()
-        body += f"""
-$sf = Join-Path $PKDir 'pk_script.ps1'
-[System.IO.File]::WriteAllText($sf, [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{b64}')), (New-Object System.Text.UTF8Encoding $true))
-PK-RunPs1 $sf {util.psq(args)}
-"""
+        body += "\n$sf = Join-Path $PKDir 'pk_script.ps1'\n" + util.ps_write("$sf", p["script"]) + f"PK-RunPs1 $sf {util.psq(args)}\n"
         return body
     body += f"$f = Join-Path $PKDir {util.psq(p['install_file'])}\n"
     body += "if (-not (Test-Path -LiteralPath $f)) { Write-Output ('Datei nicht gefunden: ' + $f); $global:PKExit = 2; return }\n"

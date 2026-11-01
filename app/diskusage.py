@@ -82,8 +82,15 @@ public class PKDu {
 """
 
 
+CLM_MSG = ("Die Speicherplatz-Analyse braucht volle PowerShell – auf diesem Computer läuft PowerShell im eingeschränkten "
+           "Sprachmodus (Softwareeinschränkung, AppLocker oder App Control). Alternative: Dateien (Explorer) bzw. ein Scanner "
+           "„Dateien & Ordner“.")
+
+
 def _script(path, depth):
+    # 2.38: im Constrained Language Mode gibt es kein Add-Type – klar sagen statt mit einem Fehler abbrechen
     return f"""$ErrorActionPreference = 'Stop'
+if ($ExecutionContext.SessionState.LanguageMode -ne 'FullLanguage') {{ 'PKERR:' + {util.psq(CLM_MSG)}; return }}
 if (-not ('PKDu' -as [type])) {{ Add-Type -TypeDefinition @'
 {CS}
 '@ -Language CSharp }}
@@ -148,6 +155,7 @@ def _run(jid, cid, path, depth, user):
 # --- Als Scanner („Speicherplatz“): alle festen lokalen Laufwerke in einem Durchlauf -------
 def _fixed_script(depth):
     return f"""$ErrorActionPreference = 'Stop'
+if ($ExecutionContext.SessionState.LanguageMode -ne 'FullLanguage') {{ 'PKDRIVEERR:' + {util.psq(CLM_MSG)}; return }}
 if (-not ('PKDu' -as [type])) {{ Add-Type -TypeDefinition @'
 {CS}
 '@ -Language CSharp }}

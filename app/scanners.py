@@ -3,7 +3,6 @@
 Jeder aktive Scanner wird beim Inventar-Scan auf dem Client ausgeführt; die Ergebnisse
 landen als Kategorie „custom:<id>“ in der Tabelle inventory_data.
 """
-import base64
 import json
 
 from . import db, util
@@ -37,25 +36,34 @@ def _body(sc):
         return f"""
 $paths = @(Get-Item -Path {util.psq(target)} -ErrorAction SilentlyContinue)
 if ({'$true' if extra.get('recurse') else '$false'}) {{ $paths += @(Get-ChildItem -Path {util.psq(target)} {recurse} -ErrorAction SilentlyContinue) }}
+$pkFull = $ExecutionContext.SessionState.LanguageMode -eq 'FullLanguage'
 foreach ($k in $paths) {{
-  foreach ($n in $k.GetValueNames()) {{
-    $v = $k.GetValue($n)
+  # 2.38: im Constrained Language Mode keine Methoden der Registry-Klassen – Werte über Get-ItemProperty (ohne Typ)
+  $pv = if ($pkFull) {{ $null }} else {{ Get-ItemProperty -LiteralPath $k.PSPath -ErrorAction SilentlyContinue }}
+  foreach ($n in $(if ($pkFull) {{ $k.GetValueNames() }} else {{ @($k.Property) }})) {{
+    $v = if ($pkFull) {{ $k.GetValue($n) }} elseif ($n -eq '(default)') {{ $pv.'(default)' }} else {{ $pv.$n }}
     if ($v -is [array]) {{ $v = ($v | ForEach-Object {{ "$_" }}) -join ', ' }}
-    [ordered]@{{ key = ($k.Name -replace '^HKEY_LOCAL_MACHINE', 'HKLM' -replace '^HKEY_CURRENT_USER', 'HKCU'); name = $(if ($n) {{ $n }} else {{ '(Standard)' }}); value = "$v"; type = "$($k.GetValueKind($n))" }}
+    [ordered]@{{ key = ($k.Name -replace '^HKEY_LOCAL_MACHINE', 'HKLM' -replace '^HKEY_CURRENT_USER', 'HKCU'); name = $(if ($n -and $n -ne '(default)') {{ $n }} else {{ '(Standard)' }}); value = "$v"
+      type = $(if ($pkFull) {{ "$($k.GetValueKind($n))" }} else {{ '' }}) }}
   }}
 }}"""
     if t == "files":
         recurse = "-Recurse" if extra.get("recurse") else ""
         # Umgebungsvariablen (%SYSTEMDRIVE%, $env:ProgramData) auflösen; „**“ = beliebig viele Ordnerebenen
         return f"""
-$pkPath = [Environment]::ExpandEnvironmentVariables({util.psq(target)})
-$pkPath = [regex]::Replace($pkPath, '\\$env:(\\w+)', {{ param($m) $v = [Environment]::GetEnvironmentVariable($m.Groups[1].Value); if ($null -ne $v) {{ $v }} else {{ $m.Value }} }}, 'IgnoreCase')
+{util.PS_EXPAND}$pkPath = PK-Exp {util.psq(target)}
+# $env:NAME auflösen – ohne [regex]::Replace mit Skriptblock (Constrained Language Mode, 2.38)
+while ($pkPath -match '^(.*?)\\$env:(\\w+)(.*)$') {{
+  $pkV = Get-Item -LiteralPath ('env:' + $Matches[2]) -ErrorAction SilentlyContinue
+  if (-not $pkV) {{ break }}
+  $pkPath = $Matches[1] + $pkV.Value + $Matches[3]
+}}
 if ($pkPath.Contains('**')) {{
   $pkBase = $pkPath.Substring(0, $pkPath.IndexOf('**'))
   $w = $pkBase.IndexOfAny([char[]]'*?')
   if ($w -ge 0) {{ $pkBase = $pkBase.Substring(0, $pkBase.LastIndexOfAny([char[]]'\\/', $w) + 1) }}
   $pkBase = $pkBase.TrimEnd('\\', '/')
-  if ($pkBase -match '^[A-Za-z]:$' -or -not $pkBase) {{ $pkBase += [IO.Path]::DirectorySeparatorChar }}
+  if ($pkBase -match '^[A-Za-z]:$' -or -not $pkBase) {{ $pkBase += '\\' }}
   $pkLeaf = Split-Path $pkPath -Leaf
   $pkLike = $pkPath.Replace('**', '*')
   $pkItems = Get-ChildItem -LiteralPath $pkBase -Recurse -Force -Filter $pkLeaf -ErrorAction SilentlyContinue | Where-Object {{ $_.FullName -like $pkLike }}
@@ -76,22 +84,23 @@ Get-CimInstance -Namespace {util.psq(ns)} -Query {util.psq(target)} -ErrorAction
     # Format-Table/-List (wird als Text übernommen) und Fehlermeldungen
     # Eigener Code wird als Base64 übergeben und erst zur Laufzeit übersetzt: ein Syntaxfehler (z. B. eine
     # fehlende Klammer) trifft dann nur diesen Scanner (Spalte „fehler“) statt das ganze Inventarskript
-    b64 = base64.b64encode((target or "").encode("utf-8")).decode()
+    # 2.38: als Text-Literal und Invoke-Expression (im Constrained Language Mode erlaubt; [ScriptBlock]::Create nicht).
+    # Ein Syntaxfehler trifft weiterhin nur diesen Scanner (Spalte „fehler“).
     return f"""
 $ErrorActionPreference = 'Continue'
-$pkSb = [ScriptBlock]::Create([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{b64}')))
-$pkOut = @(& $pkSb 2>&1 3>&1 6>&1)
-if ($pkOut | Where-Object {{ $_ -ne $null -and $_.GetType().FullName -like 'Microsoft.PowerShell.Commands.Internal.Format.*' }}) {{
+$pkCode = {util.psq(target or '')}
+$pkOut = @(try {{ Invoke-Expression $pkCode 2>&1 3>&1 6>&1 }} catch {{ $_ }})
+if ($pkOut | Where-Object {{ $_ -ne $null -and (@($_.PSObject.TypeNames) -like 'Microsoft.PowerShell.Commands.Internal.Format.*') }}) {{
   $pkOut = @(($pkOut | Out-String -Width 400) -split "`r?`n" | Where-Object {{ $_.Trim() }})
 }}
 $pkOut | Where-Object {{ $_ -ne $null }} | Select-Object -First {MAX_ROWS} | ForEach-Object {{
   $o = $_
-  if ($o -is [System.Management.Automation.InformationRecord]) {{ [ordered]@{{ value = "$($o.MessageData)" }} }}
-  elseif ($o -is [System.Management.Automation.ErrorRecord]) {{ [ordered]@{{ fehler = "$($o.Exception.Message)" }} }}
-  elseif ($o -is [System.Management.Automation.WarningRecord]) {{ [ordered]@{{ warnung = "$($o.Message)" }} }}
+  if (@($o.PSObject.TypeNames) -contains 'System.Management.Automation.InformationRecord') {{ [ordered]@{{ value = "$($o.MessageData)" }} }}
+  elseif (@($o.PSObject.TypeNames) -contains 'System.Management.Automation.ErrorRecord') {{ [ordered]@{{ fehler = "$($o.Exception.Message)" }} }}
+  elseif (@($o.PSObject.TypeNames) -contains 'System.Management.Automation.WarningRecord') {{ [ordered]@{{ warnung = "$($o.Message)" }} }}
   elseif ($o -is [datetime]) {{ [ordered]@{{ value = $o.ToString('yyyy-MM-dd HH:mm:ss') }} }}
-  elseif ($o -is [string] -or $o -is [ValueType]) {{ [ordered]@{{ value = "$o" }} }}
-  elseif ($o -is [System.Collections.IDictionary]) {{
+  elseif ($o -is [string] -or $o -is [int] -or $o -is [long] -or $o -is [double] -or $o -is [decimal] -or $o -is [bool] -or $o -is [char] -or $o -is [guid]) {{ [ordered]@{{ value = "$o" }} }}
+  elseif ($o -is [hashtable] -or @($o.PSObject.TypeNames) -contains 'System.Collections.Specialized.OrderedDictionary') {{
     $h = [ordered]@{{}}; foreach ($k in @($o.Keys) | Select-Object -First 40) {{ $v = $o[$k]
       if ($v -is [datetime]) {{ $v = $v.ToString('yyyy-MM-dd HH:mm:ss') }} elseif ($v -is [array]) {{ $v = ($v | ForEach-Object {{ "$_" }}) -join ', ' }} elseif ($null -ne $v) {{ $v = "$v" }}
       $h["$k"] = $v }}

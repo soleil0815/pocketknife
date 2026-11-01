@@ -1,5 +1,17 @@
 # Änderungen
 
+## pocketknife-2.38.0 (01.11.2026)
+- **Neu – volle Funktion bei gehärteten Clients (Constrained Language Mode):** Mit Softwareeinschränkung, AppLocker-Skriptregeln oder App Control (WDAC) erlaubt PowerShell keine .NET-Aufrufe. POCKET KNIFE kommt jetzt ohne sie aus:
+  - Bereitstellungen, Tools und der Rahmen auf dem Client schreiben ihre Skripte mit `Set-Content` (statt `[IO.File]`/Base64); `.cmd`-Dateien in der Codepage der Konsole
+  - Registry-Schritte: dort über die Registry-Cmdlets (32-Bit-Ansicht über `WOW6432Node`); DWORD/QWORD schon in POCKET KNIFE umgerechnet
+  - Bedingungen „Datei“, Dateikopie und Scanner „Dateien & Ordner“ lösen `%VARIABLEN%` und `$env:` selbst auf
+  - Inventar: Programme über `Get-ItemProperty`, Mitglieder lokaler Gruppen über CIM, Architektur ohne .NET; eigene Registry- und PowerShell-Scanner (`Invoke-Expression`) laufen auch eingeschränkt
+  - Prozessstatus, winget-Proxy, Windows-Benachrichtigung (Einrichtung), Kerberos-Test ohne gesperrte Aufrufe
+  - Speicherplatz-Analyse braucht volle PowerShell und sagt das klar; **Verbindung testen** zeigt den Sprachmodus
+- **Behoben – Tools als Dienstkonto: Exitcode:** `exit N` im PowerShell-Tool bzw. „Befehl ausführen“ beendet nur das Skript und kommt als Exitcode an, ebenso der Exitcode eines zuletzt fehlgeschlagenen Programms (vorher „0“)
+- **Behoben – englische Oberfläche:** Namen von Paketen, Sammlungen, Mandanten, Scanprofilen und Computern in Auswahllisten werden nicht mehr „übersetzt“
+- **Selbsttest:** keine gesperrten Aufrufe im Client-PowerShell; mit `PK_PWSH` (PowerShell 7) werden alle erzeugten Skripte geparst und die neuen Wege echt im Constrained Language Mode ausgeführt
+
 ## pocketknife-2.37.0 (01.11.2026)
 Umsetzung der Vorschläge aus dem Code-Audit 2.36.3 (ohne den Umbau für den Constrained Language Mode – der kommt als eigene Version):
 - **Sicherheit – OU-Admins sehen Pakete anderer Mandanten nicht mehr:** sichtbar und verteilbar sind zentrale Pakete und die des eigenen Mandanten (Liste, Auswahllisten, Export, Bereitstellen, Zeitpläne). Die Duplikatsperre nennt ein Paket eines anderen Mandanten nicht mehr beim Namen („gibt es schon bei einem anderen Mandanten – bitte den Hauptadmin, es zentral bereitzustellen“)

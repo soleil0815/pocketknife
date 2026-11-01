@@ -282,8 +282,11 @@ def test(computer=None, m="kerberos"):
         step(f"Dienstticket cifs/{fq} (SMB)", lambda: service_ticket(state["creds"], "cifs", fq) and "erhalten")
 
         def winrm():
-            out, err, _ = remote.ps(fq, "$i = [Security.Principal.WindowsIdentity]::GetCurrent(); "
-                                         "$i.AuthenticationType; $i.Name; (Get-Date).ToUniversalTime().ToString('o')",
+            # 2.38: im Constrained Language Mode gibt es WindowsIdentity nicht – dann „unbekannt“ und whoami
+            out, err, _ = remote.ps(fq, "if ($ExecutionContext.SessionState.LanguageMode -eq 'FullLanguage') { "
+                                         "$i = [Security.Principal.WindowsIdentity]::GetCurrent(); $i.AuthenticationType; $i.Name } "
+                                         "else { 'unbekannt (eingeschränkter Sprachmodus)'; whoami.exe }; "
+                                         "(Get-Date).ToUniversalTime().ToString('o')",
                                     auth=m)
             lines = [x.strip() for x in (out or "").splitlines() if x.strip()]
             if len(lines) < 2:
@@ -297,7 +300,7 @@ def test(computer=None, m="kerberos"):
                 skew = f" · Zeitabweichung {int(d)} s" + (" (zu groß für Kerberos!)" if d > 300 else "")
             except Exception:
                 pass
-            if lines[0].lower() != "kerberos" and m == "kerberos":
+            if lines[0].lower() != "kerberos" and m == "kerberos" and not lines[0].startswith("unbekannt"):
                 raise RuntimeError(f"Client meldet Anmeldung per {lines[0]} statt Kerberos")
             return f"angemeldet als {lines[1]} per {lines[0]}{skew}"
         step(f"WinRM-Anmeldung an {fq}", winrm)

@@ -173,13 +173,16 @@ PKX 'last_wu_install' { try { $au = New-Object -ComObject Microsoft.Update.AutoU
 # @module applications | Anwendungen
 try {
 $paths = @(
-  @{ p = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'; a = $(if ([Environment]::Is64BitOperatingSystem) { 'x64' } else { 'x86' }); s = 'Computer' },
+  @{ p = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'; a = $(if ($env:PROCESSOR_ARCHITECTURE -ne 'x86' -or $env:PROCESSOR_ARCHITEW6432) { 'x64' } else { 'x86' }); s = 'Computer' },
   @{ p = 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'; a = 'x86'; s = 'Computer' }
 )
 foreach ($u in (Get-ChildItem Registry::HKEY_USERS | Where-Object { $_.PSChildName -match '^S-1-5-21-[\d-]+$' })) {
   $paths += @{ p = "Registry::HKEY_USERS\$($u.PSChildName)\Software\Microsoft\Windows\CurrentVersion\Uninstall\*"; a = ''; s = 'Benutzer' }
 }
+$pkFull = $ExecutionContext.SessionState.LanguageMode -eq 'FullLanguage'
 try {
+  # 2.38: nur mit voller Sprache (Softwareeinschränkung/AppLocker/App Control: Constrained Language Mode – kein Add-Type)
+  if (-not $pkFull) { throw 'CLM' }
   Add-Type -ErrorAction Stop -TypeDefinition @"
 using System; using System.Runtime.InteropServices;
 public static class PKReg {
@@ -195,23 +198,27 @@ public static class PKReg {
 "@
   $pkLw = $true
 } catch { $pkLw = $false }
-function PKRegVal($k, $n) { $v = $k.GetValue($n); if ($null -eq $v) { '' } else { ("" + $v).Trim() } }
+# 2.38: Werte über Get-ItemProperty (Eigenschaften) statt der GetValue-Methode – Methoden der Registry-Klassen sind im
+# Constrained Language Mode gesperrt
+function PKRegVal($pv, $n) { $v = $pv.$n; if ($null -eq $v) { '' } else { ("" + $v).Trim() } }
 $sw = @()
 try {
 $sw = foreach ($x in $paths) {
   Get-ChildItem -Path ($x.p -replace '\\\*$', '') -ErrorAction SilentlyContinue | ForEach-Object {
     $k = $_
-    $dn = PKRegVal $k 'DisplayName'
-    if (-not $dn -or $k.GetValue('SystemComponent') -eq 1 -or $k.GetValue('ParentKeyName') -or (PKRegVal $k 'ReleaseType') -match 'Update|Hotfix') { return }
+    $pv = Get-ItemProperty -LiteralPath $k.PSPath -ErrorAction SilentlyContinue
+    if (-not $pv) { return }
+    $dn = PKRegVal $pv 'DisplayName'
+    if (-not $dn -or $pv.SystemComponent -eq 1 -or $pv.ParentKeyName -or (PKRegVal $pv 'ReleaseType') -match 'Update|Hotfix') { return }
     $lw = $null
     if ($pkLw) { try { $lw = [PKReg]::LastWrite($k) } catch {} }
     $parts = $k.Name -split '\\', 2
-    [ordered]@{ name = $dn; version = (PKRegVal $k 'DisplayVersion'); publisher = (PKRegVal $k 'Publisher')
-                install_date = (PKRegVal $k 'InstallDate'); key = $k.PSChildName; arch = $x.a; scope = $x.s
-                uninstall = (PKRegVal $k 'UninstallString'); quiet = (PKRegVal $k 'QuietUninstallString'); modify = (PKRegVal $k 'ModifyPath')
-                location = (PKRegVal $k 'InstallLocation'); size_kb = $k.GetValue('EstimatedSize'); modified = $lw
+    [ordered]@{ name = $dn; version = (PKRegVal $pv 'DisplayVersion'); publisher = (PKRegVal $pv 'Publisher')
+                install_date = (PKRegVal $pv 'InstallDate'); key = $k.PSChildName; arch = $x.a; scope = $x.s
+                uninstall = (PKRegVal $pv 'UninstallString'); quiet = (PKRegVal $pv 'QuietUninstallString'); modify = (PKRegVal $pv 'ModifyPath')
+                location = (PKRegVal $pv 'InstallLocation'); size_kb = $pv.EstimatedSize; modified = $lw
                 hive = $parts[0]; reg_path = $(if ($parts.Count -gt 1) { $parts[1] } else { '' })
-                no_remove = [bool]($k.GetValue('NoRemove') -eq 1) } } }
+                no_remove = [bool]($pv.NoRemove -eq 1) } } }
 } catch { $r.software_error = $_.Exception.Message }
 $r.software = @($sw)
 } catch { $r.errors += ('applications: ' + $_.Exception.Message) }
@@ -285,22 +292,28 @@ $r.hotfixes = @(Get-CimInstance Win32_QuickFixEngineering | ForEach-Object {
 
 # @module local_groups | Benutzer & Gruppen: lokale Gruppen (inkl. Administratoren)
 try {
+# 2.38: Mitglieder über ADSI (schnell, auch verwaiste SIDs) – im Constrained Language Mode über CIM (Win32_GroupUser)
+function PK-GroupMembers($grp) {
+  if ($ExecutionContext.SessionState.LanguageMode -eq 'FullLanguage') {
+    $g = [ADSI]("WinNT://$env:COMPUTERNAME/" + $grp.Name + ",group")
+    @($g.psbase.Invoke('Members') | ForEach-Object {
+      $p = $_.GetType().InvokeMember('ADsPath', 'GetProperty', $null, $_, $null)
+      $c = $_.GetType().InvokeMember('Class', 'GetProperty', $null, $_, $null)
+      [ordered]@{ name = (($p -replace '^WinNT://', '') -replace '/', '\'); type = $c } })
+  } else {
+    @(Get-CimAssociatedInstance -InputObject $grp -Association Win32_GroupUser -ErrorAction Stop | ForEach-Object {
+      [ordered]@{ name = ($_.Domain + '\' + $_.Name); type = $(if ($_.CimClass.CimClassName -eq 'Win32_Group') { 'Group' } else { 'User' }) } })
+  }
+}
 $admins = @()
 try {
   $grp = Get-CimInstance Win32_Group -Filter "LocalAccount=True AND SID='S-1-5-32-544'"
-  $g = [ADSI]("WinNT://$env:COMPUTERNAME/" + $grp.Name + ",group")
-  $admins = @($g.psbase.Invoke('Members') | ForEach-Object {
-    $p = $_.GetType().InvokeMember('ADsPath', 'GetProperty', $null, $_, $null)
-    $c = $_.GetType().InvokeMember('Class', 'GetProperty', $null, $_, $null)
-    [ordered]@{ name = (($p -replace '^WinNT://', '') -replace '/', '\'); type = $c } })
+  $admins = @(PK-GroupMembers $grp)
 } catch {}
 $r.admins = $admins
 PKS 'local_groups' { Get-CimInstance Win32_Group -Filter 'LocalAccount=True' | ForEach-Object {
   $grp = $_; $m = @()
-  try {
-    $g = [ADSI]("WinNT://$env:COMPUTERNAME/" + $grp.Name + ',group')
-    $m = @($g.psbase.Invoke('Members') | ForEach-Object { (($_.GetType().InvokeMember('ADsPath', 'GetProperty', $null, $_, $null) -replace '^WinNT://', '') -replace '/', '\') })
-  } catch {}
+  try { $m = @(PK-GroupMembers $grp | ForEach-Object { $_.name }) } catch {}
   [ordered]@{ name = $grp.Name; description = $grp.Description; sid = $grp.SID; members = ($m -join '; '); count = $m.Count } } }
 } catch { $r.errors += ('local_groups: ' + $_.Exception.Message) }
 
@@ -379,7 +392,7 @@ PKS 'processes' {
   try { $pl = Get-Process -IncludeUserName -ErrorAction Stop } catch { $pl = Get-Process }
   $pl | Sort-Object ProcessName | ForEach-Object { [ordered]@{
     name = $_.ProcessName; pid = $_.Id; user = $_.UserName; memory = [int64]$_.WorkingSet64
-    cpu_s = $(if ($_.CPU) { [math]::Round($_.CPU, 1) } else { $null }); start = $(try { D $_.StartTime } catch { $null })
+    cpu_s = $(if ($_.CPU) { [int]($_.CPU * 10) / 10 } else { $null }); start = $(try { D $_.StartTime } catch { $null })
     path = $(try { $_.Path } catch { $null }); company = $(try { $_.Company } catch { $null }) } } }
 } catch { $r.errors += ('processes: ' + $_.Exception.Message) }
 

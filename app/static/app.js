@@ -876,7 +876,8 @@ window.addEventListener('scroll', (e) => { if (comboOpen && !(e.target && e.targ
 window.addEventListener('resize', () => { if (comboOpen) comboOpen(); });
 
 function sel(options, value, attrs = {}) {
-  return h('select', attrs, options.map(([v, l]) => h('option', { value: v, selected: String(v) === String(value ?? '') }, l)));
+  // 2.38: drittes Element true = Daten (Namen von Paketen, Sammlungen, Mandanten …) – nie übersetzen
+  return h('select', attrs, options.map(([v, l, raw]) => h('option', { value: v, selected: String(v) === String(value ?? ''), 'data-notr': raw ? true : undefined }, l)));
 }
 
 function kv(pairs) {
@@ -1775,7 +1776,7 @@ function addComputerDlg() {
 
 async function addToStaticDlg(ids, forceNew = false) {
   const cols = (await collections(true)).filter((c) => c.type === 'static');
-  const pick = sel([['', '— neue statische Sammlung —'], ...cols.map((c) => [c.id, c.name])], forceNew || !cols[0] ? '' : cols[0].id);
+  const pick = sel([['', '— neue statische Sammlung —'], ...cols.map((c) => [c.id, c.name, true])], forceNew || !cols[0] ? '' : cols[0].id);
   const newName = h('input', { placeholder: 'Name der neuen Sammlung' });
   modal(`${ids.length} Computer zur Sammlung hinzufügen`, h('div.form', field('Sammlung', pick), field('Neuer Name', newName, 'Nur bei neuer Sammlung.')), [
     { label: 'Abbrechen' },
@@ -1916,7 +1917,7 @@ async function collectionDlg(c, opt = {}) {
   const name = h('input', { value: c.name });
   const type = sel([['dynamic', 'Dynamisch (Filter)'], ['static', 'Statisch (manuell)'], ['folder', 'Ordner']], c.type);
   const banned = new Set(c.id && !opt.copy ? [c.id, ...collDescendants(cols, c.id)] : []);
-  const parent = sel([['', '— oberste Ebene —'], ...cols.filter((x) => !x.builtin && x.editable !== false && !banned.has(x.id)).map((x) => [x.id, collPath(cols, x.id)])],
+  const parent = sel([['', '— oberste Ebene —'], ...cols.filter((x) => !x.builtin && x.editable !== false && !banned.has(x.id)).map((x) => [x.id, collPath(cols, x.id), true])],
     opt.copy && c.builtin ? '' : c.parent_id);
   const desc = h('input', { value: c.description || '' });
   const count = h('b');
@@ -3318,7 +3319,7 @@ async function viewPackages(_p, params) {
     bDeploy, bExport, mayBuild() ? btn('Importieren …', () => importPackagesDlg(meta), { icon: 'up', title: 'Pakete aus einer Export-Datei übernehmen' }) : null,
     isOU() ? null : btn('winget-Cache …', () => go('#/wingetcache'), { icon: 'db', title: 'Installer für Computer ohne winget im Repository bereithalten' }),
     mayBuild() ? btn('Neues Paket', () => packageDlg(null), { icon: 'plus', cls: 'primary' }) : null);
-  const tenantSel = sel([['', 'Alle Mandanten'], ['0', 'Ohne Mandant (global)'], ...meta.tenants.map((t) => [t.id, t.name])], params.get('tenant') || '',
+  const tenantSel = sel([['', 'Alle Mandanten'], ['0', 'Ohne Mandant (global)'], ...meta.tenants.map((t) => [t.id, t.name, true])], params.get('tenant') || '',
     { onchange: (e) => go(`#/packages${e.target.value ? '?tenant=' + e.target.value : ''}`) });
   const tf = params.get('tenant');
   const shown = tf === null || tf === '' ? rows : rows.filter((r) => String(r.tenant_id || 0) === tf);
@@ -3453,7 +3454,7 @@ function importPackagesDlg(meta) {
   let data = null;
   const file = h('input', { type: 'file', accept: '.json,application/json' });
   const tenants = meta.tenants || [];
-  const tenant = sel([...(isOU() ? [] : [['', 'Zentral (ohne Mandant)']]), ...tenants.map((x) => [x.id, x.name])], isOU() && tenants[0] ? tenants[0].id : '');
+  const tenant = sel([...(isOU() ? [] : [['', 'Zentral (ohne Mandant)']]), ...tenants.map((x) => [x.id, x.name, true])], isOU() && tenants[0] ? tenants[0].id : '');
   const conflict = sel([['skip', 'Überspringen (vorhandenes Paket bleibt, wird für Verschachtelungen verwendet)'], ['copy', 'Zusätzlich anlegen als „… (Import)“']], 'skip');
   const out = h('div', h('p.muted', tr('Eine Datei *.pkpackages.json wählen (Pakete → Exportieren).')));
   let last = null, gen = 0, done = false;
@@ -3883,7 +3884,7 @@ async function packageDlg(pidOrPkg, preset = {}) {
         field('Neustart am Ende', sl(p, 'reboot', [['never', 'Nie'], ['if_required', 'Wenn erforderlich (3010/1641)'], ['always', 'Immer']])),
         field('Benachrichtigung', sl(p, 'notify_user', [['', 'wie in den Einstellungen'], ['on', 'immer'], ['off', 'nie']]),
           'Windows-Benachrichtigung für den angemeldeten Benutzer nach erfolgreicher Installation/Aktualisierung („… wurde installiert.“). „Immer“ meldet auch reine Skript-Pakete.'),
-        field('Danach scannen', sel([['', 'Anwendungen (Standard)'], ...meta.profiles.filter((x) => x.name !== 'Anwendungen').map((x) => [x.id, x.name]), ['none', 'Nicht scannen']],
+        field('Danach scannen', sel([['', 'Anwendungen (Standard)'], ...meta.profiles.filter((x) => x.name !== 'Anwendungen').map((x) => [x.id, x.name, true]), ['none', 'Nicht scannen']],
           !p.rescan ? 'none' : (p.rescan_profile_id || ''), { onchange: (e) => { p.rescan = e.target.value === 'none' ? 0 : 1; p.rescan_profile_id = e.target.value && e.target.value !== 'none' ? Number(e.target.value) : null; } }),
         'Nach jeder Installation oder Deinstallation wird der Computer mit diesem Scanprofil neu inventarisiert.')),
         igBad ? null : igBox);
@@ -4023,14 +4024,14 @@ async function scheduleDlg(id, preset = {}) {
   const name = h('input', { value: s.name, placeholder: s.kind === 'winget' ? 'z. B. Software aktuell halten' : 'z. B. Office-Grundausstattung' });
   const desc = h('textarea', { rows: 2, value: s.description || '' });
   const en = h('input', { type: 'checkbox', checked: !!s.enabled });
-  const tenant = meta.tenants.length ? sel([['', '— keiner —'], ...meta.tenants.map((x) => [x.id, x.name])], s.tenant_id || '') : null;
+  const tenant = meta.tenants.length ? sel([['', '— keiner —'], ...meta.tenants.map((x) => [x.id, x.name, true])], s.tenant_id || '') : null;
   // 2.30: nur lesbar für OU-Admins (vom Hauptadmin angelegt bzw. zentral) – ansehen, ausführen (Mandant), als Vorlage kopieren
   const ro = !isNew && s.editable === false;
   const ouEd = !isOU() && tenant ? h('input', { type: 'checkbox', checked: !!s.ou_edit }) : null;
   const kindSeg = h('div.seg');
   // Pakete in Reihenfolge
   const pkBox = h('div');
-  const addPk = sel([['', '+ Paket hinzufügen …'], ...meta.packages.filter((x) => !x.cache).map((x) => [x.id, x.name])], '', { onchange: (e) => { if (e.target.value) { s.packages.push(Number(e.target.value)); e.target.value = ''; drawPk(); } } });
+  const addPk = sel([['', '+ Paket hinzufügen …'], ...meta.packages.filter((x) => !x.cache).map((x) => [x.id, x.name, true])], '', { onchange: (e) => { if (e.target.value) { s.packages.push(Number(e.target.value)); e.target.value = ''; drawPk(); } } });
   function drawPk() {
     pkBox.replaceChildren(...(s.packages.length ? s.packages.map((pid, i) => h('div.cond-line', h('span.pkg-n', String(i + 1)), h('b', (meta.packages.find((x) => x.id === pid) || { name: `#${pid}` }).name), h('div.spacer'),
       h('button.ghost.small', { type: 'button', onclick: () => { if (i) { s.packages.splice(i - 1, 0, s.packages.splice(i, 1)[0]); drawPk(); } } }, '↑'),
@@ -5272,14 +5273,14 @@ async function viewKiosk(_p, params) {
     const isNew = !it;
     const x = it ? { ...it } : { package_id: '', enabled: 1, approval: 0, category: '', description: '', uninstall_package_id: '', collection_id: '' };
     const inCat = new Set(d.items.map((i) => i.package_id));
-    const pkgSel = sel([['', '— Paket wählen —'], ...d.packages.filter((p) => (!inCat.has(p.id) && !p.cache) || p.id === x.package_id).map((p) => [p.id, p.version ? `${p.name} (${p.version})` : p.name])],
+    const pkgSel = sel([['', '— Paket wählen —'], ...d.packages.filter((p) => (!inCat.has(p.id) && !p.cache) || p.id === x.package_id).map((p) => [p.id, p.version ? `${p.name} (${p.version})` : p.name, true])],
       x.package_id, { disabled: !isNew });
     const en = h('input', { type: 'checkbox', checked: !!x.enabled });
     const appr = h('input', { type: 'checkbox', checked: !!x.approval });
     const cat = h('input', { value: x.category || '', placeholder: 'z. B. Office, Grafik, Werkzeuge' });
     combo(cat, cats);
     const desc = h('textarea', { rows: 3, placeholder: 'Kurze Beschreibung für Nutzer (leer = Paketbeschreibung)', value: x.description || '' });
-    const un = sel([['', '— keine (Deinstallieren nicht anbieten) —'], ...d.packages.filter((p) => !p.cache || p.id === x.uninstall_package_id).map((p) => [p.id, p.name])], x.uninstall_package_id || '');
+    const un = sel([['', '— keine (Deinstallieren nicht anbieten) —'], ...d.packages.filter((p) => !p.cache || p.id === x.uninstall_package_id).map((p) => [p.id, p.name, true])], x.uninstall_package_id || '');
     const col = sel([['', tr('Alle Computer')], ...collChoiceOptions(d.collections.filter((c) => c.id > 0))], x.collection_id || '', { 'data-notr': '1' });
     const grp = h('textarea', { rows: 3, style: { width: '100%' }, placeholder: 'leer = alle Kiosk-Nutzer\neine Gruppe je Zeile – Name oder DN, z. B. Grafik-Team', value: x.groups || '' });
     const pickGroups = async () => {
@@ -6140,7 +6141,7 @@ function scannerDlg(sc, meta) {
   // Sofort testen: Scanner auf einem Computer ausführen und Ergebnis zeigen
   const testPc = h('select', h('option', { value: '' }, '— Computer wählen —'));
   GET('/api/computers').then((list) => list.filter((c) => c.online).concat(list.filter((c) => !c.online))
-    .forEach((c) => testPc.appendChild(h('option', { value: c.id }, c.name + (c.online ? '' : ' (offline)'))))).catch(() => {});
+    .forEach((c) => testPc.appendChild(h('option', { value: c.id, 'data-notr': true }, c.name + (c.online ? '' : ` (${tr('offline')})`))))).catch(() => {});
   const testOut = h('div');
   const testBtn = btn('Testen', async () => {
     if (!testPc.value) { toast('Bitte einen Computer wählen', 'err'); return; }
@@ -6175,7 +6176,7 @@ function authCard(sys) {
   const modeSel = sel([['', `wie .env (PK_WINRM_AUTH: ${envLabel})`], ...k.modes.map((m) => [m.key, m.label])], sys.winrm.set_mode || '');
   const pc = h('select', h('option', { value: '' }, '— Computer wählen —'));
   GET('/api/computers').then((list) => list.filter((c) => c.online).concat(list.filter((c) => !c.online))
-    .forEach((c) => pc.appendChild(h('option', { value: c.id }, c.name + (c.online ? '' : ' (offline)'))))).catch(() => {});
+    .forEach((c) => pc.appendChild(h('option', { value: c.id, 'data-notr': true }, c.name + (c.online ? '' : ` (${tr('offline')})`))))).catch(() => {});
   const tMode = sel([['kerberos', 'nur Kerberos (ohne NTLM-Rückfall)'], ['negotiate', 'Negotiate']], 'kerberos');
   const out = h('div');
   const testBtn = btn('Testen', async () => {
@@ -6864,7 +6865,7 @@ async function toolDlg(tool, presetFolder) {
   const timeout = h('input', { type: 'number', min: '10', max: '14400', step: '1', value: tool.timeout_s || '', placeholder: String(data.default_timeout || 1800), style: { width: '120px' } });
   const codes = h('input', { value: tool.success_codes || '', placeholder: '0', style: { width: '160px' } });
   const scanAfter = sel(Object.entries(data.scan_after || { never: 'Nicht scannen' }), tool.scan_after || 'never');
-  const scanProf = sel([['', 'Standardprofil'], ...(data.profiles || []).map((p) => [String(p.id), p.name + (p.is_default ? ' (Standard)' : '')])], tool.scan_profile_id ? String(tool.scan_profile_id) : '');
+  const scanProf = sel([['', 'Standardprofil'], ...(data.profiles || []).map((p) => [String(p.id), p.name + (p.is_default ? ' (Standard)' : ''), true])], tool.scan_profile_id ? String(tool.scan_profile_id) : '');
   const scanUpd = () => { scanProf.disabled = scanAfter.value === 'never'; };
   scanAfter.addEventListener('change', scanUpd);
   scanUpd();

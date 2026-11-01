@@ -129,7 +129,7 @@ def cond_script(c):
     lines = [r"""$ErrorActionPreference = 'SilentlyContinue'
 function PKV($v) { if ("$v" -match '(\d+)(\.\d+)?(\.\d+)?(\.\d+)?') { $s = $matches[1] + $(if ($matches[2]) { $matches[2] } else { '.0' }) + $matches[3] + $matches[4]; try { [version]$s } catch { $null } } else { $null } }
 function PKFail($t) { throw ('PKFAIL:' + $t) }
-try { & {"""]
+""" + util.PS_EXPAND + r"""try { & {"""]
     if set(c["os"]) != {k for k, _ in OS_KEYS}:
         lines.append(r"""$o = Get-CimInstance Win32_OperatingSystem; $b = [int]$o.BuildNumber
 $k = if ([int]$o.ProductType -eq 1) { if ($b -ge 22000) { 'win11' } elseif ($b -ge 10240) { 'win10' } else { 'alt' } }
@@ -149,7 +149,7 @@ if (@(""" + ",".join(q(x) for x in c["arch"]) + r""") -notcontains $ak) { PKFail
             lines.append("if ($lo) { PKFail 'Es ist ein Benutzer angemeldet' }")
     for f in c["files"]:
         p = q(f["path"])
-        lines.append(f"$fp = [Environment]::ExpandEnvironmentVariables({p}); $fx = Test-Path -LiteralPath $fp")
+        lines.append(f"$fp = PK-Exp {p}; $fx = Test-Path -LiteralPath $fp")
         if f["mode"] == "exists":
             lines.append(f"if (-not $fx) {{ PKFail ('Datei fehlt: ' + $fp) }}")
         elif f["mode"] == "not_exists":
@@ -740,15 +740,8 @@ PS_NOTE = ("Verweigert Windows die Skriptdatei (Ausführungsrichtlinie per GPO, 
 
 
 def _write_file(name, text, encoding="UTF8"):
-    b64 = base64.b64encode(text.encode("utf-8")).decode()
-    if encoding == "OEM":
-        # cmd.exe liest Batchdateien in der Codepage der Konsole (siehe util.PS_CMD_ENCODING)
-        return (f"$pkF = Join-Path $PKDir '{name}'\n"
-                f"[System.IO.File]::WriteAllText($pkF, [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{b64}')), "
-                f"{util.PS_CMD_ENCODING})\n")
-    return (f"$pkF = Join-Path $PKDir '{name}'\n"
-            f"[System.IO.File]::WriteAllText($pkF, [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{b64}')), "
-            "(New-Object System.Text.UTF8Encoding $true))\n")
+    # 2.38: ohne .NET (Constrained Language Mode) – siehe util.ps_write; .cmd in der Codepage der Konsole
+    return f"$pkF = Join-Path $PKDir '{name}'\n" + util.ps_write("$pkF", text, cmd=(encoding == "OEM"))
 
 
 def body_for(st, pkg):
@@ -768,7 +761,7 @@ def body_for(st, pkg):
     if t == "filecopy":
         tgt = util.psq(st["target"])
         extra = " /XC /XN /XO" if not st.get("overwrite", True) else ""
-        return (f"$pkT = [Environment]::ExpandEnvironmentVariables({tgt})\n"
+        return (util.PS_EXPAND + f"$pkT = PK-Exp {tgt}\n"
                 "New-Item -ItemType Directory -Path $pkT -Force | Out-Null\n"
                 # robocopy liest \" als Anführungszeichen: abschließenden \ entfernen (Laufwerk: C:\ -> C:\.)
                 "$pkT = $pkT.TrimEnd('\\'); if ($pkT -match '^[A-Za-z]:$') { $pkT += '\\.' }\n"
@@ -785,8 +778,47 @@ function PK-RegBase([string]$Hive, [string]$View) {
   $h = @{ HKLM = 'LocalMachine'; HKCU = 'CurrentUser'; HKU = 'Users'; HKCR = 'ClassesRoot'; HKCC = 'CurrentConfig' }[$Hive]
   [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]$h, $(if ($View -eq '32') { 'Registry32' } else { 'Registry64' }))
 }
+# 2.38: Constrained Language Mode (Softwareeinschränkung, AppLocker, App Control) – dort keine .NET-Registry-Klassen,
+# sondern die Registry-Cmdlets. 32-Bit-Ansicht: HKLM\SOFTWARE → HKLM\SOFTWARE\WOW6432Node (nur dort leitet Windows um).
+function PK-RegPath([string]$Hive, [string]$Path, [string]$View) {
+  $root = @{ HKLM = 'HKEY_LOCAL_MACHINE'; HKCU = 'HKEY_CURRENT_USER'; HKU = 'HKEY_USERS'; HKCR = 'HKEY_CLASSES_ROOT'; HKCC = 'HKEY_CURRENT_CONFIG' }[$Hive]
+  $p = $Path
+  if ($View -eq '32' -and $Hive -eq 'HKLM' -and $p -match '^(?i)software(\\|$)' -and $p -notmatch '^(?i)software\\wow6432node(\\|$)') {
+    $p = 'SOFTWARE\WOW6432Node' + $p.Substring(8)
+  }
+  'Registry::' + $root + '\' + $p
+}
+function PK-RegClm([string]$Action, [string]$Hive, [string]$Path, [string]$Name, [string]$Kind, $Data, [string]$View, [string]$label) {
+  $rp = PK-RegPath $Hive $Path $View
+  $n = if ($Name) { $Name } else { '(default)' }
+  switch ($Action) {
+    'set' {
+      if (-not (Test-Path -LiteralPath $rp)) { New-Item -Path $rp -Force -ErrorAction Stop | Out-Null }
+      New-ItemProperty -LiteralPath $rp -Name $n -Value $Data -PropertyType $Kind -Force -ErrorAction Stop | Out-Null
+      Write-Output ('OK      gesetzt     ' + $label + ' = ' + $(if ($Data -is [array]) { ($Data -join '; ') } else { [string]$Data }))
+    }
+    'create_key' {
+      if (-not (Test-Path -LiteralPath $rp)) { New-Item -Path $rp -Force -ErrorAction Stop | Out-Null }
+      Write-Output ('OK      angelegt    ' + $label)
+    }
+    'delete_value' {
+      $have = (Test-Path -LiteralPath $rp) -and (@((Get-Item -LiteralPath $rp).Property) -contains $(if ($Name) { $Name } else { '(default)' }))
+      if ($have) { Remove-ItemProperty -LiteralPath $rp -Name $n -ErrorAction Stop; Write-Output ('OK      gelöscht    ' + $label) }
+      else { Write-Output ('OK      nicht vorh. ' + $label) }
+    }
+    'delete_key' {
+      if (Test-Path -LiteralPath $rp) { Remove-Item -LiteralPath $rp -Recurse -Force -ErrorAction Stop; Write-Output ('OK      gelöscht    ' + $label) }
+      else { Write-Output ('OK      nicht vorh. ' + $label) }
+    }
+  }
+}
 function PK-Reg([string]$Action, [string]$Hive, [string]$Path, [string]$Name, [string]$Kind, $Data, [string]$View) {
   $label = $Hive + '\' + $Path + $(if ($Action -in 'set', 'delete_value') { ' → ' + $(if ($Name) { $Name } else { '(Standard)' }) } else { '' })
+  if ($ExecutionContext.SessionState.LanguageMode -ne 'FullLanguage') {
+    try { PK-RegClm $Action $Hive $Path $Name $Kind $Data $View $label }
+    catch { $global:PKRegFail++; Write-Output ('FEHLER  ' + $label + ': ' + $_.Exception.Message) }
+    return
+  }
   $b = $null; $k = $null
   try {
     $b = PK-RegBase $Hive $View
@@ -822,10 +854,13 @@ function PK-Reg([string]$Action, [string]$Hive, [string]$Path, [string]$Name, [s
 
 def _ps_data(e):
     k, d = e["kind"], e["data"]
+    # 2.38: vorzeichenbehaftet schon hier umrechnen (statt [BitConverter] – im Constrained Language Mode nicht erlaubt)
     if k == "REG_DWORD":
-        return f"([BitConverter]::ToInt32([BitConverter]::GetBytes([uint32]{int(d)}), 0))"
+        v = int(d) & 0xFFFFFFFF
+        return f"([int]{v - (1 << 32) if v >= (1 << 31) else v})"
     if k == "REG_QWORD":
-        return f"([BitConverter]::ToInt64([BitConverter]::GetBytes([uint64]{int(d)}), 0))"
+        v = int(d) & 0xFFFFFFFFFFFFFFFF
+        return f"([long]{v - (1 << 64) if v >= (1 << 63) else v})"
     if k == "REG_BINARY":
         return "([byte[]]@(" + ",".join("0x" + b for b in d.split(",") if b) + "))" if d else "([byte[]]@())"
     if k == "REG_MULTI_SZ":

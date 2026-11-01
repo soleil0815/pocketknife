@@ -100,7 +100,7 @@ def keep(s):
         return False
     if re.match(r"^(/api/|#/|https?://|[a-z]+[A-Z]\w*$|[a-z0-9_.#-]+$|[A-Z_0-9]+$|M\d|[\w-]+\.(js|css|svg|png|json|html|msi|exe)$)", t):
         return False  # Pfade, Bezeichner, Klassen, Konstanten, SVG
-    if re.search(r"(\bSELECT\b|\bDELETE FROM\b|\bCREATE INDEX\b|^\^\[|\bINSERT\b|\bUPDATE\b.*\bSET\b|\$_\.|Get-|Set-|New-Item|\$env:|-ErrorAction|^\s*[a-z_][\w.]*\(|=>|&&|\|\||^PK_[A-Z_]+[:=]?$|PKJSON)", t):
+    if re.search(r"(\bSELECT\b|\bDELETE FROM\b|\bCREATE INDEX\b|^\^\[|Join-Path|PK-Run|PK-Exp|LASTEXITCODE|PKEXIT|^\s*\$\w+ = |^try \{|ForEach-Object|\} else \{|^FullLanguage$|\bINSERT\b|\bUPDATE\b.*\bSET\b|\$_\.|Get-|Set-|New-Item|\$env:|-ErrorAction|^\s*[a-z_][\w.]*\(|=>|&&|\|\||^PK_[A-Z_]+[:=]?$|PKJSON)", t):
         return False
     if t[0].isupper() or GERMAN_HINT.search(t) or " " in t:
         if re.match(r"^[a-z][a-z0-9_-]*( [a-z][a-z0-9_-]*)*$", t) and not GERMAN_HINT.search(t) and t not in ("ja", "nein"):
