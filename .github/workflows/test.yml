@@ -49,7 +49,9 @@ jobs:
         run: |
           # 2.37: im Image fehlen Workflows, Dockerfile, docker-compose.yml und update.sh – die Prüfungen dazu werden dort
           # übersprungen. Hier laufen sie mit dem Checkout (Programm und Abhängigkeiten aus dem gebauten Image).
-          if ! docker run --rm -e PK_SELFTEST_TRACE=1 -e PK_DATA_DIR=/tmp/pk-data -v "$PWD:/src:ro" -w /src --entrypoint python3 \
+          # HOME/TMPDIR wie auf einem normalen Rechner (im Image zeigen sie auf /nonexistent bzw. /data/tmp – Skripte wie
+          # trivy-scan.sh und update.sh legen dort Cache bzw. Zwischendateien an)
+          if ! docker run --rm -e PK_SELFTEST_TRACE=1 -e HOME=/tmp -e TMPDIR=/tmp -v "$PWD:/src:ro" -w /src --entrypoint python3 \
                pocketknife-test:amd64 -I tools/selftest.py > selftest-repo.txt 2>&1; then
             tail -n 120 selftest-repo.txt
             msg=$( (grep -A14 "✗" selftest-repo.txt || tail -n 60 selftest-repo.txt) | head -n 150 | sed -e ':a' -e 'N' -e '$!ba' -e 's/%/%25/g' -e 's/\r/%0D/g' -e 's/\n/%0A/g')
