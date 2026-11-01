@@ -1,0 +1,284 @@
+# Ausgangsstand der Typprüfung (tools/typcheck.py) – je Zeile ein Fund ohne Zeilennummer
+app/access.py [arg-type] Argument 1 to "int" has incompatible type "Any | None"; expected "str | Buffer | SupportsInt | SupportsIndex | SupportsTrunc"
+app/access.py [arg-type] Argument 1 to "int" has incompatible type "Any | None"; expected "str | Buffer | SupportsInt | SupportsIndex | SupportsTrunc"
+app/access.py [var-annotated] Need type annotation for "_cache" (hint: "_cache: dict[<type>, <type>] = ...")
+app/ad.py [arg-type] Argument 2 to "setdefault" of "MutableMapping" has incompatible type "None"; expected "bool"
+app/ad.py [arg-type] Argument 2 to "setdefault" of "MutableMapping" has incompatible type "None"; expected "bool"
+app/ad.py [assignment] Incompatible types in assignment (expression has type "None", target has type "bool")
+app/ad.py [assignment] Incompatible types in assignment (expression has type "list[int] | bool", target has type "bool")
+app/ad.py [misc] Assignment to variable "e" outside except: block
+app/ad.py [misc] Assignment to variable "e" outside except: block
+app/ad.py [misc] Assignment to variable "e" outside except: block
+app/ad.py [misc] Assignment to variable "e" outside except: block
+app/ad.py [misc] Trying to read deleted variable "e"
+app/ad.py [misc] Trying to read deleted variable "e"
+app/ad.py [misc] Trying to read deleted variable "e"
+app/ad.py [misc] Trying to read deleted variable "e"
+app/ad.py [misc] Trying to read deleted variable "e"
+app/ad.py [misc] Trying to read deleted variable "e"
+app/ad.py [misc] Trying to read deleted variable "e"
+app/ad.py [misc] Trying to read deleted variable "e"
+app/ad.py [misc] Trying to read deleted variable "e"
+app/ad.py [misc] Trying to read deleted variable "e"
+app/ad.py [misc] Trying to read deleted variable "e"
+app/ad.py [misc] Trying to read deleted variable "e"
+app/ad.py [misc] Trying to read deleted variable "e"
+app/ad.py [misc] Trying to read deleted variable "e"
+app/ad.py [misc] Trying to read deleted variable "e"
+app/ad.py [misc] Trying to read deleted variable "e"
+app/ad.py [misc] Trying to read deleted variable "e"
+app/ad.py [var-annotated] Need type annotation for "_cfg_warned" (hint: "_cfg_warned: dict[<type>, <type>] = ...")
+app/ad.py [var-annotated] Need type annotation for "counts" (hint: "counts: dict[<type>, <type>] = ...")
+app/ad.py [var-annotated] Need type annotation for "ids" (hint: "ids: set[<type>] = ...")
+app/ad.py [var-annotated] Need type annotation for "kcache" (hint: "kcache: dict[<type>, <type>] = ...")
+app/ad.py [var-annotated] Need type annotation for "res" (hint: "res: dict[<type>, <type>] = ...")
+app/ad.py [var-annotated] Need type annotation for "res" (hint: "res: dict[<type>, <type>] = ...")
+app/auth.py [assignment] Incompatible types in assignment (expression has type "float", target has type "int")
+app/auth.py [var-annotated] Need type annotation for "_active" (hint: "_active: dict[<type>, <type>] = ...")
+app/auth.py [var-annotated] Need type annotation for "_breakglass_tokens" (hint: "_breakglass_tokens: set[<type>] = ...")
+app/auth.py [var-annotated] Need type annotation for "_ended" (hint: "_ended: dict[<type>, <type>] = ...")
+app/auth.py [var-annotated] Need type annotation for "_fails" (hint: "_fails: dict[<type>, <type>] = ...")
+app/auth.py [var-annotated] Need type annotation for "_written" (hint: "_written: dict[<type>, <type>] = ...")
+app/clientfiles.py [misc] Assignment to variable "e" outside except: block
+app/clientfiles.py [misc] Trying to read deleted variable "e"
+app/clientfiles.py [misc] Trying to read deleted variable "e"
+app/clientfiles.py [misc] Trying to read deleted variable "e"
+app/clientfiles.py [misc] Trying to read deleted variable "e"
+app/clientfiles.py [var-annotated] Need type annotation for "_search_busy"
+app/clientfiles.py [var-annotated] Need type annotation for "hits" (hint: "hits: list[<type>] = ...")
+app/collections_.py [arg-type] Argument 1 to "append" of "list" has incompatible type "tuple[Any, str]"; expected "tuple[Any, str, Any]"
+app/collections_.py [arg-type] Argument 1 to "append" of "list" has incompatible type "tuple[int, str]"; expected "tuple[Any, str, Any]"
+app/collections_.py [arg-type] Argument 1 to "append" of "list" has incompatible type "tuple[int, str]"; expected "tuple[Any, str, Any]"
+app/collections_.py [arg-type] Argument 1 to "append" of "list" has incompatible type "tuple[int, str]"; expected "tuple[Any, str, Any]"
+app/collections_.py [arg-type] Argument 1 to "append" of "list" has incompatible type "tuple[int, str]"; expected "tuple[Any, str, Any]"
+app/collections_.py [arg-type] Argument 1 to "append" of "list" has incompatible type "tuple[int, str]"; expected "tuple[Any, str, Any]"
+app/collections_.py [arg-type] Argument 1 to "append" of "list" has incompatible type "tuple[int, str]"; expected "tuple[Any, str, Any]"
+app/collections_.py [assignment] Incompatible types in assignment (expression has type "list[tuple[str, str, str, str]]", variable has type "dict[str, tuple[str, str, Any, list[Any]]]")
+app/collections_.py [attr-defined] "object" has no attribute "__iter__"; maybe "__dir__" or "__str__"? (not iterable)
+app/collections_.py [dict-item] Dict entry 2 has incompatible type "str": "list[dict[str, str]]"; expected "str": "str"
+app/collections_.py [has-type] Cannot determine type of "e"
+app/collections_.py [has-type] Cannot determine type of "k"
+app/collections_.py [has-type] Cannot determine type of "l"
+app/collections_.py [has-type] Cannot determine type of "t"
+app/collections_.py [misc] List comprehension has incompatible type List[tuple[Any, str]]; expected List[tuple[Any, str, Any]]
+app/collections_.py [misc] Unpacking a string is disallowed
+app/collections_.py [operator] Unsupported operand types for * ("None" and "float")
+app/collections_.py [operator] Unsupported operand types for <= ("int" and "None")
+app/collections_.py [var-annotated] Need type annotation for "_bytes_cache" (hint: "_bytes_cache: dict[<type>, <type>] = ...")
+app/collections_.py [var-annotated] Need type annotation for "_member_cache" (hint: "_member_cache: dict[<type>, <type>] = ...")
+app/collections_.py [var-annotated] Need type annotation for "buckets" (hint: "buckets: dict[<type>, <type>] = ...")
+app/collections_.py [var-annotated] Need type annotation for "cols"
+app/collections_.py [var-annotated] Need type annotation for "rev" (hint: "rev: dict[<type>, <type>] = ...")
+app/customreports.py [var-annotated] Need type annotation for "fp" (hint: "fp: list[<type>] = ...")
+app/customreports.py [var-annotated] Need type annotation for "seen" (hint: "seen: dict[<type>, <type>] = ...")
+app/db.py [var-annotated] Need type annotation for "_re_cache" (hint: "_re_cache: dict[<type>, <type>] = ...")
+app/deploy.py [assignment] Incompatible types in assignment (expression has type "int", variable has type "Match[str] | None")
+app/deploy.py [var-annotated] Need type annotation for "_comp_locks" (hint: "_comp_locks: dict[<type>, <type>] = ...")
+app/deploy.py [var-annotated] Need type annotation for "new"
+app/deploy.py [var-annotated] Need type annotation for "out" (hint: "out: dict[<type>, <type>] = ...")
+app/diagnostics.py [attr-defined] "object" has no attribute "append"
+app/diagnostics.py [call-overload] No overload variant of "sorted" matches argument type "object"
+app/diagnostics.py [index] Value of type "Any | None" is not indexable
+app/diagnostics.py [operator] Unsupported operand types for + ("object" and "int")
+app/diagnostics.py [operator] Unsupported operand types for + ("object" and "int")
+app/diagnostics.py [operator] Unsupported right operand type for in ("Any | None")
+app/diagnostics.py [union-attr] Item "None" of "Any | None" has no attribute "__iter__" (not iterable)
+app/diagnostics.py [union-attr] Item "None" of "Any | None" has no attribute "get"
+app/diagnostics.py [union-attr] Item "bool" of "Any | Pattern[Any] | Literal[True]" has no attribute "sub"
+app/diagnostics.py [var-annotated] Need type annotation for "by_pkg"
+app/diagnostics.py [var-annotated] Need type annotation for "out"
+app/diagnostics.py [var-annotated] Need type annotation for "words" (hint: "words: set[<type>] = ...")
+app/diskusage.py [var-annotated] Need type annotation for "_jobs" (hint: "_jobs: dict[<type>, <type>] = ...")
+app/dnsres.py [arg-type] Argument 1 to "append" of "list" has incompatible type "str | int"; expected "str"
+app/dnsres.py [call-overload] No overload variant of "list" matches argument type "object"
+app/dnsres.py [operator] Unsupported operand types for - ("float" and "object")
+app/dnsres.py [var-annotated] Need type annotation for "_cache" (hint: "_cache: dict[<type>, <type>] = ...")
+app/guard.py [assignment] Incompatible types in assignment (expression has type "bool | None", variable has type "bool")
+app/guard.py [operator] Unsupported operand types for + ("str" and "float")
+app/guard.py [operator] Unsupported operand types for - ("float" and "None")
+app/guard.py [operator] Unsupported operand types for < ("float" and "None")
+app/guard.py [operator] Unsupported operand types for < ("float" and "None")
+app/guard.py [operator] Unsupported operand types for < ("float" and "None")
+app/guard.py [operator] Unsupported operand types for < ("float" and "None")
+app/integrity.py [operator] Unsupported operand types for + ("object" and "int")
+app/integrity.py [operator] Unsupported operand types for - ("float" and "object")
+app/integrity.py [var-annotated] Need type annotation for "_check_times" (hint: "_check_times: dict[<type>, <type>] = ...")
+app/integrity.py [var-annotated] Need type annotation for "_hash_queue" (hint: "_hash_queue: dict[<type>, <type>] = ...")
+app/integrity.py [var-annotated] Need type annotation for "_pkg_locks" (hint: "_pkg_locks: dict[<type>, <type>] = ...")
+app/integrity.py [var-annotated] Need type annotation for "expected" (hint: "expected: dict[<type>, <type>] = ...")
+app/integrity.py [var-annotated] Need type annotation for "out" (hint: "out: dict[<type>, <type>] = ...")
+app/integrity.py [var-annotated] Need type annotation for "used" (hint: "used: set[<type>] = ...")
+app/inventory.py [arg-type] Argument 1 to "append" of "list" has incompatible type "tuple[Any, Any, str, Any, str, None]"; expected "tuple[Any, Any, str, Any, None, str]"
+app/inventory.py [arg-type] Argument 1 to "append" of "list" has incompatible type "tuple[Any, Any, str, Any, str, str]"; expected "tuple[Any, Any, str, Any, None, str]"
+app/inventory.py [var-annotated] Need type annotation for "_dn_cache" (hint: "_dn_cache: dict[<type>, <type>] = ...")
+app/inventory.py [var-annotated] Need type annotation for "_follow" (hint: "_follow: dict[<type>, <type>] = ...")
+app/inventory.py [var-annotated] Need type annotation for "_scanning" (hint: "_scanning: dict[<type>, <type>] = ...")
+app/inventory.py [var-annotated] Need type annotation for "modules" (hint: "modules: dict[<type>, <type>] = ...")
+app/inventory.py [var-annotated] Need type annotation for "nm" (hint: "nm: dict[<type>, <type>] = ...")
+app/inventory.py [var-annotated] Need type annotation for "om" (hint: "om: dict[<type>, <type>] = ...")
+app/kerberos.py [var-annotated] Need type annotation for "_credssp_warned" (hint: "_credssp_warned: list[<type>] = ...")
+app/kerberos.py [var-annotated] Need type annotation for "state" (hint: "state: dict[<type>, <type>] = ...")
+app/kiosk.py [assignment] Incompatible types in assignment (expression has type "str", variable has type "Exception")
+app/kiosk.py [var-annotated] Need type annotation for "_grp_cache" (hint: "_grp_cache: dict[<type>, <type>] = ...")
+app/kiosk.py [var-annotated] Need type annotation for "_live" (hint: "_live: dict[<type>, <type>] = ...")
+app/loadstats.py [var-annotated] Need type annotation for "_peaks"
+app/loadstats.py [var-annotated] Need type annotation for "_req"
+app/loadstats.py [var-annotated] Need type annotation for "_tasks" (hint: "_tasks: dict[<type>, <type>] = ...")
+app/mailer.py [assignment] Incompatible types in assignment (expression has type "SMTP", variable has type "SMTP_SSL | None")
+app/mailer.py [misc] Exception must be derived from BaseException
+app/mailer.py [union-attr] Item "None" of "SMTP_SSL | None" has no attribute "ehlo"
+app/mailer.py [union-attr] Item "None" of "SMTP_SSL | None" has no attribute "ehlo"
+app/mailer.py [union-attr] Item "None" of "SMTP_SSL | None" has no attribute "has_extn"
+app/mailer.py [union-attr] Item "None" of "SMTP_SSL | None" has no attribute "has_extn"
+app/mailer.py [union-attr] Item "None" of "SMTP_SSL | None" has no attribute "login"
+app/mailer.py [union-attr] Item "None" of "SMTP_SSL | None" has no attribute "quit"
+app/mailer.py [union-attr] Item "None" of "SMTP_SSL | None" has no attribute "quit"
+app/mailer.py [union-attr] Item "None" of "SMTP_SSL | None" has no attribute "starttls"
+app/mailer.py [var-annotated] Need type annotation for "_sent" (hint: "_sent: list[<type>] = ...")
+app/mailer.py [var-annotated] Need type annotation for "log" (hint: "log: list[<type>] = ...")
+app/main.py [arg-type] Argument 1 to "int" has incompatible type "Any | None"; expected "str | Buffer | SupportsInt | SupportsIndex | SupportsTrunc"
+app/main.py [arg-type] Argument 1 to "int" has incompatible type "Any | None"; expected "str | Buffer | SupportsInt | SupportsIndex | SupportsTrunc"
+app/main.py [assignment] Incompatible types in assignment (expression has type "int", variable has type "str")
+app/main.py [call-overload] No overload variant of "max" matches argument types "object", "int"
+app/main.py [call-overload] No overload variant of "sorted" matches argument types "object", "Callable[[Any], tuple[bool, Any]]"
+app/main.py [index] Invalid index type "Any | None" for "dict[str, Any]"; expected type "str"
+app/main.py [index] Value of type "Never" is not indexable
+app/main.py [misc] "install" gets multiple values for keyword argument "user"
+app/main.py [misc] Assignment to variable "e" outside except: block
+app/main.py [misc] Assignment to variable "e" outside except: block
+app/main.py [misc] Trying to read deleted variable "e"
+app/main.py [misc] Trying to read deleted variable "e"
+app/main.py [operator] Unsupported operand types for + ("str" and "int")
+app/main.py [operator] Unsupported right operand type for in ("Any | None")
+app/main.py [union-attr] Item "bool" of "bool | Any | str" has no attribute "lower"
+app/main.py [var-annotated] Need type annotation for "_PAGES" (hint: "_PAGES: dict[<type>, <type>] = ...")
+app/main.py [var-annotated] Need type annotation for "_PREVIEWS" (hint: "_PREVIEWS: dict[<type>, <type>] = ...")
+app/main.py [var-annotated] Need type annotation for "groups" (hint: "groups: dict[<type>, <type>] = ...")
+app/main.py [var-annotated] Need type annotation for "kids" (hint: "kids: dict[<type>, <type>] = ...")
+app/main.py [var-annotated] Need type annotation for "out" (hint: "out: list[<type>] = ...")
+app/main.py [var-annotated] Need type annotation for "res" (hint: "res: dict[<type>, <type>] = ...")
+app/main.py [var-annotated] Need type annotation for "rules" (hint: "rules: list[<type>] = ...")
+app/msi.py [var-annotated] Need type annotation for "fat" (hint: "fat: list[<type>] = ...")
+app/news.py [assignment] Incompatible types in assignment (expression has type "float", target has type "None")
+app/news.py [assignment] Incompatible types in assignment (expression has type "list[Never]", target has type "None")
+app/news.py [index] Value of type "object" is not indexable
+app/notify.py [var-annotated] Need type annotation for "_backoff" (hint: "_backoff: dict[<type>, <type>] = ...")
+app/notify.py [var-annotated] Need type annotation for "_last_error" (hint: "_last_error: dict[<type>, <type>] = ...")
+app/notify.py [var-annotated] Need type annotation for "_report_checked" (hint: "_report_checked: dict[<type>, <type>] = ...")
+app/notify.py [var-annotated] Need type annotation for "seen" (hint: "seen: dict[<type>, <type>] = ...")
+app/pkgexport.py [var-annotated] Need type annotation for "m" (hint: "m: dict[<type>, <type>] = ...")
+app/pkgexport.py [var-annotated] Need type annotation for "names" (hint: "names: list[<type>] = ...")
+app/pkgexport.py [var-annotated] Need type annotation for "order" (hint: "order: list[<type>] = ...")
+app/pkgexport.py [var-annotated] Need type annotation for "rows" (hint: "rows: dict[<type>, <type>] = ...")
+app/privileges.py [var-annotated] Need type annotation for "errors" (hint: "errors: list[<type>] = ...")
+app/profiles.py [var-annotated] Need type annotation for "default" (hint: "default: list[<type>] = ...")
+app/remote.py [arg-type] Argument 1 to "len" has incompatible type "float"; expected "Sized"
+app/remote.py [assignment] Incompatible types in assignment (expression has type "bool", target has type "str")
+app/remote.py [assignment] Incompatible types in assignment (expression has type "bool", target has type "str")
+app/remote.py [assignment] Incompatible types in assignment (expression has type "list[Never]", target has type "float | None")
+app/remote.py [assignment] Incompatible types in assignment (expression has type "list[Never]", target has type "float | None")
+app/remote.py [attr-defined] "float" has no attribute "__iter__"; maybe "__int__"? (not iterable)
+app/remote.py [attr-defined] "float" has no attribute "__iter__"; maybe "__int__"? (not iterable)
+app/remote.py [call-overload] No overload variant of "setdefault" of "MutableMapping" matches argument types "str", "list[Never]"
+app/remote.py [call-overload] No overload variant of "update" of "MutableMapping" matches argument type "tuple[Any, float]"
+app/remote.py [call-overload] No overload variant of "update" of "MutableMapping" matches argument types "Any", "float", "list[tuple[str, Any, bool, int, int]]", "set[str]", "None"
+app/remote.py [call-overload] No overload variant of "update" of "MutableMapping" matches argument types "None", "float", "None", "None", "None", "None", "list[Never]"
+app/remote.py [index] Value of type "float" is not indexable
+app/remote.py [misc] Assignment to variable "e" outside except: block
+app/remote.py [misc] Trying to read deleted variable "e"
+app/remote.py [misc] Trying to read deleted variable "e"
+app/remote.py [misc] Trying to read deleted variable "e"
+app/remote.py [operator] Unsupported operand types for - ("float" and "None")
+app/remote.py [operator] Unsupported operand types for - ("float" and "None")
+app/remote.py [operator] Unsupported operand types for - ("float" and "None")
+app/remote.py [operator] Unsupported operand types for - ("float" and "None")
+app/remote.py [operator] Unsupported operand types for - ("float" and "None")
+app/remote.py [operator] Unsupported right operand type for in ("float | None")
+app/remote.py [union-attr] Item "float" of "float | list[Any]" has no attribute "__iter__" (not iterable)
+app/remote.py [var-annotated] Need type annotation for "_secured" (hint: "_secured: dict[<type>, <type>] = ...")
+app/remote.py [var-annotated] Need type annotation for "_smb_used" (hint: "_smb_used: dict[<type>, <type>] = ...")
+app/remote.py [var-annotated] Need type annotation for "det" (hint: "det: dict[<type>, <type>] = ...")
+app/remote.py [var-annotated] Need type annotation for "hits" (hint: "hits: list[<type>] = ...")
+app/remote.py [var-annotated] Need type annotation for "hits" (hint: "hits: list[<type>] = ...")
+app/remote.py [var-annotated] Need type annotation for "ops"
+app/remote_desktop.py [var-annotated] Need type annotation for "_sessions" (hint: "_sessions: dict[<type>, <type>] = ...")
+app/remote_desktop.py [var-annotated] Need type annotation for "_tokens" (hint: "_tokens: dict[<type>, <type>] = ...")
+app/remote_desktop.py [var-annotated] Need type annotation for "pending" (hint: "pending: list[<type>] = ...")
+app/repofiles.py [assignment] Incompatible types in assignment (expression has type "int", target has type "list[Any]")
+app/repofiles.py [var-annotated] Need type annotation for "_hashers" (hint: "_hashers: dict[<type>, <type>] = ...")
+app/repofiles.py [var-annotated] Need type annotation for "_up_locks" (hint: "_up_locks: dict[<type>, <type>] = ...")
+app/repofiles.py [var-annotated] Need type annotation for "after" (hint: "after: list[<type>] = ...")
+app/repofiles.py [var-annotated] Need type annotation for "before" (hint: "before: list[<type>] = ...")
+app/repofiles.py [var-annotated] Need type annotation for "by_size" (hint: "by_size: dict[<type>, <type>] = ...")
+app/repofiles.py [var-annotated] Need type annotation for "out"
+app/repofiles.py [var-annotated] Need type annotation for "out" (hint: "out: list[<type>] = ...")
+app/repofiles.py [var-annotated] Need type annotation for "out" (hint: "out: list[<type>] = ...")
+app/repofiles.py [var-annotated] Need type annotation for "out" (hint: "out: set[<type>] = ...")
+app/repofiles.py [var-annotated] Need type annotation for "problems" (hint: "problems: list[<type>] = ...")
+app/repofiles.py [var-annotated] Need type annotation for "refs" (hint: "refs: list[<type>] = ...")
+app/repofiles.py [var-annotated] Need type annotation for "res" (hint: "res: dict[<type>, <type>] = ...")
+app/scheduler.py [var-annotated] Need type annotation for "_last" (hint: "_last: dict[<type>, <type>] = ...")
+app/schedules.py [arg-type] Argument 1 to "len" has incompatible type "Any | object"; expected "Sized"
+app/schedules.py [arg-type] Argument 1 to "set" has incompatible type "Any | object"; expected "Iterable[Any]"
+app/schedules.py [operator] Unsupported left operand type for <= ("object")
+app/schedules.py [union-attr] Item "object" of "Any | object" has no attribute "__iter__" (not iterable)
+app/schedules.py [var-annotated] Need type annotation for "_blocked" (hint: "_blocked: dict[<type>, <type>] = ...")
+app/schedules.py [var-annotated] Need type annotation for "_locks" (hint: "_locks: dict[<type>, <type>] = ...")
+app/schedules.py [var-annotated] Need type annotation for "_retry_count" (hint: "_retry_count: dict[<type>, <type>] = ...")
+app/schedules.py [var-annotated] Need type annotation for "fails" (hint: "fails: dict[<type>, <type>] = ...")
+app/schedules.py [var-annotated] Need type annotation for "out" (hint: "out: dict[<type>, <type>] = ...")
+app/sso.py [arg-type] Argument 1 to "join" of "str" has incompatible type "list[str | int]"; expected "Iterable[str]"
+app/sso.py [call-overload] No overload variant of "update" of "MutableMapping" matches argument types "int", "str"
+app/steps.py [arg-type] Argument 1 to "get" of "dict" has incompatible type "bytes | Any"; expected "str"
+app/steps.py [arg-type] Argument 2 to "get" of "dict" has incompatible type "bytes | Any"; expected "str"
+app/steps.py [var-annotated] Need type annotation for "steps" (hint: "steps: dict[<type>, <type>] = ...")
+app/tls.py [arg-type] Argument 1 to "append" of "list" has incompatible type "DNSName"; expected "IPAddress"
+app/tls.py [assignment] Incompatible types in assignment (expression has type "RSAPrivateKey", variable has type "EllipticCurvePrivateKey")
+app/tls.py [assignment] Incompatible types in assignment (expression has type "RSAPrivateKey", variable has type "EllipticCurvePrivateKey")
+app/toast.py [var-annotated] Need type annotation for "out" (hint: "out: dict[<type>, <type>] = ...")
+app/tools.py [var-annotated] Need type annotation for "_wake" (hint: "_wake: dict[<type>, <type>] = ...")
+app/tools.py [var-annotated] Need type annotation for "other" (hint: "other: list[<type>] = ...")
+app/tools.py [var-annotated] Need type annotation for "same" (hint: "same: list[<type>] = ...")
+app/tools.py [var-annotated] Need type annotation for "seen" (hint: "seen: dict[<type>, <type>] = ...")
+app/uninstall.py [var-annotated] Need type annotation for "groups" (hint: "groups: dict[<type>, <type>] = ...")
+app/util.py [attr-defined] Module "re" has no attribute "_constants"; maybe "sre_constants"?
+app/util.py [attr-defined] Module "re" has no attribute "_parser"
+app/winget.py [assignment] Incompatible types in assignment (expression has type "dict[Any, Any]", target has type "None")
+app/winget.py [assignment] Incompatible types in assignment (expression has type "list[dict[str, Any]]", target has type "None")
+app/winget.py [assignment] Incompatible types in assignment (expression has type "str", target has type "dict[Any, Any] | int | bool | None")
+app/winget.py [assignment] Incompatible types in assignment (expression has type "str", target has type "dict[Any, Any] | int | bool | None")
+app/winget.py [assignment] Incompatible types in assignment (expression has type "str", target has type "dict[Any, Any] | int | bool | None")
+app/winget.py [dict-item] Dict entry 1 has incompatible type "str": "str"; expected "str": "dict[Any, Any] | int | None"
+app/winget.py [index] Value of type "dict[Any, Any] | int | bool | None" is not indexable
+app/winget.py [index] Value of type "dict[Any, Any] | int | bool | None" is not indexable
+app/winget.py [index] Value of type "dict[Any, Any] | int | bool | None" is not indexable
+app/winget.py [union-attr] Item "None" of "dict[Any, Any] | int | bool | None" has no attribute "get"
+app/winget.py [union-attr] Item "None" of "dict[Any, Any] | int | bool | None" has no attribute "get"
+app/winget.py [union-attr] Item "None" of "dict[Any, Any] | int | bool | None" has no attribute "get"
+app/winget.py [union-attr] Item "None" of "dict[Any, Any] | int | bool | None" has no attribute "get"
+app/winget.py [union-attr] Item "None" of "dict[Any, Any] | int | bool | None" has no attribute "values"
+app/winget.py [union-attr] Item "bool" of "dict[Any, Any] | int | bool | None" has no attribute "get"
+app/winget.py [union-attr] Item "bool" of "dict[Any, Any] | int | bool | None" has no attribute "get"
+app/winget.py [union-attr] Item "bool" of "dict[Any, Any] | int | bool | None" has no attribute "get"
+app/winget.py [union-attr] Item "bool" of "dict[Any, Any] | int | bool | None" has no attribute "get"
+app/winget.py [union-attr] Item "bool" of "dict[Any, Any] | int | bool | None" has no attribute "values"
+app/winget.py [union-attr] Item "int" of "dict[Any, Any] | int | bool | None" has no attribute "get"
+app/winget.py [union-attr] Item "int" of "dict[Any, Any] | int | bool | None" has no attribute "get"
+app/winget.py [union-attr] Item "int" of "dict[Any, Any] | int | bool | None" has no attribute "get"
+app/winget.py [union-attr] Item "int" of "dict[Any, Any] | int | bool | None" has no attribute "get"
+app/winget.py [union-attr] Item "int" of "dict[Any, Any] | int | bool | None" has no attribute "values"
+app/winget.py [var-annotated] Need type annotation for "_idx"
+app/winget.py [var-annotated] Need type annotation for "by_name" (hint: "by_name: dict[<type>, <type>] = ...")
+app/winget.py [var-annotated] Need type annotation for "by_pc" (hint: "by_pc: dict[<type>, <type>] = ...")
+app/winget.py [var-annotated] Need type annotation for "maps"
+app/wingetboot.py [union-attr] Item "None" of "int | str | None" has no attribute "lower"
+app/wingetboot.py [union-attr] Item "int" of "int | str | None" has no attribute "lower"
+app/wingetcache.py [assignment] Incompatible types in assignment (expression has type "Literal[False] | Any", variable has type "str")
+app/wingetcache.py [import-untyped] Library stubs not installed for "yaml"
+app/wingetcache.py [var-annotated] Need type annotation for "_elocks" (hint: "_elocks: dict[<type>, <type>] = ...")
+app/wingetcache.py [var-annotated] Need type annotation for "_guard_cache" (hint: "_guard_cache: dict[<type>, <type>] = ...")
+app/wingetcache.py [var-annotated] Need type annotation for "done" (hint: "done: set[<type>] = ...")
+app/wingetcache.py [var-annotated] Need type annotation for "seen" (hint: "seen: dict[<type>, <type>] = ...")
+app/wingetcache.py [var-annotated] Need type annotation for "sw" (hint: "sw: dict[<type>, <type>] = ...")
+app/wingetrelease.py [var-annotated] Need type annotation for "by" (hint: "by: dict[<type>, <type>] = ...")
+app/wingetrelease.py [var-annotated] Need type annotation for "ids" (hint: "ids: dict[<type>, <type>] = ...")

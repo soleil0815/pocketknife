@@ -35,7 +35,7 @@ Web application for **inventory** and **software deployment** for Windows comput
 - **Manual as PDF** in German and English: `app/static/help/POCKET-KNIFE-Handbuch.pdf` and `POCKET-KNIFE-Manual.pdf` – also downloadable from the help.
 - **German and English**: switch **DE / EN** at the bottom left and on the sign-in page (applies per browser).
 
-For developers: the manual texts are in `app/static/help/de.md` and `en.md`; `python3 tools/build_manual.py` generates the PDFs from them (requires pandoc and Playwright). The English interface comes from the dictionary `app/i18n/en.json`; `python3 tools/i18n_extract.py` lists new, not yet translated texts, `python3 tools/build_i18n.py` builds `app/static/i18n.js` from it.
+For developers: the manual texts are in `app/static/help/de.md` and `en.md`; `python3 tools/build_manual.py` generates the PDFs from them (requires pandoc and Playwright). The English interface comes from the dictionary `app/i18n/en.json`; `python3 tools/i18n_extract.py` lists new, not yet translated texts, `python3 tools/build_i18n.py` builds `app/static/i18n.js` from it. **Type check:** `python3 tools/typcheck.py` (mypy, baseline in `tools/mypy-baseline.txt`; only new findings fail the check on GitHub, after fixes `--update`).
 
 ## Features
 
