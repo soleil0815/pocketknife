@@ -755,7 +755,7 @@ Die Spalte **Zustand** in der Paketliste zeigt das Ergebnis (Tooltip mit den Dat
 | PowerShell | beliebiges Skript; `exit 1` meldet einen Fehler |
 | Verschachteltes Paket | die Schritte eines anderen Pakets an dieser Stelle |
 | Dateikopie | Datei/Ordner aus dem Repository nach z. B. `%ProgramData%\Firma` |
-| Registry | Werte setzen (REG_SZ, REG_EXPAND_SZ, REG_DWORD, REG_QWORD, REG_MULTI_SZ, REG_BINARY), Werte oder Schlüssel löschen, Schlüssel anlegen – direkt im Paket, ohne Datei. **Aus .reg importieren** übernimmt den Inhalt einer exportierten .reg-Datei als Einträge. 64- oder 32-Bit-Ansicht (WOW6432Node) wählbar. HKCU-Einträge gelten für das ausführende Konto – für Benutzereinstellungen *Ausführen als: Angemeldeter Benutzer*. |
+| Registry | Werte setzen (REG_SZ, REG_EXPAND_SZ, REG_DWORD, REG_QWORD, REG_MULTI_SZ, REG_BINARY), Werte oder Schlüssel löschen, Schlüssel anlegen – direkt im Paket, ohne Datei. **Aus .reg importieren** übernimmt den Inhalt einer exportierten .reg-Datei als Einträge. 64- oder 32-Bit-Ansicht (WOW6432Node) wählbar. HKCU-Einträge gelten für das ausführende Konto – für Benutzereinstellungen *Ausführen als: Angemeldeter Benutzer*. Werte mit Namen wie `Password`, `Kennwort`, `Secret` oder `Token` stehen nicht in der Ausgabe der Bereitstellung (ab 2.38.2). |
 | Scannen | Inventar-Scan mit einem Scanprofil |
 | Neustart | startet neu, wartet, bis der Computer zurück ist, und macht weiter |
 | Warten / Nachricht / Abmelden | Pause, Meldung an alle Sitzungen, Benutzer abmelden |

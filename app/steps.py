@@ -774,6 +774,12 @@ def body_for(st, pkg):
 
 REG_FUNCS = r"""
 $global:PKRegFail = 0
+# 2.38.2: Werte mit Namen wie Password/Kennwort/Secret/Token nie in die Ausgabe (sie landet im Protokoll der
+# Bereitstellung) – z. B. das VNC-Kennwort ist nur mit einem bekannten Schlüssel verschlüsselt
+function PK-RegShow([string]$Name, $Data) {
+  if ($Name -match '__SECRET_RX__') { return '******** (verborgen)' }
+  if ($Data -is [array]) { ($Data -join '; ') } else { [string]$Data }
+}
 function PK-RegBase([string]$Hive, [string]$View) {
   $h = @{ HKLM = 'LocalMachine'; HKCU = 'CurrentUser'; HKU = 'Users'; HKCR = 'ClassesRoot'; HKCC = 'CurrentConfig' }[$Hive]
   [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]$h, $(if ($View -eq '32') { 'Registry32' } else { 'Registry64' }))
@@ -795,7 +801,7 @@ function PK-RegClm([string]$Action, [string]$Hive, [string]$Path, [string]$Name,
     'set' {
       if (-not (Test-Path -LiteralPath $rp)) { New-Item -Path $rp -Force -ErrorAction Stop | Out-Null }
       New-ItemProperty -LiteralPath $rp -Name $n -Value $Data -PropertyType $Kind -Force -ErrorAction Stop | Out-Null
-      Write-Output ('OK      gesetzt     ' + $label + ' = ' + $(if ($Data -is [array]) { ($Data -join '; ') } else { [string]$Data }))
+      Write-Output ('OK      gesetzt     ' + $label + ' = ' + (PK-RegShow $Name $Data))
     }
     'create_key' {
       if (-not (Test-Path -LiteralPath $rp)) { New-Item -Path $rp -Force -ErrorAction Stop | Out-Null }
@@ -826,7 +832,7 @@ function PK-Reg([string]$Action, [string]$Hive, [string]$Path, [string]$Name, [s
       'set' {
         $k = $b.CreateSubKey($Path)
         $k.SetValue($Name, $Data, [Microsoft.Win32.RegistryValueKind]$Kind)
-        Write-Output ('OK      gesetzt     ' + $label + ' = ' + $(if ($Data -is [array]) { ($Data -join '; ') } else { [string]$Data }))
+        Write-Output ('OK      gesetzt     ' + $label + ' = ' + (PK-RegShow $Name $Data))
       }
       'create_key' { $k = $b.CreateSubKey($Path); Write-Output ('OK      angelegt    ' + $label) }
       'delete_value' {
@@ -850,6 +856,11 @@ function PK-Reg([string]$Action, [string]$Hive, [string]$Path, [string]$Name, [s
   }
 }
 """
+
+
+# Namen von Registry-Werten, deren Inhalt nie in Ausgabe, Protokoll oder Vorschau steht (2.38.2)
+SECRET_VALUE_RX = r"(?i)pass(word|wd|phrase)?|pwd|kennwort|secret|token|credential|private.?key|api.?key"
+REG_FUNCS = REG_FUNCS.replace("__SECRET_RX__", SECRET_VALUE_RX)
 
 
 def _ps_data(e):

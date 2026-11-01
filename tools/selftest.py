@@ -7343,6 +7343,28 @@ def _():
     assert "ok" in r.stdout and "PKEXIT:0" in r.stdout, r.stdout + r.stderr
 
 
+@test("2.38.2 Registry-Schritt: Werte wie Password/Kennwort/Secret nie in der Ausgabe (Protokoll der Bereitstellung)")
+def _():
+    import re as _re
+    import subprocess as _sp
+    from app import steps
+    rx = _re.compile(steps.SECRET_VALUE_RX)
+    for n in ("Password", "VNCPassword", "passwd", "Pwd", "Kennwort", "ClientSecret", "AuthToken", "Credentials", "ApiKey", "private_key"):
+        assert rx.search(n), n
+    for n in ("RfbPort", "LogLevel", "QueryTimeout", "UseVncAuthentication", "Version"):
+        assert not rx.search(n), n
+    assert steps.REG_FUNCS.count("(PK-RegShow $Name $Data)") == 2 and "__SECRET_RX__" not in steps.REG_FUNCS
+    assert "PK-RegShow" in steps.reg_body(steps.normalize({"name": "x", "steps": {"main": [{"type": "registry", "entries": [
+        {"action": "set", "path": "HKLM\\SOFTWARE\\TightVNC\\Server", "name": "Password", "kind": "REG_BINARY", "data": "44,01,22"}]}]}})["steps"]["main"][0])
+    pw = os.environ.get("PK_PWSH")
+    if pw and os.path.exists(pw):
+        f = os.path.join(TMP, "regshow.ps1")
+        open(f, "w", encoding="utf-8").write("$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'\n" + steps.REG_FUNCS
+            + "PK-RegShow 'Password' ([byte[]]@(68,1,34)); PK-RegShow 'RfbPort' 5900; PK-RegShow 'Liste' ([string[]]@('a','b'))\n")
+        out = _sp.run([pw, "-NoProfile", "-NonInteractive", "-File", f], capture_output=True, text=True, timeout=60).stdout
+        assert "******** (verborgen)" in out and "68" not in out and "5900" in out and "a; b" in out, out
+
+
 def main():
     ok = 0
     for name, fn in RESULTS:

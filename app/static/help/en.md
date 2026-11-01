@@ -594,15 +594,15 @@ Under **Scan profiles → Custom scanners** you create scanners of type Registry
 
 | Type | Input | Result |
 |---|---|---|
-| Registry | `HKLM:\SOFTWARE\Contoso\Agent` | all values of the key |
-| Files & Folders | `C:\Program Files\Contoso\*.exe` | size, date, file version |
+| Registry | `HKLM:\SOFTWARE\Firma\Agent` | all values of the key |
+| Files & Folders | `C:\Program Files\Firma\*.exe` | size, date, file version |
 | Files & Folders | `%SYSTEMDRIVE%\Users\*\ntuser.dat` | one entry per user profile |
 | WMI | `SELECT Name, EstimatedChargeRemaining FROM Win32_Battery` | battery level |
 | PowerShell | see below | one row per output object |
 
 ```powershell
 # Version and path of a company application
-Get-ItemProperty HKLM:\SOFTWARE\Contoso\App | Select-Object Version, InstallPath
+Get-ItemProperty HKLM:\SOFTWARE\Firma\App | Select-Object Version, InstallPath
 
 # Last boot as text
 "Last boot: " + (Get-CimInstance Win32_OperatingSystem).LastBootUpTime
@@ -613,7 +613,7 @@ Get-LocalGroupMember -SID S-1-5-32-544 | Select-Object Name, PrincipalSource
 
 Objects become columns, text becomes the "value" column. Write-Host, hashtables and Format-Table are captured; errors appear in the "error" column.
 
-**Paths for "Files & Folders":** Environment variables are resolved on the client – `%SYSTEMDRIVE%`, `%ProgramData%`, `%ProgramFiles%`, `%windir%` or in PowerShell notation `$env:SystemDrive`. The scan runs as the service account or SYSTEM, so `%USERPROFILE%` and `%APPDATA%` point to that account's profile, not the logged-on user's – for all users use `%SYSTEMDRIVE%\Users\*\…`. Wildcards: `*` and `?` for a name on one level, `**` for any number of folder levels (e.g. `%ProgramData%\Contoso\**\*.log`). `**` searches everything below and is much slower for large folders like `C:\Users` – where the depth is known, use `*` instead. "Search subfolders recursively" additionally returns all content below.
+**Paths for "Files & Folders":** Environment variables are resolved on the client – `%SYSTEMDRIVE%`, `%ProgramData%`, `%ProgramFiles%`, `%windir%` or in PowerShell notation `$env:SystemDrive`. The scan runs as the service account or SYSTEM, so `%USERPROFILE%` and `%APPDATA%` point to that account's profile, not the logged-on user's – for all users use `%SYSTEMDRIVE%\Users\*\…`. Wildcards: `*` and `?` for a name on one level, `**` for any number of folder levels (e.g. `%ProgramData%\Firma\**\*.log`). `**` searches everything below and is much slower for large folders like `C:\Users` – where the depth is known, use `*` instead. "Search subfolders recursively" additionally returns all content below.
 
 **Sizes:** POCKET KNIFE shows byte values in readable form as KB, MB, GB or TB (tooltip: exact byte value). Setting per scanner under **Sizes**:
 
@@ -754,8 +754,8 @@ The **State** column in the package list shows the result (tooltip with the file
 | Command | multi-line, like a .cmd file |
 | PowerShell | any script; `exit 1` reports an error |
 | Nested package | the steps of another package at this position |
-| File copy | file/folder from the repository to e.g. `%ProgramData%\Contoso` |
-| Registry | set values (REG_SZ, REG_EXPAND_SZ, REG_DWORD, REG_QWORD, REG_MULTI_SZ, REG_BINARY), delete values or keys, create keys – directly in the package, no file needed. **Import from .reg** turns the content of an exported .reg file into entries. 64- or 32-bit view (WOW6432Node) selectable. HKCU entries apply to the executing account – for user settings use *Run as: Logged-on user*. |
+| File copy | file/folder from the repository to e.g. `%ProgramData%\Firma` |
+| Registry | set values (REG_SZ, REG_EXPAND_SZ, REG_DWORD, REG_QWORD, REG_MULTI_SZ, REG_BINARY), delete values or keys, create keys – directly in the package, no file needed. **Import from .reg** turns the content of an exported .reg file into entries. 64- or 32-bit view (WOW6432Node) selectable. HKCU entries apply to the executing account – for user settings use *Run as: Logged-on user*. Values named like `Password`, `Secret` or `Token` do not appear in the deployment output (from 2.38.2). |
 | Scan | inventory scan with a scan profile |
 | Restart | restarts, waits until the computer is back and continues |
 | Wait / Message / Sign out | pause, message to all sessions, sign out users |
@@ -792,7 +792,7 @@ If a package condition is not met, the computer is **skipped**; for a step condi
 The setting applies to the package and can be overridden per step. **Running** shows the exact command executed on the client for each step, e.g.:
 
 ```
-Directly as service account CONTOSO\svc-pocketknife (separate process, no scheduled task):
+Directly as service account FIRMA\svc-pocketknife (separate process, no scheduled task):
 msiexec.exe /i "C:\Windows\Temp\PocketKnife\<run>\7z2408-x64.msi" /qn /norestart ALLUSERS=1 /l*v "...\pk_msi.log"
 ```
 
@@ -815,8 +815,8 @@ Right-click "Zotero" in Software → "Create uninstall package …". The step fi
 
 **Distribute a company configuration**
 
-1. File copy: source `Config\Agent`, destination `%ProgramData%\Contoso\Agent`.
-2. Command: `reg add "HKLM\SOFTWARE\Contoso" /v Konfiguriert /d 1 /f`.
+1. File copy: source `Config\Agent`, destination `%ProgramData%\Firma\Agent`.
+2. Command: `reg add "HKLM\SOFTWARE\Firma" /v Konfiguriert /d 1 /f`.
 3. Finalize → Scan with the "Registry" profile.
 
 **Archive cannot be extracted (exit code -1978335140):** Some winget packages (e.g. Microsoft GameInput) come as a ZIP archive. As Local System, extraction via the Windows shell often fails. POCKET KNIFE then repeats the step once with `tar.exe` and sets `installBehavior.archiveExtractionMethod = tar` in the winget settings of the Local System account (`…\systemprofile\AppData\Local\Microsoft\WinGet\Settings\defaultState\settings.json`); existing settings are kept. Own settings files that cannot be read stay unchanged.
