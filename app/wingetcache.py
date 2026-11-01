@@ -992,7 +992,7 @@ def _released(e):
         from . import wingetrelease
         return wingetrelease.version_ok(e["winget_id"], e["version"])
     except Exception:
-        return True
+        return False  # 2.36.2: nicht prüfbar → den Cache nicht benutzen (winget entscheidet bzw. der Schritt schlägt fehl)
 
 
 def split(wid, ids):

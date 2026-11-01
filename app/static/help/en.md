@@ -380,7 +380,7 @@ sudo sh update.sh latest        # back to "always the newest"
 
 **Stay on a version or go back:** `sudo sh update.sh <version>` (or in the `.env` `PK_IMAGE=ghcr.io/soleil0815/pocketknife:<version>` and `PK_GUACD_IMAGE=ghcr.io/soleil0815/pocketknife-guacd:<version>`, then `docker compose up -d`). If the newer version already extended the database, restore the backup "vor-<newer version>" (see [Backup](#backup)). If an older version starts on a database that a newer one has already used, POCKET KNIFE says so in the sidebar.
 
-**Without internet:** every release contains an archive of both images per platform (`pocketknife-<version>-amd64.tar.gz`, `-arm64.tar.gz`, checksums in `pocketknife-<version>.sha256`). Copy it to the Docker host and run `sudo sh update.sh pocketknife-<version>-amd64.tar.gz` – it loads the images (`docker load`), checks the checksum, pins the version in the `.env` and starts.
+**Without internet:** every release contains an archive of both images per platform (`pocketknife-<version>-amd64.tar.gz`, `-arm64.tar.gz`, checksums in `pocketknife-<version>.sha256`). Copy it to the Docker host and run `sudo sh update.sh pocketknife-<version>-amd64.tar.gz` – it checks the checksum (the `.sha256` must be in the same folder, otherwise it stops), loads the images (`docker load`), pins the version in the `.env` and starts.
 
 **Private registry:** log in once on the Docker host as the user running the updates (root with `sudo`, the container manager's user otherwise): `docker login ghcr.io -u <GitHub user>`, password = **personal access token** with `read:packages`. The token is not stored in the `.env`.
 
@@ -682,7 +682,8 @@ As long as the latest version is not released:
 - **Schedules** (keep software up to date, patch day) only update computers that have an older version than the last released one – and install exactly that one.
 - **winget steps in packages, nested packages and the kiosk** install the last released version (`winget --version`). If the same or a newer version is already installed, the step is skipped (never downgrade). A step with a fixed version stays unchanged.
 - The **winget cache** only downloads the released version; if it is already in the cache, it stays. Entries with "Do not require the catalog checksum" keep their state (the vendor always delivers the latest there).
-- The **Update** button under Software deliberately installs the latest version – it is triggered manually. The "outdated" display still follows the catalog.
+- The **Update** button under Software deliberately installs the latest version – it is triggered manually. It never installs a **blocked** version (it then installs the last released one). The "outdated" display still follows the catalog.
+- **Changing the rule** (e.g. from "release immediately" to "only after release in the package"): all versions released so far stay released; versions appearing afterwards follow the new rule.
 
 **Release or block individually:** Under **Packages** the **Release** column shows the state of each winget package (e.g. "24.08 instead of 24.09"). Right-click → **Release version … now** releases the latest immediately; **Release …** shows all known versions with "first seen" and state and offers **Release**, **Block** (never distribute a faulty version – also with "release immediately"), **Unblock** and **Withdraw release**. After a release the winget cache downloads the version right away. Everything is logged; main admins only.
 

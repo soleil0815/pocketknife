@@ -9,7 +9,11 @@ Der winget-Katalog nennt kein Erscheinungsdatum – POCKET KNIFE merkt sich, wan
 Wirkung (target): ist die neueste Version freigegeben, ändert sich nichts. Sonst bekommen winget-Schritte in Paketen,
 Kiosk und Zeitplänen gezielt die zuletzt freigegebene Version (winget --version), der winget-Cache lädt nur diese, und
 Zeitpläne „Software aktuell halten“ aktualisieren nur Computer mit einer älteren Version. Gibt es keine freigegebene
-Version (alles gesperrt), passiert nichts. Der Knopf „Aktualisieren“ (Software) installiert bewusst die neueste.
+Version (alles gesperrt), passiert nichts. Der Knopf „Aktualisieren“ (Software) installiert bewusst die neueste – außer
+sie ist gesperrt (2.36.2: eine Sperre gilt überall).
+
+2.36.2: Beim Wechsel der Regel (freeze) bleiben die bis dahin freigegebenen Versionen freigegeben – sonst würde z. B. der
+Wechsel von „sofort“ auf „nur nach Freigabe“ alle Programme auf den Ausgangsstand der ersten Sichtung zurückstellen.
 
 Beim ersten Kontakt mit einer winget-ID gilt deren aktuelle Version als freigegeben („baseline“) – sonst stünden nach
 dem Einschalten alle Programme still.
@@ -137,14 +141,15 @@ def target(wid):
         cur = next((r for r in _rows(wid) if r["version"] == latest), None)
     if cur is None or released(cur):
         return {"state": "latest", "latest": latest}
+    blocked = cur["status"] == "blocked"
     ok = [r["version"] for r in rows if r["version"] != latest and released(r) and util.vcmp(r["version"], latest) < 0]
     if not ok:
-        return {"state": "hold", "latest": latest, "reason": _why(cur)}
+        return {"state": "hold", "latest": latest, "reason": _why(cur), "blocked": blocked}
     best = ok[0]
     for v in ok[1:]:
         if util.vcmp(v, best) > 0:
             best = v
-    return {"state": "pin", "version": best, "latest": latest, "reason": _why(cur)}
+    return {"state": "pin", "version": best, "latest": latest, "reason": _why(cur), "blocked": blocked}
 
 
 def _why(r):
@@ -164,14 +169,30 @@ def apply_step(st, pkg=None):
         return st, None
     if (st.get("winget_action") or "install") == "uninstall" or str(st.get("winget_version") or "").strip():
         return st, None
-    if pkg is not None and pkg.get("release_bypass"):
-        return st, None
     t = target(st.get("winget_id"))
+    if pkg is not None and pkg.get("release_bypass") and not t.get("blocked"):
+        return st, None  # „Aktualisieren“ von Hand: zurückgestellte Versionen ja, gesperrte nie
     if t["state"] == "pin":
+        if not util.WINGET_ID_RE.match(str(t["version"])):
+            return None, f"{t['reason']} – freigegebene Version {str(t['version'])[:40]!r} ungültig"
         return {**st, "winget_version": t["version"], "release_note": t["reason"]}, None
     if t["state"] == "hold":
         return None, f"{t['reason']} – keine freigegebene Version"
     return st, None
+
+
+def freeze(new_mode):
+    """2.36.2: vor dem Wechsel der Regel – was jetzt freigegeben ist, bleibt freigegeben (als Ausgangsstand).
+    Gesperrte und noch zurückgestellte Versionen bleiben, wie sie sind."""
+    if new_mode not in MODES or new_mode == mode():
+        return 0
+    with _lock:
+        ids = [r["id"] for r in db.q("SELECT * FROM winget_releases WHERE status IS NULL AND COALESCE(base, 0) = 0") if released(r)]
+        for i in ids:
+            db.ex("UPDATE winget_releases SET base=1 WHERE id=?", (i,))
+    if ids:
+        pklog.info("winget", f"winget-Freigabe: Regel {mode()} → {new_mode}, {len(ids)} bisher freigegebene Version(en) bleiben freigegeben.")
+    return len(ids)
 
 
 def version_ok(wid, version):

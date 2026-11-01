@@ -5804,8 +5804,12 @@ exit 0
     os.remove(os.path.join(st, "pullfail"))
     # 5. neue Version startet nicht → vorheriges Image unter dem Namen der bisherigen .env, .env zurück
     w(os.path.join(st, "tags"), ""); w(os.path.join(st, "health"), "unhealthy\n")
+    ino = os.stat(os.path.join(inst, ".env")).st_ino
     r = run("-y", "2.33.2")
     assert r.returncode != 0 and "is running again" in r.stdout and rd(".env") == env_before, r.stdout[-600:]
+    # 2.36.2: zurück behält die .env selbst (Besitzer, Rechte, Link) – kein mv einer Kopie von root
+    est = os.stat(os.path.join(inst, ".env"))
+    assert est.st_ino == ino and not os.path.exists(os.path.join(inst, ".env.pk-alt")), "2.36.2: .env beim Zurück"
     tags = open(os.path.join(st, "tags")).read()
     assert "pocketknife:previous ghcr.io/soleil0815/pocketknife:latest" in tags and "pocketknife-guacd:previous ghcr.io/soleil0815/pocketknife-guacd:latest" in tags, tags
     assert "sudo sh update.sh 2.32.12" in r.stdout, "wie man auf der Version bleibt"
@@ -5822,6 +5826,16 @@ exit 0
     env_before = rd(".env")
     r = run("-y", arc)
     assert r.returncode != 0 and "Checksum" in r.stderr and rd(".env") == env_before
+    # 2.36.2: ohne .sha256 nicht ungeprüft laden
+    os.remove(os.path.join(base, "pocketknife-2.33.3.sha256"))
+    w(os.path.join(st, "calls"), "")
+    r = run("-y", arc)
+    assert r.returncode != 0 and "is missing" in r.stderr and rd(".env") == env_before, r.stderr[-300:]
+    assert "load" not in open(os.path.join(st, "calls")).read(), "2.36.2: ohne Prüfsumme nichts laden"
+    # 2.36.2: relativer Pfad ab dem aktuellen Ordner (nicht ab dem Ordner von update.sh)
+    w(os.path.join(base, "pocketknife-2.33.3.sha256"), _hl.sha256(b"ARCHIV").hexdigest() + "  pocketknife-2.33.3-amd64.tar.gz\n")
+    r = _sp.run(["sh", os.path.join(inst, "update.sh"), "-y", "pocketknife-2.33.3-amd64.tar.gz"], cwd=base, env=env, capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0 and "Checksum OK" in r.stdout and ":2.33.3" in rd(".env"), "2.36.2: relativer Archivpfad " + r.stdout[-300:] + r.stderr[-300:]
     run("-y", "latest")
     # 7. läuft aus einem anderen Ordner → nichts tun
     w(os.path.join(st, "running_dir"), base + "\n")
@@ -6764,6 +6778,85 @@ def _():
         db.set_setting("winget_release_mode", old_mode); db.set_setting("winget_release_days", old_days)
         db.ex("DELETE FROM winget_releases WHERE winget_id=?", (W,))
         db.ex("DELETE FROM software WHERE winget_id=?", (W,))
+
+
+@test("2.36.2 Audit: Sperre gilt auch für „Aktualisieren“, Wechsel der Regel behält Freigaben, Fehler beim Prüfen nicht offen, ungültige Version, Gesundheitscheck wartet die Migration ab")
+def _():
+    from app import wingetrelease as wr, wingetcache as wc
+    W = "Selftest.RelAudit"
+    cat = {"v": "1.0"}
+    old_latest, old_mode, old_days = wr._latest, db.setting("winget_release_mode"), db.setting("winget_release_days")
+    wr._latest = lambda wid: cat["v"] if str(wid).lower() == W.lower() else old_latest(wid)
+    db.ex("DELETE FROM winget_releases WHERE winget_id=?", (W,))
+    st = {"type": "install", "source": "winget", "winget_id": W, "winget_action": "upgrade", "winget_version": ""}
+    try:
+        db.set_setting("winget_release_mode", "off")
+        db.ex("INSERT INTO software(computer_id, name, version, winget_id, winget_sure) VALUES(NULL, 'RelAudit', '1.0', ?, 1)", (W,))
+        wr.sync()
+        for v in ("1.1", "1.2", "1.3"):
+            cat["v"] = v
+            wr.sync()
+        assert wr.target(W)["state"] == "latest"
+        # Fund 1: gesperrte neueste – „Aktualisieren“ (release_bypass) bekommt die vorige, nicht die gesperrte
+        wr.set_status(W, "1.3", "blocked", "selftest")
+        s2, why = wr.apply_step(st, {"release_bypass": True})
+        assert s2 is not None and s2["winget_version"] == "1.2", ("Sperre gilt auch für Aktualisieren", s2, why)
+        wr.set_status(W, "1.2", "blocked", "selftest"); wr.set_status(W, "1.1", "blocked", "selftest"); wr.set_status(W, "1.0", "blocked", "selftest")
+        s2, why = wr.apply_step(st, {"release_bypass": True})
+        assert s2 is None and "keine freigegebene Version" in why, "alles gesperrt: auch Aktualisieren nicht"
+        for v in ("1.0", "1.1", "1.2", "1.3"):
+            wr.set_status(W, v, "", "selftest")
+        # zurückgestellt (nicht gesperrt): Aktualisieren bekommt weiter die neueste
+        db.set_setting("winget_release_mode", "manual"); cat["v"] = "1.4"; wr.sync()
+        assert wr.target(W)["state"] == "pin" and wr.apply_step(st, {"release_bypass": True})[0] is st, "Zurückstellung umgeht Aktualisieren"
+        db.ex("DELETE FROM winget_releases WHERE winget_id=? AND version='1.4'", (W,)); cat["v"] = "1.3"
+        db.set_setting("winget_release_mode", "off")
+        # Fund 2: Wechsel sofort → manuell: 1.3 (unter „sofort“ freigegeben) bleibt freigegeben
+        assert wr.freeze("manual") >= 3
+        db.set_setting("winget_release_mode", "manual")
+        assert wr.target(W)["state"] == "latest", ("Wechsel der Regel stellt nicht zurück", wr.target(W))
+        cat["v"] = "1.4"; wr.sync()
+        t = wr.target(W)
+        assert t["state"] == "pin" and t["version"] == "1.3" and "wartet auf Freigabe" in t["reason"], t
+        assert wr.freeze("manual") == 0, "gleiche Regel: nichts"
+        # days → manual: noch zurückgestellte Version bleibt zurückgestellt
+        db.set_setting("winget_release_mode", "days"); db.set_setting("winget_release_days", 5)
+        assert wr.freeze("manual") == 0 and db.val("SELECT base FROM winget_releases WHERE winget_id=? AND version='1.4'", (W,)) == 0
+        db.set_setting("winget_release_mode", "manual")
+        mn = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "main.py"), encoding="utf-8").read()
+        i = mn.index('if k == "winget_release_mode":\n')
+        assert "wingetrelease.freeze(v)" in mn[i:i + 200] and mn.index("wingetrelease.freeze(v)") < mn.index("db.set_setting(k, v)", i), "freeze vor dem Speichern"
+        # Fund 3: Fehler beim Prüfen → nicht die neueste installieren, Cache nicht benutzen
+        old_vo = wr.version_ok
+        wr.version_ok = lambda *a: (_ for _ in ()).throw(RuntimeError("DB gesperrt"))
+        try:
+            assert wc._released({"winget_id": W, "version": "1.4"}) is False
+        finally:
+            wr.version_ok = old_vo
+        stp = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "steps.py"), encoding="utf-8").read()
+        j = stp.index("wingetrelease.apply_step(st, pkg)")
+        assert "st2, why = st, None" not in stp[j:j + 400] and '"failed", why' in stp[j:j + 600], "2.36.2: Fehler nicht offen"
+        # Fund 5: freigegebene Version aus dem Index wird vor --version geprüft
+        db.ex("UPDATE winget_releases SET version='1.3\" --override x' WHERE winget_id=? AND version='1.3'", (W,))
+        s2, why = wr.apply_step({**st, "winget_action": "install"})
+        assert s2 is None and "ungültig" in why, (s2, why)
+    finally:
+        wr._latest = old_latest
+        db.set_setting("winget_release_mode", old_mode); db.set_setting("winget_release_days", old_days)
+        db.ex("DELETE FROM winget_releases WHERE winget_id=?", (W,))
+        db.ex("DELETE FROM software WHERE winget_id=?", (W,))
+    # update.sh/Dockerfile: Gesundheitscheck lässt Sicherung und Migration Zeit (nur wo die Dateien vorhanden sind)
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+    for name in ("Dockerfile", "update.sh"):
+        p = os.path.join(root, name)
+        if not os.path.exists(p):
+            continue
+        t = open(p, encoding="utf-8").read()
+        if name == "Dockerfile":
+            assert "--start-period=15m" in t and "--start-interval=10s" in t, "Startzeit des Gesundheitschecks"
+        else:
+            assert 'WAIT_STEPS="${PK_WAIT_STEPS:-240}"' in t and "mv .env.pk-alt .env" not in t
+            assert "is missing next to" in t and 'OFFLINE=$(resolve "$CALLDIR" "$ARG")' in t
 
 
 @test("2.36.1 Lizenz AGPL-3.0: Lizenztext unverändert, im Image, Kennzeichnung, Hinweis in Hilfe und Oberfläche")

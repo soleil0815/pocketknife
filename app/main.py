@@ -3799,6 +3799,9 @@ def api_settings_save(data: dict = Body(...), user=U):
             if v == "kerberos" and not kerberos.available()[0]:
                 _err("Die Kerberos-Bibliotheken fehlen im Container – Image neu bauen (docker compose build).")
         if str(db.setting(k)) != str(v):
+            if k == "winget_release_mode":
+                from . import wingetrelease
+                wingetrelease.freeze(v)  # 2.36.2: bisher freigegebene Versionen bleiben freigegeben
             db.set_setting(k, v)
             changed.append(k)
     if "auth_mode" in changed:
