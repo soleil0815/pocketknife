@@ -7205,6 +7205,8 @@ def _():
     if os.path.isdir(wfd):
         rl = open(os.path.join(wfd, "release.yml"), encoding="utf-8").read()
         assert "actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8" in rl and "attestations: write" in rl
+        at = rl[rl.index("- name: Herkunftsnachweis"):rl.index("uses: actions/attest-build-provenance")]
+        assert "if: ${{ !github.event.repository.private }}" in at, "privates Repository: Release darf daran nicht scheitern"
         g = rl[rl.index("- name: guacd unter eigenem Namen"):rl.index("- name: Archive für Installationen")]
         assert "run: |" in g and "${{" not in g.split("run: |", 1)[1], "guacd-Schritt: Werte nur über env"
         sec = open(os.path.join(wfd, "security.yml"), encoding="utf-8").read()
