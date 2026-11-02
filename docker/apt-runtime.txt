@@ -3,4 +3,4 @@
 iputils-ping=3:20240905-3
 krb5-user=1.21.3-5+deb13u1
 libgssapi-krb5-2=1.21.3-5+deb13u1
-tzdata=2026e-0+deb13u1
+tzdata=2026f-0+deb13u1
