@@ -7437,6 +7437,35 @@ $script:tasks = @()
         assert not r.stderr.strip(), r.stderr
 
 
+
+@test("Wöchentliches Update: genau verlangte Bauwerkzeuge (gssapi/krb5: „Cython == 3.3.0“) gelten statt der neuesten im Bau-Image")
+def _():
+    import importlib.util as _iu
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+    bp = os.path.join(root, "tools", "buildpins.py")
+    if not os.path.exists(bp):
+        return  # im Container liegen die Bauwerkzeuge nicht
+    spec = _iu.spec_from_file_location("pk_buildpins", bp)
+    m = _iu.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    gss = '[build-system]\nrequires = [\n    "Cython == 3.3.0",\n    "setuptools >= 40.6.0",  # PEP 517\n]\n\n[project]\nname = "gssapi"\n'
+    krb = '[build-system]\nrequires = ["Cython==3.3.0", "setuptools >= 42.0.0"]\n'
+    assert m.requires_from_pyproject(gss) == ["Cython == 3.3.0", "setuptools >= 40.6.0"]
+    pins = m.collect(["gssapi==1.12.0", "krb5==0.10.0"], fetch=lambda n, v: {"gssapi": gss, "krb5": krb}[n])
+    assert pins == {"cython": ("Cython", "3.3.0")}, pins
+    try:
+        m.collect(["gssapi==1", "krb5==2"], fetch=lambda n, v: gss if n == "gssapi" else krb.replace("3.3.0", "3.3.1"))
+        raise AssertionError("verschiedene genaue Versionen müssen scheitern")
+    except SystemExit as e:
+        assert "nicht gemeinsam baubar" in str(e)
+    assert m.collect(["x==1"], fetch=lambda n, v: "") == {}
+    pv = open(os.path.join(root, "tools", "pin-versions.sh"), encoding="utf-8").read()
+    i = pv.index('say "Build tools"')
+    blk = pv[i:pv.index("mv build-requirements.txt.new build-requirements.txt", i)]
+    assert "tools/buildpins.py" in blk and blk.index('"$EXACT" | grep -i') < blk.index('"$FREEZE" | grep -i'), "genaue Vorgabe vor pip freeze"
+    assert "-linux_" in blk, "nur selbst gebaute Wheels"
+
+
 def main():
     ok = 0
     for name, fn in RESULTS:

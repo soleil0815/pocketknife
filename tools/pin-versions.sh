@@ -113,10 +113,21 @@ mv requirements.lock.new requirements.lock
 say "Build tools"
 TOOLS=$(sed -e '/^[[:space:]]*#/d' -e 's/[=<>!~].*$//' -e '/^[[:space:]]*$/d' build-requirements.txt)
 FREEZE=$(docker run --rm --entrypoint pip "$BUILDIMG" freeze --all --disable-pip-version-check)
+# Selbst gebaute Pakete (Wheel mit Plattform linux_*, z. B. gssapi, krb5) verlangen ihre Bauwerkzeuge teils mit genauer
+# Version („Cython == 3.3.0“). Die gilt dann – nicht die neuere Version, die pip oben im Bau-Image installiert hat –,
+# sonst scheitert ihre Bauumgebung an PIP_CONSTRAINT (tools/buildpins.py).
+BUILT=$(docker run --rm --entrypoint ls "$BUILDIMG" /wheels | sed -n 's/^\([^-]*\)-\([^-]*\)-.*-linux_[^-]*\.whl$/\1==\2/p')
+EXACT=""
+if [ -n "$BUILT" ]; then
+  # shellcheck disable=SC2086
+  EXACT=$(python3 tools/buildpins.py $BUILT) || { echo "Genaue Bauwerkzeug-Versionen nicht ermittelbar ($BUILT)" >&2; exit 1; }
+  [ -z "$EXACT" ] || printf 'Von %s genau verlangt:\n%s\n' "$(echo $BUILT)" "$EXACT"
+fi
 {
   sed -n '/^[[:space:]]*#/p' build-requirements.txt
   for n in $TOOLS; do
-    line=$(printf '%s\n' "$FREEZE" | grep -i "^${n}==" || true)
+    line=$(printf '%s\n' "$EXACT" | grep -i "^${n}==" || true)
+    [ -n "$line" ] || line=$(printf '%s\n' "$FREEZE" | grep -i "^${n}==" || true)
     [ -n "$line" ] || { echo "$n not found in the build image" >&2; exit 1; }
     echo "$line"
   done
