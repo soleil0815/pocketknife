@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.38.4",
+   "date": "2026-11-02",
+   "items": [
+    {
+     "kind": "fixed",
+     "audience": "all",
+     "de": "gpupdate /force aktualisiert jetzt auch die Benutzerrichtlinie der angemeldeten Benutzer (z. B. Browser-Lesezeichen) – bisher galt sie nur für das Dienstkonto.",
+     "en": "gpupdate /force now also refreshes the user policy of signed-in users (e.g. browser bookmarks) – previously it only applied to the service account."
+    }
+   ]
+  },
+  {
    "version": "2.38.3",
    "date": "2026-11-01",
    "items": [

@@ -1414,7 +1414,7 @@ def api_action(cid: int, data: dict = Body(...), user=U):
     if not c:
         raise HTTPException(404)
     act = data.get("action")
-    from . import rebootmsg
+    from . import gpupdate, rebootmsg
     # 2.32.3: Wartezeit wählbar (0 = sofort … 24 h, Standard 60 s). /t > 0 schließt Programme ohnehin erzwungen (/f);
     # bei 0 ausdrücklich /f, sonst hält ein Programm mit ungespeicherten Daten den Neustart auf
     try:
@@ -1427,9 +1427,9 @@ def api_action(cid: int, data: dict = Body(...), user=U):
     cmds = {"restart": f"& shutdown.exe /r /t {secs}{force} /c " + util.psq(rebootmsg.text_delay("restart", secs)),
             "shutdown": f"& shutdown.exe /s /t {secs}{force} /c " + util.psq(rebootmsg.text_delay("shutdown", secs)),
             "abort": "shutdown.exe /a",
-            # 2.32: das normale „gpupdate /force“ (Computer- und Benutzerrichtlinien). Fragt gpupdate nach Abmelden oder
-            # Neustart (z. B. Ordnerumleitung, Softwareinstallation), antwortet „N“ – sonst hinge der Aufruf ohne Konsole
-            "gpupdate": "cmd.exe /c 'echo N| gpupdate.exe /force' | Out-String"}
+            # 2.38.4: Computerrichtlinie direkt, Benutzerrichtlinie in der Sitzung jedes angemeldeten Benutzers – über WinRM
+            # allein galt „Benutzerrichtlinie aktualisiert“ nur für das Dienstkonto (siehe gpupdate.py)
+            "gpupdate": gpupdate.script()}
     if act not in cmds:
         _err("Unbekannte Aktion")
     try:

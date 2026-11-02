@@ -1016,7 +1016,7 @@ Computer auswählen → **Tools ▾** oder Rechtsklick → Tools.
 | Wake-on-LAN | über einen erreichbaren Computer im selben Subnetz (Relay), mehrfach, mit Prüfung, ob er aufwacht – siehe unten |
 | Neustart / Herunterfahren … | ab 2.32.3 in einem Dialog: Neustart oder Herunterfahren wählen und die Wartezeit angeben (Sekunden oder Minuten, 0 = sofort bis 24 Stunden, Standard 60 Sekunden). Angemeldete Benutzer sehen solange die Meldung von Windows; der Standardtext nennt bei längeren Zeiten Minuten, ein eigener Text unter **Einstellungen → Zeitpläne & Leistung** gilt unverändert. Bei „sofort“ schließt Windows offene Programme ohne Rückfrage. Ab 2.34: Sind Server oder Domänencontroller dabei, nennt der Dialog sie samt Zahl der angemeldeten Benutzer und führt erst nach einem Häkchen „Ja, auch die Server“ aus |
 | Neustart/Herunterfahren abbrechen | stoppt einen angekündigten Neustart bzw. ein Herunterfahren, solange die Wartezeit läuft |
-| gpupdate /force | Gruppenrichtlinien aktualisieren |
+| gpupdate /force | Gruppenrichtlinien aktualisieren: Computerrichtlinie und – in der Sitzung jedes angemeldeten Benutzers – dessen Benutzerrichtlinie (z. B. Browser-Lesezeichen, Laufwerke). Die Ausgabe zeigt jeden Teil einzeln. Ist niemand angemeldet, gilt die Benutzerrichtlinie bei der nächsten Anmeldung |
 | winget prüfen / nachinstallieren | stellt winget bereit, wo es fehlt |
 | Scannen mit Profil | sofortiger Scan |
 | Speicherplatz analysieren | Ordnergrößen als Ringdiagramm – siehe unten |

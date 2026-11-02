@@ -4942,7 +4942,9 @@ def _():
         made.append(r["id"])
         assert _asgi("POST", "/api/packages/merge", tok, {"ids": [a]})[0] == 400, "mindestens zwei"
         src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "main.py"), encoding="utf-8").read()
-        assert "echo N| gpupdate.exe /force" in src and "/target:computer" not in src
+        # 2.38.4: Computer- und Benutzerrichtlinie (Benutzer in der eigenen Sitzung, siehe gpupdate.py)
+        from app import gpupdate as _gp
+        assert '"gpupdate": gpupdate.script()' in src and "echo N| gpupdate.exe /target:computer /force" in _gp.SCRIPT and "gpupdate.exe /target:user /force" in _gp.SCRIPT
         js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
         assert "function mergePackagesDlg(selRows)" in js and "Zu neuem Paket zusammenfassen" in js
     finally:
@@ -7378,6 +7380,61 @@ def _():
     # Losgelassen außerhalb der Zelle: die Zeile wählt nicht „nur diese“ aus, sondern schaltet das Kästchen um
     j = js.index("tr.addEventListener('click', (e) => {", i)
     assert js[j:j + 120].split("\n")[1].strip() == "if (tr.pkChk && tr.pkChk()) return;", js[j:j + 120]
+
+
+
+@test("2.38.4 gpupdate: Benutzerrichtlinie in der Sitzung jedes angemeldeten Benutzers (nicht nur für das Dienstkonto), CLM-tauglich")
+def _():
+    import subprocess as _sp
+    from app import gpupdate
+    sc = gpupdate.script("ab12")
+    assert "__ID__" not in sc and "__WAIT__" not in sc
+    # Benutzer: Besitzer von explorer.exe/sihost.exe; Aufgabe als dieser Benutzer, interaktiv, eingeschränkt, ohne Kennwort
+    assert "Name='explorer.exe' OR Name='sihost.exe'" in sc and "-LogonType Interactive -RunLevel Limited" in sc and "-Password" not in sc
+    assert "gpupdate.exe /target:user /force" in sc and "conhost.exe" in sc and "--headless" in sc
+    assert "Kein Benutzer angemeldet" in sc
+    for bad in ("[IO.", "[Convert]", "[Environment]", "Add-Type", "[ScriptBlock]", "New-Object Security", "[ref]"):
+        assert bad not in sc, bad
+    try:
+        gpupdate.script("a;b")
+        raise AssertionError("Lauf-ID muss alphanumerisch sein")
+    except ValueError:
+        pass
+    pw = os.environ.get("PK_PWSH")
+    if pw and os.path.exists(pw):
+        root = os.path.join(TMP, "gproot")
+        os.makedirs(os.path.join(root, "System32"), exist_ok=True)
+        os.makedirs(os.path.join(root, "Temp"), exist_ok=True)
+        cmd = os.path.join(root, "System32", "cmd.exe")
+        open(cmd, "w").write("#!/bin/sh\necho Computerrichtlinie aktualisiert\n")
+        os.chmod(cmd, 0o755)
+        stub = r"""
+function Get-ScheduledTask { param($TaskPath, $ErrorAction) $script:tasks }
+function Unregister-ScheduledTask { param($TaskName, $TaskPath, $Confirm, $ErrorAction) $script:tasks = @($script:tasks | Where-Object { $_.TaskName -ne $TaskName }) }
+function Get-CimInstance { param($ClassName, $Filter, $ErrorAction) @(@{u='anna'}, @{u='anna'}, @{u='bob'}) }
+function Invoke-CimMethod { param($InputObject, $MethodName, $ErrorAction) New-Object PSObject -Property @{ User = $InputObject.u; Domain = 'FIRMA' } }
+function New-ScheduledTaskSettingsSet { 'set' }
+function New-ScheduledTaskAction { param($Execute, $Argument) 'a' }
+function New-ScheduledTaskPrincipal { param($UserId, $LogonType, $RunLevel) "PRINC $UserId" }
+function Register-ScheduledTask { param($TaskName, $TaskPath, $Action, $Principal, $Settings, [switch]$Force, $ErrorAction) $script:tasks += New-Object PSObject -Property @{ TaskName = $TaskName; State = 'Ready' } }
+function Start-ScheduledTask { param($TaskName, $TaskPath, $ErrorAction)
+  $d = Join-Path $env:SystemRoot 'Temp/pk_gp_ab12'; $k = $TaskName.Substring($TaskName.Length - 1)
+  Set-Content (Join-Path $d ('o' + $k + '.txt')) ('Benutzerrichtlinie ' + $k); Set-Content (Join-Path $d ('r' + $k + '.txt')) ([string]([int]$k - 1)) }
+function Get-ScheduledTaskInfo { param($TaskName, $TaskPath, $ErrorAction) $null }
+function icacls.exe { }
+function Get-ItemProperty { param($Path, $ErrorAction) New-Object PSObject -Property @{ CurrentBuildNumber = '22631' } }
+$script:tasks = @()
+"""
+        f = os.path.join(TMP, "gp.ps1")
+        open(f, "w", encoding="utf-8").write("$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'\n" + stub + sc)
+        r = _sp.run([pw, "-NoProfile", "-NonInteractive", "-File", f], capture_output=True, text=True, timeout=120,
+                    env={**os.environ, "SystemRoot": root})
+        out = r.stdout
+        assert "=== Computerrichtlinie ===" in out and "Computerrichtlinie aktualisiert" in out, out + r.stderr
+        assert out.count("=== Benutzerrichtlinie: FIRMA\\anna ===") == 1 and "=== Benutzerrichtlinie: FIRMA\\bob ===" in out, out
+        assert "Benutzerrichtlinie 1" in out and "Benutzerrichtlinie 2" in out and "endete mit Code 1" in out, out
+        assert not os.path.exists(os.path.join(root, "Temp", "pk_gp_ab12")), "Ordner nach dem Lauf entfernt"
+        assert not r.stderr.strip(), r.stderr
 
 
 def main():

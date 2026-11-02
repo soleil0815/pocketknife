@@ -1,5 +1,9 @@
 # Änderungen
 
+## pocketknife-2.38.4 (02.11.2026)
+- **Behoben – gpupdate /force aktualisierte die Benutzerrichtlinie nicht für die angemeldeten Benutzer:** Über WinRM lief gpupdate im Dienstkonto – „Benutzerrichtlinie aktualisiert“ galt nur für dieses Konto. Benutzereinstellungen wie Browser-Lesezeichen, Laufwerkszuordnungen oder Desktop-Einstellungen kamen erst bei der nächsten Anmeldung oder Hintergrundaktualisierung an. Jetzt: Computerrichtlinie wie bisher, dazu für jeden angemeldeten Benutzer `gpupdate /target:user /force` in seiner eigenen Sitzung (kurze geplante Aufgabe, eingeschränkte Rechte, ohne Kennwort – wie Invoke-GPUpdate, ab Windows 10 1903 ohne sichtbares Fenster). Die Ausgabe zeigt Computer- und Benutzerrichtlinie je Benutzer getrennt, mit Fehlercode, falls etwas scheitert. Funktioniert auch im eingeschränkten Sprachmodus (Softwareeinschränkung/AppLocker)
+- **Selbsttest:** gpupdate je angemeldetem Benutzer, im eingeschränkten Sprachmodus durchgespielt
+
 ## pocketknife-2.38.3 (01.11.2026)
 - **Behoben – Auswahlkästchen in Listen:** Ein Klick auf das Kästchen einer Zeile (z. B. Computer abwählen, nachdem alle ausgewählt wurden) blieb teils wirkungslos. Ursache: Computer-Zeilen lassen sich auf Sammlungen ziehen – schon eine kleine Mausbewegung beim Klicken (Touchpad, Fernsitzung) startete ein Ziehen statt eines Klicks. Jetzt startet auf dem Kästchen kein Ziehen mehr, die ganze Kästchen-Zelle ist anklickbar, und wird außerhalb losgelassen, schaltet trotzdem nur das Kästchen um (statt nur diese Zeile auszuwählen). Zeilen ziehen geht weiter wie gewohnt über den Rest der Zeile
 - **Selbsttest:** Kästchen-Zelle startet kein Ziehen und schaltet zuverlässig um
