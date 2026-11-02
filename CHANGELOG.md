@@ -1,5 +1,9 @@
 # Änderungen
 
+## pocketknife-2.38.4-s1 (02.11.2026)
+- **Wöchentliches Sicherheitsupdate** (automatisch gebaut): Basis-Image, Debian- und Python-Pakete auf den neuesten Stand gebracht, ohne Cache neu gebaut, Selbsttest und Schwachstellen-Prüfung (Trivy) bestanden. Am Programm selbst hat sich nichts geändert (Programmstand 2.38.4)
+- Geändert (7): `anyio` 4.15.1 → 4.16.0, `Basis-Image` python:3.12.15-slim-trixie → python:3.12.16-slim-trixie, `opentelemetry-api` 1.45.1 → 1.45.2, `pydantic` 2.14.1 → 2.14.2, `pydantic_core` 2.50.1 → 2.50.2, `tzdata` 2026e-0+deb13u1 → 2026f-0+deb13u1, `websockets` 17.3 → 17.4
+
 ## pocketknife-2.38.4 (02.11.2026)
 - **Behoben – gpupdate /force aktualisierte die Benutzerrichtlinie nicht für die angemeldeten Benutzer:** Über WinRM lief gpupdate im Dienstkonto – „Benutzerrichtlinie aktualisiert“ galt nur für dieses Konto. Benutzereinstellungen wie Browser-Lesezeichen, Laufwerkszuordnungen oder Desktop-Einstellungen kamen erst bei der nächsten Anmeldung oder Hintergrundaktualisierung an. Jetzt: Computerrichtlinie wie bisher, dazu für jeden angemeldeten Benutzer `gpupdate /target:user /force` in seiner eigenen Sitzung (kurze geplante Aufgabe, eingeschränkte Rechte, ohne Kennwort – wie Invoke-GPUpdate, ab Windows 10 1903 ohne sichtbares Fenster). Die Ausgabe zeigt Computer- und Benutzerrichtlinie je Benutzer getrennt, mit Fehlercode, falls etwas scheitert. Funktioniert auch im eingeschränkten Sprachmodus (Softwareeinschränkung/AppLocker)
 - **Selbsttest:** gpupdate je angemeldetem Benutzer, im eingeschränkten Sprachmodus durchgespielt
