@@ -1,4 +1,4 @@
-/* POCKET KNIFE – keine externen Ressourcen, nur Systemschriften */
+/* POCKET KNIFE – no external resources, system fonts only */
 :root {
   --bg: #f3f4f6;
   --panel: #ffffff;
@@ -86,7 +86,7 @@ h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: v
 .content { flex: 1; overflow: auto; padding: 18px 20px 30px; min-height: 0; }
 .content.flush { padding: 0; display: flex; overflow: hidden; }
 
-/* Split view (Sammlungsbaum + Liste) */
+/* Split view (collection tree + list) */
 .tree { width: 250px; flex: none; background: var(--panel); border-right: 1px solid var(--line); overflow: auto; padding: 8px 0; }
 .tree .head { display: flex; align-items: center; justify-content: space-between; padding: 6px 12px 8px; }
 .tree-item { display: flex; align-items: center; gap: 6px; padding: 5px 12px; cursor: pointer; white-space: nowrap; user-select: none; }
@@ -127,12 +127,12 @@ label.chk { display: inline-flex; align-items: center; gap: 6px; cursor: pointer
 .right { text-align: right; }
 .center { text-align: center; }
 
-/* Karten */
+/* Cards */
 .grid { display: grid; gap: 14px; }
 .grid.tiles { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }
 .grid.two { grid-template-columns: repeat(auto-fit, minmax(440px, 1fr)); }
-/* 2.29.8: Inhalt darf eine Kachel nie über ihren Rand schieben (lange Paketnamen) – sonst wurde die Spalte breiter
-   als der Platz und Text lief über den Rahmen hinaus */
+/* 2.29.8: Content must never push a tile beyond its edge (long package names) – otherwise the column became wider
+   than the available space and text overflowed the border */
 .grid > * { min-width: 0; }
 .card > .card-b.flush { overflow-x: auto; }
 .card > .card-b.flush > table { width: 100%; }
@@ -157,7 +157,7 @@ label.chk { display: inline-flex; align-items: center; gap: 6px; cursor: pointer
 .bar .fill { height: 100%; background: var(--accent); border-radius: 3px; }
 .bar .n { text-align: right; color: var(--muted); grid-row: 1 / 3; grid-column: 2; }
 
-/* Tabellen */
+/* Tables */
 .tbl-wrap { display: flex; flex-direction: column; min-height: 0; }
 .tbl-tools { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line-2); flex-wrap: wrap; background: var(--panel); }
 .tbl-tools input[type=search] { width: 240px; }
@@ -241,7 +241,7 @@ pre.out { background: var(--nav); color: #d7dce5; padding: 12px; border-radius: 
 .login button { width: 100%; justify-content: center; margin-top: 20px; padding: 9px; }
 .login .err { color: var(--err); margin-top: 12px; min-height: 18px; }
 
-/* Bericht drucken */
+/* Print report */
 .print-only { display: none; }
 @media print {
   .nav, .topbar, .splitter, .tabs, .no-print, .tbl-tools, #toasts { display: none !important; }
@@ -269,7 +269,7 @@ pre.out { background: var(--nav); color: #d7dce5; padding: 12px; border-radius: 
 .card.guard { border-color: var(--err); background: var(--err-soft); }
 .card.guard p { margin: 8px 0 12px; }
 
-/* Computeransicht */
+/* Computer view */
 .pc-title { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .pc-title h1 { font-size: 18px; }
 .pc-icon { position: relative; width: 34px; height: 34px; border-radius: 7px; background: var(--panel-2); border: 1px solid var(--line); display: grid; place-items: center; color: var(--muted); flex: none; }
@@ -311,7 +311,7 @@ a.flabel { color: var(--info); text-decoration: underline; }
 .fval .badge { vertical-align: 1px; }
 @media (max-width: 900px) { .pc-nav { width: 64px; } .pc-nav .lbl, .pc-nav .cnt { display: none; } }
 
-/* Filter-Editor (dynamische Sammlungen) */
+/* Filter editor (dynamic collections) */
 .feditor { display: flex; flex-direction: column; gap: 8px; }
 .fgroup { border: 1px solid var(--line); border-left: 4px solid var(--info); border-radius: 6px; background: var(--panel); }
 .fgroup.m-any { border-left-color: var(--ok); }
@@ -342,7 +342,7 @@ a.flabel { color: var(--info); text-decoration: underline; }
 select.small-select { padding: 2px 4px; font-size: 12px; }
 .hint b { color: var(--warn); }
 
-/* Tools-Menü */
+/* Tools menu */
 .tmenu { position: fixed; z-index: 60; width: 350px; max-height: 70vh; display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); }
 .tmenu-head { display: flex; align-items: center; gap: 8px; padding: 8px; border-bottom: 1px solid var(--line); }
 .tmenu-head input { flex: 1; }
@@ -366,7 +366,7 @@ select.small-select { padding: 2px 4px; font-size: 12px; }
 .list-pick div { display: flex; align-items: center; gap: 8px; }
 .list-pick div svg { width: 16px; height: 16px; color: var(--muted); }
 
-/* Tools-Baum (kompakt) */
+/* Tools tree (compact) */
 .ttree { border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
 .trow { display: grid; grid-template-columns: minmax(240px, 1.4fr) 120px 150px minmax(0, 2fr); gap: 10px; align-items: center; padding: 3px 10px; border-bottom: 1px solid var(--line-2); cursor: pointer; }
 .trow:hover { background: var(--panel-2); }
@@ -385,7 +385,7 @@ kbd.hk { margin-left: 8px; padding: 0 5px; border: 1px solid var(--line); border
 .tsep { height: 2px; background: var(--line); }
 @media (max-width: 900px) { .trow { grid-template-columns: 1fr 100px; } .trow > :nth-child(3), .trow > :nth-child(4) { display: none; } }
 
-/* Auslöser-Leiste */
+/* Trigger bar */
 .trig-bar { display: flex; gap: 4px; flex-wrap: wrap; padding: 6px; margin-bottom: 10px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; }
 .trig-btn { flex-direction: column; gap: 2px; padding: 4px 8px; border-color: transparent; background: transparent; font-size: 11px; min-width: 64px; }
 .trig-btn:hover:not(:disabled) { background: var(--panel); border-color: var(--line); }
@@ -393,7 +393,7 @@ kbd.hk { margin-left: 8px; padding: 0 5px; border: 1px solid var(--line); border
 .trig-ic[data-t=once] { background: #ea8a00; } .trig-ic[data-t=interval] { background: #0e9f8e; } .trig-ic[data-t=scan_age] { background: #64748b; }
 .trig-ic[data-t=heartbeat] { background: #dc2626; }
 
-/* Kontextmenü */
+/* Context menu */
 .cmenu { position: fixed; z-index: 90; min-width: 230px; background: var(--panel); border: 1px solid var(--line); border-radius: 7px; box-shadow: var(--shadow); padding: 4px 0; font-size: 13px; }
 .cmenu.sub { position: absolute; left: 100%; top: -5px; }
 .cmenu-item { position: relative; display: flex; align-items: center; gap: 8px; padding: 5px 12px 5px 8px; cursor: pointer; white-space: nowrap; }
@@ -403,7 +403,7 @@ kbd.hk { margin-left: 8px; padding: 0 5px; border: 1px solid var(--line); border
 .cmenu-item .cm-l { flex: 1; }
 .cmenu-item .cm-k { color: var(--muted); font-size: 11px; margin-left: 16px; }
 .cmenu-sep { height: 1px; background: var(--line); margin: 4px 0; }
-/* Spaltenfilter */
+/* Column filter */
 th .thl { display: inline-flex; align-items: center; gap: 2px; }
 th .thf { display: inline-block; margin-left: 4px; padding: 0 3px; border-radius: 3px; opacity: 0; font-size: 10px; cursor: pointer; }
 th:hover .thf, th .thf.on { opacity: 1; }
@@ -441,7 +441,7 @@ td.sized.wrap { min-width: 0; }
 tbody tr.selected td { background: var(--sel); }
 .tbl-scroll:focus { outline: none; }
 
-/* 2.2: Sammlungsbaum mit Ziehen & Ablegen, Ausschneiden, AD-Sammlungen */
+/* 2.2: Collection tree with drag & drop, cut, AD collections */
 .tree-filter { padding: 0 10px 6px; }
 .tree-filter input { width: 100%; padding: 4px 8px; font-size: 12px; }
 .tree-body { outline: none; flex: 1; overflow: auto; padding-bottom: 12px; }
@@ -465,7 +465,7 @@ tr[draggable="true"] { cursor: default; }
 .form.one { grid-template-columns: 1fr; gap: 4px; } .form.one .hint { grid-column: 1; margin-top: 0; }
 @media (max-width: 700px) { .acct-row { grid-template-columns: 1fr; } }
 
-/* 2.3: Paket-Editor */
+/* 2.3: Package editor */
 .modal.xwide { max-width: 1240px; }
 .pkg-editor { display: grid; grid-template-columns: 330px 1fr; gap: 0; min-height: 520px; margin: -4px -4px 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
 .pkg-tree { background: var(--panel-2); border-right: 1px solid var(--line); overflow: auto; max-height: 68vh; padding: 6px 0; }
@@ -497,7 +497,7 @@ tr[draggable="true"] { cursor: default; }
 textarea.mono { font-family: var(--mono, ui-monospace, Consolas, monospace); font-size: 12px; width: 100%; }
 @media (max-width: 900px) { .pkg-editor { grid-template-columns: 1fr; } .pkg-tree { max-height: 240px; border-right: 0; border-bottom: 1px solid var(--line); } }
 
-/* Einstellungen: Bereichsliste links, Inhalt rechts; Formulare laufen nicht mehr über den Kartenrand */
+/* Settings: section list on the left, content on the right; forms no longer overflow the card edge */
 .form { grid-template-columns: 190px minmax(0, 1fr); }
 .form > * { min-width: 0; }
 .form .row { flex-wrap: wrap; }
@@ -529,19 +529,19 @@ textarea.mono { font-family: var(--mono, ui-monospace, Consolas, monospace); fon
 .lang-switch button { border: 0; border-radius: 0; background: transparent; padding: 2px 8px; font-size: 11px; min-width: 0; color: var(--muted); }
 .lang-switch button.on { background: var(--accent); color: #fff; }
 .theme-btn { padding: 1px 8px; min-width: 0; font-size: 13px; line-height: 1.4; }
-/* Trennbalken zwischen Sammlungsbaum/Berichtsliste und Inhalt */
+/* Divider between collection tree/report list and content */
 .splitter { flex: none; width: 6px; margin-left: -3px; margin-right: -3px; cursor: col-resize; position: relative; z-index: 3; }
 .splitter::after { content: ''; position: absolute; top: 0; bottom: 0; left: 2px; width: 2px; background: transparent; transition: background .15s; }
 .splitter:hover::after, .splitter.active::after { background: var(--accent); }
 body.col-resizing, body.col-resizing * { cursor: col-resize !important; user-select: none !important; }
-/* Schmale, unauffällige Bildlaufleisten (statt der breiten grauen Standardleiste) */
+/* Narrow, unobtrusive scrollbars (instead of the wide grey default bar) */
 * { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
-/* Spaltenköpfe: sichtbare Trennlinien und gut greifbarer Rand zum Ändern der Breite */
+/* Column headers: visible separator lines and an easy-to-grab edge for changing the width */
 th:not(:last-child) { background-image: linear-gradient(var(--muted), var(--muted)); background-size: 1px 55%; background-position: right center; background-repeat: no-repeat; }
 th.chk { background-image: none; }
 th:hover .th-rs { background: var(--accent); opacity: .25; }
 
-/* Hilfe */
+/* Help */
 .help-layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 22px; align-items: start; }
 .help-side { position: sticky; top: 0; display: flex; flex-direction: column; gap: 8px; max-height: calc(100vh - 120px); }
 .help-toc { display: flex; flex-direction: column; overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px; }
@@ -590,7 +590,7 @@ a.btn:hover { background: var(--panel-2); }
 .fs-table td { padding: 5px 8px; border-top: 1px solid var(--line); vertical-align: middle; }
 .fs-table tr:first-child td { border-top: 0; }
 
-/* Speicherplatz-Analyse – Farben: Kategorie-Palette (feste Reihenfolge), eigene Stufen für Hell/Dunkel */
+/* Disk space analysis – colours: category palette (fixed order), separate steps for light/dark */
 :root { --du-1: #2a78d6; --du-2: #eb6834; --du-3: #1baf7a; --du-4: #eda100; --du-5: #e87ba4; --du-6: #008300; --du-7: #6250d6; --du-8: #e34948;
   --du-other: #a7abb4; --du-file: #c9ccd3; }
 @media (prefers-color-scheme: dark) {
@@ -620,10 +620,10 @@ a.btn:hover { background: var(--panel-2); }
 .du-bar { width: 120px; height: 8px; background: var(--line-2); border-radius: 4px; overflow: hidden; flex: none; }
 .du-bar span { display: block; height: 100%; border-radius: 4px; }
 
-/* Dateimanager (Client-Dateien im Browser) */
+/* File manager (client files in the browser) */
 .fm-crumbs { display: flex; flex-wrap: wrap; gap: 2px; align-items: center; padding: 6px 2px; font-size: 14px; }
 .fm-crumbs a { color: var(--accent); }
-/* Dateien/Ereignisanzeige: Fenster füllt die Seite, nur die Liste scrollt */
+/* Files/event viewer: window fills the page, only the list scrolls */
 .fx-page { height: 100%; display: flex; flex-direction: column; min-height: 0; }
 .fx-card { flex: 1; min-height: 320px; display: flex; flex-direction: column; padding: 12px 14px; overflow: hidden; }
 .fx-list { flex: 1; min-height: 0; display: flex; flex-direction: column; margin-top: 6px; }
@@ -634,7 +634,7 @@ a.btn:hover { background: var(--panel-2); }
 .fm-drive:hover { border-color: var(--accent); }
 .fm-drive .ic svg { width: 20px; height: 20px; }
 
-/* E-Mail: Berichtsversand und Benachrichtigungen */
+/* E-mail: report delivery and notifications */
 .tree-sep { height: 1px; background: var(--line); margin: 4px 12px; }
 .alert-list { display: flex; flex-direction: column; gap: 6px; }
 .alert-item { border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; background: var(--panel); }
@@ -645,12 +645,12 @@ a.btn:hover { background: var(--panel-2); }
 .mail-rep-h svg { width: 15px; height: 15px; color: var(--muted); flex: none; }
 .mail-rep-p { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 8px; padding-left: 23px; }
 .mail-frame { width: 100%; height: 60vh; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
-/* Eigene Berichte */
+/* Custom reports */
 .tree-cap { padding: 8px 12px 2px; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
 .cr-col { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; margin-bottom: 5px; background: var(--panel); flex-wrap: wrap; }
 .cr-col b { min-width: 160px; }
 .cr-col input { width: 200px; }
-/* Eingabe mit Auswahlliste (zeigt immer alle Einträge) */
+/* Input with selection list (always shows all entries) */
 .combo { position: relative; display: inline-flex; align-items: center; min-width: 0; }
 .combo > input { width: 100%; padding-right: 26px; }
 .combo-btn { position: absolute; right: 2px; top: 50%; transform: translateY(-50%); border: 0; background: transparent; color: var(--muted); padding: 2px 6px; font-size: 11px; cursor: pointer; min-width: 0; }
@@ -662,14 +662,14 @@ a.btn:hover { background: var(--panel-2); }
 .fval-in .combo { width: 100%; }
 .fcond .combo { width: 100%; }
 
-/* Kiosk-Verwaltung: Symbole */
+/* Kiosk administration: icons */
 .kiosk-ic { width: 48px; height: 48px; border-radius: 10px; background: var(--accent-soft); color: var(--accent); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 18px; flex: none; overflow: hidden; }
 .kiosk-ic img { width: 48px; height: 48px; object-fit: contain; }
 .kiosk-ic:has(img) { background: transparent; }
 .kiosk-ic-s { width: 20px; height: 20px; border-radius: 4px; object-fit: contain; flex: none; display: inline-block; background: var(--line-2); }
 img.kiosk-ic-s { background: transparent; }
 
-/* AD-Baumauswahl */
+/* AD tree selection */
 .adtree { max-height: 56vh; overflow: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); padding: 4px 0; }
 .adtree-row { display: flex; align-items: center; gap: 6px; padding: 4px 8px; cursor: pointer; white-space: nowrap; user-select: none; }
 .adtree-row:hover { background: var(--panel-2); }
@@ -678,7 +678,7 @@ img.kiosk-ic-s { background: transparent; }
 .adtw { width: 12px; flex: none; color: var(--muted); font-size: 11px; text-align: center; }
 .adtree-d { overflow: hidden; text-overflow: ellipsis; margin-left: 4px; }
 
-/* Sammlungsauswahl als Baum (Zeitpläne, Scanprofile) */
+/* Collection selection as a tree (schedules, scan profiles) */
 .coll-tree { max-height: 360px; }
 .coll-tree .twisty { display: inline-block; width: 14px; text-align: center; color: var(--muted); cursor: pointer; flex: none; }
 .coll-folder { display: flex; align-items: center; gap: 6px; padding: 4px 10px; border-bottom: 1px solid var(--line-2); cursor: pointer; user-select: none; }
@@ -686,7 +686,7 @@ img.kiosk-ic-s { background: transparent; }
 .coll-folder svg { width: 15px; height: 15px; color: var(--muted); flex: none; }
 .coll-tree .badge { margin-left: 6px; }
 
-/* 2.27 Repository-Ansicht: Upload-Liste, Ablegen */
+/* 2.27 Repository view: upload list, drop */
 .fx-list.dropto > .tbl-wrap { box-shadow: inset 0 0 0 2px var(--accent); }
 tr.dropto td { background: var(--sel); box-shadow: inset 0 2px 0 var(--accent), inset 0 -2px 0 var(--accent); }
 .fm-crumbs a.dropto { outline: 2px solid var(--accent); border-radius: 4px; }
@@ -704,7 +704,7 @@ tr.dropto td { background: var(--sel); box-shadow: inset 0 2px 0 var(--accent), 
 .alert.err { background: var(--err-soft); border: 1px solid var(--err); border-radius: 6px; padding: 8px 12px; margin-bottom: 8px; }
 .alert.err ul { margin: 4px 0 0 18px; padding: 0; }
 
-/* 2.28 Neuigkeiten: dezent unter der Version in der Seitenleiste */
+/* 2.28 News: unobtrusive below the version in the sidebar */
 #news-pill { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 .news-pill, .news-link { font-size: 11px; color: var(--nav-text); text-decoration: none; border: 1px solid var(--nav-2); border-radius: 999px; padding: 1px 8px; display: inline-flex; align-items: center; gap: 5px; }
 .news-link { border-color: transparent; padding-left: 0; opacity: .7; }
@@ -721,7 +721,7 @@ tr.dropto td { background: var(--sel); box-shadow: inset 0 2px 0 var(--accent), 
 .news-up.sec { border-color: var(--err); background: var(--err-soft); }
 .news-block + .news-block { border-top: 1px solid var(--line-2); padding-top: 6px; }
 
-/* 2.30: nur lesbare Dialoge (Zeitplan des Hauptadmins für OU-Admins) */
+/* 2.30: read-only dialogs (main admin's schedule for OU admins) */
 fieldset.ro { border: 0; padding: 0; margin: 0; min-width: 0; }
 fieldset.ro input, fieldset.ro select, fieldset.ro textarea, fieldset.ro button { cursor: default; }
 .note.info { padding: 8px 12px; border-radius: 6px; background: var(--info-soft); border: 1px solid var(--info); font-size: 13px; }

@@ -1,5 +1,5 @@
-/* POCKET KNIFE – Software-Kiosk für Nutzer (ohne externe Bibliotheken).
-   Nutzer sehen nur die freigegebene Software und nur den Computer, an dem sie gerade angemeldet sind. */
+/* POCKET KNIFE – software kiosk for users (no external libraries).
+   Users only see the released software and only the computer they are currently logged in on. */
 'use strict';
 
 const $ = (s, r = document) => r.querySelector(s);
@@ -20,7 +20,7 @@ function h(tag, attrs, ...kids) {
       else el.setAttribute(k, v === true ? '' : v);
     }
   }
-  // Daten (Software-Namen, Beschreibungen, Computer) nie übersetzen: Klasse .raw
+  // Never translate data (software names, descriptions, computers): class .raw
   const raw = el.classList.contains('raw');
   for (const k of kids.flat(Infinity)) {
     if (k === null || k === undefined || k === false || k === '') continue;
@@ -39,14 +39,14 @@ function fmtDate(s) {
   return m ? `${m[3]}.${m[2]}.${m[1]} ${m[4]}:${m[5]}` : (s || '');
 }
 function setTheme(v) {
-  try { if (v) localStorage.setItem('pk-theme', v); else localStorage.removeItem('pk-theme'); } catch (e) { /* egal */ }
+  try { if (v) localStorage.setItem('pk-theme', v); else localStorage.removeItem('pk-theme'); } catch (e) { /* ignore */ }
   if (v) document.documentElement.setAttribute('data-theme', v); else document.documentElement.removeAttribute('data-theme');
 }
 function themeDark() {
   const v = document.documentElement.getAttribute('data-theme');
   return v ? v === 'dark' : !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
 }
-try { setTheme(localStorage.getItem('pk-theme') || ''); } catch (e) { /* egal */ }
+try { setTheme(localStorage.getItem('pk-theme') || ''); } catch (e) { /* ignore */ }
 
 const S = { me: null, cid: null, cat: 'Alle', q: '', data: null, reqs: [], timer: null, busy: false };
 
@@ -59,7 +59,7 @@ async function api(path, opt = {}) {
   const data = ct.includes('json') ? await r.json() : await r.text();
   if (r.status === 401 && !path.startsWith('/api/login')) {
     const was = S.me; S.me = null;
-    if (was) ssoOff(); // nach Abmeldung wegen Inaktivität nicht sofort wieder automatisch anmelden
+    if (was) ssoOff(); // do not automatically sign in again right after a logout due to inactivity
     if (was) renderLogin(data && typeof data.detail === 'string' && data.detail !== 'Nicht angemeldet' ? data.detail : '');
     throw new Error(tr('Bitte neu anmelden.'));
   }
@@ -83,9 +83,9 @@ function modal(title, body, buttons) {
   });
 }
 
-// --- Anmeldung mit Windows (Kerberos) ------------------------------------------------------------
-// Automatisch nur einmal je Browser-Tab; nach „Abmelden“, Inaktivität oder einem Fehler erst wieder per Knopf.
-function ssoOff() { try { sessionStorage.setItem('pk-sso', 'off'); } catch (e) { /* egal */ } }
+// --- Sign-in with Windows (Kerberos) ------------------------------------------------------------
+// Automatically only once per browser tab; after "Abmelden", inactivity or an error only again via the button.
+function ssoOff() { try { sessionStorage.setItem('pk-sso', 'off'); } catch (e) { /* ignore */ } }
 function ssoAuto() { try { return sessionStorage.getItem('pk-sso') !== 'off'; } catch (e) { return true; } }
 function ssoHostOk(info) {
   const hs = info.sso_hosts || [];
@@ -96,11 +96,11 @@ function ssoUrl(info) {
   return host ? `${location.protocol}//${host}${location.port ? `:${location.port}` : ''}/kiosk` : '';
 }
 async function trySSO() {
-  // Der Browser beantwortet die 401-Antwort („WWW-Authenticate: Negotiate“) selbst mit seinem Kerberos-Ticket
+  // The browser answers the 401 response ("WWW-Authenticate: Negotiate") itself with its Kerberos ticket
   let r;
   try { r = await fetch('/api/kiosk/sso', { method: 'POST', credentials: 'same-origin', headers: { 'X-PK-Request': '1' } }); } catch (e) { return tr('Server nicht erreichbar.'); }
   if (r.ok) return '';
-  let d = {}; try { d = await r.json(); } catch (e) { /* egal */ }
+  let d = {}; try { d = await r.json(); } catch (e) { /* ignore */ }
   if (r.status === 401) return tr('Die Anmeldung mit Windows hat nicht geklappt: Der Browser hat kein Kerberos-Ticket geschickt. Bitte mit Benutzername und Passwort anmelden – oder die IT bitten, den Browser für den Kiosk freizugeben.');
   return d.detail || fmt('Fehler {0}', r.status);
 }
@@ -115,11 +115,11 @@ async function ssoLogin(info, box) {
   return false;
 }
 
-// --- Anmeldung ---------------------------------------------------------------------------------
+// --- Sign-in ---------------------------------------------------------------------------------
 async function renderLogin(msg = '', known = null) {
   stopTimer();
   let info = known || { enabled: true, title: 'Software-Kiosk' };
-  if (!known) { try { info = await GET('/api/kiosk/info'); } catch (e) { /* egal */ } }
+  if (!known) { try { info = await GET('/api/kiosk/info'); } catch (e) { /* ignore */ } }
   document.title = `${tr(info.title)} – POCKET KNIFE`;
   const user = h('input', { autocomplete: 'username', required: true, placeholder: 'benutzer oder DOMÄNE\\benutzer' });
   const pass = h('input', { type: 'password', autocomplete: 'current-password', required: true });
@@ -150,8 +150,8 @@ async function renderLogin(msg = '', known = null) {
     body,
     h('div', { style: { display: 'flex', justifyContent: 'flex-end', gap: '6px', marginTop: '14px' } }, langSwitch()))));
   if (info.enabled && info.sso && ssoHostOk(info) && ssoAuto() && !msg) {
-    ssoOff(); // nur ein automatischer Versuch je Tab – scheitert er, bleibt das Formular
-    if (await ssoLogin(info, body)) { try { sessionStorage.removeItem('pk-sso'); } catch (e) { /* egal */ } }
+    ssoOff(); // only one automatic attempt per tab – if it fails, the form stays
+    if (await ssoLogin(info, body)) { try { sessionStorage.removeItem('pk-sso'); } catch (e) { /* ignore */ } }
     return;
   }
   if (info.enabled) setTimeout(() => user.focus(), 30);
@@ -162,12 +162,12 @@ function langSwitch() {
     onclick: () => { if (lang !== k && window.setLang) window.setLang(k); } }, l)));
 }
 async function logout() {
-  ssoOff(); // nach dem Abmelden nicht gleich wieder automatisch mit Windows anmelden
-  try { await POST('/api/logout'); } catch (e) { /* egal */ }
+  ssoOff(); // after logging out do not immediately sign in with Windows automatically again
+  try { await POST('/api/logout'); } catch (e) { /* ignore */ }
   S.me = null; renderLogin();
 }
 
-// --- Hauptseite -------------------------------------------------------------------------------
+// --- Main page -------------------------------------------------------------------------------
 async function start() {
   S.me = await GET('/api/kiosk/me');
   IDLE.last = Date.now(); IDLE.sent = Date.now();
@@ -215,7 +215,7 @@ function mine(r) { return !!(r && S.me && String(r.username || '').toLowerCase()
 function card(it) {
   const r = it.request;
   const st = [];
-  // „installiert“ kommt vom Server: Ergebnis der letzten Anfrage, solange es neuer ist als der letzte Scan, sonst das Inventar
+  // "installiert" comes from the server: result of the last request as long as it is newer than the last scan, otherwise the inventory
   if (r && r.open) st.push(h('span.k-dot', { class: ST_DOT[r.status] || '' }), h('span', r.action === 'uninstall' ? fmt('Deinstallation: {0}', tr(r.text)) : tr(r.text)));
   else if (it.installed) st.push(h('span.k-dot.ok'), h('span', it.installed_version ? fmt('Installiert ({0})', it.installed_version) : 'Installiert'));
   else if (r && ['failed', 'failed_start'].includes(r.status)) st.push(h('span.k-dot.err'), h('span', { title: r.message }, 'Letzter Versuch fehlgeschlagen'));
@@ -223,7 +223,7 @@ function card(it) {
   else if (it.approval) st.push(h('span.muted', 'Installation nach Freigabe durch die IT'));
   const act = [];
   if (r && r.open) {
-    // Zurückziehen nur bei eigenen Anfragen (an gemeinsam genutzten PCs sieht man auch die anderer)
+    // Withdraw only for own requests (on shared PCs the requests of others are visible too)
     if (r.status === 'pending' && mine(r)) act.push(h('button', { type: 'button', onclick: () => withdraw(r) }, 'Anfrage zurückziehen'));
   } else if (it.installed) {
     if (it.can_uninstall) act.push(h('button', { type: 'button', onclick: () => order(it, 'uninstall') }, 'Deinstallieren'));
@@ -299,7 +299,7 @@ async function order(it, action) {
   const ok = await modal(action === 'uninstall' ? 'Deinstallieren' : (it.approval ? 'Anfordern' : 'Installieren'), h('p', { style: { margin: 0 } }, txt),
     [['Abbrechen', null], [action === 'uninstall' ? 'Deinstallieren' : (it.approval ? 'Anfordern' : 'Installieren'), true, 'primary']]);
   if (!ok || S.busy) return;
-  S.busy = true; // kein zweiter Auftrag, solange der erste noch gesendet wird
+  S.busy = true; // no second job while the first is still being sent
   try {
     const r = await POST('/api/kiosk/request', { computer_id: S.cid, package_id: it.package_id, action });
     toast(r.status === 'pending' ? tr('Angefragt – Sie sehen hier, sobald die IT freigibt.') : tr('Gestartet – das kann einige Minuten dauern.'), 'ok');
@@ -318,7 +318,7 @@ async function reboot(when) {
   refresh();
 }
 
-// --- Abmeldung bei Inaktivität (wie in der Verwaltung) ------------------------------------------
+// --- Logout on inactivity (as in the administration) ------------------------------------------
 const IDLE = { last: Date.now(), sent: 0, warn: null, checking: false };
 function idleActivity() {
   IDLE.last = Date.now();
@@ -337,7 +337,7 @@ setInterval(async () => {
       const txt = fmt('Abmeldung wegen Inaktivität in {0} s – zum Weiterarbeiten klicken oder eine Taste drücken.', Math.max(0, Math.round(r.remaining)));
       if (!IDLE.warn) { IDLE.warn = h('div.toast.warn', { style: { position: 'fixed', right: '16px', bottom: '16px', zIndex: 9999, maxWidth: '420px' } }, txt); document.body.appendChild(IDLE.warn); } else IDLE.warn.textContent = txt;
     }
-  } catch (e) { /* abgemeldet */ } finally { IDLE.checking = false; }
+  } catch (e) { /* signed out */ } finally { IDLE.checking = false; }
 }, 15000);
 
 (async function init() {

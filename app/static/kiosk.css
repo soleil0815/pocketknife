@@ -1,4 +1,4 @@
-/* Software-Kiosk für Nutzer – baut auf app.css (Farben, Knöpfe, Eingabefelder) auf */
+/* Software kiosk for users – builds on app.css (colours, buttons, input fields) */
 body.kiosk { background: var(--bg); overflow: auto; }
 .k-top { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 14px; padding: 12px 24px; background: var(--nav); color: var(--nav-text); }
 .k-top img { width: 32px; height: 32px; }
