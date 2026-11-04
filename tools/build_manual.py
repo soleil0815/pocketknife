@@ -1,7 +1,7 @@
-"""Erzeugt die Handbücher als PDF aus app/static/help/de.md und en.md.
+"""Builds the manuals as PDF from app/static/help/de.md and en.md.
 
-Voraussetzungen (nur auf dem Rechner, der die PDFs baut – nicht im Container): pandoc und Python-Playwright mit Chromium.
-Aufruf: python3 tools/build_manual.py
+Requirements (only on the machine that builds the PDFs - not in the container): pandoc and Python Playwright with Chromium.
+Usage: python3 tools/build_manual.py
 """
 import base64
 import datetime

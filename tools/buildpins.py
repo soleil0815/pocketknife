@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""POCKET KNIFE – genaue Versionen, die selbst gebaute Pakete für ihre Bauwerkzeuge verlangen (für tools/pin-versions.sh).
+"""POCKET KNIFE – exact versions that self-built packages require for their build tools (for tools/pin-versions.sh).
 
-gssapi und krb5 werden aus dem Quellpaket gebaut. Ihre pyproject.toml verlangt Cython mit GENAUER Version
-(z. B. „Cython == 3.3.0“). build-requirements.txt gilt per PIP_CONSTRAINT auch in deren isolierter Bauumgebung – steht
-dort eine andere Version (z. B. das neuere Cython 3.3.1, das pip oben im Bau-Image installiert hat), kann pip die
-Bauumgebung nicht anlegen und der Bau scheitert (wöchentliches Update am 02.11.2026).
+gssapi and krb5 are built from the source package. Their pyproject.toml requires Cython with an EXACT version
+(e.g. "Cython == 3.3.0"). build-requirements.txt also applies in their isolated build environment via PIP_CONSTRAINT - if
+it names a different version there (e.g. the newer Cython 3.3.1 that pip installed in the build image above), pip cannot
+create the build environment and the build fails (weekly update on 2026-11-02).
 
-  python3 tools/buildpins.py gssapi==1.12.0 krb5==0.10.0   → je Zeile „name==version“ der genau verlangten Bauwerkzeuge
+  python3 tools/buildpins.py gssapi==1.12.0 krb5==0.10.0   → one line "name==version" per exactly required build tool
 
-Liest die Quellpakete von PyPI. Verlangen zwei Pakete dasselbe Werkzeug in verschiedenen genauen Versionen, endet das
-Skript mit Fehler (Exitcode 1) – das lässt sich nicht gemeinsam bauen.
+Reads the source packages from PyPI. If two packages require the same tool in different exact versions, the script
+ends with an error (exit code 1) - they cannot be built together.
 """
 import io
 import json
@@ -26,7 +26,7 @@ def norm(name):
 
 
 def requires_from_pyproject(text):
-    """Einträge aus [build-system] requires (ohne TOML-Bibliothek: nur diese eine Liste)."""
+    """Entries of [build-system] requires (without a TOML library: only this one list)."""
     m = re.search(r"^\[build-system\]\s*$(.*?)(?=^\[|\Z)", text, re.M | re.S)
     if not m:
         return []
@@ -68,7 +68,7 @@ def collect(specs, fetch=sdist_pyproject):
         name, _, version = spec.partition("==")
         for key, (tool, ver) in exact_pins(requires_from_pyproject(fetch(name, version))).items():
             if key in pins and pins[key][1] != ver:
-                raise SystemExit(f"{tool}: {src[key]} verlangt {pins[key][1]}, {spec} verlangt {ver} – nicht gemeinsam baubar")
+                raise SystemExit(f"{tool}: {src[key]} requires {pins[key][1]}, {spec} requires {ver} – cannot be built together")
             pins[key], src[key] = (tool, ver), spec
     return pins
 

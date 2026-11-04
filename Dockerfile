@@ -57,11 +57,11 @@ RUN set -e; \
     pip check; \
     python -m pip uninstall -y -q pip; \
     rm -rf /tmp/wheels /tmp/pk /usr/local/lib/python3*/ensurepip/_bundled
-# pip wird zur Laufzeit nicht gebraucht – entfernt, damit keine veraltete Komponente im Image bleibt (2.29.4)
+# pip is not needed at runtime - removed so no outdated component stays in the image (2.29.4)
 
 # Temporary files in the data directory (the root file system is read-only in operation, /tmp is small)
-# HOME: für root (Healthcheck, docker exec) ein Ort, an dem niemand etwas ablegen kann – sonst könnte der App-Benutzer
-# über $HOME/.local (usercustomize.py, *.pth) Code als root unterschieben; der Dienst selbst setzt HOME=/tmp
+# HOME: for root (healthcheck, docker exec) a place where nobody can put anything - otherwise the app user could slip
+# code in as root via $HOME/.local (usercustomize.py, *.pth); the service itself sets HOME=/tmp
 ENV TMPDIR=/data/tmp \
     HOME=/nonexistent
 
@@ -77,7 +77,7 @@ EXPOSE 8443
 
 # Starts as root only to hand /data over to the user "pocketknife" (UID 10001) once; run.py drops the
 # privileges immediately – the web server and all access run without root (see app/privileges.py).
-# 2.36.2: Sicherung „vor-<Version>“ und Datenbank-Migration laufen vor dem Start der Weboberfläche – bis zu 15 Minuten
-# zählen Fehlschläge nicht (sonst „unhealthy“ nach ~3 Minuten und update.sh startete die alte Version mitten in der Migration)
+# 2.36.2: the backup "vor-<version>" and the database migration run before the web interface starts - for up to 15 minutes
+# failures do not count (otherwise "unhealthy" after ~3 minutes and update.sh restarted the old version in the middle of the migration)
 HEALTHCHECK --interval=60s --timeout=10s --start-period=15m --start-interval=10s CMD ["python", "-I", "/opt/pocketknife/healthcheck.py"]
 CMD ["python", "run.py"]

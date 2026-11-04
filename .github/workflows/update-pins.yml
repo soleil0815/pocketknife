@@ -1,10 +1,10 @@
-# POCKET KNIFE – Versionen aktualisieren: Basis-Image, Debian-Pakete (Snapshot), Python-Pakete und guacd neu ermitteln
-# und festlegen (tools/pin-versions.sh --update), komplett neu bauen, Selbsttest und Trivy – das Ergebnis kommt als
-# eigener Zweig mit Pull Request (nichts landet ungeprüft auf main, nichts wird veröffentlicht).
-# Auslösen: Actions → Versionen aktualisieren → Run workflow (z. B. wenn Trivy Schwachstellen meldet).
-# Für den Pull Request muss unter Settings → Actions → General „Allow GitHub Actions to create and approve pull
-# requests“ eingeschaltet sein – sonst wird nur der Zweig angelegt (Link im Lauf).
-name: Versionen aktualisieren
+# POCKET KNIFE – update versions: determine and pin anew the base image, Debian packages (snapshot), Python packages and
+# guacd (tools/pin-versions.sh --update), rebuild completely, self-test and Trivy - the result arrives as its own
+# branch with a pull request (nothing lands on main unchecked, nothing is published).
+# Trigger: Actions → Update versions → Run workflow (e.g. when Trivy reports vulnerabilities).
+# For the pull request, "Allow GitHub Actions to create and approve pull requests" must be enabled under
+# Settings → Actions → General - otherwise only the branch is created (link in the run).
+name: Update versions
 
 on:
   workflow_dispatch:
@@ -20,29 +20,29 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     permissions:
-      contents: write        # Zweig anlegen
-      pull-requests: write   # Pull Request öffnen
+      contents: write        # create the branch
+      pull-requests: write   # open the pull request
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
-          persist-credentials: false   # keine Git-Anmeldedaten im Arbeitsordner – nur beim Speichern
+          persist-credentials: false   # no Git credentials in the working folder - only when saving
 
-      - name: Versionen neu ermitteln, festlegen und prüfen (Bau ohne Cache + Selbsttest)
+      - name: Determine, pin and check versions anew (build without cache + self-test)
         run: |
-          # Fehler direkt am Lauf zeigen (Annotation) – die Protokolle sind sonst nur in der Weboberfläche lesbar
+          # Show errors directly on the run (annotation) - the logs are otherwise only readable in the web interface
           if ! sh tools/pin-versions.sh --update > pin.log 2>&1; then
             tail -n 150 pin.log
-            # kurz halten (Annotationen werden nach ~4 KB abgeschnitten): Fehlerzeilen und das Ende, je Zeile gekürzt
+            # keep it short (annotations are cut off after ~4 KB): error lines and the end, each line shortened
             { grep -nE 'ERROR|Error|error:|Traceback|✗|failed|FAILED|not found|No such|conflict' pin.log | tail -n 15; echo ...; tail -n 12 pin.log; } \
               | cut -c1-220 > pin.err
             msg=$(sed -e ':a' -e 'N' -e '$!ba' -e 's/%/%25/g' -e 's/\r/%0D/g' -e 's/\n/%0A/g' pin.err)
-            echo "::error title=Versionen aktualisieren::${msg:-fehlgeschlagen (siehe Log)}"
+            echo "::error title=Update versions::${msg:-failed (see log)}"
             exit 1
           fi
           tail -n 40 pin.log
 
-      - name: Schwachstellen prüfen (Trivy)
+      - name: Check vulnerabilities (Trivy)
         id: trivy
         env:
           PK_TRIVY_REPORT: trivy.md
@@ -50,28 +50,28 @@ jobs:
           rc=0; sh tools/trivy-scan.sh pocketknife:local || rc=$?
           if [ -f trivy.md ]; then cat trivy.md >> "$GITHUB_STEP_SUMMARY"; fi
           echo "rc=$rc" >> "$GITHUB_OUTPUT"
-          [ "$rc" -le 1 ]   # Befund (1) blockiert den Pull Request nicht – er zeigt, was noch offen ist
+          [ "$rc" -le 1 ]   # a finding (1) does not block the pull request - it shows what is still open
 
-      - name: Zweig und Pull Request
+      - name: Branch and pull request
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if git diff --quiet; then echo "Alles ist schon aktuell – nichts zu tun." >> "$GITHUB_STEP_SUMMARY"; exit 0; fi
+          if git diff --quiet; then echo "Everything is already up to date – nothing to do." >> "$GITHUB_STEP_SUMMARY"; exit 0; fi
           BR="versionen-$(date -u +%Y%m%d-%H%M)"
           git switch -c "$BR"
           git add -A Dockerfile requirements.lock requirements.caps build-requirements.txt docker/apt-build.txt docker/apt-runtime.txt docker/guacd.txt
           git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
-            commit -qm "Versionen aktualisiert (tools/pin-versions.sh --update)"
+            commit -qm "Versions updated (tools/pin-versions.sh --update)"
           git push -q "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$BR"
           {
-            echo "Versionen neu festgelegt mit \`tools/pin-versions.sh --update\`: Bau ohne Cache und Selbsttest erfolgreich."
+            echo "Versions pinned anew with \`tools/pin-versions.sh --update\`: build without cache and self-test succeeded."
             echo
-            if [ "${{ steps.trivy.outputs.rc }}" = 0 ]; then echo "**Trivy:** keine Schwachstellen (HOCH/KRITISCH mit verfügbarer Korrektur)."
-            else echo "**Trivy:** es sind noch Schwachstellen offen (siehe unten) – Korrektur evtl. noch nicht in Debian/PyPI."; fi
+            if [ "${{ steps.trivy.outputs.rc }}" = 0 ]; then echo "**Trivy:** no vulnerabilities (HIGH/CRITICAL with an available fix)."
+            else echo "**Trivy:** vulnerabilities are still open (see below) – the fix may not be in Debian/PyPI yet."; fi
             echo
             [ -f trivy.md ] && cat trivy.md
             echo
-            echo "Nach dem Zusammenführen: VERSION erhöhen, CHANGELOG und app/news.json ergänzen, Release starten."
+            echo "After merging: raise VERSION, update CHANGELOG and app/news.json, start the release."
           } > pr.md
-          gh pr create --base "${GITHUB_REF_NAME}" --head "$BR" --title "Versionen aktualisieren ($(date -u +%Y-%m-%d))" --body-file pr.md \
-            || echo "::warning::Pull Request nicht angelegt (Einstellung „Allow GitHub Actions to create … pull requests“?). Zweig: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/tree/$BR"
+          gh pr create --base "${GITHUB_REF_NAME}" --head "$BR" --title "Update versions ($(date -u +%Y-%m-%d))" --body-file pr.md \
+            || echo "::warning::Pull request not created (setting \"Allow GitHub Actions to create … pull requests\"?). Branch: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/tree/$BR"

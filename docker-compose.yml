@@ -67,8 +67,8 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
-    # 2.37: Dateisystem nur lesbar; beschreibbar nur /tmp (Laufwerk für den Dateitransfer der Fernsitzung) und das
-    # Benutzerverzeichnis von guacd (FreeRDP legt dort Einstellungen ab) – beides im Speicher
+    # 2.37: file system read-only; writable only /tmp (drive for the file transfer of the remote session) and the
+    # home directory of guacd (FreeRDP stores settings there) - both in memory
     read_only: true
     tmpfs:
       - /tmp

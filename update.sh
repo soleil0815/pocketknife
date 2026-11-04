@@ -97,9 +97,9 @@ resolve() {
   esac
 }
 # Compare versions: 0 if $1 < $2
-ver_lt() {  # „2.29.6-s3“ = Sicherheitsupdate von 2.29.6 (höher als 2.29.6, niedriger als 2.29.7)
+ver_lt() {  # "2.29.6-s3" = security update of 2.29.6 (higher than 2.29.6, lower than 2.29.7)
   [ "$1" = "$2" ] && return 1
-  # vier Stellen (2.29.6.1 ist erlaubt) und das „-sN“ als fünftes Feld
+  # four positions (2.29.6.1 is allowed) and the "-sN" as fifth field
   a=$(printf '%s' "$1" | awk -F'-s' '{n=split($1,p,"."); while(n<4){n++; p[n]=0}; printf "%s.%s.%s.%s.%s", p[1],p[2],p[3],p[4],($2==""?0:$2+1)}')
   b=$(printf '%s' "$2" | awk -F'-s' '{n=split($1,p,"."); while(n<4){n++; p[n]=0}; printf "%s.%s.%s.%s.%s", p[1],p[2],p[3],p[4],($2==""?0:$2+1)}')
   [ "$a" = "$b" ] && return 1

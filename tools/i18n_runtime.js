@@ -1,6 +1,6 @@
-/* POCKET KNIFE – Sprachumschaltung Deutsch/Englisch (ohne externe Bibliotheken).
-   Die Oberfläche ist auf Deutsch geschrieben; bei Englisch werden alle angezeigten Texte über das
-   Wörterbuch PK_I18N_EN übersetzt (feste Texte und Vorlagen mit Platzhaltern {0}, {1} …). */
+/* POCKET KNIFE – language switch German/English (no external libraries).
+   The UI is written in German; for English all displayed texts are translated via the
+   dictionary PK_I18N_EN (fixed texts and templates with placeholders {0}, {1} ...). */
 (function () {
   'use strict';
   const LS = 'pk-lang';
@@ -20,7 +20,7 @@
     const L = 'A-Za-zÄÖÜäöüß';
     for (let i = 0; i < parts.length; i++) {
       if (i % 2) {
-        // Platzhalter direkt an einem Wort: nur ganze Wörter einsetzen (sonst trifft „{0} Computer{1}“ auf „Computerübersicht“)
+        // Placeholder directly attached to a word: only substitute whole words (otherwise "{0} Computer{1}" would match "Computerübersicht")
         const before = /[A-Za-zÄÖÜäöüß]$/.test(parts[i - 1] || '') ? `(?![${L}])` : '';
         const after = /^[A-Za-zÄÖÜäöüß]/.test(parts[i + 1] || '') ? `(?<![${L}])` : '';
         re += `(${before}[\\s\\S]+?${after})`; order.push(Number(parts[i]));
@@ -52,13 +52,13 @@
       if (m) return fill(t, m);
     }
     if (depth > 2) return null;
-    // Mehrzeilige Texte (Ausgaben, Vorschau) zeilenweise
+    // Multi-line texts (outputs, preview) line by line
     if (s.includes('\n') && s.length < 60000) {
       let changed = false;
       const out = s.split('\n').map((l) => { const t = tr(l); if (t !== l) changed = true; return t; }).join('\n');
       return changed ? out : null;
     }
-    // Zusammengesetzte Texte: „A · B“ oder Vorlage + Rest
+    // Composite texts: "A · B" or template + remainder
     if (s.includes(' · ')) return s.split(' · ').map((x) => tr(x)).join(' · ');
     const pm = /^([^:]{3,60}:)(\s+)([\s\S]+)$/.exec(s);
     if (pm && has(pm[1])) return exact[pm[1]] + pm[2] + tr(pm[3]);
@@ -71,7 +71,7 @@
         return fill(t, m) + (r === null ? rest : r);
       }
     }
-    // Zahlen + Text: „91 Einträge“, „3 von 10 Computer“
+    // Numbers + text: "91 Einträge", "3 von 10 Computer"
     if (/\d/.test(s) && s.length < 160) {
       let changed = false;
       const out = s.split(/(\d[\d.,:]*)/).map((part) => {
@@ -97,12 +97,12 @@
     cache.set(s, out);
     return out;
   }
-  // Texte, die per textContent gesetzt werden, nachträglich übersetzen (h() übersetzt direkt)
+  // Translate texts set via textContent afterwards (h() translates directly)
   if (lang === 'en' && typeof MutationObserver !== 'undefined') {
     const SKIP = '.help-body, .help-toc, pre.out, input, textarea, .raw, [data-notr]';
     const fixText = (n) => { if (n.data) { const t = tr(n.data); if (t !== n.data) n.data = t; } };
     const fix = (n) => {
-      // Auch einzelne Textknoten (textContent = …) in Daten-Bereichen nicht übersetzen (z. B. angezeigte Kennwörter)
+      // Do not translate single text nodes (textContent = ...) in data areas either (e.g. displayed passwords)
       if (n.nodeType === 3) { if (!(n.parentElement && n.parentElement.closest(SKIP))) fixText(n); return; }
       if (n.nodeType !== 1 || n.closest(SKIP)) return;
       const w = document.createTreeWalker(n, NodeFilter.SHOW_TEXT,
@@ -120,6 +120,6 @@
   }
   window.PK_LANG = lang;
   window.tr = tr;
-  window.setLang = (l) => { try { localStorage.setItem(LS, l); } catch (e) { /* egal */ } location.reload(); };
+  window.setLang = (l) => { try { localStorage.setItem(LS, l); } catch (e) { /* ignore */ } location.reload(); };
   document.documentElement.lang = lang;
 }());

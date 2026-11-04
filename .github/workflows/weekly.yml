@@ -1,35 +1,35 @@
-# POCKET KNIFE – wöchentliches Sicherheitsupdate (montags): Basis-Image, Debian- und Python-Pakete und guacd auf den
-# neuesten Stand bringen (tools/pin-versions.sh --update), ohne Cache neu bauen, Selbsttest, Schwachstellen-Prüfung
-# (Trivy) – und NUR wenn alles bestanden ist: Sicherheitsupdate-Nummer (z. B. 2.29.7 → 2.29.7-s1 – gleiches Programm, nur neue Pakete), Eintrag in CHANGELOG und
-# Neuigkeiten – als eigener Zweig mit Pull Request (2.37: nichts landet ohne Review auf main, kein Release von selbst).
-# Nach dem Zusammenführen startet der Besitzer das Release (Actions → Release → Run workflow); der Release-Workflow baut
-# dann amd64 und arm64, testet und prüft beide noch einmal und veröffentlicht unter <Version> und :latest – zusammen mit
-# guacd als …/pocketknife-guacd.
+# POCKET KNIFE – weekly security update (Mondays): bring the base image, Debian and Python packages and guacd to the
+# latest state (tools/pin-versions.sh --update), rebuild without cache, self-test, vulnerability scan
+# (Trivy) - and ONLY if everything passes: security update number (e.g. 2.29.7 → 2.29.7-s1 - same program, only new packages), entry in CHANGELOG and
+# news - as its own branch with a pull request (2.37: nothing lands on main without review, no release by itself).
+# After merging, the owner starts the release (Actions → Release → Run workflow); the release workflow then builds
+# amd64 and arm64, tests and scans both once more and publishes under <version> and :latest - together with
+# guacd as …/pocketknife-guacd.
 #
-# Hat sich nichts geändert, passiert nichts. Schlägt ein Schritt fehl, wird NICHTS veröffentlicht – GitHub schickt
-# eine Mail an den Besitzer. Von Hand: Actions → Wöchentliches Sicherheitsupdate → Run workflow.
-# Hinweis: GitHub pausiert geplante Läufe nach 60 Tagen ohne Änderung im Repository. Für den Pull Request muss unter
-# Settings → Actions → General „Allow GitHub Actions to create and approve pull requests“ eingeschaltet sein – sonst
-# wird nur der Zweig angelegt (Link im Lauf).
-name: Wöchentliches Sicherheitsupdate
+# If nothing has changed, nothing happens. If a step fails, NOTHING is published - GitHub sends
+# a mail to the owner. By hand: Actions → Weekly security update → Run workflow.
+# Note: GitHub pauses scheduled runs after 60 days without a change in the repository. For the pull request,
+# "Allow GitHub Actions to create and approve pull requests" must be enabled under Settings → Actions → General -
+# otherwise only the branch is created (link in the run).
+name: Weekly security update
 
 on:
   schedule:
-    - cron: "23 3 * * 1"   # montags 03:23 UTC
+    - cron: "23 3 * * 1"   # Mondays 03:23 UTC
   workflow_dispatch:
 
 permissions: {}
 
 concurrency:
-  # 2.32.5: eigene Gruppe – teilte sie sich „release“ mit dem Release-Workflow, könnte GitHub einen wartenden Release
-  # (z. B. Tag) zugunsten des vom wöchentlichen Lauf gestarteten verwerfen (je Gruppe nur ein wartender Lauf)
+  # 2.32.5: own group - if it shared "release" with the release workflow, GitHub could discard a waiting release
+  # (e.g. a tag) in favour of the one started by the weekly run (only one waiting run per group)
   group: weekly-security
   cancel-in-progress: false
 
 jobs:
   stand:
-    # 2.32.5: Nur auf einen veröffentlichten Stand ein „-sN“ setzen. Liegt auf main eine gemergte, aber noch nicht
-    # veröffentlichte Programmversion, wäre sie sonst als Sicherheitsupdate („nichts am Programm geändert“) erschienen.
+    # 2.32.5: Only put a "-sN" on a published state. If main holds a merged but not yet published program version,
+    # it would otherwise have appeared as a security update ("nothing changed in the program").
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -43,7 +43,7 @@ jobs:
           ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
 
-      - name: Ist die Version auf main veröffentlicht?
+      - name: Is the version on main published?
         id: chk
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -53,8 +53,8 @@ jobs:
             echo "released=true" >> "$GITHUB_OUTPUT"
           else
             echo "released=false" >> "$GITHUB_OUTPUT"
-            echo "::notice title=Wöchentliches Sicherheitsupdate::Version $VER auf main ist noch nicht veröffentlicht – kein Sicherheitsupdate, bis sie veröffentlicht ist."
-            echo "Version **$VER** auf main ist noch nicht veröffentlicht – diesmal kein Sicherheitsupdate." >> "$GITHUB_STEP_SUMMARY"
+            echo "::notice title=Weekly security update::Version $VER on main is not published yet – no security update until it is published."
+            echo "Version **$VER** on main is not published yet – no security update this time." >> "$GITHUB_STEP_SUMMARY"
           fi
 
   update:
@@ -63,44 +63,44 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 150
     permissions:
-      contents: write        # Zweig anlegen (nie main)
-      pull-requests: write   # Pull Request öffnen
+      contents: write        # create the branch (never main)
+      pull-requests: write   # open the pull request
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           ref: ${{ github.event.repository.default_branch }}
-          persist-credentials: false   # keine Git-Anmeldedaten im Arbeitsordner (Bau, Tests) – nur beim Speichern
+          persist-credentials: false   # no Git credentials in the working folder (build, tests) - only when saving
 
-      - name: Bisherigen Stand merken
+      - name: Remember the previous state
         run: git worktree add -q "$RUNNER_TEMP/vorher" HEAD
 
-      - name: Versionen aktualisieren, ohne Cache bauen, Selbsttest
+      - name: Update versions, build without cache, self-test
         run: |
-          # Fehler direkt am Lauf zeigen (Annotation) – die Protokolle sind sonst nur in der Weboberfläche lesbar
+          # Show errors directly on the run (annotation) - the logs are otherwise only readable in the web interface
           if ! sh tools/pin-versions.sh --update > pin.log 2>&1; then
             tail -n 150 pin.log
-            # kurz halten (Annotationen werden nach ~4 KB abgeschnitten): Fehlerzeilen und das Ende, je Zeile gekürzt
+            # keep it short (annotations are cut off after ~4 KB): error lines and the end, each line shortened
             { grep -nE 'ERROR|Error|error:|Traceback|✗|failed|FAILED|not found|No such|conflict' pin.log | tail -n 15; echo ...; tail -n 12 pin.log; } \
               | cut -c1-220 > pin.err
             msg=$(sed -e ':a' -e 'N' -e '$!ba' -e 's/%/%25/g' -e 's/\r/%0D/g' -e 's/\n/%0A/g' pin.err)
-            echo "::error title=Versionen aktualisieren::${msg:-fehlgeschlagen (siehe Log)}"
+            echo "::error title=Update versions::${msg:-failed (see log)}"
             exit 1
           fi
           tail -n 40 pin.log
 
-      - name: Etwas geändert?
+      - name: Anything changed?
         id: diff
         run: |
           if git diff --quiet -- Dockerfile requirements.lock requirements.caps build-requirements.txt docker/apt-build.txt docker/apt-runtime.txt docker/guacd.txt; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "Alles ist schon aktuell – keine neue Version." >> "$GITHUB_STEP_SUMMARY"
+            echo "Everything is already up to date – no new version." >> "$GITHUB_STEP_SUMMARY"
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
             git diff --stat >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      - name: Schwachstellen prüfen (Trivy)
+      - name: Check vulnerabilities (Trivy)
         if: steps.diff.outputs.changed == 'true'
         env:
           PK_TRIVY_REPORT: trivy.md
@@ -108,23 +108,23 @@ jobs:
           rc=0; sh tools/trivy-scan.sh pocketknife:local || rc=$?
           if [ -f trivy.md ]; then cat trivy.md >> "$GITHUB_STEP_SUMMARY"; fi
           if [ "$rc" != 0 ]; then
-            echo "::error title=Wöchentliches Sicherheitsupdate::Trivy hat Befunde (oder konnte nicht prüfen) – es wird nichts veröffentlicht."
+            echo "::error title=Weekly security update::Trivy has findings (or could not scan) – nothing will be published."
           fi
           exit "$rc"
 
-      - name: guacd prüfen (Trivy, nur Hinweis)
+      - name: Check guacd (Trivy, notice only)
         if: steps.diff.outputs.changed == 'true'
         env:
           PK_TRIVY_REPORT: trivy-guacd.md
         run: |
-          # guacd baut das Guacamole-Projekt – POCKET KNIFE nimmt immer dessen neueste Version, kann es aber nicht selbst
-          # korrigieren; Befunde blockieren das Update deshalb nicht, sie stehen in der Zusammenfassung
+          # guacd is built by the Guacamole project - POCKET KNIFE always takes its latest version but cannot fix it
+          # itself; findings therefore do not block the update, they appear in the summary
           G=$(sed -n 's/^\(guacamole\/guacd:[^ ]*\)$/\1/p' docker/guacd.txt | head -n 1)
           rc=0; sh tools/trivy-scan.sh "$G" || rc=$?
           if [ -f trivy-guacd.md ]; then cat trivy-guacd.md >> "$GITHUB_STEP_SUMMARY"; fi
-          [ "$rc" = 0 ] || echo "::warning title=guacd::$G hat Befunde (oder ließ sich nicht prüfen) – Korrektur nur durch das Guacamole-Projekt."
+          [ "$rc" = 0 ] || echo "::warning title=guacd::$G has findings (or could not be scanned) – can only be fixed by the Guacamole project."
 
-      - name: Neue Version eintragen – Zweig und Pull Request
+      - name: Record the new version – branch and pull request
         id: ver
         if: steps.diff.outputs.changed == 'true'
         env:
@@ -138,22 +138,22 @@ jobs:
           git add -A Dockerfile requirements.lock requirements.caps build-requirements.txt docker/apt-build.txt docker/apt-runtime.txt \
             docker/guacd.txt VERSION CHANGELOG.md app/news.json README.md README.en.md
           git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
-            commit -qm "pocketknife $VER: wöchentliches Sicherheitsupdate (Basis-Image und Pakete)"
+            commit -qm "pocketknife $VER: weekly security update (base image and packages)"
           git push -q "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$BR"
           {
-            echo "Wöchentliches Sicherheitsupdate **$VER**: Basis-Image und Pakete aktualisiert, Bau ohne Cache, Selbsttest und Trivy bestanden."
+            echo "Weekly security update **$VER**: base image and packages updated, build without cache, self-test and Trivy passed."
             echo
             [ -f trivy.md ] && cat trivy.md
             echo
-            echo "Nach dem Zusammenführen das Release starten (Actions → Release → Run workflow)."
+            echo "After merging, start the release (Actions → Release → Run workflow)."
           } > pr.md
-          gh pr create --base "$BASE" --head "$BR" --title "$VER: wöchentliches Sicherheitsupdate" --body-file pr.md \
-            || echo "::warning::Pull Request nicht angelegt (Einstellung „Allow GitHub Actions to create … pull requests“?). Zweig: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/tree/$BR"
-          echo "Sicherheitsupdate **$VER** als Pull Request vorgelegt – kein Release ohne Zusammenführen." >> "$GITHUB_STEP_SUMMARY"
+          gh pr create --base "$BASE" --head "$BR" --title "$VER: weekly security update" --body-file pr.md \
+            || echo "::warning::Pull request not created (setting \"Allow GitHub Actions to create … pull requests\"?). Branch: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/tree/$BR"
+          echo "Security update **$VER** submitted as a pull request – no release without merging." >> "$GITHUB_STEP_SUMMARY"
 
   unterbau:
-    # Eigener Job: meldet rechtzeitig, wann Python-Reihe oder Debian-Version keine Updates mehr bekommen (rot ab 180
-    # Tagen vorher → Mail) – blockiert die Sicherheitsupdates nie
+    # Own job: reports in good time when the Python series or Debian version stops receiving updates (red from 180
+    # days before → mail) - never blocks the security updates
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -164,7 +164,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Wie lange gibt es noch Updates für den Unterbau?
+      - name: How much longer will the base platform get updates?
         run: |
           rc=0; python3 tools/unterbau-check.py > unterbau.txt || rc=$?
           cat unterbau.txt
