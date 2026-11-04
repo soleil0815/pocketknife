@@ -1,9 +1,9 @@
-"""Tools: eigene Befehle in Ordnern, ausführbar auf ausgewählten Computern.
+"""Tools: custom commands in folders, executable on selected computers.
 
-Variablen im Skript/URL (werden vor dem Ausführen ersetzt):
-  $(Computer)  Computername         $(Host)  DNS-Name
-  $(IP)        erste IP-Adresse     $(MAC)   erste MAC-Adresse
-  $(User)      angemeldeter Benutzer $(Domain) Domäne
+Variables in the script/URL (replaced before execution):
+  $(Computer)  computer name        $(Host)  DNS name
+  $(IP)        first IP address     $(MAC)   first MAC address
+  $(User)      logged-on user       $(Domain) domain
 """
 import base64
 import ipaddress
@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS tools(
   confirm INTEGER DEFAULT 0, description TEXT, sort INTEGER DEFAULT 100, created_at TEXT);
 """
 
-# Beispiel-Tools (frei änderbar oder löschbar)
+# Example tools (freely editable or deletable)
 SEED = [
     ("BITLOCKER", "TPM-Status", "powershell", "Get-Tpm | Format-List", "service", 0, "Zeigt den Zustand des TPM-Chips."),
     ("BITLOCKER", "BitLocker C: Status", "cmd", "manage-bde -status C:", "service", 0, ""),
@@ -74,9 +74,9 @@ SEED = [
 ]
 
 
-# 2.32.4: Tastenkürzel gehören zum Tool (für alle gleich, wie Menüeinträge): beim eigenen Tool im Tool-Dialog,
-# bei eingebauten Tools unter Tools → „Tastenkürzel …“ (mit sinnvollen Vorgaben). Immer Strg+Alt, wahlweise mit
-# Umschalt, dazu A–Z, 0–9 oder F1–F12. Gespeichert in einer festen Schreibweise, z. B. „Ctrl+Alt+P“.
+# 2.32.4: keyboard shortcuts belong to the tool (the same for everyone, like menu entries): for a custom tool in the tool dialog,
+# for built-in tools under Tools → "Tastenkürzel …" (with sensible defaults). Always Ctrl+Alt, optionally with
+# Shift, plus A–Z, 0–9 or F1–F12. Stored in a fixed notation, e.g. "Ctrl+Alt+P".
 BUILTIN_KEYS = ("ping", "rdpweb", "vncweb", "wake", "power", "abort", "gpupdate", "winget", "scan",
                 "diskusage", "files", "eventlog", "command")
 BUILTIN_NAMES = {"ping": "Ping & Ports", "rdpweb": "Remotedesktop im Browser", "vncweb": "VNC im Browser",
@@ -91,7 +91,7 @@ HOTKEY_RE = re.compile(r"^Ctrl\+Alt\+(Shift\+)?([A-Z]|[0-9]|F[1-9]|F1[0-2])$")
 
 
 def norm_hotkey(v):
-    """Schreibweise vereinheitlichen; "" = kein Kürzel; ValueError bei allem anderen."""
+    """Normalize the notation; "" = no shortcut; ValueError for anything else."""
     t = re.sub(r"\s+", "", str(v or ""))
     if not t:
         return ""
@@ -108,13 +108,13 @@ def norm_hotkey(v):
 
 
 def builtin_hotkeys():
-    """{"ping": "Ctrl+Alt+P", …} – Vorgaben, überschrieben durch die Einstellung (leer = bewusst ohne Kürzel)."""
+    """{"ping": "Ctrl+Alt+P", …} – defaults, overridden by the setting (empty = deliberately without a shortcut)."""
     out = dict(BUILTIN_HOTKEY_DEFAULTS)
     try:
         saved = json.loads(db.setting_raw("builtin_hotkeys") or "{}")
     except (ValueError, TypeError):
         saved = {}
-    # 2.34: neue Vorgabe (z. B. Strg+Alt+C für „Befehl ausführen“) nicht, wenn ein eigenes Tool das Kürzel schon hat
+    # 2.34: no new default (e.g. Ctrl+Alt+C for "Befehl ausführen") if a custom tool already has the shortcut
     taken = {r["hotkey"] for r in db.q("SELECT hotkey FROM tools WHERE hotkey IS NOT NULL AND hotkey != ''")}
     for k in list(out):
         if out[k] in taken and not (isinstance(saved, dict) and k in saved):
@@ -129,7 +129,7 @@ def builtin_hotkeys():
 
 
 def hotkey_owner(combo, ref=None):
-    """Name dessen, der combo schon hat (außer ref selbst, z. B. "tool:5" oder "builtin:ping") – sonst None."""
+    """Name of whoever already has combo (except ref itself, e.g. "tool:5" or "builtin:ping") – otherwise None."""
     if not combo:
         return None
     for k, v in builtin_hotkeys().items():
@@ -170,8 +170,8 @@ def save_builtin_hotkeys(data):
 
 
 def _migrate_power_b():
-    """2.32.5: Vorgabe für Neustart/Herunterfahren ist Strg+Alt+B. Wer in 2.32.4 die Übersicht gespeichert hat, hat dort
-    noch die alte Vorgabe N stehen – einmalig auf B umstellen, wenn B frei ist."""
+    """2.32.5: the default for restart/shutdown is Ctrl+Alt+B. Anyone who saved the overview in 2.32.4 still has the
+    old default N there – switch to B once, if B is free."""
     if db.setting_raw("hotkeys_power_b"):
         return
     try:
@@ -184,14 +184,14 @@ def _migrate_power_b():
         saved["power"] = "Ctrl+Alt+B"
         db.set_setting("builtin_hotkeys", json.dumps(saved))
     elif "power" not in saved and db.q1("SELECT id FROM tools WHERE hotkey='Ctrl+Alt+B'"):
-        # ein eigenes Tool hat B schon (in 2.32.4 war es frei): Neustart/Herunterfahren behält N bzw. bleibt ohne Kürzel
+        # a custom tool already has B (it was free in 2.32.4): restart/shutdown keeps N or stays without a shortcut
         saved["power"] = "" if hotkey_owner("Ctrl+Alt+N", "builtin:power") else "Ctrl+Alt+N"
         db.set_setting("builtin_hotkeys", json.dumps(saved))
     db.set_setting("hotkeys_power_b", "1")
 
 
 def _migrate_user_hotkeys():
-    """2.32.3 speicherte Strg+Alt+Ziffer je Benutzer – einmalig ans Tool übernehmen, soweit frei."""
+    """2.32.3 stored Ctrl+Alt+digit per user – adopt it once into the tool, where free."""
     if db.setting_raw("hotkeys_migrated"):
         return
     try:
@@ -209,7 +209,7 @@ def _migrate_user_hotkeys():
             combo = f"Ctrl+Alt+{slot}"
             if hotkey_owner(combo):
                 continue
-            if ref.startswith("tool:") and ref[5:].isdigit():  # eingebaute Tools haben jetzt eigene Vorgaben
+            if ref.startswith("tool:") and ref[5:].isdigit():  # built-in tools now have their own defaults
                 db.ex("UPDATE tools SET hotkey=? WHERE id=? AND COALESCE(hotkey, '')=''", (combo, int(ref[5:])))
     db.set_setting("hotkeys_migrated", "1")
 
@@ -217,7 +217,7 @@ def _migrate_user_hotkeys():
 def init():
     db.conn().executescript(SCHEMA)
     have = {r["name"] for r in db.q("PRAGMA table_info(tools)")}
-    # 2.32.4 Tastenkürzel; 2.32.7 Dateien aus dem Repository, Danach scannen, Zeitlimit, Erfolgscodes
+    # 2.32.4 keyboard shortcuts; 2.32.7 files from the repository, scan afterwards, time limit, success codes
     for col, typ in (("hotkey", "TEXT"), ("repo_path", "TEXT"), ("scan_after", "TEXT DEFAULT 'never'"),
                      ("scan_profile_id", "INTEGER"), ("timeout_s", "INTEGER"), ("success_codes", "TEXT")):
         if col not in have:
@@ -252,12 +252,12 @@ def validate(d):
 
 
 SCAN_AFTER = {"never": "Nicht scannen", "success": "Nach Erfolg", "always": "Immer"}
-DEFAULT_TIMEOUT = 1800  # Sekunden, wenn im Tool nichts eingetragen ist – wie bisher (z. B. SFC als SYSTEM dauert lange)
+DEFAULT_TIMEOUT = 1800  # seconds, if nothing is entered in the tool – as before (e.g. SFC as SYSTEM takes a long time)
 MAX_TIMEOUT = 4 * 3600
 
 
 def clean_extras(d):
-    """2.32.7: Dateien aus dem Repository, Danach scannen, Zeitlimit, Erfolgscodes – prüfen und vereinheitlichen."""
+    """2.32.7: files from the repository, scan afterwards, time limit, success codes – validate and normalize."""
     from . import remote
     rp = str(d.get("repo_path") or "").strip().replace("/", "\\").strip("\\")
     if d.get("type") == "url":
@@ -267,7 +267,7 @@ def clean_extras(d):
         if ".." in parts or ":" in rp or rp.startswith("\\"):
             raise ValueError("Dateien aus dem Repository: bitte einen Pfad im Repository angeben (z. B. Tools\\iperf).")
         rp = "\\".join(parts)
-        # Mandanten-Ordner nie: dort dürfen OU-Admins Dateien ablegen – ein Tool läuft für alle mit dem Dienstkonto
+        # never tenant folders: OU admins may place files there – a tool runs for everyone with the service account
         bad = tenant_conflict(rp)
         if bad:
             raise ValueError(f"Dateien aus dem Repository: „{rp}“ gehört zum Mandanten „{bad}“ (bzw. enthält seinen "
@@ -313,8 +313,8 @@ def _rkey(p):
 
 
 def tenant_conflict(rp):
-    """Name des Mandanten, dessen Repository-Ordner rp enthält oder in rp liegt – sonst None. 2.32.7: auch vor jedem
-    Lauf geprüft (ein Mandant kann den Ordner nach dem Speichern des Tools bekommen haben)."""
+    """Name of the tenant whose repository folder contains rp or lies inside rp – otherwise None. 2.32.7: also checked before every
+    run (a tenant may have received the folder after the tool was saved)."""
     k = _rkey(rp)
     if not k:
         return None
@@ -326,7 +326,7 @@ def tenant_conflict(rp):
 
 
 def parse_codes(v):
-    """„0, 3010“ → [0, 3010]; leer → [0]."""
+    """"0, 3010" → [0, 3010]; empty → [0]."""
     out = []
     for x in str(v or "").replace(";", ",").split(","):
         x = x.strip()
@@ -346,23 +346,23 @@ def variables(c):
             "User": c.get("current_user") or "", "Domain": extra.get("domain") or config.DOMAIN}
 
 
-SAFE_VALUE = re.compile(r"^[\w.,\- @:\\]*$")  # Buchstaben (auch Umlaute), Ziffern, . , - _ Leerzeichen @ : \
+SAFE_VALUE = re.compile(r"^[\w.,\- @:\\]*$")  # letters (including umlauts), digits, . , - _ space @ : \
 
 
 def substitute(text, c, mode=None):
-    """$(Computer) … einsetzen. mode="url": Werte URL-kodiert (Benutzernamen mit Leerzeichen, & oder #)."""
+    """Substitute $(Computer) …. mode="url": values URL-encoded (user names with spaces, & or #)."""
     import urllib.parse
     vals = variables(c)
 
     def enc(name, v):
         if mode == "url":
             return urllib.parse.quote(v, safe=".:-_\\")
-        # Audit 2.29: auch ein Wert, der mit „-“ beginnt oder „ -“ enthält, gilt als unsicher (würde unzitiert zu einem
-        # weiteren Parameter, z. B. „max -Force“)
+        # Audit 2.29: a value that starts with "-" or contains " -" is also considered unsafe (unquoted it would become a
+        # further parameter, e.g. "max -Force")
         if mode in ("powershell", "cmd") and (not SAFE_VALUE.match(v) or v.startswith("-") or " -" in v):
-            # Werte vom Client (z. B. Benutzername) könnten Code enthalten: „x&calc“, „$(…)“, „O'Brien“
+            # Values from the client (e.g. user name) could contain code: "x&calc", "$(…)", "O'Brien"
             if mode == "powershell":
-                return f"$($PK_{name})"  # sicher zitierte Variable (ps_variables) statt des Textes
+                return f"$($PK_{name})"  # safely quoted variable (ps_variables) instead of the text
             raise ValueError(f"$({name}) enthält Zeichen, die in CMD nicht sicher eingesetzt werden können ({v!r}). "
                              f"Bitte ein PowerShell-Tool mit $PK_{name} verwenden.")
         return v
@@ -373,17 +373,17 @@ def substitute(text, c, mode=None):
 
 
 def ps_variables(c):
-    """Werte als sicher zitierte PowerShell-Variablen ($PK_User …) – unabhängig von Apostrophen oder $ im Namen."""
+    """Values as safely quoted PowerShell variables ($PK_User …) – independent of apostrophes or $ in the name."""
     return "".join(f"$PK_{k} = {util.psq(v)}\n" for k, v in variables(c).items())
 
 
 def ps_tool_winrm(script, workdir=None):
-    """PowerShell-Tool direkt per WinRM. 2.38: das Skript läuft als Datei (& datei.ps1) – so beendet „exit N“ nur das
-    Skript und kommt als Exitcode an, ebenso der Exitcode eines zuletzt fehlgeschlagenen Programms ($LASTEXITCODE).
-    Erzwingt eine Gruppenrichtlinie AllSigned/Restricted oder sperrt Softwareeinschränkung/AppLocker Skripte in %TEMP%
-    (2.38.1: ein Probeskript zeigt es vorher), läuft es wie bisher direkt (dann ohne „exit N“).
-    Ohne .NET-Aufrufe (Constrained Language Mode). Fehler zählen nur, wenn sie tatsächlich ausgegeben werden – mit
-    -ErrorAction SilentlyContinue unterdrückte Fehler landen zwar in $Error, sind aber gewollt."""
+    """PowerShell tool directly via WinRM. 2.38: the script runs as a file (& file.ps1) – so "exit N" ends only the
+    script and arrives as the exit code, as does the exit code of a last failed program ($LASTEXITCODE).
+    If a group policy enforces AllSigned/Restricted or software restriction/AppLocker blocks scripts in %TEMP%
+    (2.38.1: a probe script shows this beforehand), it runs directly as before (then without "exit N").
+    Without .NET calls (Constrained Language Mode). Errors only count if they are actually output – errors suppressed with
+    -ErrorAction SilentlyContinue do land in $Error, but are intended."""
     fmt = ("*>&1 | ForEach-Object { if ($_ -is [System.Management.Automation.ErrorRecord]) { $global:pkErr = 1 }; $_ }"
            " | Out-String -Width 220 -Stream")
     return ("$ErrorActionPreference = 'Continue'\n$global:pkErr = 0\n"
@@ -391,7 +391,7 @@ def ps_tool_winrm(script, workdir=None):
             + "$pkF = Join-Path $env:TEMP ('pk_tool_' + [guid]::NewGuid().ToString('N') + '.ps1')\n"
             + util.ps_write("$pkF", script)
             + "try { Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force -ErrorAction Stop } catch {}\n"
-            # 2.38.1: darf hier überhaupt ein Skript aus %TEMP% laufen? (Softwareeinschränkung/AppLocker nach Pfad)
+            # 2.38.1: may a script run from %TEMP% here at all? (software restriction/AppLocker by path)
             + "$pkP = Join-Path $env:TEMP ('pk_probe_' + [guid]::NewGuid().ToString('N') + '.ps1')\n"
             + util.ps_write("$pkP", "'PKPROBE'")
             + "$pkFileOk = $false\n"
@@ -407,12 +407,12 @@ def ps_tool_winrm(script, workdir=None):
 
 
 def _cmd_ps(script, workdir=None):
-    """CMD-Befehle als temporäre .cmd-Datei ausführen (mehrzeilig möglich).
-    2.32.7: Ausgabe über eine Datei in der Konsolen-Codepage (OEM) lesen – sonst kommen Umlaute als „?“ an;
-    workdir: Arbeitsordner (Dateien aus dem Repository)."""
+    """Run CMD commands as a temporary .cmd file (multi-line possible).
+    2.32.7: read the output via a file in the console code page (OEM) – otherwise umlauts arrive as "?";
+    workdir: working folder (files from the repository)."""
     b = script.replace("\r\n", "\n").replace("\n", "\r\n")
     cd = f'cd /d "{workdir}"\r\n' if workdir else ""
-    wr = util.ps_write("$f", "@echo off\r\n" + cd + b, cmd=True).rstrip()  # 2.38: ohne .NET (Constrained Language Mode)
+    wr = util.ps_write("$f", "@echo off\r\n" + cd + b, cmd=True).rstrip()  # 2.38: without .NET (Constrained Language Mode)
     return f"""$f = Join-Path $env:TEMP ('pk_tool_' + [guid]::NewGuid().ToString('N') + '.cmd')
 $of = $f + '.out'
 {wr}
@@ -446,8 +446,8 @@ def run(tool, cid):
                              "Ordner wählen.")
     try:
         if rp:
-            # 2.32.7: Dateien kopiert POCKET KNIFE selbst über die Admin-Freigabe – auf dem Client liegt kein Kennwort,
-            # und es gibt kein Double-Hop-Problem (eine WinRM-Sitzung kommt nicht an weitere Freigaben)
+            # 2.32.7: POCKET KNIFE copies files itself via the admin share – no password on the client,
+            # and no double-hop problem (a WinRM session cannot reach further shares)
             kind = remote.repo_stat(rp)
             if kind is None:
                 raise ValueError(f"Dateien aus dem Repository: „{rp}“ gibt es nicht (mehr).")
@@ -460,7 +460,7 @@ def run(tool, cid):
         res = _run(tool, c, host, name, bool(rp))
     finally:
         if rp:
-            remote.remove_package_copy(host, name)  # immer – auch nach einer abgebrochenen Kopie (doppelt schadet nicht)
+            remote.remove_package_copy(host, name)  # always – also after an aborted copy (doing it twice does no harm)
     codes = parse_codes(tool.get("success_codes"))
     res["ok"] = res["exit"] in codes
     if note:
@@ -476,12 +476,12 @@ def _run(tool, c, host, name, with_files):
     t0 = time.time()
     timeout = int(tool.get("timeout_s") or DEFAULT_TIMEOUT)
     workdir = f"C:\\Windows\\Temp\\PocketKnife\\{name}" if with_files else None
-    # 2.32.7: mit Dateien auch als Dienstkonto über den Rahmen (eigener Prozess) – nur so wird das Programm beim Zeitlimit
-    # beendet und der Ordner lässt sich danach löschen (WinRM bricht nur das Warten ab)
+    # 2.32.7: with files also as the service account via the wrapper (own process) – only then is the program ended
+    # at the time limit and can the folder be deleted afterwards (WinRM only cancels the waiting)
     if tool["run_as"] == "system" or with_files:
-        # Als SYSTEM über eine temporäre geplante Aufgabe (wie bei Bereitstellungen)
+        # As SYSTEM via a temporary scheduled task (as with deployments)
         sc = script.replace("\r\n", "\n")
-        # 2.38: ohne .NET (Constrained Language Mode) – util.ps_write
+        # 2.38: without .NET (Constrained Language Mode) – util.ps_write
         if tool["type"] == "powershell":
             body = ("$sf = Join-Path $PKDir 'pk_tool.ps1'\n" + util.ps_write("$sf", sc) + "PK-RunPs1 $sf ''")
         else:
@@ -494,17 +494,17 @@ def _run(tool, c, host, name, with_files):
             raise remote.RemoteTimeout(f"Zeitlimit von {remote.dur_text(timeout)} überschritten – abgebrochen.")
         hard = ""
         if code not in parse_codes(tool.get("success_codes")):
-            code, hard = remote.apply_hard(code, out)  # 2.32.5: gehärtetes Windows im Klartext
+            code, hard = remote.apply_hard(code, out)  # 2.32.5: hardened Windows in plain language
         out = "\n".join(l for l in (out or "").splitlines() if not l.startswith("> ") and not l.startswith("Exitcode: "))
         if hard:
             out = f"POCKET KNIFE: {hard}\n\n{out}"
     else:
-        # Direkt als Dienstkonto über WinRM
+        # Directly as the service account via WinRM
         if tool["type"] == "cmd":
             ps = _cmd_ps(script, workdir)
         else:
-            # Fehler nur zählen, wenn sie tatsächlich ausgegeben werden – mit -ErrorAction SilentlyContinue
-            # unterdrückte Fehler landen zwar in $Error, sind aber gewollt
+            # Only count errors if they are actually output – errors suppressed with -ErrorAction SilentlyContinue
+            # do land in $Error, but are intended
             ps = ps_tool_winrm(script, workdir)
         try:
             out, err, _ = remote.ps(host, ps, timeout=timeout)
@@ -523,7 +523,7 @@ def _run(tool, c, host, name, with_files):
     return {"exit": code, "output": (out or "")[-MAX_OUT:], "seconds": round(time.time() - t0, 1)}
 
 
-# --- Eingebaute Tools --------------------------------------------------------------
+# --- Built-in tools --------------------------------------------------------------
 def ping(c):
     host = c["dns_name"] or c["name"]
     lines = []
@@ -550,13 +550,13 @@ def ping(c):
 
 
 # --- Wake-on-LAN ------------------------------------------------------------------------
-# Das Magic Packet wird von einem gerade erreichbaren Computer im selben Subnetz gesendet
-# (Broadcasts verlassen ihr Subnetz nicht). Zusätzlich sendet der Container selbst.
+# The magic packet is sent by a computer that is currently reachable in the same subnet
+# (broadcasts do not leave their subnet). In addition, the container sends it itself.
 WOL_RELAYS = 3
 
 
 def _ipv4_nets(c):
-    """IPv4-Netze eines Computers aus dem Netzwerkkarten-Inventar (ip/subnet), sonst /24 aus ip_addresses."""
+    """IPv4 networks of a computer from the network adapter inventory (ip/subnet), otherwise /24 from ip_addresses."""
     nets = []
     raw = db.val("SELECT json FROM inventory_data WHERE computer_id=? AND category='nics'", (c["id"],))
     try:
@@ -586,15 +586,15 @@ def _ipv4s(c):
 
 
 def _fixed_relays():
-    """2.31: feste Relays aus den Einstellungen (Computernamen) – z. B. ein Server, der immer läuft."""
+    """2.31: fixed relays from the settings (computer names) – e.g. a server that is always on."""
     names = [x.strip().lower() for x in (db.setting("wol_relays") or "").split(",") if x.strip()]
     return names
 
 
 def wol_relays(c, limit=WOL_RELAYS, exclude=()):
-    """Online-Computer mit WinRM, bevorzugt im selben Subnetz wie das Ziel. → [(computer, same_subnet)]
-    2.31: feste Relays (Einstellungen → Wake-on-LAN) kommen zuerst, sofern online; exclude: schon benutzte Relays
-    (zweiter Versuch über andere Computer)."""
+    """Online computers with WinRM, preferably in the same subnet as the target. → [(computer, same_subnet)]
+    2.31: fixed relays (Settings → Wake-on-LAN) come first, if online; exclude: relays already used
+    (second attempt via other computers)."""
     nets = _ipv4_nets(c)
     fixed = _fixed_relays()
     same, other, pinned = [], [], []
@@ -610,8 +610,8 @@ def wol_relays(c, limit=WOL_RELAYS, exclude=()):
     if same:
         return out + [(r, True) for r in same[:limit]]
     if exclude and not any(s for _r, s in out):
-        # 2.32.5: zweiter Versuch – gibt es im Zielnetz keinen anderen Computer, wieder die bisherigen nehmen
-        # (ein Relay aus einem fremden Netz oder nur der Container würden das Ziel meist nicht erreichen)
+        # 2.32.5: second attempt – if there is no other computer in the target network, use the previous ones again
+        # (a relay from a foreign network or just the container would usually not reach the target)
         again = wol_relays(c, limit, ())
         if any(s for _r, s in again):
             return again
@@ -619,8 +619,8 @@ def wol_relays(c, limit=WOL_RELAYS, exclude=()):
 
 
 def _packets(c):
-    """Magic Packets für alle bekannten MAC-Adressen – 2.31 auch die kabelgebundener Netzwerkkarten aus dem Inventar,
-    die beim letzten Scan keine IP-Adresse hatten (z. B. Dockingstation oder USB-Netzwerkadapter)."""
+    """Magic packets for all known MAC addresses – since 2.31 also those of wired network adapters from the inventory
+    that had no IP address at the last scan (e.g. docking station or USB network adapter)."""
     macs = [m.strip() for m in (c.get("mac_addresses") or "").split(",") if m.strip()]
     raw = db.val("SELECT json FROM inventory_data WHERE computer_id=? AND category='nics'", (c.get("id"),)) if c.get("id") else None
     try:
@@ -640,7 +640,7 @@ def _packets(c):
 
 WOL_PS = r"""
 $ErrorActionPreference = 'Stop'
-# 2.32.5: im eingeschränkten Sprachmodus gibt es keinen UdpClient – sagen, statt still nichts zu senden
+# 2.32.5: there is no UdpClient in restricted language mode – say so instead of silently sending nothing
 if ($ExecutionContext.SessionState.LanguageMode -ne 'FullLanguage') { 'PK_CLM'; return }
 $u = New-Object System.Net.Sockets.UdpClient
 $u.EnableBroadcast = $true
@@ -661,7 +661,7 @@ try {
 
 
 def _readiness(c):
-    """Was der letzte Scan über die Wake-on-LAN-Bereitschaft weiß (2.31) – als Hinweiszeilen."""
+    """What the last scan knows about Wake-on-LAN readiness (2.31) – as hint lines."""
     try:
         nics = json.loads(db.val("SELECT json FROM inventory_data WHERE computer_id=? AND category='nics'", (c.get("id"),)) or "[]")
         fast = json.loads(db.val("SELECT extra FROM computers WHERE id=?", (c.get("id"),)) or "{}").get("fast_startup")
@@ -697,7 +697,7 @@ def wake(c, exclude=(), round_no=1):
         lines.append("Kein anderer Computer ist gerade online – Versand nur aus dem Container.")
     for r, same in relays:
         host = r["dns_name"] or r["name"]
-        # Ein Relay im fremden Netz kann nur gerichtete Broadcasts senden
+        # A relay in a foreign network can only send directed broadcasts
         tg = targets if same else targets[1:] or targets
         script = WOL_PS % {"packets": ",".join(util.psq(p.hex()) for _, p in pk),
                            "targets": ",".join(util.psq(t) for t in tg), "repeat": repeat}
@@ -715,7 +715,7 @@ def wake(c, exclude=(), round_no=1):
             lines += ["   " + x for x in out.splitlines() if x.startswith("FEHLER")]
         except Exception as e:
             lines.append(f"Relay {r['name']}: fehlgeschlagen – {e}")
-    # zusätzlich aus dem Container (hilft, wenn der Container im selben Netz hängt, z. B. network_mode: host)
+    # additionally from the container (helps if the container is in the same network, e.g. network_mode: host)
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
     n_local = 0
@@ -742,10 +742,10 @@ def wake(c, exclude=(), round_no=1):
             "output": "\n".join(lines), "relay": [r["name"] for r, _ in relays]}
 
 
-# --- 2.31: Aufwachen abwarten ---------------------------------------------------------------------
+# --- 2.31: Waiting for wake-up ---------------------------------------------------------------------
 _wake = {}  # computer_id → {"state": "waiting"|"awake"|"timeout", "started", "seconds", "rounds", "detail"}
 _wake_lock = threading.Lock()
-WAKE_POLL = 10  # Sekunden zwischen zwei Prüfungen
+WAKE_POLL = 10  # seconds between two checks
 
 
 def wake_state(cid):
@@ -761,8 +761,8 @@ def wake_state(cid):
 
 
 def watch_wake(c, used_relays, user=None):
-    """Im Hintergrund prüfen, ob der Computer aufwacht (Heartbeat auf diesen einen Computer). Nach der Hälfte der Wartezeit
-    noch einmal senden – über andere Relays, falls es welche gibt. Ergebnis im Protokoll und über wake_state()."""
+    """Check in the background whether the computer wakes up (heartbeat on this one computer). After half of the waiting time,
+    send once more – via other relays, if there are any. Result in the log and via wake_state()."""
     wait = int(db.setting("wol_wait_seconds") or 0)
     if wait <= 0:
         return False
@@ -770,7 +770,7 @@ def watch_wake(c, used_relays, user=None):
     with _wake_lock:
         cur = _wake.get(cid)
         if cur and cur["state"] == "waiting":
-            return True  # läuft schon – der neue Versand zählt mit
+            return True  # already running – the new send counts too
         _wake[cid] = {"state": "waiting", "started": time.time(), "seconds": 0, "rounds": 1, "detail": ""}
 
     def run():
@@ -787,7 +787,7 @@ def watch_wake(c, used_relays, user=None):
                 online, winrm = presence.probe(row, force=True)
                 if online:
                     if presence.update(cid, online, winrm):
-                        presence.notify([cid], background=True)  # Heartbeat-Auslöser (Scans, Zeitpläne) wie sonst auch
+                        presence.notify([cid], background=True)  # heartbeat triggers (scans, schedules) as usual
                     secs = int(time.time() - t0)
                     with _wake_lock:
                         _wake[cid].update(state="awake", seconds=secs,
@@ -802,7 +802,7 @@ def watch_wake(c, used_relays, user=None):
                         used |= set(res.get("relay") or [])
                         with _wake_lock:
                             _wake[cid]["rounds"] = 2
-                    except Exception as e:  # noqa: BLE001 – der zweite Versuch darf das Warten nicht beenden
+                    except Exception as e:  # noqa: BLE001 – the second attempt must not end the wait
                         pklog.warn("tool", f"Wake-on-LAN: zweiter Versuch für {row['name']} fehlgeschlagen: {e}", computer_id=cid)
             with _wake_lock:
                 _wake[cid].update(state="timeout", seconds=wait,
@@ -816,7 +816,7 @@ def watch_wake(c, used_relays, user=None):
     return True
 
 
-# --- Tool-Ausführungen als Server-Jobs (laufen weiter, auch wenn der Browser geschlossen wird) ---
+# --- Tool executions as server jobs (they keep running even if the browser is closed) ---
 import threading as _th
 from concurrent.futures import ThreadPoolExecutor as _TPE
 
@@ -826,7 +826,7 @@ _jpool = _TPE(max_workers=8, thread_name_prefix="tool")
 
 
 def scan_after(tool, cid, user, ok, res):
-    """2.32.7: Danach scannen (Standard: nicht) – läuft gerade ein Scan, wird er danach nachgeholt."""
+    """2.32.7: scan afterwards (default: no) – if a scan is running right now, it is made up for afterwards."""
     sa = tool.get("scan_after") or "never"
     if not (sa == "always" or (sa == "success" and ok)):
         return
@@ -839,13 +839,13 @@ def scan_after(tool, cid, user, ok, res):
         res["output"] = (res.get("output") or "") + f"\n\nDanach scannen nicht möglich: {e}"
 
 
-# --- 2.34: Befehl direkt ausführen (ohne Tool anzulegen) -------------------------------------------
-ADHOC_MAX = 20_000  # Zeichen
+# --- 2.34: Run a command directly (without creating a tool) -------------------------------------------
+ADHOC_MAX = 20_000  # characters
 
 
 def adhoc_tool(data):
-    """Freier Befehl als einmaliges Tool – gleiche Ausführung wie ein eigenes Tool (WinRM bzw. SYSTEM über eine
-    geplante Aufgabe), ohne Dateien aus dem Repository. Nur für Hauptadmins (wie Tools anlegen)."""
+    """Free command as a one-off tool – same execution as a custom tool (WinRM or SYSTEM via a
+    scheduled task), without files from the repository. Main admins only (like creating tools)."""
     typ = str(data.get("type") or "")
     if typ not in ("powershell", "cmd"):
         raise ValueError("Typ: PowerShell oder CMD.")
@@ -859,9 +859,9 @@ def adhoc_tool(data):
         raise ValueError(f"Befehl zu lang (höchstens {ADHOC_MAX} Zeichen) – dafür besser ein Tool oder Paket anlegen.")
     d = {"name": "Befehl", "type": typ, "run_as": run_as, "script": script.replace("\n", "\r\n"),
          "timeout_s": data.get("timeout_s"), "success_codes": data.get("success_codes")}
-    clean_extras(d)  # Zeitlimit und Erfolgscodes wie im Tool prüfen
-    # Name ohne Befehlstext: er steht je Computer im Protokoll (auch für OU-Admins sichtbar), und im Befehl kann ein
-    # Kennwort stehen
+    clean_extras(d)  # validate time limit and success codes as in the tool
+    # Name without the command text: it appears per computer in the log (visible to OU admins too), and the command may
+    # contain a password
     d.update(id="adhoc", repo_path="", scan_after="never", scan_profile_id=None,
              name=f"Befehl ({'PowerShell' if typ == 'powershell' else 'CMD'}{' als SYSTEM' if run_as == 'system' else ''})")
     return d
@@ -869,7 +869,7 @@ def adhoc_tool(data):
 
 def start_job(tool, ids, user):
     from . import pklog
-    ids = list(dict.fromkeys(ids))  # 2.34: doppelte IDs nicht doppelt ausführen
+    ids = list(dict.fromkeys(ids))  # 2.34: do not run duplicate IDs twice
     jid = secrets.token_hex(6)
     names = {r["id"]: r["name"] for r in db.q("SELECT id, name FROM computers")}
     job = {"id": jid, "tool": tool["name"], "user": user, "started": util.now(),
@@ -891,7 +891,7 @@ def start_job(tool, ids, user):
         pklog.info("tool", f"Tool '{tool['name']}' auf {t['name']}: {status} (Exitcode {res['exit']}).",
                    user=user, computer_id=cid)
         scan_after(tool, cid, user, status == "OK", res)
-        t["res"], t["status"] = res, status  # erst jetzt fertig (die Oberfläche fragt den Stand ab)
+        t["res"], t["status"] = res, status  # only now finished (the UI polls the state)
     for cid in ids:
         _jpool.submit(one, cid)
     return jid

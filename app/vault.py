@@ -1,7 +1,7 @@
-"""Verschlüsselte Ablage von Kennwörtern in der Datenbank (Dienstkonto, Repository, SMTP).
+"""Encrypted storage of passwords in the database (service account, repository, SMTP).
 
-Der Schlüssel liegt in /data/pocketknife.key (nur für root lesbar) und wird beim ersten Start erzeugt.
-Wer nur die Datenbank kopiert, kann die Kennwörter nicht lesen; Sicherungen müssen den Schlüssel mitnehmen.
+The key lives in /data/pocketknife.key (readable by root only) and is generated on first start.
+Anyone who copies only the database cannot read the passwords; backups must include the key.
 """
 import os
 import threading

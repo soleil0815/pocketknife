@@ -1,4 +1,4 @@
-"""Berichte (Tabelle, CSV-Export, Druckansicht)."""
+"""Reports (table, CSV export, print view)."""
 import csv
 import re
 import io
@@ -9,7 +9,7 @@ COLL = {"name": "collection", "label": "Sammlung", "type": "collection", "defaul
 
 
 def _scope(params, col="c.id"):
-    """2.30: OU-Admin – nur seine Computer (vom Server gesetzt, nie aus der Anfrage: main entfernt Parameter mit „_“)."""
+    """2.30: OU admin - only their computers (set by the server, never from the request: main removes parameters with "_")."""
     sc = params.get("_scope")
     if sc is None:
         return "1=1", []
@@ -152,7 +152,7 @@ def _security(p):
 
 
 def _json_report(cat, cols, where_extra="", order=None):
-    """Bericht über eine Inventar-Kategorie (JSON je Computer)."""
+    """Report over an inventory category (JSON per computer)."""
     def fn(p):
         w, a = _cw(p)
         sel = ", ".join(f"json_extract(j.value, '$.{k}') AS \"{k}\"" for k, _l in cols)
@@ -180,7 +180,7 @@ def _system_props(p):
 
 
 def _wol(p):
-    """2.31: Wake-on-LAN-Bereitschaft je Netzwerkkarte – warum ein Computer nicht aufwacht, steht oft hier."""
+    """2.31: Wake-on-LAN readiness per network card - why a computer does not wake up is often found here."""
     w, a = _cw(p)
     x = lambda k: f"json_extract(j.value, '$.{k}')"  # noqa: E731
     return (f"""SELECT c.name computer, {x('name')} adapter, {x('status')} status,
@@ -257,7 +257,7 @@ def definitions():
 
 
 def get_def(key):
-    """Definition eines festen oder eigenen Berichts (für Berichtsversand)."""
+    """Definition of a fixed or custom report (for report mailing)."""
     if key in BY_KEY:
         return BY_KEY[key]
     from . import customreports
@@ -283,7 +283,7 @@ _NUM = re.compile(r"^[-+]?\d+([.,]\d+)?$")
 
 
 def _safe(v):
-    """Schutz vor Formel-Injektion in Excel: Texte mit = + - @ am Anfang (außer reinen Zahlen) entschärfen."""
+    """Protection against formula injection in Excel: neutralize texts starting with = + - @ (except pure numbers)."""
     if v is None:
         return ""
     s = str(v)
@@ -297,7 +297,7 @@ def to_csv(columns, rows):
     buf = io.StringIO()
     buf.write("﻿")
     w = csv.writer(buf, delimiter=";", quoting=csv.QUOTE_MINIMAL)
-    w.writerow([_safe(c["label"]) for c in columns])  # auch Spaltennamen (eigene Berichte) entschärfen
+    w.writerow([_safe(c["label"]) for c in columns])  # neutralize column names too (custom reports)
     for r in rows:
         w.writerow([_safe(r.get(c["key"])) for c in columns])
     return buf.getvalue()

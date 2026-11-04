@@ -1,20 +1,20 @@
-"""Repository über die Oberfläche verwalten (2.27): Ordner anlegen, hochladen (in Stücken, mit Fortsetzen), umbenennen,
-verschieben, löschen – immer mit dem Repository-/Dienstkonto, nie mit den Rechten des Bedieners.
+"""Manage the repository via the UI (2.27): create folders, upload (in chunks, resumable), rename,
+move, delete - always with the repository/service account, never with the operator's rights.
 
-Schutz:
-- OU-Admins nur in den Repository-Ordnern ihrer Mandanten (mit „eigene Pakete erlaubt“); den Mandantenordner selbst
-  können sie nicht umbenennen, verschieben oder löschen. Hauptadmins überall.
-- Was ein Paket (auch ein ausgeschalteter Schritt), eine geplante/laufende Bereitstellung, ein Mandant (sein Ordner)
-  oder die winget-Offline-Kopie benutzt, lässt sich nicht löschen oder überschreiben (Meldung mit den Paketen).
-- Verschieben/Umbenennen passt die Pfade in allen betroffenen Paketen, Mandanten, geplanten Bereitstellungen und im
-  bestätigten Stand der Bruchprüfung an – vorher automatische Sicherung, bei einem Fehler wird alles zurückgedreht.
+Protection:
+- OU admins only within the repository folders of their tenants (with "eigene Pakete erlaubt" (own packages allowed)); they
+  cannot rename, move or delete the tenant folder itself. Main admins everywhere.
+- Whatever a package (even a disabled step), a scheduled/running deployment, a tenant (its folder)
+  or the winget offline copy uses cannot be deleted or overwritten (message naming the packages).
+- Moving/renaming adjusts the paths in all affected packages, tenants, scheduled deployments and in the
+  confirmed state of the integrity check - automatic backup beforehand, everything is rolled back on an error.
 
-Duplikatsperre: Kennzeichen je Paket (winget-ID, MSI-Produktcode, SHA-256 der Installationsdatei) in pkg_ident. Gleiche
-Software in einem ANDEREN Bereich (zentral, Mandant X, Mandant Y) wird abgewiesen – auch zwischen zwei Mandanten. Im
-selben Bereich ist es erlaubt. Hauptadmins dürfen übersteuern (protokolliert).
+Duplicate lock: identifiers per package (winget ID, MSI product code, SHA-256 of the installation file) in pkg_ident.
+The same software in a DIFFERENT scope (central, tenant X, tenant Y) is rejected - also between two tenants. Within the
+same scope it is allowed. Main admins may override (logged).
 
-Reparatur per Fingerabdruck: wurde außerhalb von POCKET KNIFE verschoben, sucht repair_suggest die Dateien über Größe
-(Index im Arbeitsspeicher) und SHA-256 und schlägt neue Pfade vor; repair_apply schreibt sie in alle Pakete.
+Repair by fingerprint: if something was moved outside POCKET KNIFE, repair_suggest finds the files by size
+(index in memory) and SHA-256 and proposes new paths; repair_apply writes them into all packages.
 """
 import hashlib
 import itertools
@@ -30,15 +30,15 @@ norm = integrity.norm
 key = integrity.key
 
 TENANT_BASE = "Mandanten"
-CHUNK = 8 * 1024 * 1024         # Größe eines Upload-Stücks (Browser → Server)
-UPLOAD_STALE_H = 24             # abgebrochene Uploads so lange fortsetzbar, danach aufgeräumt
-REPAIR_CANDIDATES = 25          # je fehlender Datei höchstens so viele Kandidaten per Fingerabdruck prüfen
+CHUNK = 8 * 1024 * 1024         # size of an upload chunk (browser -> server)
+UPLOAD_STALE_H = 24             # aborted uploads stay resumable this long, then are cleaned up
+REPAIR_CANDIDATES = 25          # per missing file, check at most this many candidates by fingerprint
 REPAIR_SECONDS = 90
 
-_write_lock = threading.RLock()  # Struktur-Änderungen (Verschieben, Löschen, Abschluss eines Uploads) nacheinander
+_write_lock = threading.RLock()  # structure changes (move, delete, completion of an upload) one after another
 _up_locks = {}
 _up_locks_lock = threading.Lock()
-_hashers = {}                    # Upload-Token → (sha256-Objekt, bis Byte) – nach einem Neustart aus der Datei neu
+_hashers = {}                    # upload token -> (sha256 object, up to byte) - rebuilt from the file after a restart
 _warned = set()
 
 INVALID = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
@@ -54,23 +54,23 @@ class RepoError(ValueError):
 
 
 class Blocked(RepoError):
-    """Ein Paket (o. Ä.) benutzt den Pfad noch."""
+    """A package (or similar) still uses the path."""
     status = 409
 
 
 class Duplicate(RepoError):
-    """Gleiche Software gibt es schon in einem anderen Bereich."""
+    """The same software already exists in a different scope."""
     status = 409
 
 
-# --- Pfade und Bereiche ------------------------------------------------------------------------------------------
+# --- Paths and scopes ------------------------------------------------------------------------------------------
 def _parts(rel):
     p = [x for x in str(rel or "").replace("/", "\\").split("\\") if x not in ("", ".")]
     if ".." in p:
         raise RepoError("Ungültiger Pfad.")
     for x in p:
-        # Zeichen, die Python beim Kleinschreiben anders zusammenlegt als Windows (z. B. das Kelvin-Zeichen „K“ → „k“):
-        # sonst hielte die Bereichsprüfung einen Nachbarordner für den eigenen
+        # Characters that Python lowercases differently than Windows does (e.g. the Kelvin sign "K" -> "k"):
+        # otherwise the scope check would take a neighbouring folder for the own one
         if x.lower().upper() != x.upper() or x.upper().lower() != x.lower():
             raise RepoError(f"„{x}“ enthält ein Sonderzeichen, das im Repository nicht erlaubt ist.")
     return p
@@ -112,11 +112,11 @@ def valid_name(name):
 
 
 def roots(user):
-    """Ordner, in denen der Benutzer schreiben darf – None = überall (Hauptadmin)."""
+    """Folders the user may write in - None = everywhere (main admin)."""
     if not access.scoped(user):
         return None
     for t in access.build_tenants(user):
-        # ohne Ordner – oder das Anlegen schlug zuletzt fehl (z. B. Freigabe kurz weg): erneut versuchen
+        # without a folder - or creating it failed last time (e.g. share briefly gone): try again
         if not (t.get("repo_folder") or "").strip() or ("tenant", t["id"]) in _warned:
             try:
                 ensure_tenant_folder(t["id"])
@@ -126,8 +126,8 @@ def roots(user):
 
 
 def need_scope(user, rel, own_root_ok=True):
-    """Pfad prüfen und normalisieren. own_root_ok=False: der Mandantenordner selbst (bzw. das ganze Repository) ist
-    nicht erlaubt – fürs Umbenennen, Verschieben und Löschen."""
+    """Check and normalize a path. own_root_ok=False: the tenant folder itself (or the whole repository) is
+    not allowed - for renaming, moving and deleting."""
     rel = "\\".join(_parts(rel))
     k = rel.lower()
     if k.split("\\")[0] == remote.UPLOAD_DIR:
@@ -151,8 +151,8 @@ def need_scope(user, rel, own_root_ok=True):
 
 
 def _kind_ci(rel):
-    """Wie remote.repo_stat, aber ohne Rücksicht auf Groß-/Kleinschreibung (Windows-Freigaben unterscheiden nicht –
-    ein lokales Repository unter Linux schon: dort darf „App“ neben „app“ nicht entstehen)."""
+    """Like remote.repo_stat, but ignoring case (Windows shares do not distinguish -
+    a local repository on Linux does: there "App" must not be created next to "app")."""
     k = remote.repo_stat(rel)
     if k is not None:
         return k
@@ -167,7 +167,7 @@ def _kind_ci(rel):
 
 
 def tenant_of_path(rel):
-    """Mandant, in dessen Repository-Ordner der Pfad liegt (der längste passende) – 0 = zentral."""
+    """Tenant whose repository folder contains the path (the longest match) - 0 = central."""
     k = key(rel)
     best, tid = -1, 0
     for t in db.q("SELECT id, repo_folder FROM tenants WHERE COALESCE(repo_folder, '') != ''"):
@@ -191,7 +191,7 @@ def _log(user, msg, tid=None):
     pklog.info("repo", msg + (f" [{scope_name(tid)}]" if tid else ""), user=who)
 
 
-# --- Mandantenordner -------------------------------------------------------------------------------------------
+# --- Tenant folders ------------------------------------------------------------------------------------------
 def _safe_folder_name(name, tid):
     n = INVALID.sub("_", str(name or "")).strip().rstrip(". ")
     if not n or RESERVED.match(n) or n.startswith("."):
@@ -200,8 +200,8 @@ def _safe_folder_name(name, tid):
 
 
 def ensure_tenant_folder(tid, create=True):
-    """Darf der Mandant eigene Pakete bauen und hat keinen Repository-Ordner, bekommt er „Mandanten\\<Name>“ (ein Ordner
-    je Mandant, alle seine Admins teilen ihn). Der Ordner wird im Repository angelegt, falls er fehlt."""
+    """If the tenant may build its own packages and has no repository folder, it gets "Mandanten\\<name>" (one folder
+    per tenant, shared by all its admins). The folder is created in the repository if it is missing."""
     t = db.q1("SELECT * FROM tenants WHERE id=?", (tid,))
     if not t or not t.get("allow_packages"):
         return None
@@ -249,8 +249,8 @@ def ensure_all_tenant_folders():
 
 
 def check_tenant_folder(folder, tid=None):
-    """Zwei Mandanten dürfen sich keinen Ordner teilen (auch nicht ineinander verschachtelt) – sonst sähe und änderte
-    der eine die Dateien des anderen."""
+    """Two tenants must not share a folder (also not nested in each other) - otherwise one would see and change
+    the other's files."""
     k = key(folder)
     if not k:
         return
@@ -258,31 +258,31 @@ def check_tenant_folder(folder, tid=None):
         o = key(r["repo_folder"])
         if k == o or k.startswith(o + "\\") or o.startswith(k + "\\"):
             raise RepoError(f"Der Repository-Ordner überschneidet sich mit dem von Mandant „{r['name']}“ ({norm(r['repo_folder'])}).")
-    # 2.32.7: auch keine Ordner, die ein Tool benutzt (Tools laufen für alle mit dem Dienstkonto bzw. als SYSTEM)
+    # 2.32.7: also no folders used by a tool (tools run for everyone with the service account or as SYSTEM)
     try:
         tool_rows = db.q("SELECT name, repo_path FROM tools WHERE COALESCE(repo_path, '') != ''")
-    except Exception:  # Tabelle/Spalte noch nicht angelegt (Start, ältere Datenbank)
+    except Exception:  # table/column not created yet (start, older database)
         tool_rows = []
     for t in tool_rows:
         o = key(t["repo_path"])
         if o and (k == o or k.startswith(o + "\\") or o.startswith(k + "\\")):
             raise RepoError(f"Der Ordner „{norm(folder)}“ überschneidet sich mit den Dateien des Tools „{t['name']}“ "
                             f"({norm(t['repo_path'])}) – als Mandantenordner nicht möglich.")
-    # Ordner, die schon Pakete anderer Bereiche (zentral, andere Mandanten) benutzen, darf ein Mandant nicht bekommen –
-    # seine Admins könnten sonst deren Dateien ändern oder etwas danebenlegen
+    # A tenant must not get folders already used by packages of other scopes (central, other tenants) -
+    # its admins could otherwise change their files or put something next to them
     others = [h for h in usage(folder) if h[4][0] == "pkg" and h[4][3] != int(tid or 0) and
               (key(h[0]) == k or key(h[0]).startswith(k + "\\"))]
     if others:
         raise RepoError(f"Im Ordner „{norm(folder)}“ liegen Dateien von {usage_summary(others, 4)} – als Mandantenordner nicht möglich.")
 
 
-# --- Wer benutzt welchen Pfad? ------------------------------------------------------------------------------------
+# --- Who uses which path? ---------------------------------------------------------------------------------------
 _sid = itertools.count(1)
 
 
 def _step_paths(stp, owner, out, _depth=0):
-    """Alle Repository-Pfade eines Schritt-Baums (auch ausgeschaltete Schritte und Snapshots verschachtelter Pakete):
-    out += [(pfad, art, haupt, schritt-id, besitzer)]."""
+    """All repository paths of a step tree (also disabled steps and snapshots of nested packages):
+    out += [(path, kind, main, step-id, owner)]."""
     if _depth > steps.MAX_DEPTH + 2 or not isinstance(stp, dict):
         return
     for lst in stp.values():
@@ -292,7 +292,7 @@ def _step_paths(stp, owner, out, _depth=0):
             if not isinstance(st, dict):
                 continue
             t = st.get("type")
-            sid = next(_sid)  # eindeutig je Schritt (id() eines kurzlebigen Objekts kann sich wiederholen)
+            sid = next(_sid)  # unique per step (id() of a short-lived object can repeat)
             if t == "install" and st.get("source") == "file":
                 folder = norm(st.get("folder"))
                 f = (st.get("install_file") or "").strip()
@@ -311,8 +311,8 @@ def _pkg_steps(row):
 
 
 def all_refs():
-    """[(pfad, art, haupt, schritt, besitzer)] – besitzer: („pkg“, id, name, tenant) / („dep“, id, name) /
-    („tenant“, id, name) / („setting“, schlüssel, titel)."""
+    """[(path, kind, main, step, owner)] - owner: ("pkg", id, name, tenant) / ("dep", id, name) /
+    ("tenant", id, name) / ("setting", key, title)."""
     out = []
     for r in db.q("SELECT * FROM packages"):
         try:
@@ -328,7 +328,7 @@ def all_refs():
     for t in db.q("SELECT id, name, repo_folder FROM tenants WHERE COALESCE(repo_folder, '') != ''"):
         out.append((norm(t["repo_folder"]), "tenant", False, None, ("tenant", t["id"], t["name"])))
     from . import wingetboot
-    wb = norm(wingetboot.folder())  # 2.37: auch der Standardordner „_winget“
+    wb = norm(wingetboot.folder())  # 2.37: also the default folder "_winget"
     if wb:
         out.append((wb, "dir", True, None, ("setting", "winget_bootstrap_folder", "winget-Offline-Kopie (Einstellungen)")))
     return out
@@ -345,7 +345,7 @@ def _owner_text(o):
 
 
 def usage(rel, refs=None):
-    """Wer benutzt den Pfad (die Datei, den Ordner mit allem darin, oder liegt er in einem benutzten Paketordner)?"""
+    """Who uses the path (the file, the folder with everything in it, or is it inside a used package folder)?"""
     k = key(rel)
     hits = []
     for r, kind, main, sid, owner in (refs if refs is not None else all_refs()):
@@ -367,7 +367,7 @@ def usage_summary(hits, limit=8):
 
 
 def used_map(folder):
-    """Für die Repository-Ansicht: {name klein: [„Paket X“, …]} der Einträge eines Ordners, die benutzt werden."""
+    """For the repository view: {lowercase name: ["Paket X", ...]} of the entries of a folder that are in use."""
     fk = key(folder)
     res = {}
     for r, kind, _m, _s, o in all_refs():
@@ -385,9 +385,9 @@ def used_map(folder):
 
 
 def _foreign_use(user, rel, refs=None):
-    """OU-Admin: benutzen Pakete ANDERER Bereiche (zentral, andere Mandanten) oder Einstellungen diesen Pfad bzw.
-    den Ordner, in dem er liegt? Dann darf er dort nichts ablegen, anlegen oder hinschieben. (Bereitstellungen sind
-    Abzüge von Paketen – maßgeblich ist, wem das Paket gehört.)"""
+    """OU admin: do packages of OTHER scopes (central, other tenants) or settings use this path or
+    the folder it is in? Then he may not store, create or move anything there. (Deployments are
+    snapshots of packages - what matters is who owns the package.)"""
     if not access.scoped(user):
         return []
     mine = set(access.tenant_ids(user) or [])
@@ -408,9 +408,9 @@ def _block_if_used(rel, what):
                       {"used_by": sorted({_owner_text(h[4]) for h in hits})})
 
 
-# --- Pfade umschreiben ---------------------------------------------------------------------------------------------
+# --- Rewriting paths ---------------------------------------------------------------------------------------------
 def map_path(rel, pairs):
-    """Neuer Pfad nach dem Verschieben (pairs = [(alt, neu)]) – None, wenn nicht betroffen."""
+    """New path after moving (pairs = [(old, new)]) - None if not affected."""
     p = _parts(rel)
     k = "\\".join(p).lower()
     for old, new in pairs:
@@ -422,7 +422,7 @@ def map_path(rel, pairs):
 
 
 def rewrite_steps(stp, pairs, _depth=0):
-    """Pfade in einem Schritt-Baum anpassen (an Ort und Stelle). Gibt (geändert, probleme) zurück."""
+    """Adjust paths in a step tree (in place). Returns (changed, problems)."""
     changed, problems = False, []
     if _depth > steps.MAX_DEPTH + 2 or not isinstance(stp, dict):
         return changed, problems
@@ -471,7 +471,7 @@ def _legacy_from_steps(stp):
 
 
 def _map_keys(table, pairs, extra_cols=True):
-    """Schlüssel (Pfad klein) einer Tabelle nach dem Verschieben anpassen: repo_baseline, repo_baseline_dirs, repo_hash."""
+    """Adjust the keys (lowercase path) of a table after moving: repo_baseline, repo_baseline_dirs, repo_hash."""
     for old, new in pairs:
         ok = key(old)
         rows = db.q(f"SELECT * FROM {table} WHERE path=? OR (path >= ? AND path < ?)", (ok, ok + "\\", ok + "]"))
@@ -485,13 +485,13 @@ def _map_keys(table, pairs, extra_cols=True):
             if extra_cols:
                 r["disp"] = np_
             cols = list(r)
-            # ein schon vorhandener Stand am neuen Ort (Reparatur) bleibt – andere Pakete verlassen sich darauf
+            # an already existing state at the new location (repair) stays - other packages rely on it
             db.ex(f"INSERT OR IGNORE INTO {table}({', '.join(cols)}) VALUES({', '.join('?' * len(cols))})",
                   tuple(r[c] for c in cols))
 
 
 def plan_rewrite(pairs, refs=None):
-    """Was ändert sich in der Datenbank, wenn pairs verschoben werden? {packages, tenants, deployments, settings, problems}"""
+    """What changes in the database when pairs are moved? {packages, tenants, deployments, settings, problems}"""
     refs = refs if refs is not None else all_refs()
     tenants = {t["id"]: t for t in db.q("SELECT id, name, repo_folder FROM tenants")}
     out = {"packages": [], "tenants": [], "deployments": [], "settings": [], "problems": []}
@@ -518,7 +518,7 @@ def plan_rewrite(pairs, refs=None):
         after = []
         _step_paths(stp, None, after)
         changes = list({(a[0], b[0]): {"old": a[0], "new": b[0]} for a, b in zip(before, after) if a[0] != b[0]}.values())
-        # Pakete eines Mandanten müssen in dessen Ordner bleiben, zentrale dürfen nicht in einen Mandantenordner
+        # Packages of a tenant must stay in its folder, central ones must not go into a tenant folder
         folder = new_tenant_folder.get(tid, norm(tenants.get(tid, {}).get("repo_folder"))) if tid else None
         for b in after:
             bk = key(b[0])
@@ -533,7 +533,7 @@ def plan_rewrite(pairs, refs=None):
                     break
         out["packages"].append({"id": pid, "name": row["name"], "tenant": scope_name(tid), "steps": stp,
                                 "changes": changes})
-    # alle Bereitstellungen – auch abgeschlossene: „Erneut verteilen“/„Wiederholen“ nimmt deren Snapshot
+    # all deployments - also completed ones: "Erneut verteilen"/"Wiederholen" uses their snapshot
     for d in db.q("SELECT id, name, status, package_json FROM deployments"):
         try:
             pj = json.loads(d["package_json"] or "{}")
@@ -563,10 +563,10 @@ def _tenant_of_new(k, tenants, new_folder):
 
 
 def _apply_db(plan, pairs):
-    """Änderungen aus plan_rewrite in EINER Transaktion schreiben."""
+    """Write the changes from plan_rewrite in ONE transaction."""
     with db.tx():
         for pk in plan["packages"]:
-            # Zeile JETZT neu lesen und erneut umschreiben – wer das Paket inzwischen gespeichert hat, verliert nichts
+            # Re-read the row NOW and rewrite again - whoever saved the package in the meantime loses nothing
             row = db.q1("SELECT * FROM packages WHERE id=?", (pk["id"],))
             if not row:
                 continue
@@ -580,7 +580,7 @@ def _apply_db(plan, pairs):
                 db.ex("UPDATE packages SET steps=?, updated_at=? WHERE id=?",
                       (json.dumps(stp, ensure_ascii=False), util.now(), pk["id"]))
         for t in plan["tenants"]:
-            db.ex("UPDATE tenants SET repo_folder=? WHERE id=?", (t["new"], t["id"]))  # nur Hauptadmins (OU: eigener Ordner gesperrt)
+            db.ex("UPDATE tenants SET repo_folder=? WHERE id=?", (t["new"], t["id"]))  # main admins only (OU: own folder locked)
         for d in plan["deployments"]:
             cur = db.val("SELECT package_json FROM deployments WHERE id=?", (d["id"],))
             try:
@@ -616,7 +616,7 @@ def _recheck(pids):
         threading.Thread(target=run, name="pk-repo-recheck", daemon=True).start()
 
 
-# --- Ordner, Umbenennen, Verschieben, Löschen -----------------------------------------------------------------------
+# --- Folders, rename, move, delete --------------------------------------------------------------------------------
 def mkdir(user, folder, name):
     folder = need_scope(user, folder)
     name = valid_name(name)
@@ -636,7 +636,7 @@ def mkdir(user, folder, name):
 
 
 def mkdirs(user, folder, rel_dirs):
-    """Ordnerbaum für einen Ordner-Upload anlegen (vorhandene sind kein Fehler)."""
+    """Create the folder tree for a folder upload (existing ones are not an error)."""
     folder = need_scope(user, folder)
     made = 0
     for d in sorted({"\\".join(_parts(x)) for x in rel_dirs or [] if _parts(x)}, key=lambda x: x.count("\\")):
@@ -657,7 +657,7 @@ def mkdirs(user, folder, rel_dirs):
 
 
 def _check_pairs(user, pairs):
-    """Quellen und Ziele prüfen: Bereich, vorhanden/frei, nichts in sich selbst, keine doppelten Quellen."""
+    """Check sources and targets: scope, exists/free, nothing into itself, no duplicate sources."""
     out = []
     for src, dst in pairs:
         src = need_scope(user, src, own_root_ok=False)
@@ -683,8 +683,8 @@ def _check_pairs(user, pairs):
 
 
 def _moving_out_of_used(pairs, refs):
-    """Datei/Ordner liegt IN einem benutzten Paketordner (und ist nicht selbst die Installationsdatei dieses Schritts):
-    Umbenennen oder Verschieben würde das Paket stillschweigend ändern."""
+    """File/folder is INSIDE a used package folder (and is not itself the installation file of this step):
+    renaming or moving would silently change the package."""
     probs = []
     for src, _dst in pairs:
         sk = key(src)
@@ -699,9 +699,9 @@ def _moving_out_of_used(pairs, refs):
 
 
 def move(user, pairs, dry_run=True, label="vor-repo-umbau", assume_dirs=()):
-    """Verschieben/Umbenennen (pairs = [(quelle, ziel)] als volle relative Pfade). dry_run: nur Vorschau.
-    Ausführen: Sicherung (wenn sich in der Datenbank etwas ändert), Dateien verschieben, Datenbank in einer Transaktion
-    anpassen – bei einem Fehler wird alles zurückgedreht."""
+    """Move/rename (pairs = [(source, target)] as full relative paths). dry_run: preview only.
+    Execution: backup (if something changes in the database), move files, adjust the database in one transaction
+    - everything is rolled back on an error."""
     from . import backup
     with _write_lock:
         pairs = _check_pairs(user, pairs)
@@ -717,14 +717,14 @@ def move(user, pairs, dry_run=True, label="vor-repo-umbau", assume_dirs=()):
             if par and par.lower() not in assume_dirs and remote.repo_stat(par) != "dir":
                 problems.append(f"Zielordner „{par}“ gibt es nicht.")
         refs = all_refs()
-        # Ordner eines Mandanten verschieben (nur Hauptadmin): erlaubt, sein Repository-Ordner zieht mit
+        # Move a tenant's folder (main admin only): allowed, its repository folder moves along
         problems += _moving_out_of_used(pairs, refs)
         for _src, dst in pairs:
             hits = _foreign_use(user, dst, refs)
             if hits:
                 problems.append(f"Ziel „{_parent(dst) or dst}“ benutzt {usage_summary(hits, 3)} – dort können Sie nichts hinschieben.")
         plan = plan_rewrite(pairs, refs)
-        # Neuer Mandantenordner darf sich nicht mit einem anderen überschneiden
+        # A new tenant folder must not overlap with another one
         newt = {t["id"]: t["new"] for t in plan["tenants"]}
         allt = {r["id"]: newt.get(r["id"], norm(r["repo_folder"])) for r in db.q(
             "SELECT id, repo_folder FROM tenants WHERE COALESCE(repo_folder, '') != ''")}
@@ -732,7 +732,7 @@ def move(user, pairs, dry_run=True, label="vor-repo-umbau", assume_dirs=()):
             for b, fb in allt.items():
                 if a < b and (key(fa) == key(fb) or key(fa).startswith(key(fb) + "\\") or key(fb).startswith(key(fa) + "\\")):
                     problems.append(f"Danach überschnitten sich die Ordner von {scope_name(a)} und {scope_name(b)}.")
-        # Etwas in einen fremden Mandantenordner schieben (Hauptadmin) – fremde Admins könnten es dann ändern
+        # Moving something into a foreign tenant folder (main admin) - foreign admins could then change it
         for src, dst in pairs:
             ts, td = tenant_of_path(src), _tenant_of_new(key(dst), {r["id"]: r for r in db.q(
                 "SELECT id, repo_folder FROM tenants")}, newt)
@@ -759,8 +759,8 @@ def move(user, pairs, dry_run=True, label="vor-repo-umbau", assume_dirs=()):
                 done.append((src, dst))
             _apply_db(plan, pairs)
         except Exception as e:
-            # Was ist wirklich passiert? Ein Fehler nach dem Umbenennen auf dem Server (z. B. Zeitüberschreitung) –
-            # dann liegt die Datei schon am Ziel, obwohl der Aufruf fehlschlug
+            # What really happened? An error after the rename on the server (e.g. timeout) -
+            # then the file is already at the target although the call failed
             for src, dst in pairs:
                 if (src, dst) not in done:
                     try:
@@ -804,7 +804,7 @@ def move_into(user, items, dest, dry_run=True, create_dest=False):
         return move(user, pairs, dry_run=dry_run)
     for n in _parts(dest):
         valid_name(n)
-    # Zielordner fehlt: Vorschau so, als gäbe es ihn; beim Ausführen erst anlegen (und bei Problemen wieder entfernen)
+    # Target folder missing: preview as if it existed; when executing, create it first (and remove it again on problems)
     pub = move(user, pairs, dry_run=True, assume_dirs={dest.lower()})
     pub["create_dest"] = dest
     if dry_run or pub["problems"]:
@@ -851,7 +851,7 @@ def delete(user, items):
     return {"deleted": out}
 
 
-# --- Upload ----------------------------------------------------------------------------------------------------------
+# --- Upload --------------------------------------------------------------------------------------------------------
 def _ext_ok(user, name):
     if not access.scoped(user):
         return True
@@ -890,7 +890,7 @@ def _up_lock(token):
 
 
 def cleanup_uploads():
-    """Abgebrochene Uploads nach UPLOAD_STALE_H Stunden aufräumen (Zwischendatei und Eintrag)."""
+    """Clean up aborted uploads after UPLOAD_STALE_H hours (temporary file and entry)."""
     rows = db.q("SELECT * FROM repo_uploads")
     n = 0
     for r in rows:
@@ -928,7 +928,7 @@ def upload_start(user, folder, name, size, overwrite=False, allow_dup=False):
     if folder and remote.repo_stat(folder) != "dir":
         raise RepoError(f"Ordner „{folder}“ gibt es nicht (mehr).")
     username = user["username"]
-    # Fortsetzen: derselbe Benutzer, dieselbe Datei, dieselbe Größe
+    # Resume: same user, same file, same size
     old = db.q1("SELECT * FROM repo_uploads WHERE username=? AND lower(folder)=? AND lower(name)=? AND size=?",
                 (username, folder.lower(), name.lower(), size))
     kind = _kind_ci(rel)
@@ -1073,7 +1073,7 @@ def upload_finish(user, token, allow_dup=False):
                 _discard(r["token"])
                 raise Duplicate(_dup_message(conflicts, user, upload=True), _dup_info(conflicts, user))
             else:
-                # Hauptadmin: Datei bleibt in der Zwischenablage – „Trotzdem hochladen“ schließt ohne neues Hochladen ab
+                # Main admin: the file stays in the staging area - "Trotzdem hochladen" (upload anyway) completes it without uploading again
                 info = _dup_info(conflicts, user)
                 info["token"] = r["token"]
                 raise Duplicate(_dup_message(conflicts, user, upload=True), info)
@@ -1125,7 +1125,7 @@ def _visible_path(user, p):
     return any(k == r or k.startswith(r + "\\") for r in rs)
 
 
-# --- Duplikatsperre ----------------------------------------------------------------------------------------------
+# --- Duplicate lock --------------------------------------------------------------------------------------------
 def _pc(v):
     v = str(v or "").strip().upper()
     if v and not v.startswith("{"):
@@ -1134,7 +1134,7 @@ def _pc(v):
 
 
 def _file_sha(rel, size_mtime):
-    """Bekannter Fingerabdruck einer Repository-Datei (Upload oder Bruchprüfung) – ohne neu zu rechnen."""
+    """Known fingerprint of a repository file (upload or integrity check) - without recomputing."""
     k = key(rel)
     size, mtime = size_mtime
     for tbl, scol, mcol in (("repo_hash", "size", "mtime"), ("repo_baseline", "size", "mtime")):
@@ -1168,8 +1168,8 @@ def _msi_code(rel, size_mtime):
 
 
 def idents(p, io=True):
-    """Kennzeichen eines Pakets: {(art, wert)} und ob noch etwas fehlt (Fingerabdruck noch nicht berechnet).
-    Zählen nur eingeschaltete Installationsschritte (verschachtelte Pakete haben eigene Kennzeichen)."""
+    """Identifiers of a package: {(kind, value)} and whether something is still missing (fingerprint not computed yet).
+    Only enabled install steps count (nested packages have their own identifiers)."""
     out, pending = set(), False
     try:
         p = dict(p)
@@ -1209,7 +1209,7 @@ def idents(p, io=True):
             else:
                 pending = True
                 if db.val("SELECT 1 FROM repo_baseline WHERE path=?", (key(rel),)):
-                    integrity.enqueue(key(rel))  # der Hintergrund rechnet ihn, backfill trägt ihn dann nach
+                    integrity.enqueue(key(rel))  # the background job computes it, backfill adds it afterwards
             if not pc and f.lower().endswith(".msi"):
                 code = _msi_code(rel, sm)
                 if code:
@@ -1218,7 +1218,7 @@ def idents(p, io=True):
 
 
 def find_conflicts(ids, scope, exclude_pid=None):
-    """Pakete mit gleichen Kennzeichen in einem ANDEREN Bereich (zentral = 0, sonst Mandanten-ID)."""
+    """Packages with the same identifiers in a DIFFERENT scope (central = 0, otherwise tenant ID)."""
     out = []
     for kind, value in ids:
         for r in db.q("SELECT p.id, p.name, p.tenant_id FROM pkg_ident i JOIN packages p ON p.id=i.package_id "
@@ -1245,7 +1245,7 @@ def _conflict_text(conf):
 def _dup_message(conf, user, upload=False):
     c = conf[0]
     if access.scoped(user):
-        # 2.37: Pakete anderer Mandanten sind für OU-Admins unsichtbar – weder Name noch Mandant nennen
+        # 2.37: packages of other tenants are invisible to OU admins - name neither the package nor the tenant
         mine = set(access.tenant_ids(user))
         seen = [x for x in conf if not x["tenant_id"] or int(x["tenant_id"]) in mine]
         if not seen:
@@ -1271,15 +1271,15 @@ def _dup_info(conf, user):
 
 
 def guard_package(p, pid, user, allow=False, io=True):
-    """Vor dem Speichern: neue bzw. geänderte Kennzeichen gegen andere Bereiche prüfen (vorhandene Altfälle blockieren
-    das Speichern anderer Änderungen nicht). Gibt (kennzeichen, fehlt_noch) zum Speichern zurück."""
+    """Before saving: check new or changed identifiers against other scopes (existing legacy cases do not block
+    saving other changes). Returns (identifiers, still_missing) for saving."""
     ids, pending = idents(p, io=io)
     if not io:
-        pending = True  # Fingerabdruck/MSI ohne Zugriff auf die Freigabe nicht geprüft – backfill trägt nach
+        pending = True  # fingerprint/MSI not checked without access to the share - backfill adds it later
     old = {(r["kind"], r["value"]) for r in db.q("SELECT kind, value FROM pkg_ident WHERE package_id=?", (pid,))} if pid else set()
     if pid:
-        # Kennzeichen des bisher gespeicherten Pakets zählen als „alt“ – auch solche, die erst inzwischen bekannt sind
-        # (Fingerabdruck nachträglich berechnet): ein Altfall blockiert keine andere Änderung
+        # Identifiers of the previously saved package count as "old" - also those that only became known meanwhile
+        # (fingerprint computed later): a legacy case does not block any other change
         row = db.q1("SELECT * FROM packages WHERE id=?", (pid,))
         if row:
             old |= idents(deploy.row_to_package(row), io=io)[0]
@@ -1297,7 +1297,7 @@ def guard_package(p, pid, user, allow=False, io=True):
 
 
 def store_idents(pid, ids, pending):
-    """Kennzeichen speichern (ohne eigene Transaktion – läuft auch innerhalb des Paket-Imports)."""
+    """Save identifiers (without its own transaction - also runs inside the package import)."""
     db.ex("DELETE FROM pkg_ident WHERE package_id=?", (pid,))
     db.exmany("INSERT OR IGNORE INTO pkg_ident(package_id, kind, value) VALUES(?,?,?)", [(pid, k, v) for k, v in ids])
     db.ex("UPDATE packages SET ident_at=? WHERE id=?", (None if pending else util.now(), pid))
@@ -1311,12 +1311,12 @@ _backfill_pos = {"after": 0}
 
 
 def backfill(limit=100, seconds=60):
-    """Kennzeichen nachtragen (Pakete von vor 2.27, Fingerabdruck inzwischen berechnet). Neue Duplikate über Bereiche
-    hinweg lassen sich nachträglich nicht mehr sperren – sie kommen ins Protokoll."""
+    """Backfill identifiers (packages from before 2.27, fingerprint computed meanwhile). New duplicates across
+    scopes can no longer be blocked retroactively - they go into the log."""
     t0 = time.time()
     n = 0
-    # Audit 2.29: reihum weiter (ab der zuletzt bearbeiteten ID) – sonst kämen bei ≥ limit dauerhaft offenen Paketen
-    # (Freigabe meldet Fehler für deren Dateien) die späteren nie an die Reihe
+    # Audit 2.29: continue round-robin (from the last processed ID) - otherwise with >= limit permanently open packages
+    # (share reports an error for their files) the later ones would never get their turn
     rows = db.q("SELECT * FROM packages WHERE (ident_at IS NULL OR ident_at < COALESCE(updated_at, '')) AND id > ? "
                 "ORDER BY id LIMIT ?", (_backfill_pos["after"], limit))
     _backfill_pos["after"] = rows[-1]["id"] if len(rows) >= limit else 0
@@ -1337,9 +1337,9 @@ def backfill(limit=100, seconds=60):
     return n
 
 
-# --- Reparatur per Fingerabdruck -------------------------------------------------------------------------------------
+# --- Repair by fingerprint -----------------------------------------------------------------------------------------
 def _missing_refs(p):
-    """Fehlende Dateien/Ordner eines Pakets (direkt auf der Freigabe nachgesehen): [(pfad, art)]."""
+    """Missing files/folders of a package (checked directly on the share): [(path, kind)]."""
     out = []
     try:
         stp = steps.normalize(dict(p))["steps"]
@@ -1359,7 +1359,7 @@ def _missing_refs(p):
         if kind == "auto":
             kind = "dir" if integrity._rows_under(k) or db.val("SELECT 1 FROM repo_baseline_dirs WHERE path=?", (k,)) else "file"
         out.append((rel, kind))
-    # Ordner fehlt → seine Installationsdatei nicht extra suchen
+    # folder missing -> do not search for its installation file separately
     dirs = [key(r) for r, kd in out if kd == "dir"]
     return [(r, kd) for r, kd in out if kd == "dir" or not any(key(r).startswith(d + "\\") for d in dirs)]
 
@@ -1378,8 +1378,8 @@ def _sha_of(path, size, mtime, deadline):
 
 
 def repair_suggest(user, p):
-    """Vorschläge [(alt, neu, art, wie)] für fehlende Dateien/Ordner eines Pakets. Braucht den Index im Arbeitsspeicher
-    (Kandidaten über die Größe); Fingerabdrücke werden höchstens REPAIR_SECONDS lang berechnet."""
+    """Suggestions [(old, new, kind, how)] for missing files/folders of a package. Needs the index in memory
+    (candidates by size); fingerprints are computed for at most REPAIR_SECONDS."""
     idx = remote.repo_index_files()
     if idx is None:
         remote.repo_cache_refresh()
@@ -1443,7 +1443,7 @@ def repair_suggest(user, p):
 
 
 def repair_apply(user, pairs):
-    """Gefundene neue Pfade in ALLE Pakete übernehmen (die Dateien selbst wurden schon außerhalb verschoben)."""
+    """Adopt found new paths into ALL packages (the files themselves were already moved outside)."""
     from . import backup
     with _write_lock:
         clean = []

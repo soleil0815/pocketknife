@@ -1,10 +1,11 @@
-"""Optionaler Proxyserver für Internetzugriffe (Einstellungen → Repository & winget → Proxyserver).
+"""Optional proxy server for internet access (Einstellungen -> Repository & winget -> Proxyserver).
 
-- POCKET KNIFE selbst: Download des winget-Katalogs. Wahlweise mit Benutzer und Kennwort (Basic-Anmeldung am Proxy);
-  das Kennwort liegt verschlüsselt im Tresor (Einstellung „proxy_password“, nie im Klartext und nie im Diagnosepaket).
-- Clients (optional, „proxy_clients“): winget lädt über den Proxy (winget-Administratoreinstellung „DefaultProxy“),
-  ebenso das Nachinstallieren von winget. Anmeldedaten gehen NIE an die Clients – sie melden sich, falls der Proxy das
-  verlangt, mit dem Computerkonto an (Windows-Anmeldung/Kerberos/NTLM am Proxy).
+- POCKET KNIFE itself: download of the winget catalog. Optionally with user and password (Basic authentication at the
+  proxy); the password is stored encrypted in the vault (setting "proxy_password", never in plain text and never in the
+  diagnostics package).
+- Clients (optional, "proxy_clients"): winget downloads through the proxy (winget administrator setting "DefaultProxy"),
+  as does the installation of winget. Credentials are NEVER sent to the clients - if the proxy requires it, they
+  authenticate with the computer account (Windows authentication/Kerberos/NTLM at the proxy).
 """
 import re
 import time
@@ -23,7 +24,7 @@ def settings():
 
 
 def clean_url(url):
-    """Proxy-Adresse prüfen: http(s)://name:port – ohne Anmeldedaten in der Adresse (die gehören in den Tresor)."""
+    """Validate the proxy address: http(s)://name:port - without credentials in the address (they belong in the vault)."""
     u = str(url or "").strip()
     if not u:
         return ""
@@ -53,7 +54,7 @@ def save(data):
     old = settings()
     if url and old["password_set"] and user and not data.get("password") and not data.get("clear_password") and \
             (url.lower(), user.lower()) != (str(old["url"] or "").lower(), str(old["user"] or "").lower()):
-        # Audit 2.29: gespeichertes Kennwort nie an einen anderen Proxy/Benutzer schicken (wie bei SMTP)
+        # Audit 2.29: never send a stored password to a different proxy/user (as with SMTP)
         raise ValueError("Proxy-Adresse oder Benutzer geändert – bitte das Kennwort erneut eingeben.")
     db.set_setting("proxy_url", url)
     db.set_setting("proxy_user", user)
@@ -67,7 +68,7 @@ def save(data):
 
 
 def _server_proxy():
-    """Proxy-URL für Zugriffe von POCKET KNIFE selbst (mit Anmeldedaten) oder None."""
+    """Proxy URL for accesses by POCKET KNIFE itself (with credentials) or None."""
     s = settings()
     if not s["url"]:
         return None
@@ -80,8 +81,8 @@ def _server_proxy():
 
 
 class SafeRedirect(urllib.request.HTTPRedirectHandler):
-    """Weiterleitung auf einen anderen Rechner: Anmeldedaten (Authorization) nicht mitschicken – urllib täte das
-    (Audit 2.29: ein Token für GitHub ginge sonst an jedes Weiterleitungsziel)."""
+    """Redirect to another host: do not forward credentials (Authorization) - urllib would do so
+    (Audit 2.29: otherwise a token for GitHub would go to every redirect target)."""
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         new = super().redirect_request(req, fp, code, msg, headers, newurl)
@@ -94,7 +95,7 @@ class SafeRedirect(urllib.request.HTTPRedirectHandler):
 
 
 def opener():
-    """urllib-Opener: über den Proxy, wenn eingetragen – sonst wie bisher (Umgebungsvariablen des Containers)."""
+    """urllib opener: through the proxy if configured - otherwise as before (environment variables of the container)."""
     p = _server_proxy()
     if not p:
         return urllib.request.build_opener(SafeRedirect)
@@ -106,18 +107,18 @@ def urlopen(req, timeout):
 
 
 def client_proxy():
-    """Proxy-Adresse für die Clients (ohne Anmeldedaten) oder ""."""
+    """Proxy address for the clients (without credentials) or ""."""
     s = settings()
     return s["url"] if s["url"] and s["clients"] else ""
 
 
 def safe_error(e):
-    """Fehlermeldung ohne Anmeldedaten (urllib nennt in Ausnahmen mitunter die Proxy-URL)."""
+    """Error message without credentials (urllib sometimes names the proxy URL in exceptions)."""
     return re.sub(r"(https?://)[^/@\s]+@", r"\1***@", str(e))
 
 
 def test(url):
-    """Erreicht POCKET KNIFE die Adresse über den eingetragenen Proxy? (nur die ersten Bytes)"""
+    """Does POCKET KNIFE reach the address through the configured proxy? (first bytes only)"""
     from . import config
     t0 = time.time()
     req = urllib.request.Request(url, headers={"User-Agent": "POCKETKNIFE/" + config.VERSION, "Range": "bytes=0-1023"})
@@ -134,7 +135,7 @@ def test(url):
     except Exception as e:  # noqa: BLE001
         err = safe_error(e)
         hint = ""
-        if "407" in err:  # HTTPS-Ziel: die Ablehnung kommt beim Tunnelaufbau (CONNECT) als URLError
+        if "407" in err:  # HTTPS target: the rejection arrives as a URLError during tunnel setup (CONNECT)
             hint = "Der Proxy verlangt eine Anmeldung (407) – Benutzer und Kennwort prüfen."
         elif settings()["url"] and ("name or service not known" in err.lower() or "getaddrinfo" in err.lower()
                                     or "nodename nor servname" in err.lower()):

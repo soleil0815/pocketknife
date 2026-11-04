@@ -1,4 +1,4 @@
-"""SQLite-Zugriff (eine Verbindung pro Thread, WAL-Modus)."""
+"""SQLite access (one connection per thread, WAL mode)."""
 import json
 import sqlite3
 import threading
@@ -264,22 +264,22 @@ DEFAULT_SETTINGS = {
     "ad_last_sync": "",
     "ad_last_status": "",
     "heartbeat_minutes": 5,
-    "scan_online_delay_minutes": 3,  # 2.32.8: Scans für gerade hochgefahrene/aufgewachte Computer erst nach dieser Zeit
-    # 2.31: Wake-on-LAN – Pakete je Versuch, Wartezeit auf das Aufwachen (0 = nicht warten), feste Relays (Computernamen)
+    "scan_online_delay_minutes": 3,  # 2.32.8: scans for computers that have just booted/woken up only after this time
+    # 2.31: Wake-on-LAN – packets per attempt, wait time for wake-up (0 = do not wait), fixed relays (computer names)
     "wol_repeat": 3, "wol_wait_seconds": 240, "wol_relays": "",
     "scan_interval_hours": 12,
     "scan_concurrency": 6,
     "deploy_concurrency": 8,
     "deploy_timeout_minutes": 60,
     "rescan_after_deploy": 1,
-    # 2.24: Windows-Benachrichtigung für angemeldete Benutzer nach erfolgreicher Installation/Aktualisierung
+    # 2.24: Windows notification for logged-on users after a successful installation/update
     "reboot_sender": "", "reboot_msg_restart": "", "reboot_msg_shutdown": "", "reboot_msg_deploy": "", "reboot_msg_step": "",
     "reboot_msg_kiosk": "",
-    # 2.26 Bruchprüfung: Vollprüfung der Fingerabdrücke – jede Datei einmal pro Woche, nachts im Zeitfenster, gedrosselt
-    # 2.27 Repository-Upload: größte Datei, Standard-Kontingent je Mandant (0 = unbegrenzt), erlaubte Dateitypen für
-    # OU-Admins (Hauptadmins dürfen alles hochladen)
+    # 2.26 integrity check: full check of the hashes – every file once per week, at night within the time window, throttled
+    # 2.27 repository upload: largest file, default quota per tenant (0 = unlimited), allowed file types for
+    # OU admins (main admins may upload everything)
     "repo_upload_max_mb": 4096, "repo_tenant_quota_mb": 0,
-    # 2.28: Hinweis auf neue Versionen (der Server fragt einmal täglich bei GitHub; Token verschlüsselt als „update_token“)
+    # 2.28: notice of new versions (the server asks GitHub once a day; token encrypted as "update_token")
     "update_check_enabled": 1, "update_repo": "soleil0815/pocketknife",
     "repo_upload_types": "msi,msp,msu,mst,exe,cmd,bat,ps1,psm1,psd1,vbs,reg,zip,7z,cab,msix,msixbundle,appx,appxbundle,"
                          "ini,inf,cat,sys,dll,xml,json,txt,cfg,config,conf,lic,cer,crt,iso,wim,dat,bin,ico,png",
@@ -290,13 +290,13 @@ DEFAULT_SETTINGS = {
     "winget_scope": "machine",
     "winget_bootstrap": 1,
     "winget_bootstrap_folder": "",
-    "winget_bootstrap_tag": "",              # 2.37: zuletzt in das Repository geladenes Release des App-Installers
-    "winget_cache_folder": "winget-cache",   # 2.35: winget-Cache im Repository (für Computer ohne winget)
+    "winget_bootstrap_tag": "",              # 2.37: release of the App Installer last downloaded into the repository
+    "winget_cache_folder": "winget-cache",   # 2.35: winget cache in the repository (for computers without winget)
     "winget_cache_locale": "de-DE",
     "winget_cache_max_mb": 2048,
-    "winget_cache_auto": 1,                  # täglich auf neue Versionen prüfen
-    "winget_cache_all": 1,                   # 2.35.2: auch Computer MIT winget installieren aus dem Cache (schneller, LAN)
-    "winget_release_mode": "off",            # 2.36: neue winget-Versionen: off (sofort) | days (zurückstellen) | manual
+    "winget_cache_auto": 1,                  # check for new versions daily
+    "winget_cache_all": 1,                   # 2.35.2: computers WITH winget also install from the cache (faster, LAN)
+    "winget_release_mode": "off",            # 2.36: new winget versions: off (immediately) | days (defer) | manual
     "winget_release_days": 2,
     "rule_retry_hours": 24,
     "repo_path": "",
@@ -308,21 +308,21 @@ DEFAULT_SETTINGS = {
     "backup_enabled": 1,
     "backup_keep": 10,
     "backup_hour": 2,
-    "auth_mode": "",  # leer = PK_WINRM_AUTH aus der .env
+    "auth_mode": "",  # empty = PK_WINRM_AUTH from the .env
     "scan_log_retention_days": 14,
     "low_disk_gb": 10,
     "ldap_cert_fingerprint": "",
     "ldap_cert_fingerprints": "",
     "ldap_cert_pending": "",
     "session_idle_minutes": 30,
-    # Software-Kiosk: Nutzer installieren freigegebene Software selbst (nur auf dem Rechner, an dem sie angemeldet sind)
+    # Software kiosk: users install approved software themselves (only on the machine they are logged on to)
     "kiosk_enabled": 0, "kiosk_groups": "", "kiosk_ous": "", "kiosk_notify": 1, "kiosk_notify_to": "",
-    "kiosk_max_per_day": 10, "kiosk_title": "Software-Kiosk", "kiosk_sso": 0,  # automatische Abmeldung bei Inaktivität (5–720 Minuten, immer aktiv)
-    "ldap_cert_strict": 1,  # neue Installationen: geänderte DC-Zertifikate erst nach Bestätigung (bestehende behalten ihren Wert)
+    "kiosk_max_per_day": 10, "kiosk_title": "Software-Kiosk", "kiosk_sso": 0,  # automatic logout on inactivity (5–720 minutes, always active)
+    "ldap_cert_strict": 1,  # new installations: changed DC certificates only after confirmation (existing ones keep their value)
     "remote_sso": 1,
-    "proxy_url": "", "proxy_user": "", "proxy_clients": 0,  # 2.23: Proxyserver (Kennwort verschlüsselt: proxy_password)
-    "dns_cache_minutes": 5, "dns_direct": 0, "dns_servers": "",  # 2.20: Namensauflösung (Zwischenspeicher, direkt beim DC)
-    "identity_check": 1, "identity_recheck_hours": 24,  # 2.20: antwortet unter der Adresse wirklich dieser Computer?
+    "proxy_url": "", "proxy_user": "", "proxy_clients": 0,  # 2.23: proxy server (password encrypted: proxy_password)
+    "dns_cache_minutes": 5, "dns_direct": 0, "dns_servers": "",  # 2.20: name resolution (cache, directly at the DC)
+    "identity_check": 1, "identity_recheck_hours": 24,  # 2.20: does this computer really answer at the address?
     "remote_keyboard": "de-de-qwertz",
 }
 
@@ -354,7 +354,7 @@ def _pk_regex(value, pattern):
         import re
         from . import util
         if util.regex_problem(pattern):
-            return 0  # gefährliches/ungültiges Muster (z. B. aus älteren Versionen gespeichert) nie ausführen
+            return 0  # never execute a dangerous/invalid pattern (e.g. saved by older versions)
         try:
             rx = re.compile(pattern, re.I)
         except re.error:
@@ -374,7 +374,7 @@ def _pk_vcmp(a, b):
 
 
 def _register_functions(c):
-    """Eigene SQL-Funktionen für Sammlungsfilter (Versionsvergleich, reguläre Ausdrücke)."""
+    """Custom SQL functions for collection filters (version comparison, regular expressions)."""
     c.create_function("pk_vcmp", 2, _pk_vcmp, deterministic=True)
     c.create_function("pk_regex", 2, _pk_regex, deterministic=True)
 
@@ -412,7 +412,7 @@ def ex(sql, params=()):
 
 
 def ex_count(sql, params=()):
-    """Wie ex(), liefert aber die Anzahl geänderter Zeilen (für bedingte Updates)."""
+    """Like ex(), but returns the number of changed rows (for conditional updates)."""
     return conn().execute(sql, params).rowcount
 
 
@@ -421,16 +421,16 @@ def exmany(sql, rows):
 
 
 class tx:
-    """Transaktion: with db.tx(): ..."""
+    """Transaction: with db.tx(): ..."""
 
     def __enter__(self):
         conn().execute("BEGIN IMMEDIATE")
         return self
 
     def __exit__(self, et, ev, tb):
-        # 2.36.3 (Audit): schlägt COMMIT fehl (z. B. Datenträger voll), bliebe die Transaktion auf der Verbindung dieses
-        # Threads offen – jedes weitere BEGIN des (langlebigen) Threads scheiterte dann. ROLLBACK nur, wenn noch eine
-        # Transaktion offen ist, und nie so, dass es den eigentlichen Fehler verdeckt.
+        # 2.36.3 (Audit): if COMMIT fails (e.g. disk full), the transaction would stay open on this thread's connection –
+        # every further BEGIN of the (long-lived) thread would then fail. ROLLBACK only if a
+        # transaction is still open, and never in a way that masks the actual error.
         c = conn()
         if et is None:
             try:
@@ -451,30 +451,30 @@ def _rollback(c):
             pass
 
 
-# Spalten, die in späteren Versionen hinzugekommen sind (Tabelle, Spalte, Typ)
+# Columns that were added in later versions (table, column, type)
 MIGRATIONS = [
-    # 2.25: OU-Admins – Sitzung eines OU-Admins kennt ihre Mandanten (JSON-Liste; leer/NULL = Hauptadmin)
+    # 2.25: OU admins – an OU admin's session knows their tenants (JSON list; empty/NULL = main admin)
     ("sessions", "scope", "TEXT"),
-    ("sessions", "confirmed_at", "REAL"),   # 2.25.1: zuletzt vom AD bestätigt (Unix-Zeit)
+    ("sessions", "confirmed_at", "REAL"),   # 2.25.1: last confirmed by AD (Unix time)
     ("tenants", "admin_group", "TEXT"),
     ("tenants", "allow_packages", "INTEGER DEFAULT 0"),
-    ("tenants", "admin_group_dn", "TEXT"),     # beim Speichern eindeutig aufgelöst – nie wieder nach Namen suchen
+    ("tenants", "admin_group_dn", "TEXT"),     # resolved uniquely on save – never search by name again
     ("tenants", "ou_ever", "INTEGER DEFAULT 0"),
-    ("tenants", "admin_group_sid", "TEXT"),    # SID der Gruppe – übersteht Umbenennen, eine Neuanlage erbt sie nicht  # hatte je OU-Admins → ohne Sammlung keine Computer (nie „alle“)
+    ("tenants", "admin_group_sid", "TEXT"),    # SID of the group – survives renaming, a re-created group does not inherit it  # each had OU admins → without a collection no computers (never "all")
     ("sessions", "last_active", "TEXT"),
     ("sessions", "role", "TEXT"),
     ("kiosk_items", "icon", "BLOB"),
     ("kiosk_items", "icon_type", "TEXT"),
     ("kiosk_items", "icon_at", "TEXT"),
     ("kiosk_items", "groups", "TEXT"),
-    # 2.20: Antwortet unter der Adresse wirklich dieser Computer? (veraltete DNS-Einträge, fremde Geräte)
+    # 2.20: does this computer really answer at the address? (stale DNS entries, foreign devices)
     ("computers", "resolved_ip", "TEXT"),
     ("computers", "verified_ip", "TEXT"),
     ("computers", "verified_at", "TEXT"),
     ("computers", "addr_problem", "TEXT"),
     ("computers", "addr_detail", "TEXT"),
     ("computers", "addr_ip", "TEXT"),
-    ("computers", "addr_checked_at", "TEXT"),  # 2.17: nur für bestimmte AD-Gruppen (eine je Zeile, leer = alle Kiosk-Nutzer)
+    ("computers", "addr_checked_at", "TEXT"),  # 2.17: only for certain AD groups (one per line, empty = all kiosk users)
     ("computers", "ad_missing_since", "TEXT"),
     ("computers", "ad_location", "TEXT"),
     ("services", "description", "TEXT"),
@@ -495,10 +495,10 @@ MIGRATIONS = [
     ("scan_history", "profile_name", "TEXT"),
     ("software", "winget_sure", "INTEGER DEFAULT 1"),
     ("winget_cache", "detect_version", "TEXT"),
-    ("winget_cache", "ignore_hash", "INTEGER DEFAULT 0"),   # 2.35.3: Prüfsumme des Katalogs nicht verlangen (je Eintrag)
-    ("winget_cache", "remote_sig", "TEXT"),                 # 2.35.3: ETag/Datum/Größe der Download-Adresse
-    ("winget_cache", "inst_arch", "TEXT"),                  # 2.35.4: Architektur des geladenen Installers
-    ("winget_releases", "base", "INTEGER DEFAULT 0"),       # 2.36: Ausgangsstand (erste Sichtung)
+    ("winget_cache", "ignore_hash", "INTEGER DEFAULT 0"),   # 2.35.3: do not require the catalog checksum (per entry)
+    ("winget_cache", "remote_sig", "TEXT"),                 # 2.35.3: ETag/date/size of the download URL
+    ("winget_cache", "inst_arch", "TEXT"),                  # 2.35.4: architecture of the downloaded installer
+    ("winget_releases", "base", "INTEGER DEFAULT 0"),       # 2.36: baseline (first sighting)
     ("software", "excluded", "INTEGER DEFAULT 0"),
     ("scan_profiles", "scanner_types", "TEXT"),
     ("scan_profiles", "builtin_key", "TEXT"),
@@ -518,15 +518,15 @@ MIGRATIONS = [
     ("schedules", "window", "TEXT"),
     ("update_rules", "migrated", "INTEGER DEFAULT 0"),
     ("deployments", "target_label", "TEXT"),
-    ("packages", "integrity", "TEXT"),  # 2.26: Ergebnis der Bruchprüfung (JSON: state, issues, at)
-    ("packages", "ident_at", "TEXT"),   # 2.27: Kennzeichen für die Duplikatsperre zuletzt berechnet
+    ("packages", "integrity", "TEXT"),  # 2.26: result of the integrity check (JSON: state, issues, at)
+    ("packages", "ident_at", "TEXT"),   # 2.27: fingerprint for the duplicate lock last computed
     ("tenants", "allow_scripts", "INTEGER DEFAULT 0"),  # 2.29.1
     ("tenants", "collection_ids", "TEXT"),
-    ("packages", "ou_edit", "INTEGER"),     # 2.30: 1 = OU-Admins des Mandanten dürfen ändern (von ihnen angelegt)
-    ("schedules", "ou_edit", "INTEGER"),    # 2.30: wie bei Paketen
-    ("collections", "tenant_id", "INTEGER"),  # 2.30: von einem OU-Admin angelegt – gehört diesem Mandanten  # 2.29.9: mehrere Sammlungen je Mandant (JSON-Liste); collection_id = erste  # 2.29.1: OU-Admins dürfen Befehls-/PowerShell-Schritte schreiben
-    ("tenants", "quota_mb", "INTEGER"), # 2.27: Speicherkontingent im Repository (leer = Standard aus den Einstellungen)
-    ("computers", "online_since", "TEXT"),  # 2.32.8: seit wann WinRM (wieder) erreichbar ist – Scan erst nach kurzer Wartezeit
+    ("packages", "ou_edit", "INTEGER"),     # 2.30: 1 = OU admins of the tenant may edit (created by them)
+    ("schedules", "ou_edit", "INTEGER"),    # 2.30: as with packages
+    ("collections", "tenant_id", "INTEGER"),  # 2.30: created by an OU admin – belongs to this tenant  # 2.29.9: several collections per tenant (JSON list); collection_id = first  # 2.29.1: OU admins may write command/PowerShell steps
+    ("tenants", "quota_mb", "INTEGER"), # 2.27: storage quota in the repository (empty = default from the settings)
+    ("computers", "online_since", "TEXT"),  # 2.32.8: since when WinRM has been (again) reachable – scan only after a short wait
 ]
 
 
@@ -538,7 +538,7 @@ def _migrate(c):
 
 
 def _expected_tables():
-    """Soll-Aufbau aller Tabellen aus SCHEMA (in einer leeren In-Memory-Datenbank ermittelt)."""
+    """Target structure of all tables from SCHEMA (determined in an empty in-memory database)."""
     m = sqlite3.connect(":memory:")
     m.executescript(SCHEMA)
     out = {}
@@ -551,9 +551,9 @@ def _expected_tables():
 
 
 def _repair(c):
-    """Tabellen reparieren, deren Fremdschlüssel auf falsche Tabellen zeigen oder denen Spalten fehlen
-    (z. B. aus Vorabversionen). Die Tabelle wird im Soll-Aufbau neu angelegt, vorhandene Daten werden
-    übernommen; Zeilen ohne gültigen Bezug entfallen."""
+    """Repair tables whose foreign keys point to wrong tables or that are missing columns
+    (e.g. from pre-release versions). The table is re-created with the target structure, existing data is
+    carried over; rows without a valid reference are dropped."""
     from . import pklog
     rebuilt = False
     for name, (sql, cols, fks) in _expected_tables().items():
@@ -566,13 +566,13 @@ def _repair(c):
             continue
         tmp = f"_old_{name}"
         c.execute("PRAGMA foreign_keys=OFF")
-        c.execute("PRAGMA legacy_alter_table=ON")  # Verweise anderer Tabellen beim Umbenennen nicht umschreiben
+        c.execute("PRAGMA legacy_alter_table=ON")  # do not rewrite references of other tables when renaming
         try:
             c.execute("BEGIN")
             c.execute(f"DROP TABLE IF EXISTS {tmp}")
             c.execute(f"ALTER TABLE {name} RENAME TO {tmp}")
             c.execute(sql)
-            for table, col, typ in MIGRATIONS:  # später hinzugekommene Spalten wieder ergänzen
+            for table, col, typ in MIGRATIONS:  # add columns that came later again
                 if table == name and col not in [r[1] for r in c.execute(f"PRAGMA table_info({name})")]:
                     c.execute(f"ALTER TABLE {name} ADD COLUMN {col} {typ}")
             new_cols = [r[1] for r in c.execute(f"PRAGMA table_info({name})")]
@@ -601,7 +601,7 @@ def _repair(c):
             c.execute("PRAGMA legacy_alter_table=OFF")
             c.execute("PRAGMA foreign_keys=ON")
     if rebuilt:
-        c.executescript(SCHEMA)  # Indizes der neu aufgebauten Tabellen
+        c.executescript(SCHEMA)  # indexes of the rebuilt tables
 
 
 EXTRA_INDEXES = [
@@ -618,7 +618,7 @@ def init():
     c.executescript(SCHEMA)
     _migrate(c)
     _repair(c)
-    # 2.37: Indizes für häufige Abfragen (nach den Migrationen – manche Spalten kamen erst später dazu)
+    # 2.37: indexes for frequent queries (after the migrations – some columns only came later)
     for ix in EXTRA_INDEXES:
         c.execute(ix)
     c.execute("DELETE FROM inventory_data WHERE category IN ('video', 'profiles', 'startup')")
@@ -630,7 +630,7 @@ def init():
             ex("INSERT INTO collections(name, parent_id, type, match, filters, builtin, sort) VALUES(?,?,?,?,?,1,?)",
                (name, folder, "dynamic", match, json.dumps(flt), i))
     else:
-        # Standardsammlungen, die mit späteren Versionen hinzugekommen sind, ergänzen
+        # add default collections that came with later versions
         folder = val("SELECT id FROM collections WHERE builtin=1 AND type='folder' ORDER BY id LIMIT 1")
         for i, (name, match, flt) in enumerate(BUILTIN_COLLECTIONS):
             if folder and not val("SELECT COUNT(*) FROM collections WHERE builtin=1 AND name=?", (name,), 0):
@@ -646,10 +646,10 @@ def init():
 
 
 def _migrate_ownership():
-    """2.30 (einmalig): Wer darf vorhandene Mandanten-Pakete und -Zeitpläne ändern? Bisher jeder OU-Admin des Mandanten.
-    Jetzt nur, was ein OU-Admin selbst angelegt oder geändert hat – erkannt am Protokoll (Anmeldung „(OU-Admin: …)“,
-    „Paket 'X' angelegt/geändert.“) bzw. am Ersteller des Zeitplans. Alles andere gilt als vom Hauptadmin angelegt
-    (nur lesbar für OU-Admins); der Hauptadmin kann es je Paket/Zeitplan mit „OU-Admins dürfen ändern“ freigeben."""
+    """2.30 (one-time): who may edit existing tenant packages and schedules? Previously every OU admin of the tenant.
+    Now only what an OU admin created or changed themselves – recognized from the log (login "(OU-Admin: …)",
+    "Paket 'X' angelegt/geändert.") or from the creator of the schedule. Everything else counts as created by the main admin
+    (read-only for OU admins); the main admin can release it per package/schedule with "OU-Admins dürfen ändern"."""
     if val("SELECT value FROM settings WHERE key='ou_owner_migrated'"):
         return
     ou = {r["username"].lower() for r in q("SELECT DISTINCT username FROM logs WHERE category='auth' AND message LIKE '%(OU-Admin:%' "
@@ -674,7 +674,7 @@ def _migrate_ownership():
         ex("INSERT OR REPLACE INTO settings(key, value) VALUES('ou_owner_migrated', '1')")
 
 
-# --- Einstellungen --------------------------------------------------------
+# --- Settings --------------------------------------------------------
 def setting(key):
     raw = val("SELECT value FROM settings WHERE key=?", (key,))
     default = DEFAULT_SETTINGS.get(key)
@@ -696,7 +696,7 @@ def all_settings():
 
 
 def stats():
-    """Größe der Datenbank und Anteil freier (wiederverwendbarer) Seiten."""
+    """Size of the database and share of free (reusable) pages."""
     import os
     c = conn()
     page = c.execute("PRAGMA page_size").fetchone()[0]
@@ -708,8 +708,8 @@ def stats():
 
 
 def maintenance(vacuum=None):
-    """Statistiken aktualisieren, WAL zurückschreiben und – bei viel freiem Platz oder auf Wunsch – VACUUM
-    (verkleinert die Datei). vacuum=None: automatisch ab 20 % freien Seiten."""
+    """Update statistics, write back the WAL and – if there is a lot of free space or on request – VACUUM
+    (shrinks the file). vacuum=None: automatic from 20 % free pages."""
     import os
     import shutil
     import time
@@ -731,7 +731,7 @@ def maintenance(vacuum=None):
 
 
 def setting_raw(key):
-    """Wert ohne Standardwert/Typumwandlung (für Einträge außerhalb von DEFAULT_SETTINGS)."""
+    """Value without default/type conversion (for entries outside DEFAULT_SETTINGS)."""
     return val("SELECT value FROM settings WHERE key=?", (key,), "") or ""
 
 

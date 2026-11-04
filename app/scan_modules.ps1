@@ -1,5 +1,5 @@
-# POCKET KNIFE – Standard-Scanner. Jeder Abschnitt '# @module <schlüssel> | <bezeichnung>' ist ein eigener Scanner,
-# der in Scanprofilen einzeln ausgewählt werden kann. '# @prelude' wird immer ausgeführt.
+# POCKET KNIFE – default scanners. Each section '# @module <key> | <label>' is a separate scanner
+# that can be selected individually in scan profiles. '# @prelude' is always executed.
 # @prelude
 $ErrorActionPreference = 'SilentlyContinue'
 $ProgressPreference = 'SilentlyContinue'
@@ -32,19 +32,19 @@ function PKO($o, [int]$max = 40) {
 function PKStr($a) { if ($a) { (($a | Where-Object { $_ -ne 0 } | ForEach-Object { [char]$_ }) -join '').Trim() } else { '' } }
 
 # @module active_directory | Active Directory
-# (läuft serverseitig über LDAPS – kein PowerShell auf dem Client)
+# (runs server-side via LDAPS – no PowerShell on the client)
 
 # @module computer | Computer-Details (Allgemein, Betriebssystem, System)
 try {
 $cpu = @(Get-CimInstance Win32_Processor)
-# @sessions-begin (2.32.6: gleich in remote.SESSIONS_PS – der Selbsttest prüft das)
-# Sitzungszustand je angemeldetem Benutzer: getrennt (Remotedesktop/Benutzerwechsel, quser) oder gesperrt (LogonUI.exe
-# läuft in seiner Sitzung). Nur Cmdlets, Hashtables und quser.exe – läuft auch im eingeschränkten Sprachmodus.
+# @sessions-begin (2.32.6: identical to remote.SESSIONS_PS – the self-test checks this)
+# Session state per logged-in user: disconnected (Remote Desktop/user switch, quser) or locked (LogonUI.exe
+# runs in its session). Only cmdlets, hashtables and quser.exe – also works in Constrained Language Mode.
 $pkLui = @(Get-CimInstance Win32_Process -Filter "Name='LogonUI.exe'" | ForEach-Object { [int]$_.SessionId })
 $pkQ = @{}
 $pkQo = @()
 try { $pkQo = @(& (Join-Path $env:SystemRoot 'System32\quser.exe') 2>$null) } catch {}
-# ID steht rechtsbündig unter „ID“ (Kopfzeile in jeder Sprache) – ab dort lesen, Benutzer-/Sitzungsnamen davor egal
+# The ID is right-aligned under "ID" (header line in every language) – read from there on, user/session names before it do not matter
 $pkIp = -1
 if ($pkQo.Count) { $pkIp = ("" + $pkQo[0]).IndexOf(' ID ') }
 foreach ($l in @($pkQo | Select-Object -Skip 1)) {
@@ -60,12 +60,12 @@ $pkExp = @(Get-CimInstance Win32_Process -Filter "Name='explorer.exe'" | ForEach
     $sid = [int]$_.SessionId
     $s = 'active'
     if ("" + $pkQ[$sid] -match '^(Disc|Getr|D.co|Desc|Disco|Getrennt)') { $s = 'disconnected' } elseif ($pkLui -contains $sid) { $s = 'locked' }
-    # mehrere Sitzungen eines Benutzers: aktiv vor gesperrt vor getrennt
+    # several sessions of one user: active before locked before disconnected
     $rank = @{ active = 3; locked = 2; disconnected = 1 }
     if (-not $pkSt.ContainsKey($n) -or $rank[$s] -gt $rank[$pkSt[$n]]) { $pkSt[$n] = $s }
     $n
   } })
-# 2.34: Server Core (kein Explorer) – angemeldete Benutzer aus quser (Name ohne Domäne)
+# 2.34: Server Core (no Explorer) – logged-in users from quser (name without domain)
 if ($pkExp.Count -eq 0 -and $pkQo.Count -gt 1) {
   $pkExp = @(foreach ($l in @($pkQo | Select-Object -Skip 1)) {
     $t = "" + $l
@@ -80,7 +80,7 @@ if ($pkExp.Count -eq 0 -and $pkQo.Count -gt 1) {
 # @sessions-end
 $pkUser = $cs.UserName
 if (-not $pkUser) {
-  # Bei Remotedesktop-Sitzungen bleibt Win32_ComputerSystem.UserName leer – angemeldete Benutzer über explorer.exe ermitteln
+  # With Remote Desktop sessions Win32_ComputerSystem.UserName stays empty – determine logged-in users via explorer.exe
   $pkUser = (@($pkExp) | Select-Object -Unique) -join ', '
 }
 $e.user_states = [ordered]@{}
@@ -101,12 +101,12 @@ if ($os.ProductType -eq 1) {
   try { $ai = Get-AppxPackage -AllUsers -Name Microsoft.DesktopAppInstaller -ErrorAction Stop | Sort-Object Version -Descending | Select-Object -First 1
     if ($ai) { $e.winget = "$($ai.Version)" } } catch {}
 } else {
-  # 2.34: Server – Get-AppxPackage -AllUsers geht alle Benutzerprofile durch (auf Terminalservern mit vielen Profilen
-  # minutenlang). Die installierten Pakete stehen auch in der Registry (AppxAllUserStore) – schnell und ohne Profile.
+  # 2.34: Server – Get-AppxPackage -AllUsers walks through all user profiles (on terminal servers with many profiles
+  # for minutes). The installed packages are also in the registry (AppxAllUserStore) – fast and without profiles.
   try {
-    # zwei Ebenen (Applications bzw. je Benutzer-SID) – ohne -Depth, das kennt PowerShell 4 (Server 2012 R2) nicht
+    # two levels (Applications or per user SID) – without -Depth, PowerShell 4 (Server 2012 R2) does not know it
     $au = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Appx\AppxAllUserStore'
-    # nur installierte Pakete (Applications, InboxApplications, je Benutzer-SID) – nicht EndOfLife, Staged, Deprovisioned
+    # only installed packages (Applications, InboxApplications, per user SID) – not EndOfLife, Staged, Deprovisioned
     $wk = @(Get-ChildItem $au -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -match '^(Applications|InboxApplications|S-1-.*)$' } |
       ForEach-Object { Get-ChildItem $_.PSPath -ErrorAction SilentlyContinue })
     $wv = @($wk | ForEach-Object { if ($_.PSChildName -match '^Microsoft\.DesktopAppInstaller_([\d.]+)_') { $matches[1] } } |
@@ -131,8 +131,8 @@ PKX 'domain' { $cs.Domain }
 PKX 'os_serial' { $os.SerialNumber }
 PKX 'system_drive' { $os.SystemDrive }
 PKX 'product_type' { $os.ProductType }
-# 2.34: virtuelle Maschine? Hersteller/Modell/BIOS verraten den Hypervisor (HypervisorPresent allein nicht – das ist auch
-# auf echter Hardware mit Hyper-V oder virtualisierungsbasierter Sicherheit wahr)
+# 2.34: virtual machine? Manufacturer/model/BIOS reveal the hypervisor (HypervisorPresent alone does not – it is also true
+# on real hardware with Hyper-V or virtualization-based security)
 PKX 'virtual' {
   $vm = ("" + $cs.Manufacturer + ' | ' + $cs.Model + ' | ' + $bios.Manufacturer + ' | ' + $bios.SMBIOSBIOSVersion + ' | ' + $csp.Version + ' | ' + $csp.Vendor)
   if ($vm -match 'VMware') { 'VMware' }
@@ -181,7 +181,7 @@ foreach ($u in (Get-ChildItem Registry::HKEY_USERS | Where-Object { $_.PSChildNa
 }
 $pkFull = $ExecutionContext.SessionState.LanguageMode -eq 'FullLanguage'
 try {
-  # 2.38: nur mit voller Sprache (Softwareeinschränkung/AppLocker/App Control: Constrained Language Mode – kein Add-Type)
+  # 2.38: only with full language mode (software restriction/AppLocker/App Control: Constrained Language Mode – no Add-Type)
   if (-not $pkFull) { throw 'CLM' }
   Add-Type -ErrorAction Stop -TypeDefinition @"
 using System; using System.Runtime.InteropServices;
@@ -198,8 +198,8 @@ public static class PKReg {
 "@
   $pkLw = $true
 } catch { $pkLw = $false }
-# 2.38: Werte über Get-ItemProperty (Eigenschaften) statt der GetValue-Methode – Methoden der Registry-Klassen sind im
-# Constrained Language Mode gesperrt
+# 2.38: values via Get-ItemProperty (properties) instead of the GetValue method – methods of the registry classes are
+# blocked in Constrained Language Mode
 function PKRegVal($pv, $n) { $v = $pv.$n; if ($null -eq $v) { '' } else { ("" + $v).Trim() } }
 $sw = @()
 try {
@@ -262,7 +262,7 @@ PKS 'volumes' { Get-CimInstance Win32_Volume -Filter 'DriveType=3' | ForEach-Obj
 
 # @module displays | Bildschirme
 try {
-# 2.34: Server und virtuelle Maschinen ohne Bildschirm melden „nicht unterstützt“ – das ist kein Fehler, nur keine Bildschirme
+# 2.34: servers and virtual machines without a display report "not supported" – that is not an error, there are just no displays
 PKS 'displays' { $mon = @(); try { $mon = @(Get-CimInstance -Namespace root\wmi -ClassName WmiMonitorID -ErrorAction Stop) } catch {
     if ("$_" -notmatch 'nicht unterst|not supported|8004100C|Ungültige Klasse|Invalid class|Keine Instanzen|No instances') { throw } }
   $mon | ForEach-Object { [ordered]@{
@@ -278,7 +278,7 @@ PKS 'environment' { Get-CimInstance Win32_Environment | Where-Object { $_.UserNa
 
 # @module hardware | Hardware
 try {
-# Schattenkopien, Legacy-Treiber und Software-Geräte sind keine Hardware (bei VMs oft hunderte Einträge)
+# Shadow copies, legacy drivers and software devices are not hardware (often hundreds of entries on VMs)
 PKS 'devices' { Get-CimInstance Win32_PnPEntity | Where-Object { $_.Name -and $_.PNPClass -notin @('VolumeSnapshot', 'LegacyDriver', 'SoftwareComponent') -and $_.DeviceID -notlike 'SWD\PRINTENUM\*' } | ForEach-Object { [ordered]@{
   name = $_.Name; class = $_.PNPClass; manufacturer = $_.Manufacturer; status = $_.Status; problem = $_.ConfigManagerErrorCode
   device_id = $_.DeviceID } } }
@@ -292,7 +292,7 @@ $r.hotfixes = @(Get-CimInstance Win32_QuickFixEngineering | ForEach-Object {
 
 # @module local_groups | Benutzer & Gruppen: lokale Gruppen (inkl. Administratoren)
 try {
-# 2.38: Mitglieder über ADSI (schnell, auch verwaiste SIDs) – im Constrained Language Mode über CIM (Win32_GroupUser)
+# 2.38: members via ADSI (fast, also orphaned SIDs) – in Constrained Language Mode via CIM (Win32_GroupUser)
 function PK-GroupMembers($grp) {
   if ($ExecutionContext.SessionState.LanguageMode -eq 'FullLanguage') {
     $g = [ADSI]("WinNT://$env:COMPUTERNAME/" + $grp.Name + ",group")
@@ -339,11 +339,11 @@ $r.network = @(Get-CimInstance Win32_NetworkAdapterConfiguration -Filter 'IPEnab
               gateway = (@($_.DefaultIPGateway) -join ', '); dns = (@($_.DNSServerSearchOrder) -join ', '); dhcp = [bool]$_.DHCPEnabled } })
 PKS 'nics' {
   $cfg = @{}; Get-CimInstance Win32_NetworkAdapterConfiguration | ForEach-Object { $cfg[[int]$_.Index] = $_ }
-  # 2.31: Wake-on-LAN-Bereitschaft je Karte – Magic Packet erlaubt, darf den Computer wecken, Treiber-Einstellungen,
-  # kabelgebunden (nur cmdlets und powercfg, Constrained-Language-tauglich)
+  # 2.31: Wake-on-LAN readiness per adapter – magic packet allowed, may wake the computer, driver settings,
+  # wired (only cmdlets and powercfg, Constrained-Language-compatible)
   $wolPm = @{}; try { Get-NetAdapterPowerManagement -ErrorAction Stop | ForEach-Object { $wolPm[[string]$_.InterfaceDescription] = [string]$_.WakeOnMagicPacket } } catch {}
-  # 2.32.8: Geschwindigkeit aus Get-NetAdapter (fragt den Treiber direkt) – Win32_NetworkAdapter.Speed ist bei manchen
-  # Treibern veraltet oder meldet bei getrennten Karten 10 Mbit/s. Nur für verbundene Karten.
+  # 2.32.8: Speed from Get-NetAdapter (asks the driver directly) – Win32_NetworkAdapter.Speed is outdated with some
+  # drivers or reports 10 Mbit/s for disconnected adapters. Only for connected adapters.
   $wolMedia = @{}; $nSpeed = @{}; $nUp = @{}
   try { Get-NetAdapter -Physical -ErrorAction Stop | ForEach-Object { $k = [string]$_.InterfaceDescription
     $wolMedia[$k] = [string]$_.PhysicalMediaType; $nSpeed[$k] = $_.Speed; $nUp[$k] = ([string]$_.Status -eq 'Up') } } catch {}
@@ -368,7 +368,7 @@ PKS 'nics' {
       wake_armed = $(if ($wolArmed.Count) { $wolArmed -contains ([string]$_.Name) } else { $null })
       wol_driver = $(if ($wolAdv.ContainsKey([string]$_.Name)) { (@($wolAdv[[string]$_.Name] | Where-Object { $_ }) -join '; ') } else { $null }) } } }
 PKX 'fast_startup' {
-  # Windows-Schnellstart (Hybrid-Herunterfahren): viele Netzwerkkarten wecken dann aus „Herunterfahren“ nicht auf
+  # Windows Fast Startup (hybrid shutdown): many network adapters then do not wake from "Herunterfahren" (shutdown)
   $pol = Get-ItemProperty 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\System' -ErrorAction SilentlyContinue
   $pw = Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Power' -ErrorAction SilentlyContinue
   $hb = Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Power' -ErrorAction SilentlyContinue
@@ -409,8 +409,8 @@ PKS 'product_keys' {
 
 # @module security | Sicherheit (Defender, BitLocker, TPM, Firewall, Antivirus)
 try {
-# Defender-Status: das Cmdlet (Modul „Defender“), sonst direkt die WMI-Klasse dahinter – 2.33.4: auf manchen Windows
-# Servern fehlt das Modul (Get-MpComputerStatus unbekannt), die Klasse MSFT_MpComputerStatus gibt es trotzdem
+# Defender status: the cmdlet (module "Defender"), otherwise directly the WMI class behind it – 2.33.4: on some Windows
+# servers the module is missing (Get-MpComputerStatus unknown), the class MSFT_MpComputerStatus exists anyway
 $mp = $null
 try { $mp = Get-MpComputerStatus -ErrorAction Stop } catch {
   try { $mp = Get-CimInstance -Namespace 'root\Microsoft\Windows\Defender' -ClassName MSFT_MpComputerStatus -ErrorAction Stop } catch { $mp = $null } }
@@ -423,15 +423,15 @@ try { $t = Get-CimInstance -Namespace 'root\cimv2\security\microsofttpm' -ClassN
   if ($t) { $e.tpm = [ordered]@{ present = $true; enabled = $t.IsEnabled_InitialValue; version = $t.SpecVersion } } } catch {}
 PKX 'firewall' { @(Get-NetFirewallProfile -ErrorAction Stop | ForEach-Object { [ordered]@{ profile = "$($_.Name)"; enabled = [bool]($_.Enabled -eq 'True' -or $_.Enabled -eq 1) } }) }
 PKX 'antivirus' {
-  # Arbeitsplätze: das Windows-Sicherheitscenter kennt jeden registrierten Virenschutz
+  # Workstations: the Windows Security Center knows every registered antivirus product
   $av = @()
   if ($os.ProductType -eq 1) {
     $av = @(Get-CimInstance -Namespace 'root\SecurityCenter2' -ClassName AntiVirusProduct -ErrorAction Stop | ForEach-Object {
       $st = [int]$_.productState
       [ordered]@{ name = $_.displayName; enabled = (($st -band 0x1000) -ne 0); up_to_date = (($st -band 0x10) -eq 0) } })
   }
-  # 2.33.4: Windows Server hat kein Sicherheitscenter (root\SecurityCenter2 fehlt) – dort Microsoft Defender direkt.
-  # Bisher kam eine leere Ausgabe an, die als „undefined (aus)“ erschien.
+  # 2.33.4: Windows Server has no Security Center (root\SecurityCenter2 is missing) – use Microsoft Defender directly there.
+  # Previously an empty output arrived, which appeared as "undefined (aus)".
   if ($av.Count -eq 0 -and $mp) {
     $mode = "$($mp.AMRunningMode)"
     $nm = 'Microsoft Defender Antivirus'
@@ -439,7 +439,7 @@ PKX 'antivirus' {
     $av = @([ordered]@{ name = $nm; enabled = [bool]($mp.AntivirusEnabled -and $mp.RealTimeProtectionEnabled)
                         up_to_date = [bool]($mp.AntivirusSignatureAge -le 7) })
   }
-  ,$av   # immer eine Liste – auch leer (eine leere Ausgabe wird in PowerShell 5.1 sonst zu „{}“)
+  ,$av   # always a list – also when empty (an empty output becomes "{}" in PowerShell 5.1 otherwise)
 }
 } catch { $r.errors += ('security: ' + $_.Exception.Message) }
 
@@ -482,5 +482,5 @@ PKS 'tasks' { Get-ScheduledTask -ErrorAction Stop | ForEach-Object {
 } catch { $r.errors += ('tasks: ' + $_.Exception.Message) }
 
 # @module disk_usage | Speicherplatz (Ordnergrößen als Diagramm)
-# Sonder-Scanner: läuft NICHT in diesem Sammel-Skript, sondern als eigener Durchlauf (app/diskusage.py),
-# da die Datenmenge groß ist und der Client stärker belastet wird. Hier bewusst ohne Scan-Logik.
+# Special scanner: does NOT run in this combined script but as a separate pass (app/diskusage.py),
+# because the data volume is large and the client is loaded more heavily. Deliberately no scan logic here.

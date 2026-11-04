@@ -1,13 +1,13 @@
-"""Namensauflösung der Clients mit einstellbarem Zwischenspeicher („DNS-Cache leeren“).
+"""Name resolution of the clients with a configurable cache ("DNS-Cache leeren").
 
-- Zwischenspeicher: eine aufgelöste Adresse gilt höchstens „dns_cache_minutes“ Minuten (0 = jedes Mal neu fragen).
-  „Jetzt leeren“ in den Einstellungen verwirft ihn sofort.
-- Wahlweise fragt POCKET KNIFE die DNS-Server der Domäne direkt (Einstellung „dns_direct“) – an Zwischenspeichern
-  auf dem Docker-Host vorbei. Server: Einstellung „dns_servers“, sonst die Domänencontroller (PK_LDAP_SERVERS).
-  Antwortet keiner, wird wie bisher über das System aufgelöst.
+- Cache: a resolved address is valid for at most "dns_cache_minutes" minutes (0 = ask anew every time).
+  "Jetzt leeren" in the settings discards it immediately.
+- Optionally POCKET KNIFE queries the domain's DNS servers directly (setting "dns_direct") - bypassing caches
+  on the Docker host. Servers: setting "dns_servers", otherwise the domain controllers (PK_LDAP_SERVERS).
+  If none answers, the name is resolved through the system as before.
 
-Veraltete Einträge im DNS der Domäne selbst (fehlende Bereinigung/„Scavenging“) behebt das nicht – dafür prüft
-presence.identify(), ob unter der Adresse wirklich der erwartete Computer antwortet.
+Stale entries in the domain's own DNS (missing cleanup/"scavenging") are not fixed by this - for that,
+presence.identify() checks whether the expected computer really answers at the address.
 """
 import ipaddress
 import secrets
@@ -18,13 +18,13 @@ import time
 
 from . import config, db, util
 
-_cache = {}  # name(lower) → (zeitpunkt, ip oder None)
+_cache = {}  # name(lower) -> (timestamp, ip or None)
 _lock = threading.Lock()
 _servers_cache = {"t": 0, "ips": []}
 
 
 def flush():
-    """Zwischenspeicher leeren. Gibt die Anzahl verworfener Einträge zurück."""
+    """Clear the cache. Returns the number of discarded entries."""
     with _lock:
         n = len(_cache)
         _cache.clear()
@@ -55,7 +55,7 @@ def _fqdn(host):
 
 
 def servers():
-    """IP-Adressen der DNS-Server für die direkte Abfrage (5 Minuten gemerkt)."""
+    """IP addresses of the DNS servers for the direct query (remembered for 5 minutes)."""
     now = time.time()
     with _lock:
         if now - _servers_cache["t"] < 300 and _servers_cache["ips"]:
@@ -79,29 +79,29 @@ def servers():
     return ips
 
 
-# --- Minimaler DNS-Client (nur A-Einträge) --------------------------------------------------------
+# --- Minimal DNS client (A records only) --------------------------------------------------------
 def _query(name, server, timeout=2.0):
-    """A-Abfrage an einen Server. ip (str), "" (Name existiert nicht/kein A-Eintrag) oder None (keine Antwort)."""
-    qid = secrets.randbits(16)  # Audit 2.29: nicht vorhersagbar (random.randint ist es)
-    q = struct.pack(">HHHHHH", qid, 0x0100, 1, 0, 0, 0)  # Standardabfrage, Rekursion erwünscht
+    """A query to one server. ip (str), "" (name does not exist/no A record) or None (no answer)."""
+    qid = secrets.randbits(16)  # Audit 2.29: unpredictable (random.randint is not)
+    q = struct.pack(">HHHHHH", qid, 0x0100, 1, 0, 0, 0)  # standard query, recursion desired
     for label in name.split("."):
         b = label.encode("idna") if label else b""
         if not b or len(b) > 63:
             return ""
         q += bytes([len(b)]) + b
-    q += b"\x00" + struct.pack(">HH", 1, 1)  # Typ A, Klasse IN
+    q += b"\x00" + struct.pack(">HH", 1, 1)  # type A, class IN
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.settimeout(timeout)
     end = time.time() + timeout
     try:
-        # connect(): der Kernel nimmt nur noch Antworten genau dieses Servers an (Absender gefälschter Antworten)
+        # connect(): the kernel only accepts replies from exactly this server (sender of forged replies)
         s.connect((server, 53))
         s.send(q)
         while True:
             if time.time() > end:
                 return None
             data = s.recv(4096)
-            # gleiche Kennung UND gleiche Frage (Name, Typ, Klasse) – sonst ist es nicht die Antwort auf diese Abfrage
+            # same ID AND same question (name, type, class) - otherwise it is not the answer to this query
             if len(data) >= len(q) and struct.unpack(">H", data[:2])[0] == qid and data[12:len(q)].lower() == q[12:].lower():
                 break
     except OSError:
@@ -166,7 +166,7 @@ def _resolve_system(name):
 
 
 def resolve(host, fresh=False):
-    """IP-Adresse des Rechnernamens (IPv4) oder None. Eine IP-Adresse wird unverändert zurückgegeben."""
+    """IP address of the host name (IPv4) or None. An IP address is returned unchanged."""
     h = (host or "").strip()
     if not h or _is_ip(h):
         return h or None

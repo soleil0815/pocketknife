@@ -1,4 +1,4 @@
-"""Hintergrundaufgaben: AD-Abgleich, Heartbeat, Scans, geplante Bereitstellungen, Regeln, Wartung."""
+"""Background tasks: AD sync, heartbeat, scans, scheduled deployments, rules, maintenance."""
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -19,7 +19,7 @@ _bg_lock = threading.Lock()
 
 
 def _bg(key, fn):
-    with _bg_lock:  # Prüfen und Eintragen atomar – sonst starten Minuten-Thread und Knopfdruck dieselbe Aufgabe doppelt
+    with _bg_lock:  # check and register atomically - otherwise the minute thread and a button press start the same task twice
         if key in _running:
             return
         _running.add(key)
@@ -27,7 +27,7 @@ def _bg(key, fn):
     def run():
         from . import loadstats
         try:
-            with loadstats.task(key.split("-")[0]):  # „start-17“ → „start“: Bereitstellungsstarts zusammen
+            with loadstats.task(key.split("-")[0]):  # "start-17" → "start": count deployment starts together
                 fn()
         except Exception as e:
             pklog.error("system", f"Hintergrundaufgabe '{key}' fehlgeschlagen: {e}")
@@ -41,16 +41,16 @@ def heartbeat():
     if not comps:
         return
     with ThreadPoolExecutor(max_workers=48) as ex:
-        results = list(ex.map(lambda c: (c, presence.probe(c)), comps))  # inkl. Prüfung, ob wirklich dieser Computer antwortet
+        results = list(ex.map(lambda c: (c, presence.probe(c)), comps))  # incl. check that this computer really answers
     now = util.now()
     came_online = []
     with db.tx():
         for c, (online, winrm) in results:
-            # Vergleich mit dem aktuellen Stand in der DB (ein Scan kann ihn inzwischen geändert haben)
+            # Compare with the current state in the DB (a scan may have changed it in the meantime)
             if presence.update(c["id"], online, winrm, None, now):
                 came_online.append(c["id"])
     state["heartbeat"] = now
-    # Heartbeat-Auslöser der Scanprofile und Zeitpläne: Computer, deren WinRM gerade erreichbar geworden ist
+    # Heartbeat triggers of the scan profiles and schedules: computers whose WinRM has just become reachable
     presence.notify(came_online)
     presence.after_heartbeat([c["id"] for c, (online, winrm) in results if winrm])
 
@@ -60,7 +60,7 @@ def _heartbeat_only():
 
 
 def _profiles():
-    # Jeder Schritt für sich: ein Fehler (z. B. „database is locked“) darf die anderen nicht auslassen
+    # Each step on its own: an error (e.g. "database is locked") must not make the others skip
     for name, fn in (("Scanprofile", profiles.evaluate), ("Scan-Verteilung", profiles.dispatch), ("Zeitpläne", schedules.evaluate)):
         try:
             fn()
@@ -75,12 +75,12 @@ def _ad_sync():
 
 def _cleanup():
     days = db.setting("log_retention_days")
-    if days and days > 0:  # 0 = nie löschen (wie bei den anderen Aufbewahrungsfristen)
+    if days and days > 0:  # 0 = never delete (as with the other retention periods)
         db.ex("DELETE FROM logs WHERE ts < ?", (util.ago(days=days),))
     db.ex("DELETE FROM sessions WHERE expires < ?", (util.now(),))
     days = db.setting("scan_log_retention_days")
     if days and days > 0:
-        # Scan-Protokoll (Verlauf) – die gescannten Daten selbst bleiben erhalten
+        # Scan log (history) - the scanned data itself is kept
         db.ex("DELETE FROM scan_history WHERE ts < ?", (util.ago(days=days),))
         db.ex("DELETE FROM logs WHERE category='scan' AND ts < ?", (util.ago(days=days),))
     days = db.setting("software_changes_retention_days")
@@ -90,11 +90,11 @@ def _cleanup():
     if days and days > 0:
         db.ex("DELETE FROM deployments WHERE created_at < ? AND status NOT IN ('running','queued','scheduled')",
               (util.ago(days=days),))
-        # 2.36.3 (Audit, Datenschutz): Kiosk-Anfragen (Benutzer, Anzeigename, Computer) mit derselben Frist –
-        # offene Anfragen bleiben, bis sie entschieden sind
+        # 2.36.3 (Audit, privacy): kiosk requests (user, display name, computer) with the same period -
+        # open requests stay until they are decided
         db.ex("DELETE FROM kiosk_requests WHERE created_at < ? AND COALESCE(status,'') NOT IN ('pending','starting')",
               (util.ago(days=days),))
-    # Reste ohne Bezug (z. B. aus Vorabversionen oder nach Abbrüchen)
+    # Leftovers without a reference (e.g. from pre-releases or after aborts)
     db.ex("DELETE FROM deployment_targets WHERE deployment_id NOT IN (SELECT id FROM deployments)")
     db.ex("DELETE FROM schedule_targets WHERE schedule_id NOT IN (SELECT id FROM schedules)")
     db.ex("DELETE FROM schedule_trigger_state WHERE schedule_id NOT IN (SELECT id FROM schedules)")
@@ -109,7 +109,7 @@ def _cleanup():
 
 
 def _tmp_cleanup():
-    """Liegengebliebene Zwischendateien (abgebrochene Downloads/Uploads, fehlgeschlagene Index-Updates) entfernen."""
+    """Remove leftover intermediate files (aborted downloads/uploads, failed index updates)."""
     import glob
     import os
     import tempfile
@@ -135,11 +135,11 @@ def _tmp_cleanup():
 
 
 def db_maintenance(vacuum=None, user=None):
-    """Aufräumen + Datenbankwartung (nachts automatisch, oder manuell unter Einstellungen → Wartung)."""
+    """Clean-up + database maintenance (automatically at night, or manually under Einstellungen → Wartung)."""
     _cleanup()
     busy = ""
     if vacuum is None:
-        # VACUUM sperrt die Datenbank; nicht während laufender Bereitstellungen oder Scans (sonst „database is locked“)
+        # VACUUM locks the database; not during running deployments or scans (otherwise "database is locked")
         from . import inventory
         if db.val("SELECT COUNT(*) FROM deployments WHERE status='running'", (), 0) or inventory.scanning_ids():
             vacuum, busy = False, "VACUUM verschoben: Bereitstellungen oder Scans laufen"
@@ -166,19 +166,19 @@ def _backup():
 
 
 def _nightly_due():
-    """Einmal täglich ab der eingestellten Stunde (Standard 03:00) – auch wenn die Stunde durch Zeitumstellung
-    oder Neustart verpasst wurde, dann eben später am Tag."""
+    """Once a day from the configured hour (default 03:00) - even if the hour was missed due to a clock change
+    or restart, then simply later in the day."""
     import datetime
     now = datetime.datetime.now()
     h = int(db.setting("db_maintenance_hour"))
-    if not 0 <= now.hour - h < 3:  # nur in den 3 Stunden ab der Wartungsstunde (VACUUM sperrt kurz die Datenbank)
+    if not 0 <= now.hour - h < 3:  # only in the 3 hours from the maintenance hour (VACUUM briefly locks the database)
         return False
     last = (db.setting_raw("db_maintenance_last") or "")[:10]
     return last != now.strftime("%Y-%m-%d")
 
 
 def _mail():
-    """Berichtsversand und Benachrichtigungen (nur Datenbank + SMTP, kein Zugriff auf Clients)."""
+    """Report sending and notifications (database + SMTP only, no access to clients)."""
     for name, fn in (("Berichtsversand", notify.evaluate), ("Benachrichtigungen", notify.check_alerts)):
         try:
             fn()
@@ -188,7 +188,7 @@ def _mail():
 
 def tick():
     state["last_tick"] = util.now()
-    try:  # 2.31: Lastspitzen mit dem, was gerade lief (Einstellungen → Wartung)
+    try:  # 2.31: load peaks with what was running at the time (Einstellungen → Wartung)
         from . import inventory, loadstats
         loadstats.sample(running(), len(inventory.scanning_ids()),
                          db.val("SELECT COUNT(*) FROM deployments WHERE status='running'", (), 0))
@@ -198,19 +198,19 @@ def tick():
         _last["idle"] = time.time()
         try:
             from . import auth
-            auth.expire_idle()  # Abmeldung bei Inaktivität (auch für offene Fernsitzungen)
+            auth.expire_idle()  # logout on inactivity (also for open remote sessions)
         except Exception as e:
             pklog.warn("auth", f"Prüfung auf inaktive Sitzungen fehlgeschlagen: {e}")
-        # Angemeldete Sitzungen gegen das AD prüfen (Gruppen geändert, Konto deaktiviert) – im Hintergrund, die einzelne
-        # Sitzung nur alle 2 Minuten; der Dienstkonto-Schutz greift wie überall (bei Störung: keine Anmeldeversuche)
+        # Check logged-in sessions against the AD (groups changed, account disabled) - in the background, each
+        # session only every 2 minutes; the service account protection applies as everywhere (on a fault: no login attempts)
         from . import auth as _auth
         _bg("sessions", _auth.recheck_all)
-    # E-Mail auch bei aktivem Dienstkonto-Schutz – genau dann soll die Benachrichtigung kommen
+    # E-mail also while the service account protection is active - that is exactly when the notification should come
     if _due("mail", 1) and mailer.configured():
         _last["mail"] = time.time()
         _bg("mail", _mail)
     if guard.paused():
-        # Dienstkonto-Schutz aktiv: keine Anmeldungen erzeugen, nur Heartbeat (TCP) und winget-Index
+        # Service account protection active: no logins generated, only heartbeat (TCP) and winget index
         if _due("hb", db.setting("heartbeat_minutes")):
             _last["hb"] = time.time()
             _bg("hb", _heartbeat_only)
@@ -225,7 +225,7 @@ def tick():
         _last["profiles"] = time.time()
         _bg("profiles", _profiles)
     for d in db.q("SELECT id FROM deployments WHERE status='scheduled' AND scheduled_at <= ?", (util.now(),)):
-        # im Hintergrund: vor dem Start werden die Repository-Dateien geprüft (2.26), das darf den Takt nicht aufhalten
+        # in the background: before the start the repository files are checked (2.26), which must not hold up the cycle
         _bg(f"start-{d['id']}", lambda did=d["id"]: deploy.start(did))
     if _due("stuck", 2):
         _last["stuck"] = time.time()
@@ -237,15 +237,15 @@ def tick():
     if _due("update_check", 60):
         _last["update_check"] = time.time()
         from . import news
-        _bg("update_check", news.check)  # fragt selbst nur einmal täglich bei GitHub (CHECK_HOURS)
+        _bg("update_check", news.check)  # itself asks GitHub only once a day (CHECK_HOURS)
     if _due("repo_idents", 10):
         _last["repo_idents"] = time.time()
         from . import repofiles
-        _bg("repo_idents", repofiles.backfill)  # Kennzeichen für die Duplikatsperre nachtragen
+        _bg("repo_idents", repofiles.backfill)  # add the identifiers for the duplicate lock retroactively
     if _due("repo_uploads", 60):
         _last["repo_uploads"] = time.time()
         from . import repofiles as _rf
-        _bg("repo_uploads", _rf.cleanup_uploads)  # abgebrochene Uploads nach 24 Stunden aufräumen
+        _bg("repo_uploads", _rf.cleanup_uploads)  # clean up aborted uploads after 24 hours
     if _due("integrity_full", 10):
         _last["integrity_full"] = time.time()
         from . import integrity as _ig
@@ -255,18 +255,18 @@ def tick():
         _last["winget"] = time.time()
         _bg("winget", winget.refresh)
     if db.setting("winget_bootstrap") and _due("wingetboot", 24 * 60):
-        # 2.37: App-Installer für Computer ohne winget einmal täglich aktuell halten (nur bei neuem Release laden)
+        # 2.37: keep the app installer for computers without winget up to date once a day (download only on a new release)
         _last["wingetboot"] = time.time()
         from . import wingetboot
         _bg("wingetboot", lambda: wingetboot.refresh())
     if db.setting("winget_cache_auto") and _due("wingetcache", 24 * 60):
-        # 2.35: winget-Cache einmal täglich auf neue Versionen prüfen (nur wenn Einträge da sind)
+        # 2.35: check the winget cache for new versions once a day (only if there are entries)
         _last["wingetcache"] = time.time()
         from . import wingetcache
         if db.val("SELECT COUNT(*) FROM winget_cache", default=0):
             _bg("wingetcache", wingetcache.refresh_all)
     if _due("client_cleanup", 5) and db.val("SELECT COUNT(*) FROM client_cleanup", default=0):
-        # Reste unterbrochener Läufe (Neustart von POCKET KNIFE) auf erreichbaren Computern entfernen
+        # Remove leftovers of interrupted runs (restart of POCKET KNIFE) on reachable computers
         _last["client_cleanup"] = time.time()
         _bg("client_cleanup", deploy.process_cleanups)
     if _due("cleanup", 60):
@@ -292,13 +292,13 @@ def _loop():
 
 def start():
     state["started"] = util.now()
-    # Index nicht sofort neu laden, wenn er jünger als das Intervall ist
+    # Do not reload the index immediately if it is younger than the interval
     st = winget.status()
     if st["updated"]:
         age = time.time() - time.mktime(time.strptime(st["updated"], "%Y-%m-%d %H:%M:%S"))
         _last["winget"] = time.time() - age
-    _last["wingetboot"] = time.time() - (24 * 60 - 40) * 60  # 2.37: erste Prüfung 40 Minuten nach dem Start
-    _last["wingetcache"] = time.time() - (24 * 60 - 30) * 60  # 2.35: erste Prüfung des winget-Caches 30 Minuten nach dem Start
+    _last["wingetboot"] = time.time() - (24 * 60 - 40) * 60  # 2.37: first check 40 minutes after startup
+    _last["wingetcache"] = time.time() - (24 * 60 - 30) * 60  # 2.35: first check of the winget cache 30 minutes after startup
     threading.Thread(target=_loop, name="scheduler", daemon=True).start()
 
 

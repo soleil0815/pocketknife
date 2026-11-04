@@ -1,8 +1,8 @@
-"""Container ohne root: Beim Start (als root) die Datenordner dem Dienstbenutzer übergeben und die Rechte abgeben.
+"""Container without root: at start (as root) hand the data folders to the service user and drop privileges.
 
-Ab 2.14 läuft POCKET KNIFE als Benutzer „pocketknife“ (UID/GID 10001, änderbar mit PK_UID/PK_GID). Ältere
-Installationen haben Dateien von root in /data – sie werden beim ersten Start einmalig umgestellt. Danach
-behält der Prozess keinerlei Sonderrechte (alle Capabilities fallen mit dem Wechsel der UID weg).
+From 2.14 on, POCKET KNIFE runs as user "pocketknife" (UID/GID 10001, changeable with PK_UID/PK_GID). Older
+installations have files owned by root in /data - they are converted once at the first start. After that
+the process keeps no special privileges at all (all capabilities are dropped with the UID change).
 """
 import os
 import sys
@@ -17,18 +17,18 @@ def _ids():
             v = int(os.environ.get(name, default))
         except ValueError:
             v = default
-        return v if v > 0 else default  # nie wieder root
+        return v if v > 0 else default  # never root again
     return num("PK_UID", DEFAULT_UID), num("PK_GID", DEFAULT_GID)
 
 
-# Ordner, deren Besitzer nie geändert wird (relativ zum Datenordner). 2.32.12: data/update/host des früheren
-# Update-Helfers (2.32.9–2.32.12) gehört root – update.sh --cleanup räumt ihn weg.
+# Folders whose owner is never changed (relative to the data folder). 2.32.12: data/update/host of the former
+# update helper (2.32.9-2.32.12) belongs to root - update.sh --cleanup removes it.
 KEEP_OWNER = (os.path.join("update", "host"),)
 
 
 def chown_tree(path, uid, gid, keep=KEEP_OWNER):
-    """Alles unterhalb von path (ohne Verknüpfungen zu folgen) uid:gid geben – außer den Ordnern in keep (relativ zu
-    path, samt Inhalt). Gibt (geändert, fehler) zurück."""
+    """Give everything below path (without following links) to uid:gid - except the folders in keep (relative to
+    path, including their contents). Returns (changed, errors)."""
     changed, errors = 0, []
     if not os.path.isdir(path):
         return changed, errors
@@ -54,7 +54,7 @@ def chown_tree(path, uid, gid, keep=KEEP_OWNER):
 
 
 def _probe(d):
-    """Darf der laufende Benutzer in d anlegen und löschen? Wirft OSError, wenn nicht."""
+    """May the running user create and delete in d? Raises OSError if not."""
     import tempfile
     fd, p = tempfile.mkstemp(prefix=".pk-probe-", dir=d)
     os.close(fd)
@@ -62,7 +62,7 @@ def _probe(d):
 
 
 def unwritable(dirs, probe=None):
-    """2.30: Ordner, in die der Dienst nicht schreiben darf – [(Ordner, Fehlertext)]. Fehlende Ordner werden angelegt."""
+    """2.30: Folders the service may not write to - [(folder, error text)]. Missing folders are created."""
     probe = probe or _probe
     out = []
     for d in dirs:
@@ -77,8 +77,8 @@ def unwritable(dirs, probe=None):
 
 
 def write_hint(problems, data_dir):
-    """Verständliche Meldung statt eines Tracebacks, wenn der Dienst nicht schreiben darf (typisch: NAS mit eigenen
-    Freigabe-Rechten wie Synology, oder ein Ordner, den jemand von Hand als anderer Benutzer angelegt hat)."""
+    """Readable message instead of a traceback when the service may not write (typical: NAS with its own share
+    permissions such as Synology, or a folder someone created by hand as another user)."""
     uid, gid = os.getuid(), os.getgid()
     lines = [f"POCKET KNIFE: Start abgebrochen – Benutzer {uid}:{gid} darf hier nicht schreiben:"]
     lines += [f"  - {d}: {err}" for d, err in problems]
@@ -96,7 +96,7 @@ def write_hint(problems, data_dir):
 
 
 def drop(dirs):
-    """Als root gestartet: dirs übergeben, dann dauerhaft zum Dienstbenutzer wechseln. Sonst nichts tun."""
+    """Started as root: hand over dirs, then switch permanently to the service user. Otherwise do nothing."""
     if os.name != "posix" or os.geteuid() != 0:
         return False
     uid, gid = _ids()
@@ -115,7 +115,7 @@ def drop(dirs):
     os.setgroups([])
     os.setgid(gid)
     os.setuid(uid)
-    try:  # Probe: zurück zu root darf nicht mehr gehen
+    try:  # probe: switching back to root must no longer work
         os.setuid(0)
     except PermissionError:
         pass

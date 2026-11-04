@@ -1,17 +1,17 @@
-"""Software-Kiosk: Anmeldung mit Windows (Kerberos/SPNEGO, „Single Sign-on“) – optional, Standard aus.
+"""Software kiosk: login with Windows (Kerberos/SPNEGO, "Single Sign-on") - optional, off by default.
 
-Ablauf
-- Der Browser ruft POST /api/kiosk/sso auf. Ohne „Authorization: Negotiate …“ antwortet POCKET KNIFE mit 401 und
-  „WWW-Authenticate: Negotiate“. Ein Browser in der Domäne holt sich dann vom DC ein Ticket für HTTP/<name> und
-  schickt es mit. POCKET KNIFE prüft das Ticket mit der Keytab (dem Schlüssel des Kontos, auf dem der SPN liegt).
-  Dafür braucht es keine Verbindung zum DC.
-- Die Berechtigung prüft POCKET KNIFE danach wie bei der Anmeldung mit Kennwort, mit dem Dienstkonto per LDAP:
-  Konto aktiv, Mitglied einer Kiosk-Gruppe oder Konto in einer Kiosk-OU (oder Mitglied der Zugriffsgruppe).
-- Eine Windows-Anmeldung ergibt immer eine Kiosk-Sitzung, nie Zugriff auf die Verwaltung (dort bleibt das Kennwort Pflicht).
+Flow
+- The browser calls POST /api/kiosk/sso. Without "Authorization: Negotiate ..." POCKET KNIFE answers with 401 and
+  "WWW-Authenticate: Negotiate". A browser in the domain then fetches a ticket for HTTP/<name> from the DC and
+  sends it along. POCKET KNIFE verifies the ticket with the keytab (the key of the account that holds the SPN).
+  No connection to the DC is needed for that.
+- POCKET KNIFE then checks the authorization as with password login, using the service account via LDAP:
+  account active, member of a kiosk group or account in a kiosk OU (or member of the access group).
+- A Windows login always yields a kiosk session, never access to the administration (the password stays mandatory there).
 
-Die Keytab ist so geheim wie ein Kennwort. Sie liegt verschlüsselt in der Datenbank (wie die anderen Kennwörter, also
-auch in jeder Sicherung) und wird nur für die Prüfung entschlüsselt in den Arbeitsspeicher geschrieben (/tmp ist im
-Container ein tmpfs).
+The keytab is as secret as a password. It is stored encrypted in the database (like the other passwords, so
+also in every backup) and is decrypted into memory only for the check (/tmp is a tmpfs in the
+container).
 """
 import base64
 import binascii
@@ -22,9 +22,9 @@ import threading
 
 from . import config, db, pklog, util, vault
 
-KEY = "sso_keytab"          # verschlüsselt, nicht in DEFAULT_SETTINGS → nie über /api/settings sichtbar
+KEY = "sso_keytab"          # encrypted, not in DEFAULT_SETTINGS → never visible via /api/settings
 KEY_AT = "sso_keytab_at"
-RUN_DIR = "/tmp"            # tmpfs im Container (Arbeitsspeicher), nicht /data
+RUN_DIR = "/tmp"            # tmpfs in the container (memory), not /data
 MAX_KEYTAB = 64 * 1024
 _lock = threading.Lock()
 _cache = {"stamp": None, "path": None}
@@ -40,7 +40,7 @@ class SSOError(Exception):
 
 # --- Keytab -------------------------------------------------------------------------------------
 def parse_keytab(data):
-    """Einträge einer MIT-Keytab (Version 0x0502, wie ktpass sie erzeugt) – ohne die Schlüssel selbst."""
+    """Entries of a MIT keytab (version 0x0502, as ktpass creates it) - without the keys themselves."""
     if not isinstance(data, (bytes, bytearray)) or len(data) < 6:
         raise SSOError("Keine Keytab-Datei (zu klein).")
     if len(data) > MAX_KEYTAB:
@@ -64,7 +64,7 @@ def parse_keytab(data):
         pos += 4
         if size == 0:
             break
-        if size < 0:  # gelöschter Eintrag („Loch“)
+        if size < 0:  # deleted entry ("hole")
             pos += -size
             continue
         end = pos + size
@@ -78,7 +78,7 @@ def parse_keytab(data):
         comps = [take(struct.unpack(fmt + "H", take(2))[0]).decode("utf-8", "replace") for _ in range(ncomp)]
         if data[1] == 2:
             take(4)  # name_type
-        take(4)  # Zeitstempel
+        take(4)  # timestamp
         kvno = take(1)[0]
         etype = struct.unpack(fmt + "H", take(2))[0]
         klen = struct.unpack(fmt + "H", take(2))[0]
@@ -148,7 +148,7 @@ def _drop_runtime():
 
 
 def _keytab_path():
-    """Entschlüsselte Keytab im Arbeitsspeicher (tmpfs) – neu geschrieben, sobald sich die gespeicherte ändert."""
+    """Decrypted keytab in memory (tmpfs) - rewritten as soon as the stored one changes."""
     enc = db.setting_raw(KEY)
     if not enc:
         raise SSOError("Keine Keytab hinterlegt.")
@@ -181,7 +181,7 @@ def entries():
 
 
 def hosts():
-    """Rechnernamen aus den HTTP-SPNs der Keytab (unter diesen Namen muss der Kiosk aufgerufen werden)."""
+    """Host names from the HTTP SPNs of the keytab (the kiosk must be called under these names)."""
     seen, out = set(), []
     for e in entries():
         if e["service"].upper() == "HTTP" and e["host"] and e["host"].lower() not in seen:
@@ -202,29 +202,29 @@ def config_realm():
 
 
 def enabled():
-    """Windows-Anmeldung angeboten? Kiosk an, Schalter an, Keytab vorhanden."""
+    """Windows login offered? Kiosk on, switch on, keytab present."""
     from . import kiosk
     return bool(kiosk.enabled() and db.setting("kiosk_sso") and present())
 
 
-# --- Prüfen eines Tickets -----------------------------------------------------------------------
+# --- Verifying a ticket -----------------------------------------------------------------------
 def _gss():
     try:
         import gssapi
         return gssapi
-    except Exception as e:  # pragma: no cover – im Container immer vorhanden
+    except Exception as e:  # pragma: no cover – always present in the container
         raise SSOError(f"Kerberos-Bibliothek (gssapi) fehlt im Container: {e}")
 
 
 def _prepare_env():
-    # Replay-Cache: Standard wäre /var/tmp – im schreibgeschützten Container nicht beschreibbar
+    # Replay cache: the default would be /var/tmp - not writable in the read-only container
     os.environ.setdefault("KRB5RCACHEDIR", RUN_DIR)
     from . import kerberos
     kerberos.setup()
 
 
 def accept(header):
-    """Negotiate-Token prüfen. Gibt (Benutzername ohne Realm, Realm, Antwort-Token oder None) zurück."""
+    """Verify the Negotiate token. Returns (user name without realm, realm, response token or None)."""
     parts = str(header or "").split(None, 1)
     if len(parts) != 2 or parts[0].lower() != "negotiate":
         raise SSOError("Kein Negotiate-Token.")
@@ -249,7 +249,7 @@ def accept(header):
         raise SSOError(explain(e))
     if not ctx.complete:
         raise SSOError("Kerberos-Anmeldung nicht abgeschlossen (mehrstufiges Verfahren wird nicht unterstützt).")
-    # Nur Tickets für den HTTP-Namen des Kiosks – nicht für andere Dienste, deren Schlüssel zufällig in der Keytab stehen
+    # Only tickets for the kiosk's HTTP name - not for other services whose keys happen to be in the keytab
     try:
         tgt = str(getattr(ctx, "target_name", None) or "")
     except Exception:
@@ -272,7 +272,7 @@ def accept(header):
 
 
 def explain(e):
-    """GSSAPI-Fehler in eine verständliche Meldung übersetzen."""
+    """Translate GSSAPI errors into an understandable message."""
     t = str(e)
     low = t.lower()
     if "no key table entry" in low or "cannot find key of appropriate type" in low or "key version" in low or "kvno" in low:
@@ -288,9 +288,9 @@ def explain(e):
     return f"Kerberos-Prüfung fehlgeschlagen: {t[:300]}"
 
 
-# --- Test für die Einstellungsseite -------------------------------------------------------------
+# --- Test for the settings page -------------------------------------------------------------
 def test():
-    """Schritt-für-Schritt-Prüfung ohne Browser. Liste von {ok: True/False/None, text}."""
+    """Step-by-step check without a browser. List of {ok: True/False/None, text}."""
     from . import kiosk
     steps = []
 

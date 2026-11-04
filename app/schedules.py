@@ -1,12 +1,12 @@
-"""Zeitpläne – automatische Softwareverteilung an einer Stelle.
+"""Schedules – automatic software distribution in one place.
 
-Zwei Arten:
-  packages  Pakete nacheinander an Ziele verteilen (Computer und Sammlungen)
-  winget    veraltete Software der Ziele per „winget upgrade“ aktualisieren (früher „Regeln“)
+Two kinds:
+  packages  distribute packages one after another to targets (computers and collections)
+  winget    update outdated software of the targets via "winget upgrade" (formerly "Regeln", rules)
 
-Gemeinsam: Auslöser (einmalig, Intervall, täglich, wöchentlich, monatlich, Heartbeat), optionales
-Zeitfenster (Wochentage + Uhrzeit, auch über Mitternacht), Umgang mit offline Computern (vormerken und beim
-Heartbeat versorgen), Wartezeit nach Fehlschlag, maximale Fehlversuche und Zielverlauf je Computer.
+Common: triggers (once, interval, daily, weekly, monthly, heartbeat), optional
+time window (weekdays + time of day, also across midnight), handling of offline computers (mark as pending and serve at the
+heartbeat), wait time after failure, maximum failed attempts and per-computer target history.
 """
 import datetime
 import json
@@ -18,14 +18,14 @@ TRIGGER_TYPES = {k: v for k, v in profiles.TRIGGER_TYPES.items() if k != "scan_a
 KINDS = {"packages": "Pakete verteilen", "winget": "winget-Updates"}
 DEFAULT_OPTIONS = {"stop_on_fail": True, "offline": "wait", "skip_successful": True, "max_attempts": 0,
                    "only_online": True, "retry_wait_hours": 0, "renew_after_hours": 0, "retry_failed": True,
-                   "wake_offline": False}  # 2.31: ausgeschaltete Ziele vorher per Wake-on-LAN wecken (Standard: nein)
+                   "wake_offline": False}  # 2.31: wake powered-off targets beforehand via Wake-on-LAN (default: no)
 DEFAULT_WINGET = {"mode": "all", "ids": "", "exclude": "", "scope": ""}
 DEFAULT_WINDOW = {"enabled": False, "days": [1, 2, 3, 4, 5, 6, 7], "start": "00:00", "end": "23:59"}
-DEFERRED = "__window"  # Merker in schedule_trigger_state: Lauf fällig, wartet auf das Zeitfenster
-RETRY = "__retry"  # Merker: Lauf konnte nicht gestartet werden (Fehler) – wird nachgeholt
-RETRY_MINUTES = 15  # Abstand der Wiederholungen eines nicht gestarteten Laufs
-AUTO_RETRY_MIN_HOURS = 1  # fehlgeschlagene Ziele frühestens nach dieser Zeit automatisch nachholen
-AUTO_RETRY_DEFAULT_MAX = 3  # … höchstens so oft, wenn „Max. Fehlversuche“ 0 (unbegrenzt) ist
+DEFERRED = "__window"  # marker in schedule_trigger_state: run is due, waiting for the time window
+RETRY = "__retry"  # marker: run could not be started (error) – will be made up for
+RETRY_MINUTES = 15  # interval between retries of a run that did not start
+AUTO_RETRY_MIN_HOURS = 1  # retry failed targets automatically no earlier than after this time
+AUTO_RETRY_DEFAULT_MAX = 3  # … at most this many times if "Max. Fehlversuche" is 0 (unlimited)
 
 
 def _parse(row):
@@ -69,7 +69,7 @@ def _ids(s):
 
 
 def _list(s):
-    """IDs in Originalschreibweise, ohne Doppelte (Groß/klein egal)."""
+    """IDs in original spelling, without duplicates (case-insensitive)."""
     out, seen = [], set()
     for x in (s or "").replace(";", ",").replace("\n", ",").split(","):
         x = x.strip()
@@ -137,7 +137,7 @@ def clean(data):
             "renew_after_hours": _hours(o.get("renew_after_hours"), "Erneut versorgen nach"),
             "retry_failed": bool(o.get("retry_failed", True)), "wake_offline": bool(o.get("wake_offline"))}
     if opts["wake_offline"]:
-        opts["offline"] = "wait"  # geweckte Computer werden versorgt, sobald sie hochgefahren sind
+        opts["offline"] = "wait"  # woken computers are served as soon as they have booted
     tenant = data.get("tenant_id")
     tenant = int(tenant) if tenant not in (None, "", 0, "0") else None
     return {"name": name[:200], "description": (data.get("description") or "").strip()[:2000], "kind": kind,
@@ -157,7 +157,7 @@ def save(sid, data, user=None):
         db.ex("UPDATE schedules SET name=?, description=?, kind=?, enabled=?, tenant_id=?, triggers=?, targets=?, packages=?, "
               "options=?, winget=?, window=?, updated_at=? WHERE id=?", (*vals, sid))
         if old and (old["packages"] != d["packages"] or old["kind"] != d["kind"]):
-            # Andere Pakete: bisherige Erfolge gelten nicht mehr
+            # Different packages: previous successes no longer count
             db.ex("UPDATE schedule_targets SET status=NULL, attempts=0, last_success=NULL WHERE schedule_id=?", (sid,))
         _baseline(sid, d["triggers"], old["triggers"] if old else None, bool(old and not old["enabled"] and d["enabled"]))
     else:
@@ -167,13 +167,13 @@ def save(sid, data, user=None):
         try:
             _baseline(sid, d["triggers"])
         except Exception:
-            db.ex("DELETE FROM schedules WHERE id=?", (sid,))  # kein halb gespeicherter Zeitplan
+            db.ex("DELETE FROM schedules WHERE id=?", (sid,))  # no half-saved schedule
             raise
     return sid
 
 
 def ensure_baselines():
-    """Beim Start: Auslöser ohne Ausgangspunkt bekommen „jetzt“ – sonst würde ein vergangener Termin sofort ausgeführt."""
+    """At startup: triggers without a starting point get "now" – otherwise a past appointment would run immediately."""
     for s in all_schedules():
         try:
             for t in s["triggers"]:
@@ -184,7 +184,7 @@ def ensure_baselines():
 
 
 def _changed(t, old, reenabled):
-    """Auslöser wurde geändert oder wieder aktiviert → Ausgangspunkt neu setzen (sonst löst ein vergangener Termin sofort aus)."""
+    """Trigger was changed or re-enabled → reset the starting point (otherwise a past appointment fires immediately)."""
     if reenabled or old is None:
         return reenabled
     strip = lambda x: {k: v for k, v in x.items() if k != "id"}  # noqa: E731
@@ -219,7 +219,7 @@ def members(s):
             continue
     existing = {r["id"] for r in db.q("SELECT id FROM computers")}
     ids &= existing
-    # Zeitplan eines Mandanten mit Sammlung: nur deren Computer (wie beim Verteilen) – auch für Vorschau und Zielverlauf
+    # Schedule of a tenant with a collection: only its computers (as when distributing) – also for preview and target history
     if s.get("tenant_id"):
         from . import deploy
         mem = deploy.tenant_members(s["tenant_id"])
@@ -228,7 +228,7 @@ def members(s):
     return ids
 
 
-# --- Zeitfenster ------------------------------------------------------------------------------
+# --- Time window ------------------------------------------------------------------------------
 def in_window(s, now=None):
     w = s.get("window") or DEFAULT_WINDOW
     if not w.get("enabled"):
@@ -239,7 +239,7 @@ def in_window(s, now=None):
     days = set(w.get("days") or [1, 2, 3, 4, 5, 6, 7])
     if start <= end:
         return now.isoweekday() in days and start <= cur <= end
-    # über Mitternacht: der Teil nach Mitternacht gehört zum Vortag
+    # across midnight: the part after midnight belongs to the previous day
     if cur >= start:
         return now.isoweekday() in days
     if cur <= end:
@@ -300,7 +300,7 @@ def next_occurrence(t, now):
 
 
 def summary(s, only=None):
-    """only: Menge von Computer-IDs (OU-Admin) – Zahlen nur für diese Computer."""
+    """only: set of computer IDs (OU admin) – numbers only for these computers."""
     now = datetime.datetime.now()
     rows = db.q("SELECT * FROM schedule_targets WHERE schedule_id=?", (s["id"],))
     if only is not None:
@@ -325,7 +325,7 @@ def summary(s, only=None):
 
 
 def composite_package(s):
-    """Die Pakete des Zeitplans als ein Paket mit verschachtelten Schritten (in Reihenfolge)."""
+    """The schedule's packages as one package with nested steps (in order)."""
     from . import steps
     main = []
     for i, pid in enumerate(s["packages"]):
@@ -339,9 +339,9 @@ def composite_package(s):
             "steps": {"pre": [], "main": main, "post": []}, "tenant_id": s.get("tenant_id")}
 
 
-# --- winget-Updates ---------------------------------------------------------------------------
+# --- winget updates ---------------------------------------------------------------------------
 def winget_candidates(s, cids=None, online_only=True):
-    """{winget_id: [computer_ids]} – veraltete Software der Ziele mit sicherer winget-Zuordnung."""
+    """{winget_id: [computer_ids]} – outdated software of the targets with a reliable winget mapping."""
     targets = members(s) if cids is None else (set(cids) & members(s))
     if not targets:
         return {}
@@ -363,8 +363,8 @@ def winget_candidates(s, cids=None, online_only=True):
            JOIN deployments d ON d.id = t.deployment_id
            WHERE t.status IN ('queued','running')
               OR (d.schedule_id = ? AND t.status = 'failed' AND t.finished_at >= ?)""", (s["id"], since))}
-    # „Maximale Fehlversuche“ auch für winget: aufeinanderfolgende Fehlschläge je Computer und Programm zählen
-    # (ein dauerhaft scheiterndes Update – z. B. weil das Programm läuft – nicht bei jedem Auslöser erneut starten)
+    # "Max. Fehlversuche" also for winget: count consecutive failures per computer and program
+    # (do not restart a permanently failing update – e.g. because the program is running – at every trigger)
     fails = {}
     maxa = s["options"].get("max_attempts") or 0
     if maxa:
@@ -382,7 +382,7 @@ def winget_candidates(s, cids=None, online_only=True):
             continue
         if maxa and fails.get((r["computer_id"], wl), 0) >= maxa:
             continue
-        # 2.36: neue Version zurückgestellt → nur Computer mit einer älteren als der freigegebenen Version
+        # 2.36: new version deferred → only computers with a version older than the approved one
         if wl not in rel:
             rel[wl] = wingetrelease.target(r["winget_id"])
         t = rel[wl]
@@ -390,8 +390,8 @@ def winget_candidates(s, cids=None, online_only=True):
             continue
         if r["computer_id"] not in out.get(r["winget_id"], []):
             out.setdefault(r["winget_id"], []).append(r["computer_id"])
-    # 2.35: Computer ohne winget nur, wenn das Paket aus dem winget-Cache für sie passt (Windows-Version, Architektur,
-    # wirklich neuer) – sonst würden sie bei jedem Lauf vorgemerkt/geweckt und dann doch ausgelassen
+    # 2.35: computers without winget only if the package from the winget cache fits them (Windows version, architecture,
+    # actually newer) – otherwise they would be marked/woken on every run and then skipped anyway
     from . import wingetcache
     for wid in list(out):
         wg, cache, _skip, _e = wingetcache.split(wid, out[wid])
@@ -402,7 +402,7 @@ def winget_candidates(s, cids=None, online_only=True):
 
 
 def target_label(s):
-    """Kurztext der Zeitplan-Ziele für die Bereitstellungsliste."""
+    """Short text of the schedule targets for the deployment list."""
     names = []
     for col in s["targets"]["collections"]:
         names.append("Alle Computer" if col == profiles.ALL_COMPUTERS else
@@ -421,7 +421,7 @@ def _fire_winget(s, cids, reason, user):
     online = {r["id"] for r in db.q("SELECT id FROM computers WHERE online=1 AND winrm=1")}
     now = util.now()
     if o["offline"] == "wait" or o.get("wake_offline"):
-        # Offline Ziele mit veralteter Software vormerken – sie werden beim Heartbeat versorgt
+        # Mark offline targets with outdated software as pending – they are served at the heartbeat
         offline_cand = winget_candidates(s, [c for c in targets if c not in online], online_only=False)
         _wake_offline(s, o, sorted({c for ids in offline_cand.values() for c in ids}), reason)
         for cid in {c for ids in offline_cand.values() for c in ids}:
@@ -433,7 +433,7 @@ def _fire_winget(s, cids, reason, user):
     n = 0
     from . import wingetcache
     for wid, ids in sorted(winget_candidates(s, [c for c in targets if c in online]).items()):
-        # 2.35: Computer ohne winget aus dem winget-Cache (gleiche winget-ID im Paket – „läuft schon“/Fehlversuche zählen mit)
+        # 2.35: computers without winget from the winget cache (same winget ID in the package – "already running"/failed attempts count too)
         wg, cache, _skip, ce = wingetcache.split(wid, ids)
         for kind, part in (("cache", cache), ("winget", wg)):
             if not part:
@@ -460,7 +460,7 @@ def _fire_winget(s, cids, reason, user):
                 n += 1
             except Exception as e:
                 pklog.warn("deploy", f"Zeitplan „{s['name']}“ – {wid}: {e}")
-    # Vorgemerkte, inzwischen online Ziele ohne (weitere) Updates: Merker entfernen
+    # Pending targets that are now online and have no (more) updates: remove the marker
     db.ex(f"""UPDATE schedule_targets SET pending=0, pending_since=NULL, message='Keine veraltete Software'
               WHERE schedule_id=? AND pending=1 AND computer_id IN ({','.join('?' * len(online & targets)) or 'NULL'})""",
           (s["id"], *sorted(online & targets)))
@@ -469,25 +469,25 @@ def _fire_winget(s, cids, reason, user):
     return {"deployment_id": first, "count": n}
 
 
-# 2.31: nur bei einem echten Lauf (Termin, Zeitfenster, manuell) wecken – nicht bei jedem Heartbeat oder Nachholen
-# 2.32.5: „Wiederholung – Lauf konnte nicht gestartet werden“ holt einen echten Termin nach – dort wird geweckt
+# 2.31: wake only on a real run (appointment, time window, manual) – not on every heartbeat or catch-up
+# 2.32.5: "Wiederholung – Lauf konnte nicht gestartet werden" makes up for a real appointment – waking happens there
 _NO_WAKE = ("Heartbeat", "Computer wieder online", "vorgemerkte Ziele", "fehlgeschlagene Ziele")
-WAKE_MAX = 200  # höchstens so viele Computer je Lauf wecken
-_waking = set()  # Zeitpläne, für die gerade geweckt wird (je Zeitplan nur ein Durchlauf gleichzeitig)
+WAKE_MAX = 200  # wake at most this many computers per run
+_waking = set()  # schedules currently being woken for (only one pass per schedule at a time)
 _waking_lock = threading.Lock()
 
 
 def _wake_offline(s, o, ids, reason):
     if not o.get("wake_offline") or not ids or any(str(reason or "").startswith(x) for x in _NO_WAKE):
         return
-    # 2.32.5: nur wirklich ausgeschaltete Computer wecken – eingeschaltete ohne WinRM brauchen kein Magic Packet
+    # 2.32.5: wake only computers that are really powered off – powered-on ones without WinRM need no magic packet
     off = {r["id"] for r in db.q("SELECT id FROM computers WHERE COALESCE(online, 0)=0")}
     ids = [c for c in ids if c in off]
     if not ids:
         return
     with _waking_lock:
         if s["id"] in _waking:
-            return  # der vorige Weck-Durchlauf dieses Zeitplans läuft noch
+            return  # the previous wake pass of this schedule is still running
         _waking.add(s["id"])
 
     def run():
@@ -518,7 +518,7 @@ def _wake_run(s, ids, reason):
                              "sie werden versorgt, sobald sie hochgefahren sind.")
 
 
-# --- Ausführen --------------------------------------------------------------------------------
+# --- Running --------------------------------------------------------------------------------
 _locks = {}
 _locks_guard = threading.Lock()
 
@@ -529,8 +529,8 @@ def _lock(sid):
 
 
 def fire(s, cids=None, reason="Zeitplan", user=None, force=False):
-    """Zeitplan für alle (oder die angegebenen) Ziele ausführen. Gibt {deployment_id, count} zurück.
-    Je Zeitplan nur ein Lauf gleichzeitig – Heartbeat- und Minuten-Thread könnten sonst dasselbe Ziel doppelt versorgen."""
+    """Run the schedule for all (or the given) targets. Returns {deployment_id, count}.
+    Only one run per schedule at a time – the heartbeat and minute threads could otherwise serve the same target twice."""
     with _lock(s["id"]):
         return _fire(s, cids, reason, user, force)
 
@@ -546,7 +546,7 @@ def _fire(s, cids=None, reason="Zeitplan", user=None, force=False):
     o = s["options"]
     renew = util.ago(hours=o["renew_after_hours"]) if o.get("renew_after_hours") else None
     wait = util.ago(hours=o["retry_wait_hours"]) if o.get("retry_wait_hours") else None
-    # „queued/running“ nur glauben, wenn die Bereitstellung noch läuft – sonst (gelöscht, abgebrochen, Absturz) neu versorgen
+    # only believe "queued/running" if the deployment is still running – otherwise (deleted, aborted, crash) serve again
     live = {r["id"] for r in db.q("SELECT id FROM deployments WHERE status IN ('queued','running','scheduled')")}
     todo = []
     for cid in targets:
@@ -555,16 +555,16 @@ def _fire(s, cids=None, reason="Zeitplan", user=None, force=False):
             continue
         if not force and o["skip_successful"] and h.get("status") in ("success", "skipped"):
             if not renew or (h.get("last_run") or "") >= renew:
-                continue  # erfolgreich – und (falls eingestellt) noch nicht alt genug für eine erneute Versorgung
+                continue  # successful – and (if configured) not yet old enough for another serving
         if not force and h.get("status") == "failed":
             if o["max_attempts"] and (h.get("attempts") or 0) >= o["max_attempts"]:
                 continue
             if wait and (h.get("last_run") or "") >= wait:
-                continue  # Wartezeit nach Fehlschlag läuft noch
+                continue  # wait time after failure is still running
         todo.append(cid)
     skipped = sorted(targets - set(todo))
     if skipped:
-        # Vorgemerkte Ziele, die nichts (mehr) brauchen, nicht weiter vormerken
+        # Do not keep pending targets that need nothing (any more) marked
         db.ex(f"UPDATE schedule_targets SET pending=0, pending_since=NULL WHERE schedule_id=? AND pending=1 "
               f"AND computer_id IN ({','.join('?' * len(skipped))})", (s["id"], *skipped))
     if not todo:
@@ -591,14 +591,14 @@ def _fire(s, cids=None, reason="Zeitplan", user=None, force=False):
         did = deploy.create(composite_package(s), run, user or "Zeitplan", source="schedule", name=s["name"],
                             schedule_id=s["id"], start_now=False, target_label=target_label(s))
     except integrity.IntegrityError as e:
-        # Bruch im Repository: Lauf unterbrechen, Ziele bleiben offen (nächster Lauf versucht es wieder) –
-        # gemeldet nur bei neuer Ursache, sonst stünde bei jedem Heartbeat dieselbe Warnung im Protokoll
+        # Break in the repository: interrupt the run, targets stay open (the next run tries again) –
+        # report only for a new cause, otherwise the same warning would appear in the log on every heartbeat
         if _blocked.get(s["id"]) != str(e):
             _blocked[s["id"]] = str(e)
             pklog.warn("deploy", f"Zeitplan „{s['name']}“ ({reason}): {e}", user=user)
         return {"deployment_id": None, "count": 0, "blocked": integrity.NEUTRAL}
     _blocked.pop(s["id"], None)
-    # Erst den Zielverlauf schreiben, dann starten – sonst kann ein schnell fertiges Ziel überschrieben werden
+    # Write the target history first, then start – otherwise a quickly finished target can be overwritten
     for r in db.q("SELECT computer_id FROM deployment_targets WHERE deployment_id=?", (did,)):
         db.ex("""INSERT INTO schedule_targets(schedule_id, computer_id, status, deployment_id, pending, message) VALUES(?,?,?,?,0,?)
                  ON CONFLICT(schedule_id, computer_id) DO UPDATE SET status=excluded.status, deployment_id=excluded.deployment_id,
@@ -610,11 +610,11 @@ def _fire(s, cids=None, reason="Zeitplan", user=None, force=False):
     return {"deployment_id": did, "count": 1}
 
 
-_blocked = {}  # Zeitplan-ID → zuletzt gemeldete Unterbrechung (Bruch im Repository)
+_blocked = {}  # schedule ID → last reported interruption (break in the repository)
 
 
 def preview(s, only=None):
-    """Was ein Lauf jetzt tun würde (ohne etwas zu starten). only: nur diese Computer (OU-Admin)."""
+    """What a run would do now (without starting anything). only: only these computers (OU admin)."""
     names = {r["id"]: r["name"] for r in db.q("SELECT id, name FROM computers")}
     online = {r["id"] for r in db.q("SELECT id FROM computers WHERE online=1 AND winrm=1")}
     if s["kind"] == "winget":
@@ -638,13 +638,13 @@ def target_finished(sid, did, tid):
     now = util.now()
     s = get(sid)
     if status == "failed" and s and s["options"]["offline"] == "wait" and (t["message"] or "").startswith("Computer nicht erreichbar"):
-        # Beim Start doch offline: vormerken statt als Fehlversuch zählen
+        # Offline after all at start: mark as pending instead of counting as a failed attempt
         db.ex("""INSERT INTO schedule_targets(schedule_id, computer_id, pending, pending_since, message, deployment_id)
                  VALUES(?,?,1,?,?,?) ON CONFLICT(schedule_id, computer_id) DO UPDATE SET status=NULL, pending=1,
                  pending_since=excluded.pending_since, message=excluded.message, deployment_id=excluded.deployment_id""",
               (sid, t["computer_id"], now, "Nicht erreichbar – wird versorgt, sobald der Computer online ist", did))
         return
-    # Als Fehlversuch zählt nur „fehlgeschlagen“ – Abbrechen oder Überspringen verbraucht keine Versuche
+    # Only "fehlgeschlagen" counts as a failed attempt – cancelling or skipping uses up no attempts
     db.ex("""INSERT INTO schedule_targets(schedule_id, computer_id, status, last_run, last_success, attempts, deployment_id,
              message, pending) VALUES(?,?,?,?,?,?,?,?,0)
              ON CONFLICT(schedule_id, computer_id) DO UPDATE SET status=excluded.status, last_run=excluded.last_run,
@@ -670,13 +670,13 @@ def _clear_retry(sid):
 
 
 def _fire_safe(s, cids=None, reason="Zeitplan"):
-    """Lauf starten; scheitert schon der Start (z. B. Datenbank gesperrt, Paket fehlerhaft), geht er nicht
-    verloren: ein ganzer Lauf wird alle 15 Minuten wiederholt, einzelne Ziele werden vorgemerkt."""
+    """Start the run; if the start itself fails (e.g. database locked, faulty package), it is not
+    lost: a whole run is repeated every 15 minutes, individual targets are marked as pending."""
     try:
         res = fire(s, cids, reason=reason)
     except ValueError as e:
-        # Fehler in der Einrichtung (Paket fehlt, kein Ziel im Mandanten …): wird durch Wiederholen nicht besser –
-        # einmal melden statt endlos alle 15 Minuten bzw. bei jedem Heartbeat
+        # Error in the setup (package missing, no target in the tenant …): repeating will not improve it –
+        # report once instead of endlessly every 15 minutes or at every heartbeat
         if cids is None:
             _clear_retry(s["id"])
         pklog.error("deploy", f"Zeitplan „{s['name']}“ konnte nicht gestartet werden: {e} – bitte den Zeitplan prüfen.")
@@ -701,14 +701,14 @@ def _fire_safe(s, cids=None, reason="Zeitplan"):
         return False
     if cids is None:
         _clear_retry(s["id"])
-    # Audit 2.29: vom Bruch im Repository unterbrochen = nichts geprüft/gestartet → kein „erledigt“ (sonst wären die
-    # automatischen Wiederholungen eines vorübergehenden Bruchs auf einen Schlag aufgebraucht)
+    # Audit 2.29: interrupted by the break in the repository = nothing checked/started → not "done" (otherwise the
+    # automatic retries for a temporary break would be used up all at once)
     return not (isinstance(res, dict) and res.get("blocked"))
 
 
 def retry_candidates(s):
-    """Fehlgeschlagene, erreichbare Ziele, die automatisch nachgeholt werden (Option „Fehlgeschlagene nachholen“):
-    nach der Wartezeit (mindestens 1 Stunde), höchstens „Max. Fehlversuche“ (bei 0: 3) Versuche."""
+    """Failed, reachable targets that are retried automatically (option "Fehlgeschlagene nachholen"):
+    after the wait time (at least 1 hour), at most "Max. Fehlversuche" (if 0: 3) attempts."""
     o = s["options"]
     if not o.get("retry_failed", True):
         return []
@@ -723,8 +723,8 @@ def retry_candidates(s):
 
 
 def evaluate():
-    """Vom Scheduler jede Minute aufgerufen: fällige Auslöser ausführen, auf das Zeitfenster wartende Läufe
-    und vorgemerkte (inzwischen online) Ziele im Zeitfenster nachholen."""
+    """Called by the scheduler every minute: run due triggers, catch up runs waiting for the time window
+    and pending (now online) targets within the time window."""
     now = datetime.datetime.now()
     nows = util.fmt(now)
     state = {(r["schedule_id"], r["trigger_id"]): r["last_fired"] for r in db.q("SELECT * FROM schedule_trigger_state")}
@@ -754,7 +754,7 @@ def _evaluate_one(s, now, nows, state):
             due = due or t
     win = in_window(s, now)
     if due and not win:
-        _defer(s["id"])  # außerhalb des Zeitfensters: zu Beginn des Fensters nachholen
+        _defer(s["id"])  # outside the time window: catch up at the start of the window
         pklog.info("deploy", f"Zeitplan „{s['name']}“ fällig ({profiles.describe(due)}) – wartet auf das Zeitfenster "
                              f"({window_text(s)}).")
         return
@@ -766,7 +766,7 @@ def _evaluate_one(s, now, nows, state):
         return
     failed_at = util.parse(state.get((s["id"], RETRY)))
     if failed_at and now - failed_at >= datetime.timedelta(minutes=RETRY_MINUTES):
-        # Lauf konnte nicht gestartet werden – erneut versuchen (bis er klappt oder der nächste Termin kommt)
+        # run could not be started – try again (until it works or the next appointment comes)
         _fire_safe(s, reason="Wiederholung – Lauf konnte nicht gestartet werden")
         return
     retry = retry_candidates(s)
@@ -775,13 +775,13 @@ def _evaluate_one(s, now, nows, state):
             f"SELECT computer_id, deployment_id FROM schedule_targets WHERE schedule_id=? "
             f"AND computer_id IN ({','.join('?' * len(retry))})", (s["id"], *retry))}
         if _fire_safe(s, retry, reason="fehlgeschlagene Ziele nachholen"):
-            # Ziele, für die nichts gestartet wurde (z. B. Update inzwischen erledigt), nicht jede Minute erneut prüfen
+            # do not re-check targets for which nothing was started (e.g. update done in the meantime) every minute
             limit = s["options"].get("max_attempts") or AUTO_RETRY_DEFAULT_MAX
             for cid, dep in before.items():
                 db.ex("UPDATE schedule_targets SET attempts=MAX(COALESCE(attempts, 0), ?) WHERE schedule_id=? AND computer_id=? "
                       "AND status='failed' AND COALESCE(pending, 0)=0 AND deployment_id IS ?", (limit, s["id"], cid, dep))
     if s["window"].get("enabled"):
-        # Im Fenster: vorgemerkte Ziele, die außerhalb des Fensters online kamen
+        # In the window: pending targets that came online outside the window
         pend = [r["computer_id"] for r in db.q(
             """SELECT st.computer_id FROM schedule_targets st JOIN computers c ON c.id = st.computer_id
                WHERE st.schedule_id=? AND st.pending=1 AND c.online=1 AND c.winrm=1""", (s["id"],))]
@@ -790,8 +790,8 @@ def _evaluate_one(s, now, nows, state):
 
 
 def on_online(cids):
-    """Heartbeat: offline vorgemerkte Ziele versorgen und Heartbeat-Auslöser ausführen (im Zeitfenster;
-    außerhalb werden die Computer vorgemerkt und beim Öffnen des Fensters versorgt)."""
+    """Heartbeat: serve targets marked as pending while offline and run heartbeat triggers (within the time window;
+    outside it the computers are marked as pending and served when the window opens)."""
     if not cids:
         return
     cset = set(cids)
@@ -816,10 +816,10 @@ def on_online(cids):
 
 
 def on_heartbeat(online_ids):
-    """Nach jedem Heartbeat (automatisch oder manuell): erreichbare Ziele versorgen, die noch nie dran waren
-    (Zeitplan mit Heartbeat-Auslöser, z. B. neu angelegt oder neu in einer dynamischen Sammlung) oder die
-    vorgemerkt sind. Bereits versuchte Ziele werden hier nicht wiederholt – das regeln die übrigen Auslöser,
-    die Wartezeit nach Fehlschlag und „Auswahl erneut versorgen“."""
+    """After every heartbeat (automatic or manual): serve reachable targets that have never been served
+    (schedule with heartbeat trigger, e.g. newly created or newly in a dynamic collection) or that
+    are marked as pending. Targets already tried are not repeated here – the other triggers handle that,
+    as do the wait time after failure and "Auswahl erneut versorgen"."""
     online = set(online_ids)
     if not online:
         return
@@ -831,7 +831,7 @@ def on_heartbeat(online_ids):
         pend = {r["computer_id"] for r in rows if r["pending"]}
         hb = any(t["type"] == "heartbeat" and t.get("enabled", True) for t in s["triggers"])
         mem = members(s)
-        # Vormerkungen aufräumen: nicht mehr Mitglied oder seit über 14 Tagen offline (wie bei den Scanprofilen)
+        # Clean up pending marks: no longer a member or offline for over 14 days (as with the scan profiles)
         stale = pend - mem
         if stale:
             db.ex(f"UPDATE schedule_targets SET pending=0, pending_since=NULL, message='Nicht mehr Ziel des Zeitplans' "
@@ -850,9 +850,9 @@ def history(sid):
                    WHERE st.schedule_id=? ORDER BY c.name""", (sid,))
 
 
-# --- Übernahme der früheren „Regeln“ ------------------------------------------------------------
+# --- Migration of the former "Regeln" (rules) ------------------------------------------------------------
 def migrate_rules():
-    """Regeln (bis Version 2.4.5) einmalig in Zeitpläne umwandeln."""
+    """Convert rules (up to version 2.4.5) into schedules once."""
     try:
         rows = db.q("SELECT * FROM update_rules WHERE COALESCE(migrated, 0) = 0")
     except Exception:

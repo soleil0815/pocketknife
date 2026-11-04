@@ -1,4 +1,4 @@
-"""POCKET KNIFE – Web-API und Auslieferung der Oberfläche."""
+"""POCKET KNIFE - web API and delivery of the user interface."""
 import base64
 import json
 import secrets
@@ -23,14 +23,14 @@ from . import (access, backup, clientfiles, loadstats, integrity, kiosk, news, p
 async def lifespan(_app):
     kerberos.setup()
     try:
-        backup.before_update()  # Stand vor dem Update sichern, bevor Migrationen laufen
+        backup.before_update()  # back up the state before the update, before migrations run
     except Exception as e:  # pragma: no cover
         print(f"Sicherung vor dem Update: {e}", flush=True)
     db.init()
     backup.mark_version()
     try:
         from . import diagnostics
-        diagnostics.record_start()  # Versionsgeschichte für das Diagnosepaket
+        diagnostics.record_start()  # version history for the diagnostics package
     except Exception as e:  # pragma: no cover
         print(f"Versionsgeschichte: {e}", flush=True)
     pklog.setup()
@@ -38,7 +38,7 @@ async def lifespan(_app):
     if not config.ldap_configured():
         pklog.warn("system", "LDAP/Dienstkonto nicht vollständig konfiguriert – Anmeldung nur per Notfallzugang möglich.")
     if config.BREAKGLASS_USER and config.BREAKGLASS_PASSWORD and len(config.BREAKGLASS_PASSWORD) < 16:
-        # Audit 2.29: der Notfallzugang unterliegt keiner AD-Sperre – ein kurzes Kennwort ist leicht zu erraten
+        # Audit 2.29: the emergency access is not subject to AD lockout - a short password is easy to guess
         pklog.warn("system", "Das Kennwort des Notfallzugangs (PK_BREAKGLASS_PASSWORD) ist kürzer als 16 Zeichen – bitte ein "
                              "langes, zufälliges Kennwort setzen und die Benachrichtigung „Notfallzugang benutzt“ einschalten.")
     tools.init()
@@ -55,7 +55,7 @@ async def lifespan(_app):
 
 
 def _repo_startup():
-    """Nach dem Start im Hintergrund: Mandantenordner anlegen, alte Uploads aufräumen, Kennzeichen nachtragen."""
+    """After start in the background: create tenant folders, clean up old uploads, backfill markers."""
     for fn in (repofiles.ensure_all_tenant_folders, repofiles.cleanup_uploads, repofiles.backfill):
         try:
             fn()
@@ -76,12 +76,12 @@ class _TooBig(Exception):
 
 
 class BodyLimit:
-    """Größe von Anfragen begrenzen (vor dem Einlesen – auch ohne Anmeldung, z. B. /api/login).
-    Uploads haben eigene, größere Grenzen und prüfen selbst mit."""
+    """Limit the size of requests (before reading - also without login, e.g. /api/login).
+    Uploads have their own, larger limits and check on their own too."""
     DEFAULT = 2 * 1024 * 1024
     LARGE = (("/api/computers/", "/files/upload", 2 * 1024 ** 3 + 1024 * 1024), ("/api/winget/upload", "", 310 * 1024 * 1024),
              ("/api/tls/", "", 20 * 1024 * 1024), ("/api/packages", "", 20 * 1024 * 1024),
-             ("/api/repository/upload/", "", 9 * 1024 * 1024))  # ein Upload-Stück (repofiles.CHUNK = 8 MB)
+             ("/api/repository/upload/", "", 9 * 1024 * 1024))  # one upload chunk (repofiles.CHUNK = 8 MB)
 
     def __init__(self, app):
         self.app = app
@@ -130,19 +130,19 @@ app.add_middleware(BodyLimit)
 @app.middleware("http")
 async def security(request: Request, call_next):
     if request.url.path.startswith("/api/"):
-        loadstats.request(request.url.path)  # 2.31: welche Anfragen in einer Lastspitze kamen
+        loadstats.request(request.url.path)  # 2.31: which requests arrived during a load peak
     if request.url.path.startswith("/api/") and request.method not in ("GET", "HEAD", "OPTIONS"):
         if request.headers.get("x-pk-request") != "1":
             return JSONResponse({"detail": "CSRF-Prüfung fehlgeschlagen"}, status_code=403)
     resp = await call_next(request)
     if request.method not in ("GET", "HEAD", "OPTIONS") and request.url.path.startswith(("/api/collections", "/api/computers", "/api/fields")):
-        collections_.invalidate()  # Mitgliedschaften sofort neu berechnen
+        collections_.invalidate()  # recompute memberships immediately
     if request.url.path.startswith("/api/mail/view/"):
-        # Mail-Vorschau im iframe: nur Inline-Styles, keine Skripte, kein Nachladen
+        # Mail preview in the iframe: inline styles only, no scripts, no loading of external content
         resp.headers["Content-Security-Policy"] = PREVIEW_CSP
         resp.headers["X-Frame-Options"] = "SAMEORIGIN"
     else:
-        if "content-security-policy" not in resp.headers:  # Audit 2.29: strengere Vorgabe der Route (Symbole) behalten
+        if "content-security-policy" not in resp.headers:  # Audit 2.29: keep a stricter policy set by the route (icons)
             resp.headers["Content-Security-Policy"] = CSP
         resp.headers["X-Frame-Options"] = "DENY"
     resp.headers["X-Content-Type-Options"] = "nosniff"
@@ -150,8 +150,8 @@ async def security(request: Request, call_next):
     if request.url.path.startswith("/api/"):
         resp.headers["Cache-Control"] = "no-store"
     elif request.url.path.startswith("/static/") and "Cache-Control" not in resp.headers:
-        # Oberfläche (app.js, i18n.js, CSS) bei jedem Laden kurz prüfen lassen (ETag → meist nur „304 unverändert“):
-        # sonst zeigt der Browser nach einem Update tagelang die alte Oberfläche aus seinem Zwischenspeicher
+        # Have the browser revalidate the UI (app.js, i18n.js, CSS) on every load (ETag -> usually just "304 Not Modified"):
+        # otherwise, after an update, the browser would show the old UI from its cache for days
         resp.headers["Cache-Control"] = "no-cache"
     if config.HTTPS:
         resp.headers["Strict-Transport-Security"] = "max-age=31536000"
@@ -159,7 +159,7 @@ async def security(request: Request, call_next):
 
 
 def _from_request_parsing(exc):
-    """True, wenn der Fehler direkt im Endpunkt (main.py) beim Umwandeln von Eingaben entstand – nicht tiefer im Programm."""
+    """True if the error arose directly in the endpoint (main.py) while converting input - not deeper in the program."""
     tb = exc.__traceback__
     last = None
     while tb:
@@ -173,10 +173,10 @@ def _from_request_parsing(exc):
 
 @app.exception_handler(Exception)
 async def unhandled(request: Request, exc: Exception):
-    """Unerwartete Fehler: vollständige Meldung ins Protokoll und in die Container-Ausgabe, kurze Meldung an die Oberfläche."""
+    """Unexpected errors: full message to the log and the container output, short message to the UI."""
     import traceback
     if isinstance(exc, (ValueError, TypeError, KeyError)) and _from_request_parsing(exc):
-        # Unbrauchbare Eingabe (z. B. Text statt Zahl) – kein interner Fehler
+        # Unusable input (e.g. text instead of a number) - not an internal error
         return JSONResponse({"detail": f"Ungültige Eingabe: {str(exc)[:200]}"}, status_code=400)
     tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
     print(f"Interner Fehler bei {request.method} {request.url.path}:\n{tb}", flush=True)
@@ -190,15 +190,15 @@ async def unhandled(request: Request, exc: Exception):
     except Exception:
         sess = None
     if request.url.path in ("/api/login", "/api/logout") or not sess or sess.get("role") != "admin" or sess.get("scope") is not None:
-        # Details nur für angemeldete Hauptadmins – nicht für Kiosk-Nutzer, OU-Admins oder ein beliebiges Cookie
+        # Details only for logged-in main admins - not for kiosk users, OU admins or an arbitrary cookie
         return JSONResponse({"detail": "Interner Fehler – Details im Protokoll"}, status_code=500)
     return JSONResponse({"detail": f"Interner Fehler ({type(exc).__name__}: {str(exc)[:300]}) – Details im Protokoll"},
                         status_code=500)
 
 
 U = Depends(auth.current)
-K = Depends(auth.current_kiosk)  # Software-Kiosk: Kiosk-Benutzer und Hauptadmins
-A = Depends(auth.any_session)    # nur Sitzungsdinge (Inaktivität) – jede gültige Sitzung
+K = Depends(auth.current_kiosk)  # software kiosk: kiosk users and main admins
+A = Depends(auth.any_session)    # session matters only (inactivity) - any valid session
 
 
 def _err(e):
@@ -206,7 +206,7 @@ def _err(e):
 
 
 def _rerr(user, e):
-    """Fehler aus repofiles/remote als HTTP-Antwort: detail = {message, …} (Pakete, die einen Pfad benutzen; Duplikate)."""
+    """Errors from repofiles/remote as an HTTP response: detail = {message, ...} (packages that use a path; duplicates)."""
     if isinstance(e, repofiles.RepoError):
         status = e.info.get("status") or e.status
         info = {k: v for k, v in e.info.items() if k != "status"}
@@ -215,21 +215,21 @@ def _rerr(user, e):
 
 
 def _dmsg(user, e):
-    """Fehlermeldung beim Starten einer Bereitstellung: bei einem Bruch im Repository (2.26) bekommen OU-Admins Details
-    nur zu Dateien in ihren Mandanten-Ordnern, sonst „derzeit nicht verfügbar“."""
+    """Error message when starting a deployment: on a break in the repository (2.26) OU admins get details
+    only about files in their tenant folders, otherwise "derzeit nicht verfügbar" (currently unavailable)."""
     if isinstance(e, integrity.IntegrityError) and access.scoped(user):
         return integrity.public_message(e, _ou_prefixes(user))
     return e
 
 
 def _ou_prefixes(user):
-    """Repository-Ordner der Mandanten eines OU-Admins (klein, ohne Backslash am Ende) – None für Hauptadmins."""
+    """Repository folders of the tenants of an OU admin (lowercase, no trailing backslash) - None for main admins."""
     if not access.scoped(user):
         return None
     return [integrity.key(t.get("repo_folder") or "") for t in access.tenants(user) if (t.get("repo_folder") or "").strip()]
 
 
-# --- Anmeldung -----------------------------------------------------------------
+# --- Login -----------------------------------------------------------------
 @app.post("/api/login")
 def api_login(request: Request, response: Response, data: dict = Body(...)):
     ip = request.client.host if request.client else "?"
@@ -253,7 +253,7 @@ def api_me(user=U):
           "version": config.VERSION, "idle_minutes": auth.idle_minutes(), "scoped": access.scoped(user),
 }
     if access.scoped(user):
-        # OU-Admin: die Oberfläche blendet alles aus, was nur Hauptadmins dürfen (der Server sperrt es ohnehin)
+        # OU admin: the UI hides everything that only main admins may do (the server blocks it anyway)
         me["tenants"] = [{"id": t["id"], "name": t["name"], "allow_packages": bool(t.get("allow_packages")),
                           "repo_folder": t.get("repo_folder") or ""} for t in access.tenants(user)]
         me["may_build"] = access.may_build(user)
@@ -266,7 +266,7 @@ def api_me(user=U):
 
 @app.get("/api/news")
 def api_news(user=U):
-    """Neuigkeiten in der App (Seitenleiste „Neu“); für Hauptadmins dazu eine neuere Version, falls verfügbar."""
+    """News in the app (sidebar "Neu"); for main admins additionally a newer version, if available."""
     return news.for_user(user)
 
 
@@ -292,20 +292,20 @@ def api_updates_save(data: dict = Body(...), user=U):
 
 @app.post("/api/system/updates/check")
 def api_updates_check(user=U):
-    """Jetzt bei GitHub nach einer neuen Version fragen (sonst einmal täglich im Hintergrund)."""
+    """Ask GitHub for a new version now (otherwise once a day in the background)."""
     return {**news.check(force=True, who=user["username"]), "settings": news.settings()}
 
 
 @app.post("/api/session/active")
 def api_session_active(user=A):
-    """Die Oberfläche meldet Eingaben des Benutzers (höchstens einmal pro Minute)."""
+    """The UI reports user input (at most once per minute)."""
     auth.touch(user["token_hash"])
     return {"remaining": int(auth.idle_remaining(user["token_hash"])), "idle_minutes": auth.idle_minutes()}
 
 
 @app.get("/api/session/idle")
 def api_session_idle(user=A):
-    """Restzeit bis zur Abmeldung wegen Inaktivität – zählt selbst nicht als Aktivität."""
+    """Remaining time until logout due to inactivity - does not itself count as activity."""
     return {"remaining": int(auth.idle_remaining(user["token_hash"])), "idle_minutes": auth.idle_minutes()}
 
 
@@ -345,7 +345,7 @@ def api_dashboard(user=U):
 
 
 def _dashboard_scoped(user):
-    """Übersicht eines OU-Admins: dieselben Kennzahlen, nur über seine Computer."""
+    """Overview of an OU admin: the same key figures, but only over their computers."""
     w, p = access.sql_in(user, "c.id")
     ws, ps = access.sql_in(user, "computer_id")
     v = lambda sql, prm=(): db.val(sql, tuple(prm), 0)  # noqa: E731
@@ -383,11 +383,11 @@ def _dashboard_scoped(user):
     }
 
 
-# --- Computer --------------------------------------------------------------------
+# --- Computers --------------------------------------------------------------------
 @app.get("/api/computers")
 def api_computers(collection: int = 0, user=U):
     where, params = ("1=1", [])
-    sw, sp = access.sql_in(user, "c.id")  # OU-Admin: nur seine Computer
+    sw, sp = access.sql_in(user, "c.id")  # OU admin: only their computers
     if collection:
         try:
             where, params = collections_.where_for(collection)
@@ -414,7 +414,7 @@ LOGGEDON_PS = remote.LOGGEDON_PS
 
 @app.post("/api/computers/{cid}/loggedon")
 def api_computer_loggedon(cid: int, user=U):
-    """Angemeldete Benutzer live abfragen (WinRM) und beim Computer speichern."""
+    """Query logged-on users live (WinRM) and store them on the computer."""
     c = db.q1("SELECT * FROM computers WHERE id=?", (cid,))
     if not c:
         raise HTTPException(404)
@@ -428,10 +428,10 @@ def api_computer_loggedon(cid: int, user=U):
         out, _e, _ = remote.ps(host, LOGGEDON_PS)
     except remote.RemoteError as e:
         return {"ok": False, "user": c["current_user"], "live": False, "error": str(e)}
-    # „PKUSERS:“ ohne Namen = niemand angemeldet
+    # "PKUSERS:" without names = nobody logged on
     rest = out.split("PKUSERS:", 1)[1] if "PKUSERS:" in out else ""
     users = (rest.splitlines() or [""])[0].strip()
-    states = remote.parse_states(out)  # 2.32.6: gesperrt/getrennt
+    states = remote.parse_states(out)  # 2.32.6: locked/disconnected
     db.ex("UPDATE computers SET current_user=?, extra=json_set(COALESCE(extra,'{}'), '$.user_states', json(?)) WHERE id=?",
           (users or None, json.dumps(states), cid))
     first = users.split(",")[0].strip() if users else ""
@@ -483,13 +483,13 @@ def api_computer(cid: int, user=U):
         raise HTTPException(404, "Computer nicht gefunden")
     c["extra"] = json.loads(c["extra"]) if c.get("extra") else {}
     c["scanning"] = inventory.is_scanning(cid)
-    c["scan_user"] = config.service_login() if not access.scoped(user) else "Dienstkonto"  # Audit 2.29: Name nur für Hauptadmins
+    c["scan_user"] = config.service_login() if not access.scoped(user) else "Dienstkonto"  # Audit 2.29: name only for main admins
     sub = lambda sql: db.q(sql, (cid,))  # noqa: E731
     c["disks"] = sub("SELECT drive, label, fs, size, free FROM disks WHERE computer_id=? ORDER BY drive")
     c["network"] = sub("SELECT description, mac, ip, gateway, dns, dhcp FROM network WHERE computer_id=?")
     c["cpus"] = _inv(cid, "cpus")
     c["last_scan_info"] = db.q1("SELECT * FROM scan_history WHERE computer_id=? ORDER BY id DESC LIMIT 1", (cid,))
-    # Anzahl je Kategorie für die Seitenleiste
+    # count per category for the sidebar
     counts = {r["category"]: r["n"] for r in db.q(
         "SELECT category, json_array_length(json) n FROM inventory_data WHERE computer_id=?", (cid,))}
     v = lambda sql: db.val(sql, (cid,), 0)  # noqa: E731
@@ -551,7 +551,7 @@ def api_computer_category(cid: int, cat: str, user=U):
                                "WHERE computer_id=? ORDER BY id DESC"),
                 "profiles": _computer_profiles(cid)}
     if cat == "collections":
-        # 2.36.3 (Audit): OU-Admins sehen auch hier keine Sammlungen fremder Mandanten (wie in der Sammlungsliste)
+        # 2.36.3 (Audit): OU admins do not see collections of other tenants here either (as in the collection list)
         vis = _visible_collections(user)
         return [c for c in _member_collections(cid) if vis is None or c["id"] in vis]
     if cat == "storage":
@@ -599,7 +599,7 @@ def api_computer_fields(cid: int, data: dict = Body(...), user=U):
     return {"ok": True}
 
 
-# --- Aktionen auf dem Client ------------------------------------------------------------
+# --- Actions on the client ------------------------------------------------------------
 def _act(fn, *a):
     try:
         return fn(*a)
@@ -637,17 +637,17 @@ def api_uninstall(data: dict = Body(...), user=U):
             if not isinstance(it, dict) or not it.get("software_id"):
                 raise HTTPException(403, "Nur Installationen auf Ihren Computern.")
             if it.get("remember"):
-                # „Für alle merken“ gilt auf ALLEN Computern – nur Hauptadmins
+                # "Remember for all" applies to ALL computers - main admins only
                 raise HTTPException(403, "Einen Deinstallationsbefehl für alle Computer merken dürfen nur Hauptadmins.")
             if (it.get("command") or "").strip() and not access.may_script(user):
-                # Audit 2.29: ein GEÄNDERTER Befehl ist eigener Code – wie Pakete nur mit „eigene Pakete erlaubt“;
-                # der erkannte Befehl (vorausgefüllt) bleibt erlaubt
+                # Audit 2.29: a CHANGED command is custom code - like packages only with "custom packages allowed";
+                # the detected command (prefilled) remains allowed
                 sw = db.q1("SELECT * FROM software WHERE id=?", (int(it["software_id"]),)) or {}
                 if it["command"].strip() != (uninstall.command_for(sw).get("command") or "").strip():
                     raise HTTPException(403, "Eigene Deinstallationsbefehle sind nur erlaubt, wenn für Ihren Mandanten „eigene Pakete“ "
                                              "und „Skript-Schritte“ freigegeben sind.")
             if it.get("run_as") == "deploy" or (it.get("command") and it.get("run_as") not in ("system", "user")):
-                it["run_as"] = "system"  # OU-Admin: Deinstallation nie als Dienstkonto (auch nicht mit UninstallString)
+                it["run_as"] = "system"  # OU admin: uninstall never as the service account (not even with an UninstallString)
             cid = db.val("SELECT computer_id FROM software WHERE id=?", (int(it["software_id"]),))
             if cid is None or not access.can_computer(user, cid):
                 raise HTTPException(403, "Nur Installationen auf Ihren Computern.")
@@ -676,7 +676,7 @@ def api_kill(cid: int, data: dict = Body(...), user=U):
     return {"ok": True}
 
 
-# --- Dateien auf dem Client (über die administrativen Freigaben C$, D$ …) ------------------
+# --- Files on the client (via the administrative shares C$, D$ ...) ------------------
 @app.get("/api/computers/{cid}/files")
 def api_files_list(cid: int, path: str = "", user=U):
     try:
@@ -751,7 +751,7 @@ def api_files_download(cid: int, path: str, name: str, check: int = 0, user=U):
     except clientfiles.FileError as e:
         _err(e)
     if check:
-        # Vorabprüfung der Oberfläche: Fehler als Meldung zeigen statt auf eine Fehlerseite zu wechseln
+        # Pre-check by the UI: show errors as a message instead of switching to an error page
         gen.close()
         return {"ok": True, "size": size}
     pklog.info("file", f"Datei heruntergeladen: {path}\\{name}", user=user["username"], computer_id=cid)
@@ -838,7 +838,7 @@ def api_tools(user=U):
 
 @app.put("/api/tools-hotkeys")
 def api_tools_hotkeys(data: dict = Body(default={}), user=U):
-    """2.32.4: Tastenkürzel der eingebauten Tools (für alle gleich)."""
+    """2.32.4: keyboard shortcuts of the built-in tools (the same for everyone)."""
     try:
         out = tools.save_builtin_hotkeys((data or {}).get("builtin") or {})
     except ValueError as e:
@@ -903,11 +903,11 @@ def api_tool_run(tid: int, data: dict = Body(...), user=U):
     res = _act(tools.run, t, cid)
     pklog.info("tool", f"Tool '{t['name']}' auf {name} ausgeführt (Exitcode {res['exit']}, {res['seconds']} s).",
                user=user["username"], computer_id=cid)
-    tools.scan_after(t, cid, user["username"], res.get("ok", not res["exit"]), res)  # 2.32.7: wie im Auftrag
+    tools.scan_after(t, cid, user["username"], res.get("ok", not res["exit"]), res)  # 2.32.7: as in the job
     return res
 
 
-# --- Speicherplatz-Analyse ------------------------------------------------------------------
+# --- Disk space analysis ------------------------------------------------------------------
 @app.get("/api/computers/{cid}/diskusage")
 def api_du_list(cid: int, user=U):
     drives = db.q("SELECT drive, size, free FROM disks WHERE computer_id=? ORDER BY drive", (cid,))
@@ -958,14 +958,14 @@ def api_tool_builtin(what: str, data: dict = Body(...), user=U):
         via = ", ".join(res.get("relay") or []) or "nur Container"
         pklog.info("tool", f"Wake-on-LAN an {c['name']} gesendet (über {via}).", user=user["username"], computer_id=cid)
         if res.get("exit") == 0:
-            res["watch"] = tools.watch_wake(c, res.get("relay") or [], user["username"])  # 2.31: Aufwachen abwarten
+            res["watch"] = tools.watch_wake(c, res.get("relay") or [], user["username"])  # 2.31: wait for the wake-up
         return res
     _err("Unbekanntes Tool")
 
 
 @app.get("/api/computers/{cid}/wake")
 def api_wake_state(cid: int, user=U):
-    """2.31: Ist der Computer nach Wake-on-LAN aufgewacht? (wartet / aufgewacht nach … s / nicht aufgewacht)"""
+    """2.31: Has the computer woken up after Wake-on-LAN? (waiting / woke up after ... s / did not wake up)"""
     return tools.wake_state(cid) or {"state": "none"}
 
 
@@ -984,8 +984,8 @@ def api_tool_job(tid: int, data: dict = Body(...), user=U):
 
 @app.post("/api/tools-command")
 def api_tool_command(data: dict = Body(...), user=U):
-    """2.34: Befehl (PowerShell/CMD) direkt auf den gewählten Computern ausführen – ohne Tool anzulegen. Wie Tools
-    anlegen nur für Hauptadmins (OU-Admins: Route nicht freigegeben)."""
+    """2.34: Run a command (PowerShell/CMD) directly on the selected computers - without creating a tool. Like creating
+    tools only for main admins (OU admins: route not enabled)."""
     if access.scoped(user):
         raise HTTPException(403, "Nur für Hauptadmins.")
     try:
@@ -995,7 +995,7 @@ def api_tool_command(data: dict = Body(...), user=U):
     ids = access.check_ids(user, data.get("ids"))[:500]
     if not ids:
         _err("Keine Computer ausgewählt.")
-    # Befehlstext bewusst nicht im Protokoll (kann ein Kennwort enthalten) – nur Art, Umfang und Ziele
+    # Deliberately keep the command text out of the log (may contain a password) - only type, scope and targets
     n = len(t["script"].splitlines())
     pklog.info("tool", f"{t['name']} auf {len(ids)} Computer(n) gestartet ({n} Zeile(n), Text nicht protokolliert).",
                user=user["username"])
@@ -1012,19 +1012,19 @@ def api_tool_job_status(jid: str, user=U):
 
 @app.post("/api/computers/heartbeat")
 def api_heartbeat_now(data: dict = Body(...), user=U):
-    """Sofort prüfen, ob die ausgewählten Computer erreichbar sind."""
+    """Check immediately whether the selected computers are reachable."""
     from concurrent.futures import ThreadPoolExecutor
     ids = access.check_ids(user, data.get("ids"))[:1000]
     comps = [db.q1(f"SELECT {presence.COLUMNS} FROM computers WHERE id=?", (i,)) for i in ids]
     comps = [c for c in comps if c]
     with ThreadPoolExecutor(max_workers=32) as ex:
-        # Von Hand: Adresse frisch auflösen und Identität sofort neu prüfen (nicht auf den Zwischenspeicher warten)
+        # Manual: resolve the address afresh and re-check the identity immediately (do not wait for the cache)
         res = list(ex.map(lambda c: (c, presence.probe(c, force=True)), comps))
     now = util.now()
     came = [c["id"] for c, (online, winrm) in res if presence.update(c["id"], online, winrm, None, now)]
     reachable = [c["id"] for c, (online, winrm) in res if winrm]
     import threading
-    # Nacheinander in einem Hintergrund-Thread: erst „gerade erreichbar geworden“, dann „noch nicht versorgt“
+    # One after another in a background thread: first "just became reachable", then "not yet served"
     threading.Thread(target=lambda: (presence.notify(came), presence.after_heartbeat(reachable)),
                      name="presence", daemon=True).start()
     return {"online": sum(1 for _c, (o, _w) in res if o), "offline": sum(1 for _c, (o, _w) in res if not o)}
@@ -1042,7 +1042,7 @@ def api_scan_allowed(data: dict = Body(...), user=U):
     return {"ok": True}
 
 
-# --- Eigene Scanner und benutzerdefinierte Felder ------------------------------------
+# --- Custom scanners and user-defined fields ------------------------------------
 @app.get("/api/scanners")
 def api_scanners(user=U):
     return scanners.list_all()
@@ -1074,7 +1074,7 @@ def api_scanner_create(data: dict = Body(...), user=U):
 @app.put("/api/scanners/{sid}")
 def api_scanner_update(sid: int, data: dict = Body(...), user=U):
     d = _scanner_values(data)
-    collections_.invalidate_scanner(sid)  # Größenspalten (bytes_mode) neu bestimmen
+    collections_.invalidate_scanner(sid)  # re-determine size columns (bytes_mode)
     db.ex("UPDATE custom_scanners SET name=?, type=?, target=?, extra=?, enabled=? WHERE id=?",
           (d["name"], d["type"], d["target"], d["extra"], d["enabled"], sid))
     if "profiles" in data:
@@ -1084,8 +1084,8 @@ def api_scanner_update(sid: int, data: dict = Body(...), user=U):
 
 @app.post("/api/scanners/test")
 def api_scanner_test(data: dict = Body(...), user=U):
-    """Eigenen Scanner sofort auf einem Computer ausführen und das Ergebnis zeigen (bei gespeicherten Scannern
-    wird es auch beim Computer eingetragen)."""
+    """Run a custom scanner immediately on a computer and show the result (for saved scanners
+    it is also stored on the computer)."""
     d = _scanner_values(data)
     c = db.q1("SELECT * FROM computers WHERE id=?", (int(data.get("computer_id") or 0),))
     if not c:
@@ -1119,7 +1119,7 @@ def api_scanner_delete(sid: int, user=U):
     return {"ok": True}
 
 
-# --- Scanprofile ------------------------------------------------------------------------
+# --- Scan profiles ------------------------------------------------------------------------
 def _computer_profiles(cid):
     out = []
     ps = {r["profile_id"]: r for r in db.q("SELECT * FROM profile_scans WHERE computer_id=?", (cid,))}
@@ -1135,12 +1135,12 @@ def _computer_profiles(cid):
 
 
 def _visible_collections(user, rows=None, counts=None):
-    """2.29.9: Welche Sammlungen ein OU-Admin sieht – nur die seines Bereichs, nicht die ganze Domäne:
-    - die Sammlungen seiner Mandanten samt Unterordnern,
-    - jede andere Sammlung nur, wenn sie mindestens einen seiner Computer enthält (z. B. eine Ausnahme-Gruppe),
-    - die Standardsammlungen („Online“, „Veraltete Software“ … – zeigen ohnehin nur seine Computer),
-    - dazu die übergeordneten Ordner, damit der Baum lesbar bleibt.
-    Die Sammlungen anderer Mandanten bleiben immer verborgen. None = alle (Hauptadmin)."""
+    """2.29.9: Which collections an OU admin sees - only those of their scope, not the whole domain:
+    - the collections of their tenants including subfolders,
+    - any other collection only if it contains at least one of their computers (e.g. an exception group),
+    - the default collections ("Online", "Veraltete Software" ... - they only show their computers anyway),
+    - plus the parent folders so that the tree stays readable.
+    The collections of other tenants always stay hidden. None = all (main admin)."""
     mine = access.computer_ids(user)
     if mine is None:
         return None
@@ -1160,7 +1160,7 @@ def _visible_collections(user, rows=None, counts=None):
             todo.extend(kids.get(x, []))
         return out
     own_ids = {c for t in access.tenants(user) for c in access.tenant_cols(t)}
-    # 2.30: von OU-Admins angelegte Sammlungen – die des eigenen Mandanten gehören dazu, fremde bleiben verborgen
+    # 2.30: collections created by OU admins - those of their own tenant are included, foreign ones stay hidden
     tids = access.tenant_ids(user)
     own_ids |= {r["id"] for r in rows if r.get("tenant_id") and r["tenant_id"] in tids}
     other = {r["id"] for r in rows if r.get("tenant_id") and r["tenant_id"] not in tids}
@@ -1182,7 +1182,7 @@ def _visible_collections(user, rows=None, counts=None):
                 n = 0
         if n:
             keep.add(r["id"])
-    for x in list(keep):  # übergeordnete Ordner/Sammlungen für den Baum
+    for x in list(keep):  # parent folders/collections for the tree
         p, n = par.get(x), 0
         while p and p not in foreign and n < 50:
             keep.add(p)
@@ -1191,8 +1191,8 @@ def _visible_collections(user, rows=None, counts=None):
 
 
 def _collection_choices(user=None):
-    """Sammlungen zur Auswahl (ohne Ordner) mit Pfad der übergeordneten Ordner/Sammlungen – für eine gegliederte,
-    alphabetische Auswahlliste (Zeitpläne, Scanprofile, Kiosk, Bedingungen)."""
+    """Collections for selection (without folders) with the path of the parent folders/collections - for a structured,
+    alphabetical selection list (schedules, scan profiles, kiosk, conditions)."""
     rows = db.q("SELECT id, name, parent_id, type, builtin, ad_kind FROM collections")
     by_id = {r["id"]: r for r in rows}
 
@@ -1208,7 +1208,7 @@ def _collection_choices(user=None):
         if r["type"] == "folder":
             continue
         pp = parts(r)
-        # path: zum Sortieren/Anzeigen; pparts: [Name, builtin] je Ebene – eingebaute Namen übersetzt die Oberfläche
+        # path: for sorting/display; pparts: [name, builtin] per level - the UI translates built-in names
         items.append({"id": r["id"], "name": r["name"], "path": " › ".join(x[0] for x in pp), "pparts": pp,
                       "builtin": r["builtin"] or 0, "ad": bool(r["ad_kind"])})
     items.sort(key=lambda x: (x["path"].lower(), x["name"].lower()))
@@ -1227,8 +1227,8 @@ def api_profiles(user=U):
     for p in profiles.all_profiles():
         p.update(profiles.summary(p, only=mine))
         if mine is not None:
-            # 2.36.3 (Audit): OU-Admins sehen weder fremde Computer-IDs noch Sammlungen fremder Mandanten; die Zahlen
-            # gelten nur für ihren Bereich (wie im Dashboard)
+            # 2.36.3 (Audit): OU admins see neither foreign computer IDs nor collections of other tenants; the numbers
+            # apply only to their scope (as on the dashboard)
             p["computers"] = [c for c in p.get("computers") or [] if int(c) in mine]
             p["collections"] = [c for c in p.get("collections") or [] if c == profiles.ALL_COMPUTERS or c in vis]
         out.append(p)
@@ -1303,7 +1303,7 @@ def api_profile_delete(pid: int, user=U):
 
 @app.post("/api/scanprofiles/{pid}/scan")
 def api_profile_scan(pid: int, data: dict = Body(...), user=U):
-    """Profil sofort ausführen: auf angegebene Computer oder alle Online-Mitglieder der Sammlungen."""
+    """Run a profile immediately: on the given computers or all online members of the collections."""
     p = profiles.get(pid)
     if not p:
         raise HTTPException(404)
@@ -1374,7 +1374,7 @@ def api_test(cid: int, user=U):
 
 
 def server_role(c):
-    """2.34: „dc“ (Domänencontroller), „server“ oder None – aus dem Scan (ProductType 2/3), sonst aus dem Betriebssystem."""
+    """2.34: "dc" (domain controller), "server" or None - from the scan (ProductType 2/3), otherwise from the operating system."""
     try:
         ex = json.loads(c.get("extra") or "{}")
     except ValueError:
@@ -1393,10 +1393,10 @@ def server_role(c):
 
 @app.post("/api/computers/power-check")
 def api_power_check(data: dict = Body(...), user=U):
-    """2.34: Vor Neustart/Herunterfahren – welche Ziele sind Server oder Domänencontroller, wie viele Benutzer sind angemeldet?"""
+    """2.34: Before restart/shutdown - which targets are servers or domain controllers, how many users are logged on?"""
     ids = access.check_ids(user, data.get("ids"))
     out, rows = [], []
-    for k in range(0, len(ids), 500):  # alle Ziele (die Aktion hat auch keine Grenze), in Blöcken für SQLite
+    for k in range(0, len(ids), 500):  # all targets (the action has no limit either), in blocks for SQLite
         part = ids[k:k + 500]
         rows += db.q(f"SELECT id, name, os_name, ad_os, extra, current_user FROM computers WHERE id IN ({','.join('?' * len(part))}) "
                      "ORDER BY name COLLATE NOCASE", part)
@@ -1415,8 +1415,8 @@ def api_action(cid: int, data: dict = Body(...), user=U):
         raise HTTPException(404)
     act = data.get("action")
     from . import gpupdate, rebootmsg
-    # 2.32.3: Wartezeit wählbar (0 = sofort … 24 h, Standard 60 s). /t > 0 schließt Programme ohnehin erzwungen (/f);
-    # bei 0 ausdrücklich /f, sonst hält ein Programm mit ungespeicherten Daten den Neustart auf
+    # 2.32.3: selectable delay (0 = immediately ... 24 h, default 60 s). /t > 0 closes programs forcibly anyway (/f);
+    # with 0 explicitly /f, otherwise a program with unsaved data holds up the restart
     try:
         secs = int(data.get("seconds", 60))
     except (TypeError, ValueError):
@@ -1427,8 +1427,8 @@ def api_action(cid: int, data: dict = Body(...), user=U):
     cmds = {"restart": f"& shutdown.exe /r /t {secs}{force} /c " + util.psq(rebootmsg.text_delay("restart", secs)),
             "shutdown": f"& shutdown.exe /s /t {secs}{force} /c " + util.psq(rebootmsg.text_delay("shutdown", secs)),
             "abort": "shutdown.exe /a",
-            # 2.38.4: Computerrichtlinie direkt, Benutzerrichtlinie in der Sitzung jedes angemeldeten Benutzers – über WinRM
-            # allein galt „Benutzerrichtlinie aktualisiert“ nur für das Dienstkonto (siehe gpupdate.py)
+            # 2.38.4: computer policy directly, user policy in the session of each logged-on user - over WinRM
+            # alone, "user policy refreshed" only applied to the service account (see gpupdate.py)
             "gpupdate": gpupdate.script()}
     if act not in cmds:
         _err("Unbekannte Aktion")
@@ -1441,14 +1441,14 @@ def api_action(cid: int, data: dict = Body(...), user=U):
     return {"output": (out + "\n" + err).strip()}
 
 
-# --- Sammlungen ----------------------------------------------------------------------
+# --- Collections ----------------------------------------------------------------------
 @app.get("/api/collections")
 def api_collections(user=U):
     rows = db.q("SELECT * FROM collections ORDER BY builtin DESC, sort, name COLLATE NOCASE")
-    mine = access.computer_ids(user)  # OU-Admin: Anzahl nur seiner Computer
+    mine = access.computer_ids(user)  # OU admin: count of only their computers
     for r in rows:
         r["editable"] = not r["builtin"] and access.can_edit_collection(user, r)
-        # OU-Admin: Regeln nur der eigenen Sammlungen (fremde verraten sonst Namen/OUs anderer Bereiche)
+        # OU admin: rules of their own collections only (foreign ones would reveal names/OUs of other scopes)
         r["filters"] = collections_.normalize(r["filters"], r["match"]) if mine is None or r["editable"] else []
         if r["type"] == "folder":
             r["count"] = None
@@ -1499,8 +1499,8 @@ def _coll_data(data):
 
 
 def _coll_scope(user, data, cid=None):
-    """2.30: OU-Admin – übergeordneter Ordner nur eine eigene Sammlung (oder oberste Ebene), „ist Mitglied von“ nur
-    Sammlungen, die er sieht. Der Inhalt bleibt ohnehin auf die Computer seines Mandanten begrenzt (where_for)."""
+    """2.30: OU admin - parent folder only an own collection (or top level), "ist Mitglied von" (is member of) only
+    collections they see. The content stays limited to the computers of their tenant anyway (where_for)."""
     if not access.scoped(user):
         return
     par = data.get("parent_id")
@@ -1515,7 +1515,7 @@ def _coll_scope(user, data, cid=None):
 
 
 def _own_tenant_col(user, data):
-    """Mandant, dem eine neue Sammlung eines OU-Admins gehört (None = Hauptadmin, zentral)."""
+    """Tenant that owns a new collection of an OU admin (None = main admin, central)."""
     if not access.scoped(user):
         return None
     par = data.get("parent_id")
@@ -1552,7 +1552,7 @@ def api_collection_update(cid: int, data: dict = Body(...), user=U):
     values = _coll_data(data)
     before = collections_.broken(collections_.dependents(cid))
     try:
-        with db.tx():  # Sammlungen, die auf dieser aufbauen, dürfen dadurch nicht kaputtgehen – sonst zurückrollen
+        with db.tx():  # Collections that build on this one must not break as a result - otherwise roll back
             db.ex("UPDATE collections SET name=?, parent_id=?, type=?, match=?, filters=?, description=? WHERE id=?", values + (cid,))
             collections_.check_dependents(cid, before)
     except ValueError as e:
@@ -1595,7 +1595,7 @@ def _descendants(cid):
 
 @app.post("/api/collections/{cid}/move")
 def api_collection_move(cid: int, data: dict = Body(...), user=U):
-    """In einen Ordner/eine Sammlung verschieben (parent_id=None: oberste Ebene), optional vor eine andere Sammlung."""
+    """Move into a folder/collection (parent_id=None: top level), optionally before another collection."""
     col = db.q1("SELECT * FROM collections WHERE id=?", (cid,))
     if not col:
         raise HTTPException(404)
@@ -1616,7 +1616,7 @@ def api_collection_move(cid: int, data: dict = Body(...), user=U):
     with db.tx():
         db.ex("UPDATE collections SET parent_id=? WHERE id=?", (parent, cid))
         try:
-            collections_.check_dependents(cid, before)  # unter einer Sammlung zählt deren Filter mit
+            collections_.check_dependents(cid, before)  # below a collection, its filter counts too
         except ValueError as e:
             _err(e)
         before = data.get("before_id")
@@ -1629,13 +1629,13 @@ def api_collection_move(cid: int, data: dict = Body(...), user=U):
         for i, sid in enumerate(sibs):
             db.ex("UPDATE collections SET sort=? WHERE id=?", (100 + i, sid))
     collections_.invalidate()
-    access.flush()  # Audit 2.29: Mandanten-Mitgliedschaft sofort neu
+    access.flush()  # Audit 2.29: recompute tenant membership immediately
     return {"ok": True}
 
 
 def _copy_collection(cid, parent, depth=0, rename=True, tenant=None, vis=None, only=None, user=None):
-    """tenant/vis/only (2.30, OU-Admin): Kopie gehört dem Mandanten, nur sichtbare Unterelemente, statische Mitglieder nur
-    eigene Computer."""
+    """tenant/vis/only (2.30, OU admin): the copy belongs to the tenant, only visible sub-items, static members only
+    own computers."""
     col = db.q1("SELECT * FROM collections WHERE id=?", (cid,))
     if not col or depth > 20 or (vis is not None and cid not in vis):
         return None
@@ -1644,11 +1644,11 @@ def _copy_collection(cid, parent, depth=0, rename=True, tenant=None, vis=None, o
     if col.get("ad_kind") and col["type"] == "dynamic":
         filters = json.dumps(collections_.normalize(filters, col["match"]), ensure_ascii=False)
     if vis is not None and col["type"] == "dynamic":
-        # Regeln mit Verweisen auf Sammlungen, die der OU-Admin nicht sieht, nicht mitnehmen
+        # do not take over rules that refer to collections the OU admin cannot see
         if collections_._tree_refs(collections_.normalize(filters, col["match"]), set()) - vis:
             filters = json.dumps(collections_.normalize([], "all"), ensure_ascii=False)
-        # 2.32.5: Regeln fremder Sammlungen (Hauptadmin, andere Mandanten) zeigt die Liste dem OU-Admin nicht – die Kopie
-        # darf sie auch nicht verraten (Computernamen, OUs, IP-Bereiche anderer Mandanten): stattdessen „ist Mitglied von“
+        # 2.32.5: the list does not show the OU admin rules of foreign collections (main admin, other tenants) - the copy
+        # must not reveal them either (computer names, OUs, IP ranges of other tenants): instead "ist Mitglied von" (is member of)
         elif user is not None and not access.can_edit_collection(user, col):
             filters = json.dumps(collections_.normalize(
                 [{"type": "cond", "table": "computer", "column": "collection", "op": "in", "value": str(cid)}], "all"), ensure_ascii=False)
@@ -1666,7 +1666,7 @@ def _copy_collection(cid, parent, depth=0, rename=True, tenant=None, vis=None, o
 
 @app.post("/api/collections/{cid}/duplicate")
 def api_collection_duplicate(cid: int, data: dict = Body(default={}), user=U):
-    """Kopie inkl. Unterelementen (auch von Standard- und AD-Sammlungen) – für „Duplizieren“ und „Kopieren/Einfügen“."""
+    """Copy including sub-items (also of default and AD collections) - for "Duplizieren" and "Kopieren/Einfügen"."""
     col = db.q1("SELECT * FROM collections WHERE id=?", (cid,))
     if not col:
         raise HTTPException(404)
@@ -1684,7 +1684,7 @@ def api_collection_duplicate(cid: int, data: dict = Body(default={}), user=U):
             _err("Eine Sammlung kann nicht in sich selbst eingefügt werden.")
     tenant = vis = only = None
     if access.scoped(user):
-        # 2.30: OU-Admin – Kopie (auch einer Hauptadmin-Sammlung, als Vorlage) gehört seinem Mandanten
+        # 2.30: OU admin - a copy (also of a main admin collection, as a template) belongs to their tenant
         if not access.may_build(user):
             raise HTTPException(403, "Eigene Sammlungen sind für Ihren Mandanten nicht freigegeben.")
         prow = db.q1("SELECT * FROM collections WHERE id=?", (parent,)) if parent else None
@@ -1713,14 +1713,14 @@ def api_collection_rename(cid: int, data: dict = Body(...), user=U):
 def api_collection_members(cid: int, data: dict = Body(...), user=U):
     if db.val("SELECT type FROM collections WHERE id=?", (cid,)) != "static":
         _err("Mitglieder können nur zu statischen Sammlungen hinzugefügt werden.")
-    access.check_ids(user, data.get("add"))  # 2.30: OU-Admin – nur eigene Computer
+    access.check_ids(user, data.get("add"))  # 2.30: OU admin - only their own computers
     with db.tx():
         for i in data.get("add") or []:
             db.ex("INSERT OR IGNORE INTO collection_members(collection_id, computer_id) VALUES(?,?)", (cid, int(i)))
         for i in data.get("remove") or []:
             db.ex("DELETE FROM collection_members WHERE collection_id=? AND computer_id=?", (cid, int(i)))
     collections_.invalidate()
-    access.flush()  # Audit 2.29: Mandanten-Mitgliedschaft sofort neu
+    access.flush()  # Audit 2.29: recompute tenant membership immediately
     return {"ok": True}
 
 
@@ -1729,7 +1729,7 @@ def api_collection_preview(data: dict = Body(...), user=U):
     try:
         _coll_scope(user, {"filters": data.get("filters"), "match": data.get("match", "all")})
         w, p = collections_.build(data.get("filters") or [], data.get("match", "all"))
-        sw, sp = access.sql_in(user, "c.id")  # 2.30: OU-Admin – nur eigene Computer
+        sw, sp = access.sql_in(user, "c.id")  # 2.30: OU admin - only their own computers
         w, p = f"({w}) AND {sw}", list(p) + list(sp)
         rows = db.q(f"""SELECT c.id, c.name, COALESCE(c.os_name, c.ad_os) os, c.online FROM computers c
                         WHERE {w} ORDER BY c.name LIMIT 200""", p)
@@ -1777,8 +1777,8 @@ def _exclusion_for(name):
 
 @app.post("/api/software/update")
 def api_software_update(data: dict = Body(...), user=U):
-    """Mehrfachauswahl in der Softwareübersicht: alle veralteten Installationen der gewählten Programme per
-    winget aktualisieren (je winget-ID eine Bereitstellung; optional nur bestimmte Computer)."""
+    """Multi-selection in the software overview: update all outdated installations of the selected programs via
+    winget (one deployment per winget ID; optionally only specific computers)."""
     names = [n for n in data.get("names") or [] if isinstance(n, str)]
     only = set(access.check_ids(user, data.get("computer_ids")))
     mine = access.computer_ids(user)
@@ -1796,7 +1796,7 @@ def api_software_update(data: dict = Body(...), user=U):
             groups.setdefault(r["winget_id"], set()).add(r["computer_id"])
     out, n, no_wg = [], 0, 0
     for wid, cids in groups.items():
-        # 2.35: ohne winget (vor 1809 / Server 2019) aus dem winget-Cache, sonst auslassen
+        # 2.35: without winget (before 1809 / Server 2019) from the winget cache, otherwise skip
         wg, cache, skip, ce = wingetcache.split(wid, sorted(cids))
         no_wg += len(skip)
         try:
@@ -1806,7 +1806,7 @@ def api_software_update(data: dict = Body(...), user=U):
             if wg:
                 pkg = deploy.adhoc_winget(wid, "upgrade")
                 pkg["name"] = f"Aktualisieren: {wid}"
-                pkg["release_bypass"] = True  # 2.36: von Hand ausgelöst – die neueste Version, auch wenn zurückgestellt
+                pkg["release_bypass"] = True  # 2.36: triggered manually - the latest version, even if deferred
                 out.append(deploy.create(pkg, wg, user["username"]))
         except ValueError as e:
             _err(e)
@@ -1814,7 +1814,7 @@ def api_software_update(data: dict = Body(...), user=U):
     return {"deployments": out, "skipped": skipped, "computers": n, "no_winget": no_wg}
 
 
-# --- Ausnahmen der Aktualitätsprüfung -------------------------------------------------------
+# --- Exceptions to the up-to-date check -------------------------------------------------------
 def _excl_clean(data):
     field = data.get("field") if data.get("field") in winget.EXCL_FIELDS else "name"
     pattern = re.sub(r"\s+", " ", str(data.get("pattern") or "")).strip()
@@ -1901,7 +1901,7 @@ def api_software_override(data: dict = Body(...), user=U):
     return {"ok": True}
 
 
-# --- 2.35: winget-Cache (nur Hauptadmins; „ready“ für alle – zeigt nur, welche winget-IDs bereitliegen) ----------
+# --- 2.35: winget cache (main admins only; "ready" for everyone - only shows which winget IDs are available) ----------
 def _wc_main(user):
     if access.scoped(user):
         raise HTTPException(403, "Nur für Hauptadmins.")
@@ -1934,7 +1934,7 @@ def api_wc_ready(user=U):
 
 @app.get("/api/wingetcache/suggest")
 def api_wc_suggest(user=U):
-    """Vorschläge: winget-IDs, die auf Computern ohne winget installiert sind (veraltete zuerst), noch nicht im Cache."""
+    """Suggestions: winget IDs installed on computers without winget (outdated first), not yet in the cache."""
     _wc_main(user)
     have = {e["winget_id"].lower() for e in wingetcache.entries()}
     rows = db.q(f"""SELECT s.winget_id, MAX(s.name) name, COUNT(DISTINCT s.computer_id) n, SUM(s.outdated) outdated
@@ -1956,7 +1956,7 @@ def api_wc_add(data: dict = Body(...), user=U):
             errors.append(f"{wid}: {e}")
     if not ids and errors:
         _err("; ".join(errors[:5]))
-    # läuft schon eine Prüfung, nimmt sie neue Einträge am Ende mit
+    # if a check is already running, it picks up new entries at the end
     scheduler._bg("wingetcache", lambda: wingetcache.refresh_all(user["username"], ids=set(ids)))
     return {"ids": ids, "errors": errors, **_wc_view()}
 
@@ -1971,7 +1971,7 @@ def api_wc_refresh(data: dict = Body(default={}), user=U):
     return {"ok": True}
 
 
-# --- 2.36: Freigabe neuer winget-Versionen (nur Hauptadmins) ---------------------------------------------------------
+# --- 2.36: approval of new winget versions (main admins only) ---------------------------------------------------------
 @app.get("/api/wingetrelease")
 def api_wr_list(user=U):
     _wc_main(user)
@@ -1990,7 +1990,7 @@ def api_wr_set(action: str, data: dict = Body(...), user=U):
         t = wingetrelease.set_status(data.get("winget_id"), data.get("version"), status, user["username"])
     except ValueError as e:
         _err(e)
-    # Freigegeben bzw. gesperrt → der winget-Cache lädt gleich die passende Version
+    # Approved or blocked -> the winget cache then downloads the matching version
     e = db.q1("SELECT id FROM winget_cache WHERE winget_id=?", (str(data.get("winget_id") or ""),))
     if e and db.setting("winget_cache_auto") and not wingetcache.status()["running"]:
         scheduler._bg("wingetcache", lambda: wingetcache.refresh_all(user["username"], ids={e["id"]}))
@@ -2008,7 +2008,7 @@ def api_wc_remove(eid: int, user=U):
 
 @app.put("/api/wingetcache/{eid:int}")
 def api_wc_entry(eid: int, data: dict = Body(...), user=U):
-    """2.35.3: je Eintrag „Prüfsumme des Katalogs nicht verlangen“ – danach gleich neu prüfen."""
+    """2.35.3: per entry "do not require the catalog checksum" - then re-check right away."""
     _wc_main(user)
     try:
         if "ignore_hash" in data:
@@ -2075,7 +2075,7 @@ def api_winget_boot_status(user=U):
 
 @app.post("/api/winget/bootstrap/refresh")
 def api_winget_boot_refresh(user=U):
-    """2.37: App-Installer (winget) für Computer ohne winget jetzt in das Repository laden."""
+    """2.37: Download the App Installer (winget) for computers without winget into the repository now."""
     _wc_main(user)
     from . import wingetboot
     try:
@@ -2098,7 +2098,7 @@ async def api_winget_upload(request: Request, user=U):
     fd, tmp = tempfile.mkstemp(prefix="upload-", suffix=".msix", dir=config.WINGET_DIR)
     size = 0
     try:
-        # In Stücken auf die Platte schreiben (nicht alles im Speicher) und Größe begrenzen
+        # Write to disk in chunks (not everything in memory) and limit the size
         with os.fdopen(fd, "wb") as f:
             async for chunk in request.stream():
                 size += len(chunk)
@@ -2108,7 +2108,7 @@ async def api_winget_upload(request: Request, user=U):
         if size < 1000:
             _err("Leere Datei")
         try:
-            # Entpacken und Abgleich laufen im Thread-Pool, damit Oberfläche und Fernsitzungen nicht einfrieren
+            # Unpacking and reconciliation run in the thread pool so the UI and remote sessions do not freeze
             await run_in_threadpool(winget.install_msix, tmp)
         except Exception as e:
             _err(e)
@@ -2124,17 +2124,17 @@ def api_winget_search(q: str = "", user=U):
     return winget.search(q)
 
 
-# --- Pakete -----------------------------------------------------------------------------
+# --- Packages -----------------------------------------------------------------------------
 def _pkg_values(data, pid=None, user=None):
     try:
         p = steps.clean_package(data)
         steps.check_nesting(pid, p)
     except ValueError as e:
         _err(e)
-    access.check_nested(user, p["steps"], p.get("tenant_id"))  # verschachtelt nur zentrale oder desselben Mandanten
+    access.check_nested(user, p["steps"], p.get("tenant_id"))  # nested: only central ones or those of the same tenant
     if not p.get("tenant_id"):
-        # 2.27: zentrale Pakete nie mit Dateien aus einem Mandantenordner – dessen Admins könnten sie ändern oder
-        # etwas danebenlegen, das dann auf allen Computern mitläuft
+        # 2.27: central packages never with files from a tenant folder - its admins could change them or
+        # put something next to them that would then run on all computers
         tf = [(t["name"], integrity.key(t["repo_folder"])) for t in db.q("SELECT name, repo_folder FROM tenants WHERE COALESCE(repo_folder, '') != ''")]
         for _k, st in steps.iter_steps({"steps": p["steps"]}):
             paths = [st.get("folder") or ""] if st.get("type") == "install" and st.get("source") == "file" else (
@@ -2146,14 +2146,14 @@ def _pkg_values(data, pid=None, user=None):
                         _err(f"Zentrale Pakete dürfen keine Dateien aus dem Ordner von Mandant „{tn}“ benutzen ({pth}) – "
                              "bitte die Dateien in einen zentralen Ordner legen oder das Paket dem Mandanten zuordnen.")
     if access.scoped(user):
-        # Code eines OU-Admins läuft nie als das domänenweite Dienstkonto – „Lokales System“ statt „Dienstkonto“
+        # Code of an OU admin never runs as the domain-wide service account - "Local System" instead of "Dienstkonto"
         if p.get("run_as") == "deploy":
             p["run_as"] = "system"
         for _k, st in steps.iter_steps(p):
             if st.get("run_as") == "deploy":
                 st["run_as"] = "system"
-        # 2.29.1: eigener Code (Befehl, PowerShell, eigener Deinstallationsbefehl) nur, wenn beim Mandanten erlaubt –
-        # unverändert übernommene Schritte (z. B. von einem Hauptadmin geschrieben) bleiben möglich
+        # 2.29.1: custom code (command, PowerShell, custom uninstall command) only if allowed for the tenant -
+        # steps taken over unchanged (e.g. written by a main admin) remain possible
         if not access.may_script(user, p.get("tenant_id")):
             old = db.q1("SELECT steps FROM packages WHERE id=?", (pid,)) if pid else None
             had = [_script_sig(st) for _k, st in steps.iter_steps(steps.normalize({"steps": old["steps"]}))] if old else []
@@ -2167,7 +2167,7 @@ def _pkg_values(data, pid=None, user=None):
                 raise HTTPException(403, "Befehls- und PowerShell-Schritte (und eigene Deinstallationsbefehle) sind für Ihren "
                                          "Mandanten nicht freigegeben. Skripte bitte als Datei (.ps1/.cmd) in Ihren "
                                          "Repository-Ordner legen und mit „Installieren“ ausführen – oder einen Hauptadmin fragen.")
-        # Dateien aus dem Repository nur mit einem Repository-Ordner des Mandanten (sonst wäre jeder Ordner erreichbar)
+        # Files from the repository only with a repository folder of the tenant (otherwise every folder would be reachable)
         if not (db.val("SELECT repo_folder FROM tenants WHERE id=?", (p.get("tenant_id") or 0,)) or "").strip():
             for _k, st in steps.iter_steps(p):
                 if (st.get("type") == "install" and st.get("source") == "file") or st.get("type") == "filecopy":
@@ -2179,7 +2179,7 @@ def _pkg_values(data, pid=None, user=None):
 
 
 def _script_sig(st):
-    """Eigener Code in einem Schritt – (Art, Text) oder None."""
+    """Custom code in a step - (type, text) or None."""
     t = st.get("type")
     if t == "command":
         return ("command", (st.get("command") or "").strip())
@@ -2190,14 +2190,14 @@ def _script_sig(st):
     return None
 
 
-# Hinweis (KEINE Sicherheitsgrenze – lässt sich umschreiben): Zugriffe auf Freigaben oder Downloads in Mandanten-Skripten
+# Hint (NOT a security boundary - can be rewritten): accesses to shares or downloads in tenant scripts
 NET_HINT_RX = re.compile(r"(\\\\[A-Za-z0-9_.$-]+\\|\bnet(?:\.exe)?\s+use\b|New-PSDrive|Invoke-WebRequest|\biwr\b|"
                          r"Invoke-RestMethod|\birm\b|Start-BitsTransfer|bitsadmin|Net\.WebClient|DownloadFile|DownloadString|"
                          r"\bcurl(?:\.exe)?\b|\bwget\b|certutil[^\n]*-urlcache|https?://)", re.I)
 
 
 def net_hints(p):
-    """Stellen in Skripten eines Mandantenpakets, die auf Freigaben oder ins Internet zugreifen – nur als Hinweis."""
+    """Places in scripts of a tenant package that access shares or the internet - as a hint only."""
     out = []
     for _k, st in steps.iter_steps(steps.normalize(p)):
         sig = _script_sig(st)
@@ -2221,8 +2221,8 @@ def _pkg_out(r, stats=None, names=None):
     p["conditions_text"] = steps.describe_conditions(steps.clean_conditions(p["conditions"]))
     p["run_as_label"] = steps.RUN_AS.get(p["run_as"], p["run_as"])
     p["tenant_name"] = (names or {}).get(p.get("tenant_id"))
-    p["ou_edit"] = 1 if r.get("ou_edit") else 0  # 2.30: OU-Admins des Mandanten dürfen ändern
-    # Windows-Benachrichtigung am Client: dieselbe Regel wie toast.classify (Häkchen in der Paketliste)
+    p["ou_edit"] = 1 if r.get("ou_edit") else 0  # 2.30: OU admins of the tenant may change
+    # Windows notification on the client: same rule as toast.classify (checkbox in the package list)
     from . import toast
     mode = p.get("notify_user") or ""
     installs = any(toast._real_install(s, mode) for s in all_steps if s.get("type") != "nested")
@@ -2240,17 +2240,17 @@ def _pkg_out(r, stats=None, names=None):
         st = (stats or {}).get(p["winget_id"].lower()) or {}
         p["installs"] = st.get("installs", 0)
         p["outdated_installs"] = st.get("outdated", 0)
-        # Ohne feste Version wird immer die neueste installiert – die angezeigte Version folgt dem Katalog
+        # Without a fixed version the latest is always installed - the displayed version follows the catalog
         p["effective_version"] = p.get("winget_version") or p["latest"]
     return p
 
 
 @app.get("/api/packages")
 def api_packages(user=U):
-    # 2.35.2: Pakete aus dem winget-Cache nicht in der Liste – sie sind Technik im Hintergrund (Markierung am winget-Paket)
+    # 2.35.2: packages from the winget cache are not in the list - they are background plumbing (marker on the winget package)
     rows = [r for r in db.q("SELECT * FROM packages WHERE id NOT IN (SELECT package_id FROM winget_cache WHERE package_id IS NOT NULL) ORDER BY name COLLATE NOCASE")
             if access.can_see_package(user, r)]
-    ws, ps = access.sql_in(user, "computer_id")  # OU-Admin: Installationszahlen nur seiner Computer
+    ws, ps = access.sql_in(user, "computer_id")  # OU admin: installation counts of only their computers
     stats = {r["wid"]: r for r in db.q(f"""SELECT lower(winget_id) wid, COUNT(DISTINCT computer_id) installs,
                                           COUNT(DISTINCT CASE WHEN outdated=1 THEN computer_id END) outdated
                                           FROM software WHERE winget_id IS NOT NULL AND {ws} GROUP BY lower(winget_id)""", ps)}
@@ -2273,7 +2273,7 @@ def api_packages_meta(user=U):
                         if access.scoped(user) else db.q("SELECT id, name, repo_folder FROM tenants ORDER BY name COLLATE NOCASE")),
             "profiles": [{"id": p["id"], "name": p["name"], "is_default": p["is_default"]} for p in profiles.all_profiles()],
             "collections": _collection_choices(user),
-            # 2.35.5: Cache-Pakete mit Kennzeichen – Auswahllisten bieten sie nicht an, zeigen aber eine schon gewählte
+            # 2.35.5: cache packages with a marker - selection lists do not offer them but show one that is already selected
             "packages": [{"id": r["id"], "name": r["name"], "cache": bool(r["cache"])} for r in db.q(
                 "SELECT id, name, tenant_id, id IN (SELECT package_id FROM winget_cache WHERE package_id IS NOT NULL) cache "
                 "FROM packages ORDER BY name COLLATE NOCASE")
@@ -2291,7 +2291,7 @@ def api_package(pid: int, user=U):
 
 @app.post("/api/packages/{pid}/integrity/check")
 def api_package_integrity_check(pid: int, user=U):
-    """Repository-Dateien des Pakets jetzt direkt auf der Freigabe prüfen (mit Fingerabdruck bei geändertem Datum)."""
+    """Check the repository files of the package directly on the share now (with fingerprint if the date changed)."""
     access.need_package(user, pid)
     if not integrity.throttle_check(user["username"], pid):
         raise HTTPException(429, "Gerade eben geprüft – bitte einige Sekunden warten.")
@@ -2301,8 +2301,8 @@ def api_package_integrity_check(pid: int, user=U):
 
 @app.post("/api/packages/{pid}/integrity/accept")
 def api_package_integrity_accept(pid: int, user=U):
-    """„Neuen Stand übernehmen“: der aktuelle Inhalt der Repository-Dateien gilt als bestätigt (bewusste Änderung).
-    OU-Admins: nur Dateien in ihren Mandanten-Ordnern (zentrale Dateien bestätigt nur ein Hauptadmin)."""
+    """\"Neuen Stand übernehmen\": the current content of the repository files counts as confirmed (deliberate change).
+    OU admins: only files in their tenant folders (central files are confirmed by a main admin only)."""
     r = access.need_package(user, pid)
     if not access.can_edit_package(user, r):
         raise HTTPException(403, "Nur wer das Paket ändern darf, kann den neuen Stand übernehmen.")
@@ -2332,7 +2332,7 @@ def api_package_create(data: dict = Body(...), user=U):
     db.ex("UPDATE packages SET ou_edit=? WHERE id=?", (_ou_edit_flag(user, data), pid))
     repofiles.store_idents(pid, ids, pending)
     pklog.info("deploy", f"Paket '{p['name']}' angelegt.", user=user["username"])
-    integrity.after_save(pid)  # Stand der Repository-Dateien festhalten
+    integrity.after_save(pid)  # record the state of the repository files
     return {"id": pid, "warnings": _net_warn(p, user)}
 
 
@@ -2350,13 +2350,13 @@ def api_package_update(pid: int, data: dict = Body(...), user=U):
           (_ou_edit_flag(user, data, db.q1("SELECT ou_edit FROM packages WHERE id=?", (pid,))), pid))
     repofiles.store_idents(pid, ids, pending)
     pklog.info("deploy", f"Paket '{p['name']}' geändert.", user=user["username"])
-    integrity.after_save(pid)  # neue Dateien festhalten – geänderte bleiben Bruch, bis jemand bestätigt
+    integrity.after_save(pid)  # record new files - changed ones stay a break until someone confirms
     return {"ok": True, "warnings": _net_warn(p, user)}
 
 
 def _ou_edit_flag(user, data, old=None):
-    """2.30: Darf ein OU-Admin das Paket/den Zeitplan ändern? Selbst angelegt: ja. Vom Hauptadmin: nur mit Häkchen
-    „OU-Admins dürfen ändern“ (Standard: nein – sonst ändert ein Mandant, was der Hauptadmin für ihn gebaut hat)."""
+    """2.30: May an OU admin change the package/schedule? Self-created: yes. From the main admin: only with the checkbox
+    "OU-Admins dürfen ändern" (default: no - otherwise a tenant changes what the main admin built for them)."""
     if access.scoped(user):
         return 1
     if "ou_edit" in data:
@@ -2365,12 +2365,12 @@ def _ou_edit_flag(user, data, old=None):
 
 
 def _net_warn(p, user):
-    """2.29.1: Mandantenpaket mit Zugriff auf Freigaben/Internet im Skript → Hinweis an die Oberfläche und ins Protokoll."""
+    """2.29.1: Tenant package with access to shares/internet in the script -> hint to the UI and the log."""
     if not p.get("tenant_id"):
         return []
     try:
         hits = net_hints({"steps": json.loads(p["steps"]) if isinstance(p["steps"], str) else p["steps"]})
-    except Exception:  # noqa: BLE001 – ein Hinweis darf das Speichern nie verhindern
+    except Exception:  # noqa: BLE001 - a hint must never prevent saving
         return []
     if hits:
         found = "; ".join(hits[:5])
@@ -2381,8 +2381,8 @@ def _net_warn(p, user):
 
 
 def _dup_guard(p, pid, user, data):
-    """Duplikatsperre (2.27): gleiche Software (winget-ID, MSI-Produktcode, SHA-256 der Installationsdatei) in einem
-    anderen Bereich – zentral oder ein anderer Mandant – wird abgewiesen; Hauptadmins dürfen übersteuern."""
+    """Duplicate lock (2.27): the same software (winget ID, MSI product code, SHA-256 of the installation file) in
+    another scope - central or another tenant - is rejected; main admins may override."""
     try:
         return repofiles.guard_package(p, pid, user, allow=bool(data.get("allow_duplicate")))
     except repofiles.RepoError as e:
@@ -2391,7 +2391,7 @@ def _dup_guard(p, pid, user, data):
 
 @app.post("/api/packages/export")
 def api_packages_export(data: dict = Body(...), user=U):
-    """Pakete als Datei (*.pkpackages.json) – der Browser speichert sie. Verschachtelte Pakete werden mitgenommen."""
+    """Packages as a file (*.pkpackages.json) - the browser saves it. Nested packages are taken along."""
     out, warnings, extra = pkgexport.export(user, data.get("ids") or [])
     pklog.info("deploy", f"{len(out['packages'])} Paket(e) exportiert.", user=user["username"])
     return {"filename": pkgexport.filename(), "data": out, "warnings": warnings, "extra": extra}
@@ -2399,7 +2399,7 @@ def api_packages_export(data: dict = Body(...), user=U):
 
 @app.post("/api/packages/import")
 def api_packages_import(data: dict = Body(...), user=U):
-    """Paket-Datei prüfen (dry_run, Standard) oder importieren. Dieselben Regeln wie beim Speichern im Editor."""
+    """Check a package file (dry_run, default) or import it. The same rules as when saving in the editor."""
     dry = data.get("dry_run", True) is not False
     res = pkgexport.run_import(user, data.get("data"), data.get("tenant_id"), data.get("conflict") or "skip",
                                dry_run=dry, pkg_values=_pkg_values, allow_dup=bool(data.get("allow_duplicate")))
@@ -2407,7 +2407,7 @@ def api_packages_import(data: dict = Body(...), user=U):
         for x in res["items"]:
             if x.get("id"):
                 integrity.after_save(x["id"])
-        # Fingerabdrücke/MSI-Codes wurden in der Transaktion nicht von der Freigabe gelesen – jetzt nachtragen
+        # Fingerprints/MSI codes were not read from the share inside the transaction - add them now
         import threading as _th
         _th.Thread(target=repofiles.backfill, name="pk-idents", daemon=True).start()
         c = res["count"]
@@ -2423,7 +2423,7 @@ def api_package_duplicate(pid: int, user=U):
     vals = [r[k] for k in deploy.PKG_FIELDS]
     vals[deploy.PKG_FIELDS.index("name")] = r["name"] + " (Kopie)"
     if access.scoped(user):
-        # OU-Admin: die Kopie gehört seinem Mandanten (z. B. ein zentrales Paket als Vorlage) – Dateien nur aus dessen Ordner
+        # OU admin: the copy belongs to their tenant (e.g. a central package as a template) - files only from its folder
         tid = access.own_tenant_for(user, r.get("tenant_id") if r.get("tenant_id") in
                                     [t["id"] for t in access.build_tenants(user)] else None)
         data = {**deploy.row_to_package(r), "tenant_id": tid, "name": r["name"] + " (Kopie)"}
@@ -2439,8 +2439,8 @@ def api_package_duplicate(pid: int, user=U):
 
 @app.post("/api/packages/merge")
 def api_packages_merge(data: dict = Body(...), user=U):
-    """2.32: Mehrere Pakete zu einem neuen zusammenfassen – verschachtelt (bleibt mit den Originalen verbunden, deren
-    Bedingungen, „Ausführen als“ und Neustart gelten weiter) oder als Kopie der Schritte (unabhängig)."""
+    """2.32: Combine several packages into a new one - nested (stays linked to the originals, whose conditions,
+    "Ausführen als" and restart continue to apply) or as a copy of the steps (independent)."""
     ids = []
     if not isinstance(data.get("ids"), list):
         _err("Bitte Pakete auswählen.")
@@ -2483,7 +2483,7 @@ def api_packages_merge(data: dict = Body(...), user=U):
                     s["id"] = nid()
                     if s.get("run_as") in (None, "", "inherit") and p.get("run_as") and s.get("type") in (
                             "install", "command", "powershell", "filecopy", "registry", "uninstall"):
-                        s["run_as"] = p["run_as"]  # wie im Original ausführen, auch wenn das neue Paket anders eingestellt ist
+                        s["run_as"] = p["run_as"]  # run as in the original, even if the new package is configured differently
                     if ph == "main" and on_error == "continue":
                         s["on_error"] = "continue"
                     st[ph].append(s)
@@ -2492,13 +2492,13 @@ def api_packages_merge(data: dict = Body(...), user=U):
            or "Zusammengefasst aus: " + ", ".join(r["name"] for r in rows),
            "run_as": "deploy" if not access.scoped(user) else "system", "tenant_id": tid, "steps": st,
            "conditions": steps.default_conditions(),
-           # wie bei Zeitplänen mit mehreren Paketen: die stärkste Neustart-Einstellung gilt für das ganze Paket
+           # as with schedules with several packages: the strongest restart setting applies to the whole package
            "reboot": deploy.strongest_reboot(p.get("reboot") for p in pkgs),
            "rescan": 1 if any(p.get("rescan") for p in pkgs) else 0,
            "timeout_min": max(int(p.get("timeout_min") or 0) for p in pkgs) or db.setting("deploy_timeout_minutes"),
            "notify_user": "", "rescan_profile_id": None,
-           "allow_duplicate": bool(data.get("allow_duplicate"))}  # 2.32.5: wie beim Speichern (nur Hauptadmins)
-    # Danach scannen: wie die Einzelpakete – ein gemeinsames Profil direkt, verschiedene als Schritte „Scannen“ am Ende
+           "allow_duplicate": bool(data.get("allow_duplicate"))}  # 2.32.5: as when saving (main admins only)
+    # Then scan: as with the individual packages - a common profile directly, different ones as "Scannen" steps at the end
     prof = []
     for p in pkgs:
         x = deploy.rescan_profiles({**p, "composite": False})
@@ -2529,12 +2529,12 @@ def api_package_delete(pid: int, user=U):
     if used:
         _err("Das Paket wird in Zeitplänen verwendet: " + ", ".join(used))
     try:
-        wingetcache.check_package_delete(pid)  # 2.35: Cache-Ordner noch von einer Bereitstellung gebraucht?
+        wingetcache.check_package_delete(pid)  # 2.35: is the cache folder still needed by a deployment?
     except wingetcache.CacheError as e:
         _err(e)
     db.ex("DELETE FROM packages WHERE id=?", (pid,))
     repofiles.forget_idents(pid)
-    wingetcache.package_deleted(pid, user["username"])  # 2.35: Paket aus dem winget-Cache → Ordner und Eintrag mit weg
+    wingetcache.package_deleted(pid, user["username"])  # 2.35: package from the winget cache -> remove the folder and entry too
     return {"ok": True}
 
 
@@ -2552,7 +2552,7 @@ def api_repository_test(user=U):
 
 @app.post("/api/packages/preview")
 def api_package_preview(data: dict = Body(...), user=U):
-    """Was ein Schritt auf dem Client tatsächlich ausführt."""
+    """What a step actually executes on the client."""
     pkg = {"run_as": data.get("run_as") or "deploy", "version": data.get("version") or ""}
     try:
         st = steps.clean_step(data.get("step") or {})
@@ -2562,8 +2562,8 @@ def api_package_preview(data: dict = Body(...), user=U):
 
 
 def _repo_scope(user, path):
-    """OU-Admin: nur innerhalb der Repository-Ordner seiner Mandanten (mit „eigene Pakete erlaubt“). Leerer Pfad →
-    der (erste) eigene Ordner."""
+    """OU admin: only within the repository folders of their tenants (with "eigene Pakete erlaubt"). Empty path ->
+    the (first) own folder."""
     if not access.scoped(user):
         return path
     roots = [(t.get("repo_folder") or "").replace("/", "\\").strip("\\") for t in access.build_tenants(user)]
@@ -2582,7 +2582,7 @@ def _repo_scope(user, path):
 
 @app.get("/api/repository/msi")
 def api_repository_msi(path: str, user=U):
-    """MSI-Eigenschaften (ProductName, Version, Hersteller, Produktcode, Plattform) aus dem Repository lesen."""
+    """Read MSI properties (ProductName, Version, manufacturer, product code, platform) from the repository."""
     from . import msi
     path = _repo_scope(user, path)
     if not path.lower().endswith((".msi", ".msp")):
@@ -2598,9 +2598,9 @@ def api_repository_msi(path: str, user=U):
 
 @app.get("/api/repository/search")
 def api_repository_search(q: str = "", path: str = "", refresh: int = 0, user=U):
-    """Im Repository nach Datei- oder Ordnernamen suchen (ab path, alle Unterordner). OU-Admins ohne Pfad: in allen
-    Repository-Ordnern ihrer Mandanten. Gesucht wird im Index im Arbeitsspeicher (remote.repo_search);
-    refresh=1 liest ihn neu ein (nur Hauptadmins – das Einlesen betrifft das ganze Repository)."""
+    """Search the repository for file or folder names (from path, all subfolders). OU admins without a path: in all
+    repository folders of their tenants. The search runs on the in-memory index (remote.repo_search);
+    refresh=1 re-reads it (main admins only - the re-read affects the whole repository)."""
     if access.scoped(user) and not (path or "").strip():
         roots = [(t.get("repo_folder") or "").strip() for t in access.build_tenants(user) if (t.get("repo_folder") or "").strip()]
     else:
@@ -2617,7 +2617,7 @@ def api_repository_search(q: str = "", path: str = "", refresh: int = 0, user=U)
             out["age"] = max(out["age"], int(res.get("age") or 0))
     except Exception as e:
         _err(_repo_err(user, e))
-    # Mehrere Mandanten-Ordner (OU-Admin): gemeinsam sortieren, doppelte entfernen, eine Grenze für alle
+    # Several tenant folders (OU admin): sort together, remove duplicates, one limit for all
     seen, items = set(), []
     for it in sorted(out["items"], key=lambda x: (not x["dir"], (x["folder"] + "\\" + x["name"]).lower())):
         k = (it["folder"].lower(), it["name"].lower())
@@ -2634,7 +2634,7 @@ def api_repository_search(q: str = "", path: str = "", refresh: int = 0, user=U)
 
 
 def _repo_err(user, e):
-    """Fehlermeldung des Repositorys – für OU-Admins ohne Pfad, Server und Konto der Freigabe."""
+    """Error message of the repository - for OU admins without path, server and account of the share."""
     msg = str(e)
     if not access.scoped(user):
         return msg
@@ -2666,7 +2666,7 @@ def api_repository(path: str = "", used: int = 0, user=U):
     except Exception as e:
         _err(_repo_err(user, e))
     if used:
-        # Repository-Ansicht (2.27): welche Einträge Pakete benutzen
+        # Repository view (2.27): which entries are used by packages
         u = repofiles.used_map(path)
         for it in out["items"]:
             it["used_by"] = u.get(it["name"].lower()) or []
@@ -2675,7 +2675,7 @@ def api_repository(path: str = "", used: int = 0, user=U):
 
 @app.get("/api/repository/info")
 def api_repository_info(path: str = "", user=U):
-    """Grenzen für den Upload und Hinweise für die Repository-Ansicht."""
+    """Limits for the upload and hints for the repository view."""
     scoped = access.scoped(user)
     roots = repofiles.roots(user)
     out = {"max_mb": db.setting("repo_upload_max_mb"), "chunk": repofiles.CHUNK, "scoped": bool(scoped),
@@ -2710,7 +2710,7 @@ def _repo_call(user, fn, *a, **kw):
         return fn(*a, **kw)
     except (repofiles.RepoError, remote.RemoteError, OSError) as e:
         _rerr(user, e)
-    except Exception as e:  # smbprotocol-Fehler sind keine OSError
+    except Exception as e:  # smbprotocol errors are not OSError
         if type(e).__module__.startswith(("smbprotocol", "smbclient")):
             _rerr(user, remote.RemoteError(f"Repository: {e}"))
         raise
@@ -2731,8 +2731,8 @@ def api_repository_rename(data: dict = Body(...), user=U):
 
 @app.post("/api/repository/move")
 def api_repository_move(data: dict = Body(...), user=U):
-    """Verschieben in einen Ordner (auch der Assistent „Repository umstrukturieren“): dry_run = Vorschau mit den
-    betroffenen Paketen; Ausführen mit Sicherung vorher und Zurückdrehen bei einem Fehler."""
+    """Move into a folder (also the "Repository umstrukturieren" wizard): dry_run = preview with the affected
+    packages; executing makes a backup first and rolls back on an error."""
     items = [str(x) for x in (data.get("items") or [])][:2000]
     return _repo_call(user, repofiles.move_into, user, items, data.get("dest") or "", dry_run=data.get("dry_run", True) is not False,
                       create_dest=bool(data.get("create_dest")))
@@ -2771,7 +2771,7 @@ def api_repository_upload_cancel(token: str, user=U):
 
 @app.post("/api/packages/{pid}/repair/suggest")
 def api_package_repair_suggest(pid: int, user=U):
-    """Reparatur per Fingerabdruck: fehlende Dateien/Ordner des Pakets im Repository wiederfinden."""
+    """Repair by fingerprint: find the missing files/folders of the package in the repository again."""
     r = access.need_package(user, pid)
     if not access.can_edit_package(user, r):
         raise HTTPException(403, "Nur wer das Paket ändern darf, kann es reparieren.")
@@ -2787,11 +2787,11 @@ def api_package_repair_apply(pid: int, data: dict = Body(...), user=U):
     return _repo_call(user, repofiles.repair_apply, user, pairs)
 
 
-# --- Bereitstellungen ---------------------------------------------------------------------
+# --- Deployments ---------------------------------------------------------------------
 @app.get("/api/deployments")
 def api_deployments(limit: int = 300, user=U):
     if access.scoped(user):
-        # OU-Admin: nur Bereitstellungen mit mindestens einem seiner Computer; Zahlen und Namen nur seiner Ziele
+        # OU admin: only deployments with at least one of their computers; numbers and names of their targets only
         mine = json.dumps(sorted(access.computer_ids(user)))
         return db.q("""SELECT d.id, d.name, d.source, d.status, d.created_by, d.created_at, d.scheduled_at, d.started_at,
                        d.finished_at, NULL target_label,
@@ -2831,11 +2831,11 @@ def api_deploy(data: dict = Body(...), user=U):
     try:
         pids = [int(x) for x in data.get("package_ids") or []]
         for x in pids + ([int(data["package_id"])] if data.get("package_id") else []):
-            access.need_package(user, x)  # OU-Admin: nur zentrale und eigene Pakete
+            access.need_package(user, x)  # OU admin: only central and own packages
         if access.scoped(user) and not ids:
             _err("Keine Computer aus Ihrem Bereich ausgewählt.")
         if len(pids) > 1:
-            # Mehrere Pakete: eine Bereitstellung, je Computer nacheinander
+            # Several packages: one deployment, per computer one after another
             pkg = deploy.composite(pids, stop_on_fail=bool(data.get("stop_on_fail", True)))
             from . import steps as _steps
             _ids, ignored = deploy.tenant_filter(_steps.expand(pkg), sorted(set(ids)))
@@ -2859,7 +2859,7 @@ def api_deploy(data: dict = Body(...), user=U):
             wg, cache, skip, ce = wingetcache.split(wid, sorted(set(ids))) if act == "upgrade" else (ids, [], [], None)
             did = None
             if cache:
-                # 2.35: Computer ohne winget bekommen das Paket aus dem winget-Cache
+                # 2.35: computers without winget get the package from the winget cache
                 row, cpkg = wingetcache.package_for(ce)
                 did = deploy.create(cpkg, cache, user["username"], sched or None, package_id=row["id"], target_label=label)
             if wg or not cache:
@@ -2879,16 +2879,16 @@ def api_deployment(did: int, user=U):
     d = db.q1("SELECT * FROM deployments WHERE id=?", (did,))
     if not d:
         raise HTTPException(404)
-    d["package_changed"] = deploy.package_changed(d)  # 2.35.1: Paket seitdem geändert → Wiederholen mit aktuellem Stand
+    d["package_changed"] = deploy.package_changed(d)  # 2.35.1: package changed since then -> retry with the current state
     d["package"] = json.loads(d.pop("package_json") or "{}")
     d["targets"] = db.q("SELECT * FROM deployment_targets WHERE deployment_id=? ORDER BY computer_name", (did,))
     mine = access.computer_ids(user)
     if mine is not None:
         full = all(t["computer_id"] in mine for t in d["targets"])
-        d["targets"] = [t for t in d["targets"] if t["computer_id"] in mine]  # OU-Admin: nur seine Ziele
+        d["targets"] = [t for t in d["targets"] if t["computer_id"] in mine]  # OU admin: only their targets
         d["target_label"] = None
         if not full:
-            d["package"] = {"name": d["package"].get("name"), "steps": {}}  # Inhalt eines fremden Pakets nicht zeigen
+            d["package"] = {"name": d["package"].get("name"), "steps": {}}  # do not show the content of a foreign package
     return d
 
 
@@ -2922,7 +2922,7 @@ def api_deployment_failed_steps(did: int, user=U):
 
 @app.get("/api/deployments/{did}/steps")
 def api_deployment_steps(did: int, current: int = 0, user=U):
-    """Schritte der Bereitstellung mit dem Ergebnis je Ziel – für „Schritte wählen …“ (current=1: aktuelles Paket)."""
+    """Steps of the deployment with the result per target - for "Schritte wählen ..." (current=1: current package)."""
     try:
         return deploy.steps_overview(did, access.computer_ids(user), bool(current))
     except ValueError as e:
@@ -2931,7 +2931,7 @@ def api_deployment_steps(did: int, current: int = 0, user=U):
 
 @app.post("/api/deployments/{did}/rerun")
 def api_deployment_rerun(did: int, data: dict = Body(...), user=U):
-    """Mit frei gewählten Schritten wiederholen (alle, fehlgeschlagene oder ausgewählte Ziele)."""
+    """Repeat with freely chosen steps (all, failed or selected targets)."""
     try:
         return {"id": deploy.rerun_steps(did, data.get("step_ids") or [], data.get("target") or "failed",
                                          data.get("target_ids") or [], user["username"], access.computer_ids(user),
@@ -2959,7 +2959,7 @@ def api_deployment_delete(did: int, user=U):
     return {"ok": True}
 
 
-# --- Zeitpläne ----------------------------------------------------------------
+# --- Schedules ----------------------------------------------------------------
 @app.get("/api/schedules")
 def api_schedules(user=U):
     out = []
@@ -2973,8 +2973,8 @@ def api_schedules(user=U):
 
 
 def _sched_view(user, s, mine, vis=None):
-    """2.30: editable/runnable für die Oberfläche; OU-Admin sieht bei zentralen Zeitplänen nur seine Ziele.
-    vis: sichtbare Sammlungen, einmal je Anfrage berechnet (2.32.5 – in der Liste nicht je Zeitplan neu)."""
+    """2.30: editable/runnable for the UI; an OU admin sees only their targets for central schedules.
+    vis: visible collections, computed once per request (2.32.5 - not recomputed per schedule in the list)."""
     s["editable"] = access.can_edit_schedule(user, s)
     s["runnable"] = not access.scoped(user) or bool(s.get("tenant_id"))
     s["ou_edit"] = 1 if s.get("ou_edit") else 0
@@ -2999,13 +2999,13 @@ def api_schedule(sid: int, user=U):
         s["history"] = [h for h in s["history"] if h["id"] in mine]
     s["deployments"] = db.q("SELECT id, status, created_at, finished_at FROM deployments WHERE schedule_id=? "
                             "ORDER BY id DESC LIMIT 50", (sid,))
-    if mine is not None:  # nur Bereitstellungen mit eigenen Computern
+    if mine is not None:  # only deployments with their own computers
         s["deployments"] = [d for d in s["deployments"] if access.deployment_targets_in_scope(user, d["id"])[1]]
     return s
 
 
 def _sched_scope(user, data):
-    """OU-Admin: Zeitplan gehört immer einem seiner Mandanten; Pakete nur zentrale/eigene; Computer nur eigene."""
+    """OU admin: a schedule always belongs to one of their tenants; packages only central/own; computers only own."""
     if not access.scoped(user):
         return data
     data = {**data, "tenant_id": access.own_tenant_for(user, data.get("tenant_id"))}
@@ -3090,7 +3090,7 @@ def api_schedule_dup(sid: int, user=U):
     for t in s["triggers"]:
         t.pop("id", None)
     if access.scoped(user):
-        # 2.30: OU-Admin kopiert als Vorlage – die Kopie gehört seinem Mandanten, nur mit seinen Paketen und Computern
+        # 2.30: OU admin copies as a template - the copy belongs to their tenant, only with their packages and computers
         if not access.may_build(user):
             raise HTTPException(403, "Eigene Pakete und Zeitpläne sind für Ihren Mandanten nicht freigegeben.")
         mine = access.computer_ids(user)
@@ -3118,7 +3118,7 @@ def api_schedule_dup(sid: int, user=U):
 def api_schedule_reset(sid: int, data: dict = Body(default={}), user=U):
     ids = access.check_ids(user, data.get("ids"))
     if access.scoped(user) and not ids:
-        ids = sorted(access.computer_ids(user))  # OU-Admin: „alle“ = alle seine Computer
+        ids = sorted(access.computer_ids(user))  # OU admin: "all" = all of their computers
         if not ids:
             return {"ok": True}
     if ids:
@@ -3128,9 +3128,9 @@ def api_schedule_reset(sid: int, data: dict = Body(default={}), user=U):
     return {"ok": True}
 
 
-# --- Mandanten -------------------------------------------------------------------------------
+# --- Tenants -------------------------------------------------------------------------------
 def _tenant_cols_in(data):
-    """2.29.9: Sammlungen des Mandanten aus der Anfrage – collection_ids (Liste) oder wie bisher collection_id."""
+    """2.29.9: Collections of the tenant from the request - collection_ids (list) or, as before, collection_id."""
     raw = data.get("collection_ids")
     if raw is None:
         raw = [data.get("collection_id")]
@@ -3152,11 +3152,11 @@ def _tenant_cols_in(data):
             cols.append(c)
     if len(cols) > 50:
         _err("Höchstens 50 Sammlungen je Mandant.")
-    return cols  # leer = keine Einschränkung (nur ohne OU-Admins zulässig)
+    return cols  # empty = no restriction (only permitted without OU admins)
 
 
 def _tenant_values(data, tid=None):
-    """→ (name, description, collection_id, repo_folder, admin_group, allow_packages, admin_group_dn, admin_group_sid)"""
+    """-> (name, description, collection_id, repo_folder, admin_group, allow_packages, admin_group_dn, admin_group_sid)"""
     name = (data.get("name") or "").strip()
     if not name:
         _err("Name fehlt.")
@@ -3179,11 +3179,11 @@ def _tenant_values(data, tid=None):
     dn = sid = None
     old = db.q1("SELECT admin_group, admin_group_dn, admin_group_sid FROM tenants WHERE id=?", (tid,)) if tid else None
     if group and old and (old.get("admin_group") or "") == group and old.get("admin_group_sid"):
-        dn, sid = old.get("admin_group_dn"), old["admin_group_sid"]  # Gruppe unverändert: ohne AD speicherbar
+        dn, sid = old.get("admin_group_dn"), old["admin_group_sid"]  # group unchanged: can be saved without AD
     elif group:
         if group.lower() == str(config.ACCESS_GROUP or "").strip().lower():
             _err("Das ist die Gruppe der Hauptadmins – für OU-Admins eine eigene Gruppe wählen.")
-        # Die Gruppe wird JETZT eindeutig aufgelöst (DN + SID); bei der Anmeldung zählt nur diese Gruppe
+        # The group is now resolved unambiguously (DN + SID); at logon only this group counts
         try:
             c = ad.service_conn()
         except Exception as e:
@@ -3244,7 +3244,7 @@ def _tenant_quota(tid, data):
 
 
 def _tenant_scripts(tid, data, user, old=None):
-    """2.29.1: Skript-Schritte (Befehl, PowerShell, eigener Deinstallationsbefehl) nur mit „eigene Pakete“ – Standard aus."""
+    """2.29.1: Script steps (command, PowerShell, custom uninstall command) only with "eigene Pakete" - default off."""
     on = 1 if (data.get("allow_scripts") and db.val("SELECT allow_packages FROM tenants WHERE id=?", (tid,))) else 0
     db.ex("UPDATE tenants SET allow_scripts=? WHERE id=?", (on, tid))
     if on != int((old or {}).get("allow_scripts") or 0):
@@ -3256,7 +3256,7 @@ def _tenant_scripts(tid, data, user, old=None):
 
 
 def _tenant_folder_bg(tid):
-    """Mandant darf eigene Pakete bauen: Repository-Ordner zuweisen (sofort) und anlegen (im Hintergrund – SMB)."""
+    """Tenant may build own packages: assign repository folder (immediately) and create it (in the background - SMB)."""
     try:
         folder = repofiles.ensure_tenant_folder(tid, create=False)
     except Exception:
@@ -3267,8 +3267,8 @@ def _tenant_folder_bg(tid):
 
 
 def _tenants_changed(tid=None):
-    """Mandanten geändert: Bereiche neu berechnen. Geänderte/gelöschte Mandanten: deren OU-Admin-Sitzungen sofort beenden
-    (neu anmelden = neu prüfen) – auch, damit eine wiederverwendete Mandanten-ID nie an eine alte Sitzung geht."""
+    """Tenants changed: recompute scopes. Changed/deleted tenants: end their OU admin sessions immediately
+    (log in again = check again) - also so that a reused tenant ID never maps to an old session."""
     access.flush()
     auth._checked.clear()
     if tid:
@@ -3306,22 +3306,22 @@ def api_tenant_delete(tid: int, user=U):
         _err(f"Dem Mandanten sind noch {n} Paket(e) zugeordnet – bitte erst umhängen oder löschen.")
     n = db.val("SELECT COUNT(*) FROM schedules WHERE tenant_id=?", (tid,), 0)
     if n:
-        # Nicht stillschweigend „zentral“ machen – ein Zeitplan eines OU-Admins liefe sonst auf allen Computern
+        # Do not silently make it "central" - an OU admin's schedule would otherwise run on all computers
         _err(f"Dem Mandanten sind noch {n} Zeitplan/Zeitpläne zugeordnet – bitte erst umhängen oder löschen.")
     db.ex("DELETE FROM tenants WHERE id=?", (tid,))
     _tenants_changed(tid)
     return {"ok": True}
 
 
-# --- Berichte ------------------------------------------------------------------------------
+# --- Reports ------------------------------------------------------------------------------
 @app.get("/api/reports")
 def api_reports(user=U):
     return reports.definitions()
 
 
 def _report_params(user, request):
-    """2.30: Berichtsparameter – interne (mit „_“) nie aus der Anfrage; OU-Admin: nur eigene Computer und nur
-    Sammlungen, die er sieht."""
+    """2.30: Report parameters - internal ones (with "_") never from the request; OU admin: only own computers and only
+    collections they see."""
     params = {k: v for k, v in request.query_params.items() if not k.startswith("_")}
     mine = access.computer_ids(user)
     if mine is not None:
@@ -3332,14 +3332,14 @@ def _report_params(user, request):
     return params
 
 
-# --- Eigene Berichte ---------------------------------------------------------------------------
+# --- Custom reports ---------------------------------------------------------------------------
 @app.get("/api/customreports/{rid}")
 def api_customreport(rid: int, user=U):
     r = customreports.get(rid)
     if not r:
         raise HTTPException(404, "Bericht nicht gefunden")
     if access.scoped(user):
-        return {**r, "usage": []}  # OU-Admin: nur lesen – wo der Bericht verwendet wird, ist Sache des Hauptadmins
+        return {**r, "usage": []}  # OU admin: read only - where the report is used is up to the main admin
     return {**r, "usage": customreports.usage(rid)}
 
 
@@ -3366,7 +3366,7 @@ def api_customreport_dup(rid: int, user=U):
 
 @app.post("/api/customreports/preview")
 def api_customreport_preview(data: dict = Body(...), user=U):
-    """Vorschau der (noch nicht gespeicherten) Definition: erste 200 Zeilen."""
+    """Preview of the (not yet saved) definition: first 200 rows."""
     def run_():
         c = customreports.clean({**data, "name": data.get("name") or "Vorschau"})
         t0 = time.time()
@@ -3404,8 +3404,8 @@ def api_report_csv(key: str, request: Request, user=U):
                              headers={"Content-Disposition": f'attachment; filename="{fn}"'})
 
 
-# --- E-Mail: SMTP, Berichtsversand, Benachrichtigungen ----------------------------------------
-_PREVIEWS = {}  # token → (zeit, html, benutzer) – kurzlebige Mail-Vorschauen
+# --- Email: SMTP, report delivery, notifications ----------------------------------------
+_PREVIEWS = {}  # token -> (time, html, user) - short-lived mail previews
 
 
 def _mail(fn, *a):
@@ -3461,7 +3461,7 @@ def api_mail_report_send(sid: int, data: dict = Body(default={}), user=U):
 
 @app.post("/api/mail/reports/preview")
 def api_mail_report_preview(data: dict = Body(...), user=U):
-    """Vorschau aus den (noch nicht gespeicherten) Eingaben des Editors."""
+    """Preview from the (not yet saved) inputs of the editor."""
     s = _mail(notify.clean, {**data, "name": data.get("name") or "Vorschau"})
     subject, body, _t, files, total = _mail(notify.build, s)
     now = time.time()
@@ -3507,11 +3507,11 @@ def api_mail_alerts_check(user=U):
             "errors": [r["error"] for r in res.values() if r.get("error")]}
 
 
-# --- Protokoll ------------------------------------------------------------------------------
+# --- Log ------------------------------------------------------------------------------
 def _log_query(level, category, q, limit, user=None):
     sql, p = "SELECT l.*, c.name computer FROM logs l LEFT JOIN computers c ON c.id=l.computer_id WHERE 1=1", []
     if access.scoped(user):
-        w, wp = access.sql_in(user, "l.computer_id")  # OU-Admin: nur Einträge zu seinen Computern
+        w, wp = access.sql_in(user, "l.computer_id")  # OU admin: only entries for their computers
         sql += " AND " + w
         p += wp
     if level:
@@ -3542,23 +3542,23 @@ def api_logs_csv(level: str = "", category: str = "", q: str = "", limit: int = 
                              headers={"Content-Disposition": f'attachment; filename="pocketknife_log_{util.now()[:10]}.csv"'})
 
 
-# --- Einstellungen / System ------------------------------------------------------------------
-# Über PUT /api/settings änderbar – AD-Einstellungen und interne Zustände nur über ihre eigenen Endpunkte
+# --- Settings / system ------------------------------------------------------------------
+# Changeable via PUT /api/settings - AD settings and internal states only via their own endpoints
 INTERNAL_SETTINGS = {"ldap_cert_fingerprint", "ldap_cert_fingerprints", "ldap_cert_pending", "ad_filter", "ad_containers",
                      "ad_last_sync", "ad_last_status", "ad_sync_minutes", "ad_remove_missing", "ad_auto_sync",
                      "ad_sync_disabled", "ad_ou_collections", "ad_group_collections",
                      "proxy_url", "proxy_user", "proxy_clients",
                      "update_check_enabled", "update_repo", "winget_cache_all",
-                     # 2.35: winget-Cache nur über /api/wingetcache/settings (Ordner geprüft: eigener, leerer Ordner)
+                     # 2.35: winget cache only via /api/wingetcache/settings (folder checked: own, empty folder)
                      "winget_cache_folder", "winget_cache_locale", "winget_cache_max_mb", "winget_cache_auto",
-                     "winget_bootstrap_tag"}  # 2.28: nur über /api/system/updates (geprüft)  # Proxy: nur über /api/system/proxy (geprüft, Kennwort im Tresor)
+                     "winget_bootstrap_tag"}  # 2.28: only via /api/system/updates (checked)  # Proxy: only via /api/system/proxy (checked, password in the vault)
 def rebootmsg_clean(v, limit):
     from . import rebootmsg
     return rebootmsg.clean(v, limit)
 
 
 EDITABLE = [k for k in db.DEFAULT_SETTINGS if k not in INTERNAL_SETTINGS]
-# Grenzen für Zahlenwerte (min, max)
+# limits for numeric values (min, max)
 SETTING_BOUNDS = {"repo_upload_max_mb": (1, 102400), "repo_tenant_quota_mb": (0, 10 ** 7), "integrity_full_start": (0, 23), "integrity_full_end": (0, 24), "integrity_full_mbps": (5, 1000),
                   "integrity_full_enabled": (0, 1), "heartbeat_minutes": (1, 1440), "scan_online_delay_minutes": (0, 120), "scan_concurrency": (1, 64), "deploy_concurrency": (1, 64),
                   "deploy_timeout_minutes": (1, 1440), "winget_refresh_hours": (1, 720), "backup_keep": (1, 365),
@@ -3568,10 +3568,10 @@ SETTING_BOUNDS = {"repo_upload_max_mb": (1, 102400), "repo_tenant_quota_mb": (0,
                   "wol_repeat": (1, 10), "wol_wait_seconds": (0, 900)}
 
 
-# --- Fernsitzungen (RDP/VNC im Browser) -------------------------------------------------
+# --- Remote sessions (RDP/VNC in the browser) -------------------------------------------------
 @app.get("/api/remote/status")
 def api_remote_status(computer_id: int = 0, user=U):
-    # 2.37: Hauptadmin, Computer eines Mandanten mit OU-Admins → Hinweis vor „eigener Anmeldung“
+    # 2.37: main admin, computer of a tenant with OU admins -> notice before "own logon"
     tn = remote_desktop.tenant_names(computer_id) if computer_id and not access.scoped(user) and access.can_computer(user, computer_id) else []
     return {"tenant_names": tn, "guacd": remote_desktop.guacd_status(), "own_login": remote_desktop.own_login(user["token_hash"]),
             "sso_enabled": bool(db.setting("remote_sso")), "keyboard": db.setting("remote_keyboard"),
@@ -3598,9 +3598,9 @@ def api_remote_connect(data: dict = Body(...), user=U):
     c = db.q1("SELECT * FROM computers WHERE id=?", (access.need_computer(user, data.get("computer_id")),))
     if access.scoped(user):
         if data.get("auth") == "central":
-            # Das zentrale VNC-Kennwort gilt auch für fremde Computer – nicht an OU-Admins
+            # The central VNC password also applies to foreign computers - not for OU admins
             raise HTTPException(403, "Das zentrale VNC-Kennwort ist nur für Hauptadmins.")
-        data = {**data, "port": None}  # Standard-Port: Anmeldedaten gehen nie an einen beliebigen Dienst
+        data = {**data, "port": None}  # Default port: credentials never go to an arbitrary service
     if not c:
         raise HTTPException(404, "Computer nicht gefunden")
     try:
@@ -3614,7 +3614,7 @@ def api_remote_connect(data: dict = Body(...), user=U):
 def api_remote_sessions(user=U):
     rows = remote_desktop.active()
     if access.scoped(user):
-        rows = [r for r in rows if r.get("user") == user["username"]]  # OU-Admin: nur eigene Sitzungen
+        rows = [r for r in rows if r.get("user") == user["username"]]  # OU admin: only their own sessions
     return rows
 
 
@@ -3638,7 +3638,7 @@ async def ws_remote_tunnel(websocket: WebSocket):
     await remote_desktop.tunnel(websocket, s["token_hash"])
 
 
-# --- Zertifikat der Weboberfläche ------------------------------------------------
+# --- Certificate of the web UI ------------------------------------------------
 def _b64(v):
     import base64
     if not v:
@@ -3716,7 +3716,7 @@ def api_settings(user=U):
 
 
 def _unc_share(path):
-    """(server, freigabe) eines UNC-Pfads in Kleinbuchstaben, sonst None (lokaler Ordner unter /repo)."""
+    """(server, share) of a UNC path in lowercase, otherwise None (local folder under /repo)."""
     p = str(path or "").strip().replace("/", "\\")
     if not p.startswith("\\\\"):
         return None
@@ -3729,15 +3729,15 @@ REPO_CONFIRM_MSG = ("Server oder Freigabe des Repositorys geändert – bitte zu
 
 
 def _check_repo_change(data):
-    """Neuer Server/neue Freigabe: Das Kennwort des Repository-Kontos muss bestätigt werden – sonst schickte
-    POCKET KNIFE die gespeicherte Anmeldung an einen Server, den jemand nur eingetippt (oder vertippt) hat."""
+    """New server/share: the password of the repository account must be confirmed - otherwise
+    POCKET KNIFE would send the stored credentials to a server that someone merely typed (or mistyped)."""
     from . import auth
     new = _unc_share(data.get("repo_path"))
     if new is None or new == _unc_share(db.setting("repo_path")):
         return
     stored = config.repo_password()
     if not stored:
-        return  # nichts gespeichert, das abfließen könnte
+        return  # nothing stored that could leak
     given = data.get("repo_password_confirm")
     if not given:
         _err(REPO_CONFIRM_MSG.format(config.repo_login() or "?"))
@@ -3781,7 +3781,7 @@ def api_settings_save(data: dict = Body(...), user=U):
         if k.startswith("reboot_msg_"):
             v = rebootmsg_clean(v, 400)
         if k == "wol_relays":
-            # 2.31: feste Relays – Computernamen, durch Komma oder Zeilenumbruch getrennt
+            # 2.31: fixed relays - computer names, separated by comma or line break
             names = [x.strip() for x in re.split(r"[,;\s]+", str(v or "")) if x.strip()]
             if any(not re.match(r"^[A-Za-z0-9._-]{1,253}$", x) for x in names) or len(names) > 50:
                 _err("Feste Relays: Computernamen, durch Komma getrennt (höchstens 50).")
@@ -3789,7 +3789,7 @@ def api_settings_save(data: dict = Body(...), user=U):
         if k == "toast_sender":
             v = re.sub(r"[\x00-\x1f<>]", "", str(v or "")).strip()[:60]
         if k == "repo_upload_types":
-            # 2.27: erlaubte Dateitypen für Uploads von OU-Admins – Endungen ohne Punkt, durch Komma getrennt
+            # 2.27: allowed file types for uploads by OU admins - extensions without a dot, separated by comma
             parts = [x.strip().lower().lstrip(".") for x in re.split(r"[,;\s]+", str(v or "")) if x.strip()]
             if any(not re.match(r"^[a-z0-9]{1,12}$", x) for x in parts) or len(parts) > 200:
                 _err("Dateitypen: Endungen wie msi, exe, zip – durch Komma getrennt.")
@@ -3800,7 +3800,7 @@ def api_settings_save(data: dict = Body(...), user=U):
                 _err("DNS-Server: Namen oder IP-Adressen, durch Komma getrennt.")
         if k in ("dns_cache_minutes", "dns_direct", "dns_servers"):
             from . import dnsres
-            dnsres.flush()  # neue Regeln sofort anwenden
+            dnsres.flush()  # apply new rules immediately
         if k == "ad_filter" and not (str(v).startswith("(") and str(v).endswith(")")):
             _err("LDAP-Filter muss in Klammern stehen.")
         if k == "repo_path" and str(v or "").strip():
@@ -3822,11 +3822,11 @@ def api_settings_save(data: dict = Body(...), user=U):
         if str(db.setting(k)) != str(v):
             if k == "winget_release_mode":
                 from . import wingetrelease
-                wingetrelease.freeze(v)  # 2.36.2: bisher freigegebene Versionen bleiben freigegeben
+                wingetrelease.freeze(v)  # 2.36.2: previously approved versions stay approved
             db.set_setting(k, v)
             changed.append(k)
     if "auth_mode" in changed:
-        _reset_connections()  # bestehende SMB-Sitzungen mit dem alten Verfahren verwerfen
+        _reset_connections()  # discard existing SMB sessions using the old method
         pklog.info("system", f"Anmeldeverfahren für WinRM/SMB: {kerberos.MODE_LABELS.get(kerberos.mode(), kerberos.mode())}",
                    user=user["username"])
     if changed:
@@ -3861,7 +3861,7 @@ def api_system(user=U):
     }
 
 
-# --- Sicherungen ---------------------------------------------------------------------------
+# --- Backups ---------------------------------------------------------------------------
 @app.get("/api/backups")
 def api_backups(user=U):
     try:
@@ -3887,8 +3887,8 @@ def api_backup_download(name: str, user=U):
         p = backup.path_of(name)
     except ValueError as e:
         raise HTTPException(404, str(e))
-    # Zum Herunterladen ohne Schlüsseldateien: Datenbank und Schlüssel getrennt halten (sonst ließen sich die
-    # verschlüsselten Kennwörter mit dem Download entschlüsseln). Die vollständige Sicherung bleibt im Sicherungsordner.
+    # For download without key files: keep the database and key separate (otherwise the
+    # encrypted passwords could be decrypted with the download). The full backup stays in the backup folder.
     tmp = backup.download_copy(p)
     pklog.warn("system", f"Sicherung heruntergeladen (ohne Schlüssel): {name}", user=user["username"])
     return FileResponse(tmp, media_type="application/zip", filename=name.replace(".zip", "-ohne-schluessel.zip"),
@@ -3930,7 +3930,7 @@ def api_ldaptest(user=U):
         return {"ok": False, "error": str(e)}
 
 
-# --- Active Directory: Container, Abgleich, AD-Sammlungen ------------------------------------
+# --- Active Directory: containers, reconciliation, AD collections ------------------------------------
 AD_KEYS = ["ad_auto_sync", "ad_sync_minutes", "ad_remove_missing", "ad_sync_disabled", "ad_ou_collections",
            "ad_group_collections"]
 
@@ -3974,7 +3974,7 @@ def api_ad_settings_save(data: dict = Body(...), user=U):
 
 @app.get("/api/ad/browse")
 def api_ad_browse(dn: str = "", groups: int = 0, user=U):
-    """Baumauswahl: eine Ebene des AD (OUs/Container und optional Gruppen)."""
+    """Tree selection: one level of AD (OUs/containers and optionally groups)."""
     try:
         return ad.browse(dn or None, bool(groups))
     except ad.ADError as e:
@@ -4001,7 +4001,7 @@ def api_ad_containers(user=U):
         _err(e)
 
 
-# --- Dienstkonto / Repository-Konto (in der Oberfläche gepflegt) ------------------------------
+# --- Service account / repository account (maintained in the UI) ------------------------------
 def _accounts():
     from . import vault  # noqa: F401
     svc_ui = bool(db.setting_raw("svc_user"))
@@ -4056,8 +4056,8 @@ def api_accounts(user=U):
 
 @app.put("/api/system/accounts")
 def api_accounts_save(data: dict = Body(...), user=U):
-    """Speichert Dienst- und/oder Repository-Konto. Das Dienstkonto wird vorher per LDAP geprüft,
-    damit ein falsches Kennwort nicht durch automatische Zugriffe zur Kontosperre führt."""
+    """Saves the service and/or repository account. The service account is checked via LDAP first,
+    so that a wrong password does not lead to an account lockout through automatic accesses."""
     from . import vault
     which = data.get("which")
     if which not in ("service", "repo"):
@@ -4075,7 +4075,7 @@ def api_accounts_save(data: dict = Body(...), user=U):
         _err("Benutzername fehlt oder ist ungültig.")
     key_u, key_p = ("svc_user", "svc_password") if which == "service" else ("repo_user", "repo_password")
     if not pw:
-        # Nur der Name ändert sich – vorhandenes Kennwort behalten (nur wenn bereits in der Oberfläche gepflegt)
+        # Only the name changes - keep the existing password (only if already maintained in the UI)
         if not db.setting_raw(key_u):
             _err("Bitte das Kennwort angeben.")
         pw = vault.decrypt(db.setting_raw(key_p))
@@ -4100,7 +4100,7 @@ def api_accounts_save(data: dict = Body(...), user=U):
 
 @app.get("/api/system/diagnostics")
 def api_diagnostics(days: int = 7, anon: int = 1, user=U):
-    """Diagnosepaket als ZIP herunterladen (wird nie von selbst verschickt)."""
+    """Download the diagnostics package as a ZIP (is never sent automatically)."""
     from . import diagnostics
     data, name = diagnostics.build(days, bool(anon), user=user["username"])
     return Response(data, media_type="application/zip", headers={"Content-Disposition": f'attachment; filename="{name}"',
@@ -4117,7 +4117,7 @@ def api_diagnostics_lookup(alias: str, user=U):
 
 @app.get("/api/system/diagnostics/mapping")
 def api_diagnostics_mapping(user=U):
-    """Zuordnung Platzhalter → echte Namen (bleibt bei Ihnen – nicht mitschicken)."""
+    """Mapping placeholder -> real names (stays with you - do not send along)."""
     from . import diagnostics
     pklog.info("system", "Zuordnung der Diagnose-Platzhalter heruntergeladen.", user=user["username"])
     return PlainTextResponse(diagnostics.mapping_csv(), media_type="text/csv; charset=utf-8",
@@ -4127,7 +4127,7 @@ def api_diagnostics_mapping(user=U):
 
 @app.post("/api/system/toast/test")
 def api_toast_test(data: dict = Body(...), user=U):
-    """Test-Benachrichtigung an die angemeldeten Benutzer eines bekannten Computers."""
+    """Test notification to the logged-on users of a known computer."""
     from . import toast
     name = str(data.get("host") or "").strip().lower()
     c = db.q1("SELECT * FROM computers WHERE lower(name)=? OR lower(dns_name)=?", (name, name)) if name else None
@@ -4159,7 +4159,7 @@ def api_proxy_save(data: dict = Body(...), user=U):
 
 @app.post("/api/system/proxy/test")
 def api_proxy_test(user=U):
-    """Lädt die ersten Bytes des winget-Katalogs – über den eingetragenen Proxy (oder direkt, wenn keiner eingetragen ist)."""
+    """Downloads the first bytes of the winget catalog - through the configured proxy (or directly if none is configured)."""
     from . import proxy, winget
     return proxy.test(winget.URLS[0]) | {"url": winget.URLS[0]}
 
@@ -4172,7 +4172,7 @@ def api_dns_status(user=U):
 
 @app.post("/api/system/dns/flush")
 def api_dns_flush(user=U):
-    """„DNS-Cache leeren“: gespeicherte Namensauflösungen verwerfen – der nächste Heartbeat fragt neu."""
+    """\"DNS-Cache leeren\": discard stored name resolutions - the next heartbeat asks anew."""
     from . import dnsres
     n = dnsres.flush()
     pklog.info("system", f"DNS-Zwischenspeicher geleert ({n} Einträge).", user=user["username"])
@@ -4181,7 +4181,7 @@ def api_dns_flush(user=U):
 
 @app.post("/api/system/dns/test")
 def api_dns_test(data: dict = Body(...), user=U):
-    """Einen Namen auflösen (über die eingestellte Methode, ohne Zwischenspeicher) – zum Prüfen der Einstellungen."""
+    """Resolve a name (using the configured method, without cache) - for checking the settings."""
     from . import dnsres
     name = str(data.get("name") or "").strip()
     if not name or len(name) > 255 or not re.match(r"^[A-Za-z0-9.\-]+$", name):
@@ -4198,8 +4198,8 @@ def api_hosttest(data: dict = Body(...), user=U):
     host = (data.get("host") or "").strip()
     if not host or any(ch in host for ch in " \\/'\"`;"):
         _err("Ungültiger Hostname")
-    # Das Dienstkonto meldet sich dabei an – nur an bekannten Computern oder Namen der eigenen Domäne,
-    # nicht an beliebigen Adressen (sonst ließe sich die Anmeldung an einen fremden Server umleiten)
+    # The service account logs on here - only at known computers or names of the own domain,
+    # not at arbitrary addresses (otherwise the logon could be redirected to a foreign server)
     h = host.lower()
     known = db.q1("SELECT 1 FROM computers WHERE lower(name)=? OR lower(dns_name)=? OR ip_addresses LIKE ? ESCAPE '\\'",
                   (h, h, util.like_pattern(host)))
@@ -4209,7 +4209,7 @@ def api_hosttest(data: dict = Body(...), user=U):
     return remote.test_connection(host)
 
 
-# --- Software-Kiosk -------------------------------------------------------------------------
+# --- Software kiosk -------------------------------------------------------------------------
 def _ip(request):
     return request.client.host if request.client else "?"
 
@@ -4223,7 +4223,7 @@ def _kerr(fn, *a):
 
 @app.get("/api/kiosk/info")
 def api_kiosk_info():
-    """Für die Anmeldeseite des Kiosks (ohne Anmeldung): eingeschaltet? Titel."""
+    """For the login page of the kiosk (without login): enabled? Title."""
     on = sso.enabled()
     return {"enabled": kiosk.enabled(), "title": db.setting("kiosk_title") or "Software-Kiosk", "app": config.APP_NAME,
             "sso": on, "sso_hosts": sso.hosts() if on else []}
@@ -4231,9 +4231,9 @@ def api_kiosk_info():
 
 @app.post("/api/kiosk/sso")
 def api_kiosk_sso(request: Request):
-    """Anmeldung mit Windows (Kerberos/SPNEGO). Ohne Ticket: 401 mit „WWW-Authenticate: Negotiate“ – der Browser
-    fragt dann beim DC ein Ticket an und wiederholt die Anfrage. Fehler danach: 403 (ohne neue Aufforderung, damit
-    der Browser nicht in einer Schleife fragt oder ein Anmeldefenster zeigt)."""
+    """Logon with Windows (Kerberos/SPNEGO). Without a ticket: 401 with "WWW-Authenticate: Negotiate" - the browser
+    then requests a ticket from the DC and repeats the request. Error afterwards: 403 (without a new challenge, so that
+    the browser does not loop or show a login window)."""
     if not sso.enabled():
         return JSONResponse({"detail": "Die Windows-Anmeldung ist nicht eingeschaltet."}, status_code=404)
     hdr = request.headers.get("authorization") or ""
@@ -4296,7 +4296,7 @@ def api_kiosk_reboot(request: Request, data: dict = Body(...), user=K):
     return _kerr(kiosk.plan_reboot, user, _ip(request), cid, str(data.get("when") or ""))
 
 
-# Verwaltung des Kiosks (nur Administratoren)
+# Kiosk administration (admins only)
 @app.get("/api/kiosk/admin")
 def api_kiosk_admin(user=U):
     return {"items": kiosk.admin_items(), "requests": kiosk.admin_requests(),
@@ -4375,7 +4375,7 @@ def api_kiosk_decide(rid: int, what: str, data: dict = Body(default={}), user=U)
     return _kerr(kiosk.decide, rid, what == "approve", user["username"], data.get("note") or "")
 
 
-# --- Oberfläche ------------------------------------------------------------------------------
+# --- User interface ------------------------------------------------------------------------------
 app.mount("/static", StaticFiles(directory=config.STATIC_DIR), name="static")
 
 
@@ -4383,8 +4383,8 @@ _PAGES = {}
 
 
 def _page(name):
-    """HTML-Seite mit Versionsangabe an Skripten und Stylesheets (…/app.js?v=2.23.4): Nach einem Update lädt jeder
-    Browser garantiert die neue Oberfläche – auch wenn er die alte Datei noch im Zwischenspeicher hat."""
+    """HTML page with a version suffix on scripts and stylesheets (.../app.js?v=2.23.4): after an update every
+    browser is guaranteed to load the new UI - even if it still has the old file in its cache."""
     html = _PAGES.get(name)
     if html is None:
         with open(os.path.join(config.STATIC_DIR, name), encoding="utf-8") as fh:
@@ -4401,13 +4401,13 @@ def index():
 
 @app.get("/kiosk")
 def kiosk_page():
-    """Software-Kiosk für Nutzer (eigene, einfache Seite)."""
+    """Software kiosk for users (own, simple page)."""
     return _page("kiosk.html")
 
 
 @app.get("/remote")
 def remote_page():
-    """Fernsitzung (RDP/VNC) in einem eigenen Browser-Tab."""
+    """Remote session (RDP/VNC) in its own browser tab."""
     return _page("remote.html")
 
 

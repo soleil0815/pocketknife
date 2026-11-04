@@ -1,4 +1,4 @@
-"""Softwareverteilung (winget oder eigene Pakete aus dem Repository)."""
+"""Software distribution (winget or own packages from the repository)."""
 import base64
 import datetime
 import json
@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from . import db, inventory, pklog, remote, util
 
-WINGET_OK = {0: False, -1978335189: False, -1978335135: False, -1978334967: True}  # Code -> Neustart nötig
+WINGET_OK = {0: False, -1978335189: False, -1978335135: False, -1978334967: True}  # code -> restart needed
 REBOOT_CODES = {3010, 1641}
 
 _pool = None
@@ -24,7 +24,7 @@ JSON_FIELDS = ("steps", "conditions")
 
 
 def row_to_package(row):
-    """DB-Zeile -> Paket-Dict (JSON-Felder dekodiert)."""
+    """DB row -> package dict (JSON fields decoded)."""
     p = {k: row.get(k) for k in PKG_FIELDS}
     p["id"] = row.get("id")
     for k in JSON_FIELDS:
@@ -48,7 +48,7 @@ def validate_package(p):
     if not (p.get("name") or "").strip():
         raise ValueError("Name fehlt.")
     if p.get("steps"):
-        return  # Schritt-Pakete werden beim Speichern geprüft (steps.clean_package)
+        return  # step packages are checked when saving (steps.clean_package)
     t = p.get("type")
     if t == "winget":
         if not util.WINGET_ID_RE.match(p.get("winget_id") or ""):
@@ -83,36 +83,36 @@ def adhoc_winget(wid, action="upgrade", scope=None):
     return p
 
 
-# --- Skripterzeugung ---------------------------------------------------------
-WINGET_MIN_BUILD = 17763  # winget läuft ab Windows 10 1809 / Windows Server 2019
+# --- Script generation -----------------------------------------------------
+WINGET_MIN_BUILD = 17763  # winget runs from Windows 10 1809 / Windows Server 2019
 
 
 def winget_ok(os_build):
-    """Läuft winget auf diesem Build? Unbekannt (noch nicht gescannt) zählt als ja – der Client prüft selbst (9010)."""
+    """Does winget run on this build? Unknown (not scanned yet) counts as yes - the client checks itself (9010)."""
     try:
-        b = int(str(os_build or "").strip().split(".")[0] or 0)  # Scan speichert „14393.6897“ (Build.UBR)
+        b = int(str(os_build or "").strip().split(".")[0] or 0)  # the scan stores "14393.6897" (build.UBR)
     except ValueError:
         return True
     return b == 0 or b >= WINGET_MIN_BUILD
 
-# Findet winget.exe; fehlt es, wird der App-Installer (winget) samt Abhängigkeiten als bereitgestelltes Paket
-# nachinstalliert – nur aus dem Repository-Ordner (2.37: POCKET KNIFE lädt ihn einmal dorthin, siehe wingetboot.py).
+# Finds winget.exe; if it is missing, the App Installer (winget) with its dependencies is installed afterwards as a provisioned package -
+# only from the repository folder (2.37: POCKET KNIFE downloads it there once, see wingetboot.py).
 WINGET_FIND = r"""
 $PKProxy = __PROXY__
 function PK-WingetProxy {
-  # Proxy aus POCKET KNIFE als winget-Administratoreinstellung „DefaultProxy“ setzen – und nur selbst gesetzte wieder entfernen
-  # Merker in HKLM (nur Administratoren/SYSTEM) – nicht in %ProgramData%, dort dürfen Benutzer Ordner vorab anlegen (Audit 2.29)
+  # Set the proxy from POCKET KNIFE as the winget administrator setting "DefaultProxy" - and remove it again only if we set it ourselves
+  # Marker in HKLM (administrators/SYSTEM only) - not in %ProgramData%, where users may pre-create folders (Audit 2.29)
   $mark = 'HKLM:\SOFTWARE\PocketKnife'
   $old = $null
   try { $old = ('' + (Get-ItemProperty -LiteralPath $mark -Name WingetProxy -ErrorAction Stop).WingetProxy).Trim() } catch {}
   if ($null -eq $old) {
-    # bis 2.28 lag der Merker als Datei vor – einmalig übernehmen (nur lesen)
+    # up to 2.28 the marker was a file - adopt it once (read only)
     $old = ''
     $f = Join-Path $env:ProgramData 'PocketKnife\winget-proxy.txt'
     if (Test-Path -LiteralPath $f -PathType Leaf) { $old = ('' + (Get-Content -LiteralPath $f -Raw -ErrorAction SilentlyContinue)).Trim() }
   }
   if ($PKProxy -eq $old) { return }
-  # SYSTEM oder erhöhter Administrator (hohe/System-Integritätsstufe) – ohne .NET (Constrained Language Mode, 2.38)
+  # SYSTEM or elevated administrator (high/system integrity level) - without .NET (Constrained Language Mode, 2.38)
   if (-not (whoami.exe /groups | Select-String -SimpleMatch -Pattern 'S-1-16-12288', 'S-1-16-16384')) { return }
   if ($PKProxy) { $o = & $wg settings set DefaultProxy $PKProxy 2>&1 } else { $o = & $wg settings reset DefaultProxy 2>&1 }
   if ($LASTEXITCODE -eq 0) {
@@ -132,8 +132,8 @@ function PK-FindWinget {
   if ($c.Count -gt 0) {
     return ($c | Sort-Object { try { [version](($_.Path -split '_')[1]) } catch { [version]'0.0' } } -Descending | Select-Object -First 1).Path
   }
-  # Ersatzweg über PATH nur mit gültiger Microsoft-Signatur – sonst liefe als SYSTEM eine untergeschobene winget.exe
-  # aus einem für Benutzer beschreibbaren PATH-Ordner (Audit 2.29)
+  # Fallback via PATH only with a valid Microsoft signature - otherwise a planted winget.exe would run as SYSTEM
+  # from a PATH folder writable by users (Audit 2.29)
   $g = Get-Command winget.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
   if ($g) {
     $sig = Get-AuthenticodeSignature -LiteralPath $g.Source -ErrorAction SilentlyContinue
@@ -145,7 +145,7 @@ function PK-InstallWinget {
   $arch = switch ($env:PROCESSOR_ARCHITECTURE) { 'ARM64' { 'arm64' } 'x86' { 'x86' } default { 'x64' } }
   $src = Join-Path $PKDir 'winget'
   New-Item -ItemType Directory -Path $src -Force | Out-Null
-  # 2.37: nie aus dem Internet je PC – POCKET KNIFE legt den App-Installer einmal in das Repository (Offline-Quelle)
+  # 2.37: never from the internet per PC - POCKET KNIFE puts the App Installer into the repository once (offline source)
   if (-not (Get-ChildItem $src -Filter *.msixbundle -ErrorAction SilentlyContinue)) {
     throw 'Der App-Installer liegt noch nicht im Repository (Einstellungen → winget → Offline-Quelle: „Jetzt laden“).'
   }
@@ -187,7 +187,7 @@ def _winget_find():
 
 
 def adhoc_bootstrap():
-    """Ad-hoc-Paket: nur winget prüfen und bei Bedarf nachinstallieren."""
+    """Ad-hoc package: only check winget and install it afterwards if needed."""
     return {"name": "winget prüfen / nachinstallieren", "type": "winget", "winget_id": "Microsoft.AppInstaller",
             "winget_action": "bootstrap", "reboot": "never", "rescan": 0, "run_as": "system",
             "timeout_min": db.setting("deploy_timeout_minutes")}
@@ -207,7 +207,7 @@ def _winget_body(p):
             args += ["--scope", scope]
     else:
         args += ["--silent"]
-    # Feste Argumente bei Bedarf quoten; die zusätzlichen Argumente unverändert anhängen (eigene Anführungszeichen bleiben)
+    # Quote fixed arguments if needed; append the additional arguments unchanged (their own quotation marks stay)
     argline = " ".join(a if " " not in a else f'"{a}"' for a in args)
     extra = (p.get("extra_args") or "").strip()
     if extra:
@@ -219,10 +219,10 @@ $pkA = {util.psq(argline)}
 PK-Run $wg $pkA
 """
     if act and "--scope" in args:
-        # 2.30.1/2.31: Pakete ohne angegebenen Bereich im winget-Katalog (z. B. MobaXterm) bzw. Installationen, deren
-        # Bereich winget nicht kennt (z. B. PowerShell 7 per MSI): mit --scope lehnt winget die Aktualisierung ab
-        # („does not apply“ -1978335189 bzw. „No installed package found“ -1978335212) – von Hand ohne --scope klappt es.
-        # Dann einmal ohne --scope wiederholen; alle weiteren Versuche (tar.exe) laufen ebenfalls ohne.
+        # 2.30.1/2.31: packages without a scope given in the winget catalog (e.g. MobaXterm) or installations whose
+        # scope winget does not know (e.g. PowerShell 7 via MSI): with --scope winget refuses the update
+        # ("does not apply" -1978335189 or "No installed package found" -1978335212) - by hand without --scope it works.
+        # So retry once without --scope; all further attempts (tar.exe) also run without it.
         i = args.index("--scope")
         plain = args[:i] + args[i + 2:]
         pline = " ".join(a if " " not in a else f'"{a}"' for a in plain) + (" " + extra if extra else "")
@@ -235,23 +235,23 @@ if ($global:PKExit -eq -1978335189 -or $global:PKExit -eq -1978335212) {{
 """
     if act:
         body += """
-# Lokales System erkennen, ohne .NET-Methoden (Constrained Language Mode): Benutzername ist dann <Computer>$
+# Detect Local System without .NET methods (Constrained Language Mode): the user name is then <computer>$
 $pkSys = ($env:USERNAME -eq ($env:COMPUTERNAME + '$')) -or ($env:USERPROFILE -like '*\\systemprofile')
 if ($global:PKExit -eq -1978335140 -and $pkSys) {
-  # Als Lokales System scheitert das Entpacken über die Windows-Shell oft – einmal mit tar.exe wiederholen
-  # winget liest als Lokales System ...\\WinGet\\Settings\\defaultState\\settings.json (laut „winget settings export“ auf einem Client)
+  # As Local System, extraction via the Windows shell often fails - retry once with tar.exe
+  # As Local System, winget reads ...\\WinGet\\Settings\\defaultState\\settings.json (according to "winget settings export" on a client)
   Write-Output 'Hinweis: Archiv konnte nicht entpackt werden – neuer Versuch mit tar.exe (winget-Einstellung archiveExtractionMethod für Lokales System).'
   foreach ($d in @("$env:LOCALAPPDATA\\Packages\\Microsoft.DesktopAppInstaller_8wekyb3d8bbwe\\LocalState", "$env:LOCALAPPDATA\\Microsoft\\WinGet\\Settings\\defaultState")) {
     try {
       $f = Join-Path $d 'settings.json'
       $j = $null
-      # Kommentarzeilen (// …, wie in der Vorlage von winget) entfernen – Windows PowerShell 5.1 kann sie nicht lesen
+      # Remove comment lines (// ..., as in winget's template) - Windows PowerShell 5.1 cannot read them
       if (Test-Path $f) { try { $j = ((Get-Content $f -Raw -ErrorAction Stop) -replace '(?m)^\\s*//.*$', '') | ConvertFrom-Json -ErrorAction Stop } catch { Write-Output ('Eigene winget-Einstellungen unverändert: ' + $f); continue } }
       if ($null -eq $j) { $j = New-Object PSObject }
       if (-not $j.installBehavior) { $j | Add-Member -NotePropertyName installBehavior -NotePropertyValue (New-Object PSObject) -Force }
       $j.installBehavior | Add-Member -NotePropertyName archiveExtractionMethod -NotePropertyValue 'tar' -Force
       New-Item -ItemType Directory -Force -Path $d | Out-Null
-      # UTF-8 ohne BOM; im Constrained Language Mode (keine .NET-Aufrufe) mit BOM über Set-Content
+      # UTF-8 without BOM; in Constrained Language Mode (no .NET calls) with BOM via Set-Content
       if ($ExecutionContext.SessionState.LanguageMode -eq 'FullLanguage') { [IO.File]::WriteAllText($f, ($j | ConvertTo-Json -Depth 10), (New-Object Text.UTF8Encoding $false)) }
       else { Set-Content -LiteralPath $f -Value ($j | ConvertTo-Json -Depth 10) -Encoding UTF8 }
     } catch { Write-Output ('winget-Einstellung nicht geschrieben: ' + $_.Exception.Message) }
@@ -259,7 +259,7 @@ if ($global:PKExit -eq -1978335140 -and $pkSys) {
   PK-Run $wg $pkA
 }
 if ($global:PKExit -eq -1978335189) {
-  # „Keine passende Aktualisierung“ heißt nicht immer „aktuell“: eine neuere Version kann es geben, sie passt nur nicht
+  # "Keine passende Aktualisierung" (no applicable update) does not always mean "up to date": a newer version may exist, it just does not fit
   $pkT = ($global:PKOut | Out-String)
   if ($pkT -match 'install technology is different|Installationstechnologie unterscheidet sich') { $global:PKExit = 9011 }
   elseif ($pkT -match 'does not apply to your system|nicht f\\S{1,2}r Ihr System') { $global:PKExit = 9012 }
@@ -316,14 +316,14 @@ def _custom_body(p):
     elif it == "ps1":
         body += f"PK-RunPs1 $f {a}\n"
     elif it == "reg":
-        # 64-Bit-reg.exe (auch aus einer 32-Bit-PowerShell); anders als regedit /s liefert reg import einen Exitcode
+        # 64-bit reg.exe (also from a 32-bit PowerShell); unlike regedit /s, reg import returns an exit code
         body += ("$pkRegExe = Join-Path $env:windir 'Sysnative\\reg.exe'\n"
                  "if (-not (Test-Path $pkRegExe)) { $pkRegExe = Join-Path $env:windir 'System32\\reg.exe' }\n"
                  f"PK-Run $pkRegExe (('import \"' + $f + '\" ' + {a}).Trim())\n")
     return body
 
 
-# Schalter, die POCKET KNIFE bei MSI/MSP/MSU selbst setzt – doppelte Angaben im Feld „Parameter“ werden entfernt
+# Switches that POCKET KNIFE sets itself for MSI/MSP/MSU - duplicate entries in the "Parameter" field are removed
 _MSI_DUP = re.compile(r"^/(q[nbrf]?[+-]?|quiet|passive|norestart|promptrestart|forcerestart)$", re.I)
 MSI_LOG_TAIL = r"""
 if ($global:PKExit -ne 0 -and $global:PKExit -ne 3010 -and $global:PKExit -ne 1641 -and (Test-Path $PKMsiLog)) {
@@ -336,7 +336,7 @@ if ($global:PKExit -ne 0 -and $global:PKExit -ne 3010 -and $global:PKExit -ne 16
 
 
 def clean_msi_args(args):
-    """Entfernt /qn, /quiet, /norestart … aus eigenen Parametern. Gibt (args, hat_eigenes_log) zurück."""
+    """Removes /qn, /quiet, /norestart ... from own parameters. Returns (args, has_own_log)."""
     try:
         toks = shlex.split(args or "", posix=False)
     except ValueError:
@@ -352,7 +352,7 @@ def clean_msi_args(args):
 
 
 def command_preview(p):
-    """Befehlszeile, wie sie auf dem Client ausgeführt wird (für die Anzeige)."""
+    """Command line as it is executed on the client (for the display)."""
     if p.get("type") == "winget":
         b = _winget_body(p)
         m = re.search(r"PK-Run \$wg '(.*)'", b)
@@ -385,7 +385,7 @@ def build_body(p):
 
 
 def evaluate(p, code):
-    """(erfolgreich, neustart_nötig)"""
+    """(success, restart_needed)"""
     if p["type"] == "winget":
         if code in WINGET_OK:
             return True, WINGET_OK[code]
@@ -415,7 +415,7 @@ WINGET_MESSAGES = {
     -1978334974: "Eine andere Installation läuft gerade (Windows Installer belegt, 1618) – später erneut versuchen",
     9009: "winget nicht gefunden (App-Installer fehlt, Nachinstallation nicht möglich)",
     9010: "Übersprungen – winget wird auf diesem Betriebssystem nicht unterstützt",
-    # 2.31: von POCKET KNIFE vergeben, wenn winget „keine passende Aktualisierung“ meldet, obwohl es eine neuere gibt
+    # 2.31: assigned by POCKET KNIFE when winget reports "keine passende Aktualisierung" (no applicable update) although a newer one exists
     9011: "Neuere Version vorhanden, aber mit anderer Installationstechnik (z. B. MSI ↔ EXE/MSIX) – winget aktualisiert "
           "das nicht. Abhilfe: im Paket erst einen Schritt „Deinstallieren“, dann „Installieren“ – oder bei „Zusätzliche "
           "Argumente“ --force (installiert die neue Version daneben, die alte bleibt)",
@@ -424,8 +424,8 @@ WINGET_MESSAGES = {
 }
 
 
-# 2.32.2: vom Rahmen auf dem Client vergeben, wenn Windows die Ausführung verhindert hat (gehärtetes System) – für alle
-# Schrittarten; der ursprüngliche Exitcode und die Meldung von Windows stehen im Protokoll
+# 2.32.2: assigned by the wrapper on the client when Windows prevented the execution (hardened system) - for all
+# step kinds; the original exit code and Windows' message are in the log
 HARD_MESSAGES = {
     9013: "Windows lässt ein PowerShell-Skript nicht zu (Ausführungsrichtlinie/Signatur) – z. B. ein Skript, das dieses "
           "Skript selbst aufruft. Ausführungsrichtlinie der GPO für diesen Computer prüfen oder das Skript signieren",
@@ -438,11 +438,11 @@ HARD_MESSAGES = {
 }
 
 
-# --- Ablauf ----------------------------------------------------------------
+# --- Flow ----------------------------------------------------------------
 def tenant_members(tid, strict=False):
-    """Computer, die ein Mandant erreichen darf: set – oder None = keine Einschränkung.
-    Sicherheitsregeln: Mandant gelöscht → keine Computer; Mandant, der je OU-Admins hatte, ohne (gültige) Sammlung →
-    keine Computer (deren Pakete/Zeitpläne dürfen nie „überall“ laufen)."""
+    """Computers a tenant may reach: set - or None = no restriction.
+    Safety rules: tenant deleted -> no computers; tenant that ever had OU admins, without a (valid) collection ->
+    no computers (its packages/schedules must never run "everywhere")."""
     from . import collections_, profiles
     from . import access
     t = db.q1("SELECT collection_id, collection_ids, COALESCE(ou_ever, 0) ou_ever, admin_group FROM tenants WHERE id=?", (int(tid),))
@@ -452,7 +452,7 @@ def tenant_members(tid, strict=False):
     if not cols or profiles.ALL_COMPUTERS in cols:
         return set() if (t["ou_ever"] or t["admin_group"]) else None
     out = set()
-    for col in cols:  # 2.29.9: mehrere Sammlungen – zusammen
+    for col in cols:  # 2.29.9: several collections - together
         try:
             out.update(collections_.member_ids(int(col)))
         except Exception:
@@ -462,7 +462,7 @@ def tenant_members(tid, strict=False):
 
 
 def tenant_filter(pkg, ids, strict=False):
-    """Pakete eines Mandanten (auch verschachtelte) nur auf Computer der Mandanten-Sammlung verteilen."""
+    """Distribute a tenant's packages (also nested ones) only to computers of the tenant collection."""
     from . import collections_, steps
     tenants = set()
 
@@ -485,9 +485,9 @@ def tenant_filter(pkg, ids, strict=False):
 
 
 def composite(package_ids, stop_on_fail=True):
-    """Mehrere gespeicherte Pakete als EINE Bereitstellung: je Computer nacheinander in dieser Reihenfolge
-    (verschachtelte Schritte). So laufen nie zwei Installationen gleichzeitig auf einem Computer
-    (msiexec meldet sonst 1618 „eine andere Installation läuft“)."""
+    """Several saved packages as ONE deployment: per computer one after another in this order
+    (nested steps). This way two installations never run at the same time on one computer
+    (msiexec otherwise reports 1618 "another installation is running")."""
     from . import steps
     ids, seen = [], set()
     for pid in package_ids:
@@ -515,9 +515,9 @@ def composite(package_ids, stop_on_fail=True):
 
 
 def rescan_profiles(p):
-    """2.32: Mit welchen Scanprofilen nach der Bereitstellung gescannt wird – [] = nicht scannen.
-    Ein Paket: sein Profil („Danach scannen“, Standard „Anwendungen“). Mehrere Pakete in einer Bereitstellung oder einem
-    Zeitplan (composite): das Profil jedes einzelnen Pakets, „Nicht scannen“ zählt je Paket; jedes Profil einmal."""
+    """2.32: Which scan profiles are used to scan after the deployment - [] = do not scan.
+    One package: its profile ("Danach scannen" (scan afterwards), default "Anwendungen"). Several packages in one deployment or
+    schedule (composite): the profile of each individual package, "Nicht scannen" counts per package; each profile once."""
     from . import profiles, steps
 
     def one(rescan, pid):
@@ -539,8 +539,8 @@ def rescan_profiles(p):
 
 
 def strongest_reboot(values):
-    """Neustart-Einstellung mehrerer Pakete zusammengefasst: „immer“ vor „wenn nötig“ vor „nie“ –
-    ein Paket, das allein neu startet, tut das auch innerhalb eines Zeitplans oder einer Mehrfachauswahl."""
+    """Restart setting of several packages combined: "immer" (always) before "wenn nötig" (if needed) before "nie" (never) -
+    a package that restarts on its own also does so within a schedule or a multi-selection."""
     vals = {v or "never" for v in values}
     return "always" if "always" in vals else ("if_required" if "if_required" in vals else "never")
 
@@ -553,7 +553,7 @@ def create(pkg, computer_ids, user, scheduled_at=None, source="manual", rule_id=
     ids = sorted({int(i) for i in computer_ids})
     if not ids:
         raise ValueError("Keine Zielcomputer ausgewählt.")
-    # 2.26: Repository-Dateien gegen den bestätigten Stand prüfen – Bruch → nichts anlegen, nichts starten
+    # 2.26: check repository files against the confirmed state - break -> create nothing, start nothing
     chk = integrity.guard(pkg, package_id=package_id, name=name)
     if chk.get("state") == "warn":
         pklog.info("deploy", f"„{name or pkg['name']}“: Abweichung im Repository (Lauf geht weiter) – {integrity.summary(chk)}.", user=user)
@@ -583,8 +583,8 @@ def create(pkg, computer_ids, user, scheduled_at=None, source="manual", rule_id=
 
 
 def start(did, checked=False):
-    """checked: gerade eben von create() geprüft. Sonst (geplante Bereitstellung, Zeitplan) vor dem Start die
-    Repository-Dateien prüfen – bei einem Bruch wird der Lauf unterbrochen, bevor ein Computer etwas tut."""
+    """checked: just checked by create(). Otherwise (scheduled deployment, schedule) check the
+    repository files before starting - on a break the run is interrupted before any computer does anything."""
     if not checked:
         d = db.q1("SELECT * FROM deployments WHERE id=? AND status IN ('queued','scheduled')", (did,))
         if d:
@@ -595,7 +595,7 @@ def start(did, checked=False):
                 _interrupt(did, str(e))
                 return
     _rescope(did)
-    # Nur wenn noch nicht abgebrochen – sonst stünde eine abgebrochene Bereitstellung für immer auf „läuft“
+    # Only if not aborted yet - otherwise an aborted deployment would stay on "läuft" (running) forever
     if db.ex_count("UPDATE deployments SET status='running', started_at=COALESCE(started_at, ?) WHERE id=? "
                    "AND status IN ('queued','scheduled','running')", (util.now(), did)) != 1:
         return
@@ -604,8 +604,8 @@ def start(did, checked=False):
 
 
 def _rescope(did):
-    """Audit 2.29: Mandantenbereich beim START erneut anwenden (nicht nur beim Anlegen) – ein Computer, der seit dem
-    Planen die Mandanten-Sammlung verlassen hat, bekommt das Mandantenpaket nicht mehr."""
+    """Audit 2.29: Apply the tenant scope again at START (not only when creating) - a computer that has left the
+    tenant collection since planning no longer gets the tenant package."""
     d = db.q1("SELECT package_json FROM deployments WHERE id=?", (did,))
     if not d:
         return
@@ -615,7 +615,7 @@ def _rescope(did):
         return
     rows = db.q("SELECT id, computer_id FROM deployment_targets WHERE deployment_id=? AND status='queued'", (did,))
     try:
-        # strict: eine kurze Störung (Datenbank gesperrt) darf nicht alle Ziele als „nicht mehr im Mandanten“ auslassen
+        # strict: a brief disturbance (database locked) must not leave out all targets as "no longer in the tenant"
         keep, dropped = tenant_filter(pkg, [r["computer_id"] for r in rows if r["computer_id"]], strict=True)
     except Exception as e:  # noqa: BLE001
         pklog.warn("deploy", f"Bereitstellung #{did}: Mandantenbereich beim Start nicht prüfbar ({e}) – Ziele wie beim Anlegen.")
@@ -632,8 +632,8 @@ def _rescope(did):
 
 
 def restart_stuck(minutes=3):
-    """Audit 2.29: „wartend“ angelegte Bereitstellungen, deren Start scheiterte (z. B. Datenbank kurz gesperrt), blieben
-    bis zum nächsten Neustart liegen – und sperrten ihre Computer für alle Zeitpläne. Jetzt holt der Takt sie nach."""
+    """Audit 2.29: Deployments created as "wartend" (waiting) whose start failed (e.g. database briefly locked) stayed
+    until the next restart - and blocked their computers for all schedules. Now the tick picks them up."""
     old = util.ago(minutes=minutes)
     for d in db.q("""SELECT d.id FROM deployments d WHERE d.status='queued' AND d.created_at <= ? AND EXISTS(
                      SELECT 1 FROM deployment_targets t WHERE t.deployment_id = d.id AND t.status='queued')""", (old,)):
@@ -641,14 +641,14 @@ def restart_stuck(minutes=3):
 
 
 def _interrupt(did, msg):
-    """Bereitstellung wegen eines Bruchs im Repository unterbrechen: kein Ziel wird angefasst."""
+    """Interrupt a deployment because of a break in the repository: no target is touched."""
     now = util.now()
     if db.ex_count("UPDATE deployments SET status='failed', started_at=COALESCE(started_at, ?), finished_at=? "
                    "WHERE id=? AND status IN ('queued','scheduled')", (now, now, did)) != 1:
         return
     tids = [r["id"] for r in db.q("SELECT id FROM deployment_targets WHERE deployment_id=? AND status='queued'", (did,))]
     from . import integrity
-    # Am Ziel steht ein neutraler Text (sehen auch OU-Admins und Kiosk-Nutzer) – die Dateien nur im Protokoll ohne Computer
+    # The target shows a neutral text (OU admins and kiosk users see it too) - the files only in the log without a computer
     db.ex("UPDATE deployment_targets SET status='failed', message=?, finished_at=? WHERE deployment_id=? AND status='queued'",
           (integrity.NEUTRAL, now, did))
     for tid in tids:
@@ -667,9 +667,9 @@ def cancel(did, user=None):
     pklog.info("deploy", f"Bereitstellung #{did} abgebrochen.", user=user)
 
 
-# --- 2.35.1: Wiederholen mit dem aktuellen Stand des Pakets --------------------------------
+# --- 2.35.1: Retry with the current state of the package --------------------------------
 def package_changed(d):
-    """Geändert-Datum des Pakets, wenn es seit dieser Bereitstellung geändert wurde – sonst None."""
+    """Modified date of the package if it was changed since this deployment - otherwise None."""
     if not d or not d.get("package_id"):
         return None
     r = db.q1("SELECT updated_at FROM packages WHERE id=?", (d["package_id"],))
@@ -679,18 +679,18 @@ def package_changed(d):
 
 
 def source_package(d, current=False):
-    """Paket für eine Wiederholung: der Stand dieser Bereitstellung (Standard) – oder mit current der aktuelle Stand
-    des Pakets, falls es seitdem geändert wurde. War die Bereitstellung selbst schon ein Ausschnitt (einzelne Schritte
-    wiederholt), bleibt es beim Ausschnitt: aus dem aktuellen Paket nur diese Schritte."""
+    """Package for a retry: the state of this deployment (default) - or, with current, the current state
+    of the package if it was changed since. If the deployment itself was already a slice (individual steps
+    retried), it stays a slice: from the current package only these steps."""
     from . import steps
     snap = json.loads(d["package_json"] or "{}")
     if not current or not package_changed(d):
         return snap
     row = db.q1("SELECT * FROM packages WHERE id=?", (d["package_id"],))
     cur = steps.normalize(row_to_package(row))
-    # Ausschnitt: fest markiert (2.35.5, „slice“) – ältere Bereitstellungen am Namen erkannt
+    # Slice: marked explicitly (2.35.5, "slice") - older deployments recognized by name
     if snap.get("slice") or RETRY_SUFFIX.search(d.get("name") or ""):
-        # eingeschaltet bleibt, was im Ausschnitt eingeschaltet war (ausgeschaltete Schritte nicht plötzlich mitlaufen)
+        # what was enabled in the slice stays enabled (disabled steps do not suddenly run too)
         keep = {st.get("id"): st.get("enabled", True) is not False for _ph, st in steps.iter_steps(steps.normalize(snap))}
         cur = dict(cur, steps={ph: [dict(st, enabled=keep[st.get("id")]) for st in cur["steps"].get(ph) or [] if st.get("id") in keep]
                                for ph, _l in steps.PHASES}, reboot=snap.get("reboot", cur.get("reboot")), slice=True)
@@ -712,13 +712,13 @@ def redeploy(did, failed_only, user, current=False):
                   target_label=d.get("target_label"))
 
 
-# --- Einzelne Schritte wiederholen -------------------------------------------------
+# --- Retry individual steps ------------------------------------------------------
 def _top_records(recs):
-    """Ergebnisse der obersten Ebene (ohne die Schritte verschachtelter Pakete)."""
+    """Results of the top level (without the steps of nested packages)."""
     out = []
     for r in recs:
         depth = r.get("depth")
-        if depth is None:  # Ergebnisse älterer Versionen: Einrückung des Titels
+        if depth is None:  # results of older versions: indentation of the title
             t = r.get("title") or ""
             depth = (len(t) - len(t.lstrip(" "))) // 2
         if depth == 0:
@@ -727,7 +727,7 @@ def _top_records(recs):
 
 
 def failed_steps(did):
-    """Fehlgeschlagene Schritte einer Bereitstellung mit den betroffenen Zielen (für „Schritt wiederholen“)."""
+    """Failed steps of a deployment with the affected targets (for "Schritt wiederholen" (retry step))."""
     from . import steps
     d = db.q1("SELECT * FROM deployments WHERE id=?", (did,))
     if not d:
@@ -756,7 +756,7 @@ def failed_steps(did):
 
 
 def retry_package(p, sid, mode):
-    """Paket-Snapshot auf einen Schritt (mode=step) bzw. ab diesem Schritt (mode=from) kürzen."""
+    """Shorten the package snapshot to one step (mode=step) or from this step on (mode=from)."""
     from . import steps
     p = steps.normalize(p)
     order = [k for k, _ in steps.PHASES]
@@ -772,7 +772,7 @@ def retry_package(p, sid, mode):
         for k in order[order.index(ph):]:
             new[k] = list(p["steps"][k][i:] if k == ph else p["steps"][k])
         new[ph][0] = dict(new[ph][0], enabled=True)
-    p = dict(p, steps=new, slice=True)  # 2.35.5: Ausschnitt fest markiert (nicht nur am Namen erkennbar)
+    p = dict(p, steps=new, slice=True)  # 2.35.5: slice marked explicitly (not only recognizable by name)
     return p, steps.step_title(st)
 
 
@@ -807,14 +807,14 @@ def retry_step(did, sid, mode, target_ids, user, current=False):
 
 
 def steps_overview(did, allowed=None, current=False):
-    """Oberste Schritte einer Bereitstellung mit dem Ergebnis je Ziel (für „Schritte wählen …“).
-    allowed: nur diese Computer zählen (OU-Admins). current: Schritte des aktuellen Pakets (2.35.1) – die Ergebnisse
-    werden über die Schritt-ID zugeordnet (neue Schritte haben noch keine)."""
+    """Top-level steps of a deployment with the result per target (for "Schritte wählen ..." (choose steps)).
+    allowed: only these computers count (OU admins). current: steps of the current package (2.35.1) - the results
+    are assigned via the step ID (new steps do not have any yet)."""
     from . import steps
     d = db.q1("SELECT * FROM deployments WHERE id=?", (did,))
     if not d:
         raise ValueError("Bereitstellung nicht gefunden")
-    top = list(steps.iter_steps(steps.normalize(json.loads(d["package_json"] or "{}"))))  # für alte Ergebnisse ohne sid
+    top = list(steps.iter_steps(steps.normalize(json.loads(d["package_json"] or "{}"))))  # for old results without sid
     p = steps.normalize(source_package(d, current))
     out = [{"sid": st.get("id"), "phase": ph, "title": steps.step_title(st), "type": st.get("type"),
             "enabled": st.get("enabled", True) is not False, "counts": {}} for ph, st in steps.iter_steps(p)]
@@ -839,14 +839,14 @@ def steps_overview(did, allowed=None, current=False):
     return {"steps": out, "targets": targets, "status": d["status"]}
 
 
-# Endung früherer Wiederholungen im Namen („– „X“ wiederholt“, „– ab „X“ wiederholt“, „– 3 Schritte wiederholt“)
+# Suffix of earlier retries in the name ("– „X“ wiederholt", "– ab „X“ wiederholt", "– 3 Schritte wiederholt")
 RETRY_SUFFIX = re.compile(r"( – ((ab )?„.*“|\d+ Schritte?) wiederholt)+$")
 
 
 def rerun_steps(did, step_ids, target, target_ids, user, allowed=None, reboot=None, current=False):
-    """Bereitstellung mit frei gewählten Schritten wiederholen – neue Bereitstellung mit einem Ausschnitt des Pakets
-    (Reihenfolge und Phasen bleiben; gewählte, im Original ausgeschaltete Schritte werden eingeschaltet).
-    target: "all" | "failed" | "selected" (dann target_ids = IDs der Ziele dieser Bereitstellung)."""
+    """Retry a deployment with freely chosen steps - a new deployment with a slice of the package
+    (order and phases stay; chosen steps that were disabled in the original are enabled).
+    target: "all" | "failed" | "selected" (then target_ids = IDs of this deployment's targets)."""
     from . import steps
     d = db.q1("SELECT * FROM deployments WHERE id=?", (did,))
     if not d:
@@ -867,7 +867,7 @@ def rerun_steps(did, step_ids, target, target_ids, user, allowed=None, reboot=No
         new_steps[ph] = [dict(st, enabled=True) for st in p["steps"].get(ph) or [] if st.get("id") in chosen]
     pkg = dict(p, steps=new_steps, slice=True)
     if reboot == "never":
-        pkg["reboot"] = "never"  # z. B. nur einen Registry-Schritt wiederholen: dafür nicht alle neu starten
+        pkg["reboot"] = "never"  # e.g. retrying only a registry step: do not restart everyone for that
     rows = db.q("SELECT id, computer_id, status FROM deployment_targets WHERE deployment_id=? AND computer_id IS NOT NULL", (did,))
     if target == "selected":
         tids = {int(x) for x in target_ids or []}
@@ -889,7 +889,7 @@ def rerun_steps(did, step_ids, target, target_ids, user, allowed=None, reboot=No
 
 
 def _cancelled(did):
-    # Gelöscht gilt als abgebrochen – sonst liefe ein Ziel nach „Abbrechen“ + „Löschen“ einfach weiter
+    # Deleted counts as aborted - otherwise a target would simply keep running after "Abbrechen" + "Löschen"
     return db.val("SELECT status FROM deployments WHERE id=?", (did,)) in (None, "cancelled")
 
 
@@ -911,14 +911,14 @@ REQUEUE_SECONDS = 5
 
 
 def _run_target_safe(did, tid):
-    # Je Computer immer nur eine Bereitstellung gleichzeitig (z. B. mehrere Deinstallationen oder winget-Updates als
-    # eigene Bereitstellungen): zwei msiexec gleichzeitig enden sonst mit 1618. Wer wartet, bleibt „in Warteschlange“
-    # und lässt sich normal abbrechen.
+    # Only one deployment at a time per computer (e.g. several uninstallations or winget updates as
+    # separate deployments): two msiexec at once otherwise end with 1618. Whoever waits stays "in Warteschlange" (queued)
+    # and can be aborted normally.
     cid = db.val("SELECT computer_id FROM deployment_targets WHERE id=?", (tid,))
     lk = _computer_lock(cid) if cid else None
     if lk and not lk.acquire(blocking=False):
-        # 2.37: nicht blockierend warten – sonst belegen viele Bereitstellungen für denselben Computer alle Plätze des
-        # Pools, und andere Computer kommen nicht dran. Ziel bleibt „in Warteschlange“ und wird später neu eingereiht.
+        # 2.37: do not wait blocking - otherwise many deployments for the same computer occupy all slots of the
+        # pool and other computers never get their turn. The target stays "in Warteschlange" (queued) and is re-queued later.
         if db.val("SELECT status FROM deployment_targets WHERE id=?", (tid,)) == "queued":
             t = threading.Timer(REQUEUE_SECONDS, lambda: pool().submit(_run_target_safe, did, tid))
             t.daemon = True
@@ -932,7 +932,7 @@ def _run_target_safe(did, tid):
         try:
             _set(tid, status="failed", message=f"Interner Fehler: {e}", finished_at=util.now())
         finally:
-            _after_target(did, tid)  # Zeitplan-Ziel sonst dauerhaft „running“ → nie wieder versorgt
+            _after_target(did, tid)  # schedule target would otherwise stay "running" permanently -> never supplied again
     finally:
         if lk:
             lk.release()
@@ -955,12 +955,12 @@ def _run_target(did, tid):
         _after_target(did, tid)
         return
     host = c["dns_name"] or c["name"]
-    # Atomar von „queued“ auf „running“: ein gleichzeitiger Abbruch (oder doppelte Einplanung) gewinnt
+    # Atomically from "queued" to "running": a simultaneous abort (or double scheduling) wins
     if not db.ex_count("UPDATE deployment_targets SET status='running', started_at=?, message='Verbinde …' "
                        "WHERE id=? AND status='queued'", (util.now(), tid)):
-        return  # inzwischen abgebrochen (cancel() meldet selbst an den Zeitplan) oder schon in Arbeit
+        return  # aborted in the meantime (cancel() reports to the schedule itself) or already in progress
     from . import presence
-    online, winrm = presence.probe(c)  # nie unter einer veralteten Adresse auf einem fremden Gerät installieren
+    online, winrm = presence.probe(c)  # never install on a foreign device under a stale address
     if not winrm:
         prob = db.q1("SELECT addr_problem, addr_detail FROM computers WHERE id=?", (c["id"],)) or {}
         _set(tid, status="failed", message=(f"Nicht ausgeführt – {prob['addr_detail']}" if prob.get("addr_problem")
@@ -1004,20 +1004,20 @@ def _run_target(did, tid):
         _set(tid, status={"success": "success", "failed": "failed", "skipped": "skipped"}[res], exit_code=code,
              message=msg[:1000], output="\n".join(runner.log)[-200000:], steps=json.dumps(runner.results),
              finished_at=util.now())
-        # Ab hier darf nichts mehr das gespeicherte Ergebnis überschreiben
+        # From here on nothing may overwrite the saved result any more
         if res == "success":
             try:
                 from . import toast
-                toast.maybe_notify(c, host, p, runner)  # im Hintergrund; Fehler landen nur im Protokoll
-            except Exception as e:  # noqa: BLE001 – darf das gespeicherte Ergebnis nie überschreiben
+                toast.maybe_notify(c, host, p, runner)  # in the background; errors only end up in the log
+            except Exception as e:  # noqa: BLE001 – must never overwrite the saved result
                 pklog.warn("deploy", f"#{did}: Benachrichtigung nicht gesendet: {e}", computer_id=c["id"])
         try:
             lvl = pklog.info if ok else pklog.warn
             lvl("deploy", f"#{did} {p['name']} auf {c['name']}: {msg}", computer_id=c["id"])
             if res in ("success", "failed") and db.setting("rescan_after_deploy"):
-                # Nach jeder Installation/Deinstallation: Standard ist das Profil „Anwendungen“, im Paket änderbar.
-                # 2.32: bei mehreren Paketen (Auswahl, Zeitplan) das jeweils im Paket gewählte Profil; läuft gerade ein
-                # Scan, wird der danach nachgeholt statt verworfen
+                # After every installation/uninstallation: the default is the profile "Anwendungen" (applications), changeable in the package.
+                # 2.32: with several packages (selection, schedule) the profile chosen in each package; if a scan is
+                # running, it is made up afterwards instead of discarded
                 for pid in rescan_profiles(p):
                     inventory.queue_scan(c["id"], None, pid, follow=True)
         except Exception as e:
@@ -1034,7 +1034,7 @@ def _run_target(did, tid):
 
 
 def _after_target(did, tid):
-    """Ergebnis an einen Zeitplan zurückmelden (Zielverlauf)."""
+    """Report the result back to a schedule (target history)."""
     sid = db.val("SELECT schedule_id FROM deployments WHERE id=?", (did,))
     if sid:
         from . import schedules
@@ -1045,7 +1045,7 @@ def _after_target(did, tid):
 
 
 def _cleanup_one(row):
-    """Einen Eintrag aus client_cleanup abarbeiten. Gibt 'clean', 'busy' oder 'error' zurück."""
+    """Process an entry from client_cleanup. Returns 'clean', 'busy' or 'error'."""
     try:
         res = remote.cleanup_run(row["host"], row["prefix"], row["max_minutes"])
     except Exception as e:
@@ -1083,7 +1083,7 @@ def _cleanup_due(row, now=None):
 
 
 def process_cleanups():
-    """Hintergrund (alle 5 Minuten): offene Aufräum-Aufträge für erreichbare Computer abarbeiten."""
+    """Background (every 5 minutes): process open cleanup jobs for reachable computers."""
     rows = db.q("""SELECT x.*, c.id AS exists_id, c.online, c.winrm FROM client_cleanup x LEFT JOIN computers c ON c.id = x.computer_id
                    ORDER BY x.id""")
     limit = util.ago(days=CLEANUP_GIVE_UP_DAYS)
@@ -1098,7 +1098,7 @@ def process_cleanups():
             continue
         lk = _computer_lock(r["computer_id"])
         if not lk.acquire(blocking=False):
-            continue  # gerade läuft dort eine Bereitstellung – die räumt vorher selbst auf
+            continue  # a deployment is running there right now - it cleans up itself beforehand
         try:
             _cleanup_one(r)
         finally:
@@ -1106,9 +1106,9 @@ def process_cleanups():
 
 
 def _wait_for_orphans(c, host, did, tid):
-    """Vor einer neuen Bereitstellung: Reste unterbrochener Läufe auf diesem Computer entfernen und – falls dort
-    noch ein Installer aus einem unterbrochenen Lauf arbeitet – warten (sonst zwei Installationen gleichzeitig, 1618).
-    False, wenn währenddessen abgebrochen wurde."""
+    """Before a new deployment: remove leftovers of interrupted runs on this computer and - if an installer
+    from an interrupted run is still working there - wait (otherwise two installations at the same time, 1618).
+    False if it was aborted in the meantime."""
     rows = db.q("SELECT * FROM client_cleanup WHERE computer_id=? ORDER BY id", (c["id"],))
     if not rows:
         return True
@@ -1147,13 +1147,13 @@ def _finish_check(did):
     db.ex("UPDATE deployments SET status=?, finished_at=? WHERE id=?", (status, util.now(), did))
 
 
-# --- Aufräumen nach einem Neustart des Containers ------------------------------------------------
+# --- Cleanup after a container restart ---------------------------------------------------------
 INTERRUPTED_MSG = "Unterbrochen (POCKET KNIFE wurde neu gestartet)"
 CLEANUP_GIVE_UP_DAYS = 14
 
 
 def max_minutes(p):
-    """Längste Zeitgrenze eines Schritts dieses Pakets (Minuten) – so lange darf ein verwaister Installer weiterlaufen."""
+    """Longest time limit of a step of this package (minutes) - that long an orphaned installer may keep running."""
     base = (p or {}).get("timeout_min") or db.setting("deploy_timeout_minutes") or 60
     best = base
     stack = [p or {}]
@@ -1168,8 +1168,8 @@ def max_minutes(p):
 
 
 def recover():
-    """Nach einem Neustart des Containers: hängende Ziele als unterbrochen beenden und für jedes merken, dass auf dem
-    Client aufgeräumt werden muss (Arbeitsordner, geplante Aufgaben, ggf. ein noch laufender Installer)."""
+    """After a container restart: end hanging targets as interrupted and note for each that the client
+    has to be cleaned up (working folder, scheduled tasks, possibly a still running installer)."""
     hung = db.q("""SELECT t.id, t.deployment_id, t.computer_id, t.computer_name, c.name, c.dns_name, d.package_json
                    FROM deployment_targets t LEFT JOIN computers c ON c.id = t.computer_id
                    LEFT JOIN deployments d ON d.id = t.deployment_id WHERE t.status='running'""")
@@ -1190,6 +1190,6 @@ def recover():
                              "auf den Computern wird aufgeräumt, sobald sie erreichbar sind.")
     for d in db.q("SELECT id FROM deployments WHERE status IN ('running','queued')"):
         if db.val("SELECT COUNT(*) FROM deployment_targets WHERE deployment_id=? AND status='queued'", (d["id"],), 0):
-            start(d["id"], checked=True)  # beim Anlegen geprüft – der Neustart von POCKET KNIFE soll nicht auf Fingerabdrücke warten
+            start(d["id"], checked=True)  # checked at creation - the restart of POCKET KNIFE should not wait for fingerprints
         else:
             _finish_check(d["id"])

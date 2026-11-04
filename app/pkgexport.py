@@ -1,12 +1,12 @@
-"""Pakete exportieren und importieren (Datei *.pkpackages.json) – z. B. in eine zweite POCKET-KNIFE-Installation.
+"""Export and import packages (file *.pkpackages.json) - e.g. into a second POCKET KNIFE installation.
 
-In der Datei stehen keine IDs dieser Installation: Sammlungen und Scanprofile werden über ihren Namen
-zugeordnet, verschachtelte Pakete werden automatisch mit exportiert und beim Import neu verknüpft.
-Pfade im Repository sind immer relativ (z. B. „7zip\\24.08“) – der Server des Repositorys steht nur unter
-Einstellungen → Repository. Ein fest in Befehle/Skripte geschriebener UNC-Pfad wird beim Export gemeldet.
+The file contains no IDs of this installation: collections and scan profiles are matched by their name,
+nested packages are exported automatically and re-linked on import.
+Paths in the repository are always relative (e.g. "7zip\\24.08") - the repository server is set only under
+Einstellungen → Repository. A UNC path hard-coded into commands/scripts is reported on export.
 
-Kennwörter enthalten Pakete nicht (Konten stehen verschlüsselt unter Einstellungen). Skripte werden so
-exportiert, wie sie im Paket stehen.
+Packages contain no passwords (accounts are stored encrypted under Einstellungen). Scripts are exported
+as they are in the package.
 """
 import copy
 import json
@@ -49,7 +49,7 @@ def _conds_out(c):
 
 
 def _coll_path(cid):
-    """Namen der übergeordneten Sammlungen (oberste zuerst) – Namen allein sind nicht eindeutig (Audit 2.29)."""
+    """Names of the parent collections (topmost first) - names alone are not unique (Audit 2.29)."""
     names, seen = [], set()
     p = db.val("SELECT parent_id FROM collections WHERE id=?", (cid,))
     while p and p not in seen and len(names) < 20:
@@ -63,8 +63,8 @@ def _coll_path(cid):
 
 
 def _find_collection(cc, label):
-    """Sammlung zu einer importierten Bedingung – nur wenn eindeutig (gleiche Namen gibt es oft: „Server“, „Computers“).
-    Eine falsch zugeordnete „nicht Mitglied von“-Bedingung würde das Paket auf mehr Computern laufen lassen."""
+    """Collection for an imported condition - only if unambiguous (identical names are common: "Server", "Computers").
+    A wrongly matched "not member of" condition would let the package run on more computers."""
     name = str(cc.get("name") or "").strip()
     dn = str(cc.get("ad_dn") or "").strip()
     if dn:
@@ -99,7 +99,7 @@ def _texts(st):
 
 
 def export(user, ids):
-    """Datei-Inhalt (dict) + Hinweise. Verschachtelte Pakete werden mitgenommen."""
+    """File content (dict) + notes. Nested packages are included."""
     ids = [int(i) for i in (ids or []) if str(i).isdigit()]
     if not ids:
         raise HTTPException(400, "Keine Pakete gewählt.")
@@ -111,7 +111,7 @@ def export(user, ids):
         if pid in rows:
             continue
         try:
-            r = access.need_package(user, pid)  # OU-Admin: nur sichtbare (zentrale und eigene)
+            r = access.need_package(user, pid)  # OU admin: only visible ones (central and own)
         except HTTPException:
             if pid in ids:
                 raise
@@ -177,16 +177,16 @@ def _conds_in(c, label):
         if cc.get("all"):
             out.append({"id": 0, "mode": mode})
             continue
-        # Weglassen würde die Bedingung aufheben (Paket liefe dann auf mehr Computern) – deshalb ablehnen
+        # Omitting it would cancel the condition (the package would then run on more computers) - therefore reject
         out.append({"id": _find_collection(cc, label), "mode": mode})
     c["collections"] = out
     return c
 
 
 def _visible_by_name(user, tenant):
-    """Vorhandene Pakete, die als „gibt es schon“ zählen und verschachtelt werden dürfen: zentrale und die des
-    Zielmandanten – nie die eines anderen Mandanten (dessen OU-Admin könnte sie ändern; Code liefe dann auf
-    fremden Computern). Bei gleichem Namen hat das Paket des Zielmandanten Vorrang."""
+    """Existing packages that count as "already exists" and may be nested: central ones and those of the
+    target tenant - never those of another tenant (its OU admin could change them; code would then run on
+    foreign computers). With the same name, the target tenant's package takes precedence."""
     m = {}
     for r in db.q("SELECT id, name, tenant_id FROM packages ORDER BY (tenant_id IS NULL OR tenant_id = 0), id"):
         t = r.get("tenant_id") or None
@@ -196,7 +196,7 @@ def _visible_by_name(user, tenant):
 
 
 def _order(pkgs):
-    """Verschachtelte zuerst (Tiefensuche); Schleifen → Fehler."""
+    """Nested ones first (depth-first search); loops → error."""
     by_key = {p["key"]: p for p in pkgs}
     done, out, active = set(), [], set()
 
@@ -220,9 +220,9 @@ def _order(pkgs):
 
 
 def run_import(user, data, tenant_id=None, conflict="skip", dry_run=True, pkg_values=None, allow_dup=False):
-    """Prüft (dry_run) oder importiert. Gibt je Paket {name, status, new_name, message, warnings} zurück.
-    status: new | copy | skip | error. Pakete mit Fehler (und solche, die sie verschachteln) werden ausgelassen.
-    pkg_values: Prüf-/Umwandlungsfunktion aus main (_pkg_values) – dieselben Regeln wie beim Speichern im Editor."""
+    """Checks (dry_run) or imports. Returns {name, status, new_name, message, warnings} per package.
+    status: new | copy | skip | error. Packages with an error (and those that nest them) are skipped.
+    pkg_values: check/conversion function from main (_pkg_values) - the same rules as when saving in the editor."""
     if not isinstance(data, dict) or data.get("format") != FORMAT:
         raise HTTPException(400, "Das ist keine Paket-Datei von POCKET KNIFE (*.pkpackages.json).")
     if int(data.get("format_version") or 0) > FORMAT_VERSION:
@@ -301,25 +301,25 @@ def run_import(user, data, tenant_id=None, conflict="skip", dry_run=True, pkg_va
                                 if pn and not s["profile_id"]:
                                     res["warnings"].append(f"Scanprofil „{pn}“ fehlt – Schritt „Scannen“ nutzt das Standardprofil.")
                             if s.get("type") != "nested":
-                                s.pop("package_id", None)  # nur verschachtelte Schritte verweisen auf Pakete
+                                s.pop("package_id", None)  # only nested steps refer to packages
                             lst.append(s)
                         pdata["steps"][ph] = lst
                     vals = pkg_values(pdata, user=user)
-                    # Duplikatsperre (2.27): gleiche Software in einem anderen Bereich wird nicht importiert
-                    ids, pending = repofiles.guard_package(vals, None, user, allow=allow_dup, io=False)  # in der Transaktion: ohne Freigabe
+                    # Duplicate lock (2.27): the same software in another scope is not imported
+                    ids, pending = repofiles.guard_package(vals, None, user, allow=allow_dup, io=False)  # in the transaction: without release
                     cols = deploy.PKG_FIELDS + ["created_at", "updated_at"]
                     pid = db.ex(f"INSERT INTO packages({', '.join(cols)}) VALUES({', '.join('?' * len(cols))})",
                                 tuple(vals[k] for k in deploy.PKG_FIELDS) + (util.now(), util.now()))
                     repofiles.store_idents(pid, ids, pending)
-                    if access.scoped(user):  # 2.30: vom OU-Admin importiert – er darf es ändern
+                    if access.scoped(user):  # 2.30: imported by the OU admin - they may change it
                         db.ex("UPDATE packages SET ou_edit=1 WHERE id=?", (pid,))
                     new_ids[p["key"]] = pid
                     if not dry_run:
                         res["id"] = pid
                     taken.add(res["new_name"].lower())
-                    names.setdefault(res["new_name"].lower(), pid)  # gleicher Name zweimal in der Datei
+                    names.setdefault(res["new_name"].lower(), pid)  # same name twice in the file
                     if vals.get("tenant_id"):
-                        from .main import net_hints  # 2.29.1: Hinweis, keine Sperre
+                        from .main import net_hints  # 2.29.1: notice, no block
                         for x in net_hints({"steps": json.loads(vals["steps"])})[:5]:
                             res["warnings"].append(f"Zugriff auf Freigaben/Internet im Skript: {x}")
                     if access.scoped(user) and vals.get("run_as") == "system" and p.get("run_as") == "deploy":

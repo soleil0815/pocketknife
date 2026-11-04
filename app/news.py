@@ -1,14 +1,14 @@
-"""Neuigkeiten in der App (2.28) und Hinweis auf neue Versionen.
+"""News in the app (2.28) and notice of new versions.
 
-1. Neuigkeiten: app/news.json wird mit dem Programm ausgeliefert (kurze, verständliche Punkte je Version, de/en,
-   Art security/new/improved/fixed, Zielgruppe all/admin). Je Benutzer merkt sich POCKET KNIFE die zuletzt gesehene
-   Version (Tabelle news_seen) – die Seitenleiste zeigt dezent „Neu“, bis er sie angesehen hat. Ein neuer Benutzer
-   sieht nur die aktuelle Version als neu, nicht die ganze Geschichte.
+1. News: app/news.json is shipped with the program (short, understandable points per version, de/en,
+   kind security/new/improved/fixed, audience all/admin). POCKET KNIFE remembers the last seen version per user
+   (table news_seen) - the sidebar discreetly shows "Neu" until they have looked at it. A new user
+   sees only the current version as new, not the whole history.
 
-2. Neue Version verfügbar (nur Hauptadmins): Der SERVER (nie der Browser) fragt einmal täglich bei GitHub nach dem
-   neuesten Release und holt dessen app/news.json – so sind auch Sicherheitsupdates einer neuen Version vorab erkennbar.
-   Privates Repository: Lese-Token verschlüsselt im Tresor (Einstellung „update_token“, nie an die Oberfläche, nie im
-   Diagnosepaket). Ohne Internet/Token: aus bzw. „nicht erreichbar“ – nie ein Fehler in der Oberfläche.
+2. New version available (main admins only): the SERVER (never the browser) asks GitHub once a day for the
+   latest release and fetches its app/news.json - so even security updates of a new version can be recognized in advance.
+   Private repository: read token encrypted in the vault (setting "update_token", never to the UI, never in the
+   diagnostic package). Without internet/token: off or "nicht erreichbar" - never an error in the UI.
 """
 import functools
 import json
@@ -24,10 +24,10 @@ from . import access, config, db, pklog, proxy, util, vault
 
 KINDS = ("security", "new", "improved", "fixed")
 AUDIENCES = ("all", "admin")
-TOKEN_KEY = "update_token"          # verschlüsselt, nicht in DEFAULT_SETTINGS (→ nie über /api/settings sichtbar)
-STATUS_KEY = "update_status"        # JSON des letzten Abgleichs
+TOKEN_KEY = "update_token"          # encrypted, not in DEFAULT_SETTINGS (→ never visible via /api/settings)
+STATUS_KEY = "update_status"        # JSON of the last comparison
 CHECK_HOURS = 24
-VER_RX = re.compile(r"^\d+(\.\d+){1,3}(-s\d+)?$")  # 2.29.6 oder 2.29.6-s3 (Sicherheitsupdate)
+VER_RX = re.compile(r"^\d+(\.\d+){1,3}(-s\d+)?$")  # 2.29.6 or 2.29.6-s3 (security update)
 REPO_RX = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9._-]{1,100}$")
 API = "https://api.github.com"
 _lock = threading.Lock()
@@ -35,9 +35,9 @@ _cache = {"mtime": None, "data": None}
 NEWS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "news.json")
 
 
-# --- Neuigkeiten aus news.json ------------------------------------------------------------------------------------
+# --- News from news.json ------------------------------------------------------------------------------------
 def validate(data):
-    """Prüft den Aufbau (auch für Neuigkeiten von GitHub) und gibt die bereinigte Liste der Versionen zurück."""
+    """Checks the structure (also for news from GitHub) and returns the cleaned list of versions."""
     out = []
     for v in (data or {}).get("versions") or []:
         ver = str(v.get("version") or "").strip()
@@ -58,7 +58,7 @@ def validate(data):
 
 
 def versions():
-    """Neuigkeiten aller Versionen (neueste zuerst) – aus der ausgelieferten Datei, zwischengespeichert."""
+    """News of all versions (newest first) - from the shipped file, cached."""
     with _lock:
         try:
             mt = os.path.getmtime(NEWS_FILE)
@@ -81,7 +81,7 @@ def _visible(items, user):
 
 
 def _order(items):
-    rank = {k: n for n, k in enumerate(KINDS)}  # Sicherheit zuerst
+    rank = {k: n for n, k in enumerate(KINDS)}  # security first
     return sorted(items, key=lambda i: rank.get(i["kind"], 9))
 
 
@@ -90,12 +90,12 @@ def seen_version(username):
 
 
 def for_user(user):
-    """Neuigkeiten für die Oberfläche: alle Versionen bis zur laufenden; unseen = neuer als zuletzt gesehen."""
+    """News for the UI: all versions up to the running one; unseen = newer than last seen."""
     cur = config.VERSION
     allv = [v for v in versions() if util.vcmp(v["version"], cur) <= 0]
     seen = seen_version(user["username"])
     if seen is None:
-        # Neuer Benutzer: nur die laufende Version gilt als neu (nicht die ganze Geschichte)
+        # New user: only the running version counts as new (not the whole history)
         older = [v["version"] for v in allv if util.vcmp(v["version"], cur) < 0]
         seen = older[0] if older else "0"
     out = []
@@ -122,7 +122,7 @@ def mark_seen(user, version=None):
     return {"seen": v}
 
 
-# --- Neue Version verfügbar (GitHub) --------------------------------------------------------------------------------
+# --- New version available (GitHub) --------------------------------------------------------------------------------
 def settings():
     return {"enabled": bool(db.setting("update_check_enabled")), "repo": str(db.setting("update_repo") or "").strip(),
             "token_set": bool(db.setting_raw(TOKEN_KEY)), "status": status()}
@@ -147,7 +147,7 @@ def save(data):
             raise ValueError("Das Token enthält ungültige Zeichen.")
         db.set_setting(TOKEN_KEY, vault.encrypt(tok))
     if (repo, bool(db.setting_raw(TOKEN_KEY))) != old or tok:
-        db.ex("DELETE FROM settings WHERE key=?", (STATUS_KEY,))  # alter Stand passt nicht mehr
+        db.ex("DELETE FROM settings WHERE key=?", (STATUS_KEY,))  # the old state no longer fits
     return settings()
 
 
@@ -169,20 +169,20 @@ def _get(url, token, raw=False, timeout=20):
 
 
 def _fetch(repo, token):
-    """Neuestes Release + dessen Neuigkeiten. Austauschbar im Selbsttest."""
+    """Latest release + its news. Replaceable in the self-test."""
     rel = json.loads(_get(f"{API}/repos/{repo}/releases/latest", token))
     tag = str(rel.get("tag_name") or "")
     news = None
     try:
         news = json.loads(_get(f"{API}/repos/{repo}/contents/app/news.json?ref={urllib.parse.quote(tag)}", token, raw=True))
-    except Exception:  # Neuigkeiten sind nett, aber nicht nötig
+    except Exception:  # news are nice, but not necessary
         news = None
     return {"tag": tag, "url": str(rel.get("html_url") or ""), "published": str(rel.get("published_at") or "")[:19],
             "news": news}
 
 
 def check(force=False, who=None):
-    """Einmal täglich (Scheduler) bzw. „Jetzt prüfen“: neuestes Release abfragen und den Stand speichern."""
+    """Once a day (scheduler) or "Jetzt prüfen": query the latest release and save the state."""
     s = settings()
     st = s["status"] or {}
     if not s["enabled"] or not s["repo"]:
@@ -209,7 +209,7 @@ def check(force=False, who=None):
                         403: "Zugriff verweigert oder zu viele Anfragen – später erneut.",
                         404: "Repository nicht gefunden – bei einem privaten Repository ein Lese-Token hinterlegen."}.get(
             e.code, f"GitHub antwortet mit {e.code}.")
-    except Exception as e:  # noqa: BLE001 – kein Internet, Proxy, DNS …
+    except Exception as e:  # noqa: BLE001 – no internet, proxy, DNS ...
         out["error"] = f"GitHub nicht erreichbar: {proxy.safe_error(e)[:200]}"
     if token:
         for k in ("error",):
@@ -226,7 +226,7 @@ def check(force=False, who=None):
 
 
 def update_info(user):
-    """Für die Seitenleiste (nur Hauptadmins): neuere Version, ihre Neuigkeiten, Sicherheitsupdate ja/nein."""
+    """For the sidebar (main admins only): newer version, its news, security update yes/no."""
     s = settings()
     st = s["status"] or {}
     if not s["enabled"] or not st.get("ok") or not st.get("latest") or util.vcmp(st["latest"], config.VERSION) <= 0:
@@ -238,8 +238,8 @@ def update_info(user):
             "command": "sudo sh update.sh"}
 
 
-# --- Hinweise für Hauptadmins (2.33) ----------------------------------------------------------------------------
-COMPOSE_VERSION = 2  # Stand der docker-compose.yml, den dieses Programm erwartet (PK_COMPOSE_VERSION in der Datei)
+# --- Notices for main admins (2.33) ----------------------------------------------------------------------------
+COMPOSE_VERSION = 2  # state of the docker-compose.yml that this program expects (PK_COMPOSE_VERSION in the file)
 
 
 def compose_version():

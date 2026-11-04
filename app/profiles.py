@@ -1,14 +1,14 @@
-"""Scanprofile: Auswahl aus Standard- und eigenen Scannern, Sammlungen und Auslöser.
+"""Scan profiles: selection from standard and custom scanners, collections and triggers.
 
-Auslöser (JSON-Liste im Profil, jeder mit eigener id):
+Triggers (JSON list in the profile, each with its own id):
   once      {at: "YYYY-MM-DD HH:MM"}
   interval  {every: n, unit: "m"|"h"|"d", start: "YYYY-MM-DD HH:MM"}
-  daily     {time: "HH:MM", every: n}                      jeden n-ten Tag
-  weekly    {time: "HH:MM", days: [0..6] (Mo=0), every: n}   jede n-te Woche
+  daily     {time: "HH:MM", every: n}                      every n-th day
+  weekly    {time: "HH:MM", days: [0..6] (Mo=0), every: n}   every n-th week
   monthly   {time: "HH:MM", days: [1..31, "last"]}
   scan_age  {days, hours, minutes, only_at: bool, from: "HH:MM", to: "HH:MM"}
-  heartbeat {}                                             wenn ein Computer online kommt
-Gemeinsam: enabled, catch_up (offline Computer nachholen, sobald sie online sind), end (optional).
+  heartbeat {}                                             when a computer comes online
+Common: enabled, catch_up (catch up offline computers as soon as they are online), end (optional).
 """
 import datetime
 import json
@@ -21,11 +21,11 @@ TRIGGER_TYPES = {
     "monthly": "Monatlich", "scan_age": "Scan-Alter", "heartbeat": "Heartbeat",
 }
 WEEKDAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
-ALL_COMPUTERS = 0  # Pseudo-Sammlung „Alle Computer“
+ALL_COMPUTERS = 0  # pseudo collection "Alle Computer"
 RETRY_MINUTES = 60
 
 
-# --- Laden / Speichern -------------------------------------------------------------
+# --- Loading / saving -------------------------------------------------------------
 def _parse(row):
     if not row:
         return None
@@ -36,7 +36,7 @@ def _parse(row):
         except ValueError:
             p[k] = default
     valid = {r["id"] for r in db.q("SELECT id FROM custom_scanners")}
-    p["scanners"] = [i for i in p["scanners"] if i in valid]  # gelöschte eigene Scanner ausblenden
+    p["scanners"] = [i for i in p["scanners"] if i in valid]  # hide deleted custom scanners
     return p
 
 
@@ -44,7 +44,7 @@ SCANNER_TYPES = {"registry": "Registry", "files": "Dateien & Ordner", "wmi": "WM
 
 
 def custom_ids(p):
-    """Eigene Scanner eines Profils: fest gewählte + alle (aktiven) Scanner der gewählten Typen."""
+    """Custom scanners of a profile: explicitly chosen ones + all (active) scanners of the chosen types."""
     ids = list(p.get("scanners") or [])
     types = [t for t in (p.get("scanner_types") or []) if t in SCANNER_TYPES]
     if types:
@@ -53,8 +53,8 @@ def custom_ids(p):
     return sorted(set(ids))
 
 
-# Feste Scanprofile: Schlüssel, Name, Beschreibung, Standard-Scanner, Typen eigener Scanner.
-# Sie können nicht gelöscht und in ihren Scannern nicht verändert werden; Auslöser und Sammlungen sind frei.
+# Fixed scan profiles: key, name, description, default scanners, types of custom scanners.
+# They cannot be deleted and their scanners cannot be changed; triggers and collections are free.
 BUILTIN_PROFILES = [
     ("active_directory", "Active Directory", "AD-Daten des Computers (OU, Gruppen, Beschreibung, letzte Anmeldung) – ohne Zugriff auf den Client.", ["active_directory"], []),
     ("applications", "Anwendungen", "Installierte Software (Computer und Benutzer).", ["applications"], []),
@@ -79,7 +79,7 @@ BUILTIN_PROFILES = [
     ("tasks", "Geplante Aufgaben", "Aufgabenplanung.", ["tasks"], []),
     ("wmi", "WMI", "Alle eigenen Scanner vom Typ „WMI“.", [], ["wmi"]),
 ]
-# Standard: alle Scanner außer Dateien & Ordner, PowerShell, Registry und WMI
+# Default: all scanners except files & folders, PowerShell, registry and WMI
 STANDARD_KEYS = ["active_directory", "applications", "computer", "disks", "displays", "environment", "hardware",
                  "hotfixes", "memory", "nics", "printers", "services", "shares", "users_groups", "features", "tasks"]
 BUILTIN = {k: (n, d, m, t) for k, n, d, m, t in BUILTIN_PROFILES}
@@ -92,16 +92,16 @@ def builtin_def(key):
 
 
 def _keep_custom(pid, key, mods, types, now):
-    """Wurde ein bisheriges Profil gleichen Namens angepasst, eine Kopie mit dem alten Inhalt behalten."""
+    """If an existing profile of the same name was modified, keep a copy with the old content."""
     from . import inventory
     old = _parse(db.q1("SELECT * FROM scan_profiles WHERE id=?", (pid,)))
     if not old:
         return
     known = [set(mods)]
     if key == "standard":
-        known.append(set(inventory.MODULE_ORDER))       # Standard bis 2.2: alle Scanner
+        known.append(set(inventory.MODULE_ORDER))       # default up to 2.2: all scanners
     if key == "computer":
-        known.append(set(mods) - {"processes"})         # Computer-Details bis 2.2
+        known.append(set(mods) - {"processes"})         # computer details up to 2.2
     same_mods = set(old["modules"]) in known
     same_types = set(old.get("scanner_types") or []) == set(types)
     extra_scanners = old["scanners"] and key != "standard"
@@ -115,7 +115,7 @@ def _keep_custom(pid, key, mods, types, now):
 
 
 def seed_builtin():
-    """Feste Profile anlegen bzw. auf den vorgegebenen Inhalt setzen (bei jedem Start, idempotent)."""
+    """Create fixed profiles or reset them to the predefined content (at every start, idempotent)."""
     now = util.now()
     rows = db.q("SELECT id, name, builtin_key, is_default FROM scan_profiles")
     by_key = {r["builtin_key"]: r for r in rows if r["builtin_key"]}
@@ -141,7 +141,7 @@ def seed_builtin():
 
 
 def mark_new(cids):
-    """Neu gefundene Computer mit dem Standardprofil scannen, sobald sie online sind."""
+    """Scan newly found computers with the default profile as soon as they are online."""
     p = default()
     if p and cids:
         _mark_pending(p["id"], cids, util.now())
@@ -164,7 +164,7 @@ def all_profiles():
 
 
 def init():
-    """Beim ersten Start: Standardprofil; Intervall aus der alten Einstellung übernehmen."""
+    """On first start: default profile; adopt the interval from the old setting."""
     if db.val("SELECT COUNT(*) FROM scan_profiles", default=0):
         return
     from . import inventory
@@ -190,7 +190,7 @@ def _tid():
 
 
 def _baseline(pid, triggers, old_triggers=None, reenabled=False):
-    """Neue, geänderte oder wieder aktivierte Auslöser starten „ab jetzt“ – verpasste Termine lösen nicht aus."""
+    """New, changed or re-enabled triggers start "from now" – missed appointments do not fire."""
     now = util.now()
     old = {t.get("id"): t for t in (old_triggers or [])}
     strip = lambda x: {k: v for k, v in x.items() if k != "id"}  # noqa: E731
@@ -285,7 +285,7 @@ def clean_trigger(t):
 def clean(data, existing=None):
     from . import inventory
     if existing and existing.get("builtin_key"):
-        # Feste Profile: Name und Scanner bleiben, wie sie sind
+        # Fixed profiles: name and scanners stay as they are
         data = {**data, "name": existing["name"], "modules": existing["modules"], "scanners": [],
                 "scanner_types": existing["scanner_types"], "description": existing["description"]}
     name = (data.get("name") or "").strip()
@@ -342,7 +342,7 @@ def delete(pid):
 
 
 def remove_scanner(sid):
-    """Eigenen Scanner aus allen Profilen entfernen (beim Löschen)."""
+    """Remove a custom scanner from all profiles (when deleting)."""
     for p in all_profiles():
         if sid in p["scanners"]:
             db.ex("UPDATE scan_profiles SET scanners=? WHERE id=?",
@@ -350,7 +350,7 @@ def remove_scanner(sid):
 
 
 def add_scanner(sid, profile_ids):
-    """Eigenen Scanner in eigene Profile aufnehmen. Feste Profile enthalten ihren Typ ohnehin automatisch."""
+    """Add a custom scanner to custom profiles. Fixed profiles contain their type automatically anyway."""
     for p in all_profiles():
         if p.get("builtin_key"):
             continue
@@ -370,12 +370,12 @@ def record(cid, pid, status, ts):
 
 
 def has_targets(p):
-    """Profil wirkt auf mindestens eine Sammlung oder einen einzelnen Computer."""
+    """Profile applies to at least one collection or a single computer."""
     return bool(p.get("collections") or p.get("computers"))
 
 
 def members(p):
-    """Ziel-Computer: Mitglieder der Sammlungen plus einzeln gewählte Computer."""
+    """Target computers: members of the collections plus individually chosen computers."""
     from . import collections_
     if ALL_COMPUTERS in p["collections"]:
         return {r["id"] for r in db.q("SELECT id FROM computers")}
@@ -390,7 +390,7 @@ def members(p):
 
 
 def describe(t):
-    """Kurztext eines Auslösers für die Oberfläche."""
+    """Short text of a trigger for the UI."""
     typ = t["type"]
     if typ == "once":
         s = f"Einmalig am {t['at']}"
@@ -415,16 +415,16 @@ def describe(t):
     return s
 
 
-# --- Zeitberechnung ---------------------------------------------------------------
+# --- Time calculation ---------------------------------------------------------------
 def _last_month_day(d):
     nxt = (d.replace(day=28) + datetime.timedelta(days=4)).replace(day=1)
     return (nxt - datetime.timedelta(days=1)).day
 
 
 def fires(t, occ, last, now):
-    """Ist der Auslöser fällig? occ: letzter planmäßiger Zeitpunkt, last: zuletzt ausgelöst (beides Ortszeit).
-    2.37: Bei der Umstellung auf Winterzeit läuft die Uhr eine Stunde zurück – „zuletzt ausgelöst“ liegt dann in der
-    Zukunft, und ein Intervall in Minuten/Stunden setzte eine Stunde aus. Dann einmal auslösen (danach gilt die neue Zeit)."""
+    """Is the trigger due? occ: last scheduled point in time, last: last fired (both local time).
+    2.37: When switching to winter time the clock runs back an hour – "last fired" is then in the
+    future, and an interval in minutes/hours would skip an hour. Then fire once (afterwards the new time applies)."""
     if not occ:
         return False
     if last is None or occ > last:
@@ -433,7 +433,7 @@ def fires(t, occ, last, now):
 
 
 def last_occurrence(t, now):
-    """Letzter planmäßiger Zeitpunkt ≤ now (oder None)."""
+    """Last scheduled point in time ≤ now (or None)."""
     typ = t["type"]
     if typ == "once":
         at = util.parse(t["at"])
@@ -446,7 +446,7 @@ def last_occurrence(t, now):
         return start + step * int((now - start) / step)
     if typ in ("daily", "weekly", "monthly"):
         hh, mm = (int(x) for x in t["time"].split(":"))
-        anchor = util.parse(t.get("start") or "2000-01-03")  # 2000-01-03 ist ein Montag
+        anchor = util.parse(t.get("start") or "2000-01-03")  # 2000-01-03 is a Monday
         for back in range(0, 400):
             day = (now - datetime.timedelta(days=back)).replace(hour=hh, minute=mm, second=0, microsecond=0)
             if day > now:
@@ -458,7 +458,7 @@ def last_occurrence(t, now):
                     return day
             elif typ == "weekly":
                 if anchor and day.date() < anchor.date():
-                    return None  # nicht vor dem Startdatum (die Woche des Starts bestimmt nur den Rhythmus)
+                    return None  # not before the start date (the week of the start only determines the rhythm)
                 if day.weekday() in t["days"]:
                     a = anchor.date() - datetime.timedelta(days=anchor.weekday())
                     if ((day.date() - a).days // 7) % t.get("every", 1) == 0:
@@ -472,7 +472,7 @@ def last_occurrence(t, now):
 
 
 def occurs_on(t, day):
-    """Liegt ein Termin des Auslösers (täglich/wöchentlich/monatlich) auf diesem Tag? – schnell, ohne Rückwärtssuche."""
+    """Does an appointment of the trigger (daily/weekly/monthly) fall on this day? – fast, without backward search."""
     typ = t["type"]
     anchor = util.parse(t.get("start") or "2000-01-03")
     d = day.date() if hasattr(day, "date") else day
@@ -496,10 +496,10 @@ def in_window(t, now):
         return True
     cur = now.strftime("%H:%M")
     a, b = t["from"], t["to"]
-    return a <= cur < b if a <= b else (cur >= a or cur < b)  # Fenster über Mitternacht
+    return a <= cur < b if a <= b else (cur >= a or cur < b)  # window across midnight
 
 
-# --- Auswertung durch den Scheduler -------------------------------------------------
+# --- Evaluation by the scheduler -------------------------------------------------
 def _mark_pending(pid, cids, now):
     db.exmany("""INSERT INTO profile_scans(computer_id, profile_id, pending, pending_since) VALUES(?,?,1,?)
                  ON CONFLICT(computer_id, profile_id) DO UPDATE SET pending=1,
@@ -508,7 +508,7 @@ def _mark_pending(pid, cids, now):
 
 
 def evaluate():
-    """Zeitgesteuerte Auslöser und Scan-Alter prüfen; fällige Scans als „ausstehend“ markieren."""
+    """Check time-based triggers and scan age; mark due scans as "ausstehend" (pending)."""
     now = datetime.datetime.now()
     nows = util.fmt(now)
     state = {(r["profile_id"], r["trigger_id"]): r["last_fired"] for r in db.q("SELECT * FROM profile_trigger_state")}
@@ -518,7 +518,7 @@ def evaluate():
             continue
         try:
             _evaluate_profile(p, now, nows, state, online)
-        except Exception as e:  # ein fehlerhafter Auslöser darf die übrigen Profile nicht aufhalten
+        except Exception as e:  # a faulty trigger must not hold up the other profiles
             from . import pklog
             pklog.error("scan", f"Scanprofil „{p['name']}“: Auswertung fehlgeschlagen: {e}")
 
@@ -562,7 +562,7 @@ def _evaluate_profile(p, now, nows, state, online):
 
 
 def on_online(cids):
-    """Heartbeat-Auslöser: Computer ist (wieder) online gekommen."""
+    """Heartbeat trigger: computer has come (back) online."""
     if not cids:
         return
     now = util.now()
@@ -575,12 +575,12 @@ def on_online(cids):
 
 
 def dispatch():
-    """Ausstehende Scans starten, sobald der Computer online und frei ist."""
+    """Start pending scans as soon as the computer is online and free."""
     from . import inventory
     db.ex("UPDATE profile_scans SET pending=0, pending_since=NULL WHERE pending=1 AND pending_since < ?",
           (util.ago(days=14),))
-    # 2.32.8: gerade hochgefahrene oder aufgewachte Computer erst nach einer kurzen Wartezeit scannen – Netzwerkkarte
-    # (Geschwindigkeit), Dienste und angemeldete Benutzer sind dann fertig; manuelle Scans laufen sofort
+    # 2.32.8: scan computers that have just booted or woken up only after a short wait – network adapter
+    # (speed), services and logged-on users are then ready; manual scans run immediately
     delay = int(db.setting("scan_online_delay_minutes") or 0)
     ready = util.ago(minutes=delay) if delay > 0 else "9999"
     rows = db.q("""SELECT ps.computer_id, ps.profile_id FROM profile_scans ps JOIN computers c ON c.id=ps.computer_id
@@ -597,7 +597,7 @@ def dispatch():
 
 
 def summary(p, only=None):
-    """Kennzahlen eines Profils für die Liste. only: nur diese Computer zählen (OU-Admin: sein Bereich)."""
+    """Key figures of a profile for the list. only: count only these computers (OU admin: their scope)."""
     mem = members(p) if has_targets(p) else set()
     if only is not None:
         mem &= set(only)
@@ -610,7 +610,7 @@ def summary(p, only=None):
 
 
 def apps_profile_id():
-    """Profil für den Scan nach einer Bereitstellung: das feste Profil „Anwendungen“ (sonst das schlankeste mit Anwendungen)."""
+    """Profile for the scan after a deployment: the fixed profile "Anwendungen" (otherwise the leanest one with applications)."""
     fixed = db.val("SELECT id FROM scan_profiles WHERE builtin_key='applications'")
     if fixed:
         return fixed

@@ -1,7 +1,7 @@
-"""E-Mail-Versand über SMTP (nur Standardbibliothek).
+"""E-mail sending via SMTP (standard library only).
 
-Einstellungen werden in der Oberfläche gepflegt (Einstellungen → E-Mail); das Kennwort liegt verschlüsselt
-im Tresor (pocketknife.key). Mails werden als HTML mit Textalternative verschickt, ohne externe Inhalte.
+Settings are maintained in the UI (Einstellungen → E-Mail); the password is stored encrypted
+in the vault (pocketknife.key). Mails are sent as HTML with a text alternative, without external content.
 """
 import html
 import re
@@ -21,18 +21,18 @@ KEYS = ("mail_enabled", "mail_host", "mail_port", "mail_security", "mail_verify"
         "mail_from_name", "mail_to", "mail_subject_prefix")
 ADDR_RE = re.compile(r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9-]{1,63})*$")
 MAX_RECIPIENTS = 50
-MAX_PER_HOUR = 120  # Schutz gegen Mailfluten (z. B. falsch eingestellte Benachrichtigungen)
+MAX_PER_HOUR = 120  # protection against mail floods (e.g. wrongly configured notifications)
 MAX_ATTACH = 20 * 1024 * 1024
 
 _lock = threading.Lock()
-_sent = []  # Zeitstempel der letzten Sendungen (Ratenbegrenzung)
+_sent = []  # timestamps of the last sends (rate limiting)
 
 
 class MailError(Exception):
     pass
 
 
-# --- Einstellungen ------------------------------------------------------------------------------
+# --- Settings -----------------------------------------------------------------------------------
 def settings():
     s = {k: db.setting_raw(k) for k in KEYS}
     sec = s["mail_security"] if s["mail_security"] in SECURITY else "starttls"
@@ -54,9 +54,9 @@ def configured():
 
 
 def parse_recipients(text, label="Empfänger", required=True):
-    """'a@x.de; b@y.de' → ['a@x.de', 'b@y.de'] (geprüft, ohne Doppelte)."""
+    """'a@x.de; b@y.de' → ['a@x.de', 'b@y.de'] (validated, without duplicates)."""
     out, seen = [], set()
-    # „Max Muster <max@firma.de>“ → nur die Adresse
+    # "Max Muster <max@firma.de>" → address only
     text = re.sub(r'"[^"]*"', " ", text or "")
     text = re.sub(r"[^,;<>]*<([^<>]+)>", r" \1 ", text)
     for part in re.split(r"[,;\s]+", text):
@@ -103,11 +103,11 @@ def save(data, user=None):
     if usr and sec == "none":
         raise ValueError("Anmeldung nur mit Verschlüsselung (STARTTLS oder SSL/TLS) – sonst ginge das Kennwort im Klartext übers Netz.")
     old = settings()
-    # Audit 2.29: auch das Abschalten der Zertifikatsprüfung zählt (sonst ginge das Kennwort an einen Server mit falschem Zertifikat)
+    # Audit 2.29: disabling the certificate check counts too (otherwise the password would go to a server with a wrong certificate)
     moved = old["password_set"] and ((host.lower(), port, sec, usr.lower()) != (old["host"].lower(), old["port"], old["security"], old["user"].lower())
                                      or (old.get("verify", True) and not data.get("verify", True)))
     if moved and not data.get("password") and usr:
-        # Gespeichertes Kennwort nie an einen anderen Server/Port/Benutzer schicken – neu eingeben lassen
+        # Never send the stored password to a different server/port/user - have it re-entered
         raise ValueError("Server, Port, Verschlüsselung oder Benutzer geändert – bitte das Kennwort erneut eingeben.")
     for k, v in (("mail_enabled", "1" if enabled else "0"), ("mail_host", host), ("mail_port", port),
                  ("mail_security", sec), ("mail_verify", "1" if data.get("verify", True) else "0"),
@@ -123,7 +123,7 @@ def save(data, user=None):
     return settings()
 
 
-# --- HTML-Bausteine -----------------------------------------------------------------------------
+# --- HTML building blocks -----------------------------------------------------------------------
 E = html.escape
 CSS_TABLE = "border-collapse:collapse;font-size:13px;margin:6px 0 4px"
 CSS_TH = "text-align:left;background:#eef2f7;border:1px solid #d5dbe3;padding:4px 8px;white-space:nowrap"
@@ -131,7 +131,7 @@ CSS_TD = "border:1px solid #e1e5eb;padding:3px 8px;vertical-align:top"
 
 
 def html_table(columns, rows, limit=None):
-    """columns: [{key,label}] – rows: [dict]. Gibt (html, text) zurück."""
+    """columns: [{key,label}] - rows: [dict]. Returns (html, text)."""
     shown = rows if limit is None else rows[:limit]
     head = "".join(f'<th style="{CSS_TH}">{E(str(c["label"]))}</th>' for c in columns)
     body = []
@@ -181,7 +181,7 @@ def wrap(title, inner_html, footer=None):
             f'</div></body></html>')
 
 
-# --- Versand ------------------------------------------------------------------------------------
+# --- Sending ------------------------------------------------------------------------------------
 def _rate_ok():
     now = time.time()
     with _lock:
@@ -191,14 +191,14 @@ def _rate_ok():
 
 
 def _rate_add():
-    """Nur zugestellte Mails zählen – Fehlversuche (Server weg) dürfen das Kontingent nicht aufbrauchen."""
+    """Only delivered mails count - failed attempts (server gone) must not use up the quota."""
     with _lock:
         _sent.append(time.time())
 
 
 def helo_name():
-    """Name für EHLO/HELO: voll qualifiziert (pocketknife.firma.local) statt der zufälligen Container-ID –
-    viele Mailserver und Spamfilter werten einen nicht auflösbaren HELO-Namen ab oder verwerfen die Mail."""
+    """Name for EHLO/HELO: fully qualified (pocketknife.firma.local) instead of the random container ID -
+    many mail servers and spam filters downrate or reject mail with an unresolvable HELO name."""
     host = (config.PUBLIC_HOSTNAME or "").strip()
     if host and "." not in host and config.DOMAIN:
         host = f"{host}.{config.DOMAIN}"
@@ -218,8 +218,8 @@ def _connect(s, password, log):
     helo = helo_name()
     c = None
     try:
-        # Host im Konstruktor übergeben: smtplib braucht ihn als server_hostname für die Zertifikatsprüfung
-        # (STARTTLS und SSL/TLS) – ein späteres connect() setzt ihn nicht.
+        # Pass the host in the constructor: smtplib needs it as server_hostname for the certificate check
+        # (STARTTLS and SSL/TLS) - a later connect() does not set it.
         if s["security"] == "ssl":
             c = smtplib.SMTP_SSL(s["host"], s["port"], timeout=timeout, context=ctx, local_hostname=helo)
         else:
@@ -246,7 +246,7 @@ def _connect(s, password, log):
     except BaseException:
         if c is not None:
             try:
-                c.close()  # Verbindung nach Fehler (STARTTLS, Anmeldung …) nicht offen lassen
+                c.close()  # do not leave the connection open after an error (STARTTLS, login ...)
             except Exception:
                 pass
         _translate_raise(s)
@@ -277,7 +277,7 @@ def _translate_raise(s):
 
 
 def _transfer(c, sender, to, msg, log):
-    """MAIL FROM / RCPT TO / DATA einzeln, damit die Antwort des Servers (Queue-ID) protokolliert wird."""
+    """MAIL FROM / RCPT TO / DATA individually so that the server's response (queue ID) is logged."""
     code, resp = c.mail(sender)
     log.append(f"MAIL FROM:<{sender}> → {code} {_r(resp)}")
     if code != 250:
@@ -302,7 +302,7 @@ def _transfer(c, sender, to, msg, log):
 
 
 def send(to, subject, html_body, text_body="", attachments=None, category="mail", force=False, user=None):
-    """Mail senden. to: Liste von Adressen. attachments: [(dateiname, bytes, mimetype)]."""
+    """Send mail. to: list of addresses. attachments: [(filename, bytes, mimetype)]."""
     from . import vault
     s = settings()
     if not s["host"] or not s["from"]:
@@ -323,7 +323,7 @@ def send(to, subject, html_body, text_body="", attachments=None, category="mail"
     msg["Message-ID"] = make_msgid(domain=(s["from"].split("@")[-1] or None))
     msg["Auto-Submitted"] = "auto-generated"
     msg["X-Mailer"] = f"POCKET KNIFE {config.VERSION}"
-    # quoted-printable statt 8bit: auch Server ohne 8BITMIME übertragen Umlaute unverändert
+    # quoted-printable instead of 8bit: servers without 8BITMIME also transmit umlauts unchanged
     msg.set_content(text_body or re.sub(r"<[^>]+>", "", html_body), cte="quoted-printable")
     msg.add_alternative(html_body, subtype="html", cte="quoted-printable")
     total = 0
@@ -376,7 +376,7 @@ def test(to_text, user=None):
 
 
 def warnings(s=None):
-    """Einstellungen, die oft zu Spam-Einstufung oder stillem Verwerfen führen."""
+    """Settings that often lead to spam classification or silent dropping."""
     s = s or settings()
     out = []
     usr, frm = (s["user"] or "").lower(), (s["from"] or "").lower()

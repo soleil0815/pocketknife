@@ -1,22 +1,22 @@
-"""2.36: Freigabe neuer winget-Versionen (Zurückstellung).
+"""2.36: Release of new winget versions (deferral).
 
-Der winget-Katalog nennt kein Erscheinungsdatum – POCKET KNIFE merkt sich, wann es eine Version zum ersten Mal sieht
-(„first_seen“). Einstellung „winget_release_mode“:
-  off    – neue Versionen sofort (wie bisher); gesperrte Versionen bleiben gesperrt
-  days   – neue Versionen erst nach „winget_release_days“ Tagen, einzeln vorzeitig freigebbar
-  manual – neue Versionen nur nach Freigabe im Paket
+The winget catalog gives no release date - POCKET KNIFE remembers when it sees a version for the first time
+("first_seen"). Setting "winget_release_mode":
+  off    - new versions immediately (as before); blocked versions stay blocked
+  days   - new versions only after "winget_release_days" days, individually releasable early
+  manual - new versions only after approval in the package
 
-Wirkung (target): ist die neueste Version freigegeben, ändert sich nichts. Sonst bekommen winget-Schritte in Paketen,
-Kiosk und Zeitplänen gezielt die zuletzt freigegebene Version (winget --version), der winget-Cache lädt nur diese, und
-Zeitpläne „Software aktuell halten“ aktualisieren nur Computer mit einer älteren Version. Gibt es keine freigegebene
-Version (alles gesperrt), passiert nichts. Der Knopf „Aktualisieren“ (Software) installiert bewusst die neueste – außer
-sie ist gesperrt (2.36.2: eine Sperre gilt überall).
+Effect (target): if the newest version is released, nothing changes. Otherwise winget steps in packages,
+kiosk and schedules specifically get the most recently released version (winget --version), the winget cache loads only that one, and
+schedules "Software aktuell halten" update only computers with an older version. If there is no released
+version (everything blocked), nothing happens. The "Aktualisieren" button (Software) deliberately installs the newest - unless
+it is blocked (2.36.2: a block applies everywhere).
 
-2.36.2: Beim Wechsel der Regel (freeze) bleiben die bis dahin freigegebenen Versionen freigegeben – sonst würde z. B. der
-Wechsel von „sofort“ auf „nur nach Freigabe“ alle Programme auf den Ausgangsstand der ersten Sichtung zurückstellen.
+2.36.2: When the rule is changed (freeze), the versions released until then stay released - otherwise e.g. the
+switch from "sofort" to "nur nach Freigabe" would put all programs back to the initial state of the first sighting.
 
-Beim ersten Kontakt mit einer winget-ID gilt deren aktuelle Version als freigegeben („baseline“) – sonst stünden nach
-dem Einschalten alle Programme still.
+On first contact with a winget ID, its current version counts as released ("baseline") - otherwise all programs
+would stand still after switching on.
 """
 import datetime
 import threading
@@ -46,8 +46,8 @@ def _latest(wid):
 
 
 def tracked_ids():
-    """winget-IDs, deren Versionen verfolgt werden: Pakete (auch verschachtelte winget-Schritte), sicher zugeordnete
-    Software und der winget-Cache."""
+    """winget IDs whose versions are tracked: packages (also nested winget steps), safely matched
+    software and the winget cache."""
     from . import steps
     ids = {}
     for r in db.q("SELECT winget_id FROM software WHERE winget_id IS NOT NULL AND COALESCE(winget_sure, 1) = 1 "
@@ -71,13 +71,13 @@ def _rows(wid):
 
 
 def _insert(wid, ver, base=False):
-    # base: Ausgangsstand (erste Sichtung der ID) – bleibt freigegeben, auch nach „Sperre aufheben“
+    # base: initial state (first sighting of the ID) - stays released, even after "lift block"
     db.ex("INSERT OR IGNORE INTO winget_releases(winget_id, version, first_seen, status, base) VALUES(?,?,?,NULL,?)",
           (wid, ver, util.now(), 1 if base else 0))
 
 
 def sync():
-    """Nach dem Laden des Index: neue Katalogversionen der verfolgten IDs vermerken (erste Sichtung)."""
+    """After loading the index: note new catalog versions of the tracked IDs (first sighting)."""
     if not _lock.acquire(blocking=False):
         return 0
     n = 0
@@ -98,7 +98,7 @@ def sync():
 
 
 def release_at(r):
-    """Zeitpunkt der automatischen Freigabe (Text) oder None (manuell/gesperrt/schon frei)."""
+    """Time of the automatic release (text) or None (manual/blocked/already free)."""
     if r["status"] or r["base"] or mode() != "days":
         return None
     try:
@@ -125,8 +125,8 @@ def released(r):
 
 
 def target(wid):
-    """{"state": "latest"} – neueste Version ist frei (nichts ändern); {"state": "pin", "version": v} – stattdessen die
-    zuletzt freigegebene Version; {"state": "hold"} – nichts freigegeben. Unbekannte IDs: „latest“."""
+    """{"state": "latest"} - newest version is free (change nothing); {"state": "pin", "version": v} - instead the
+    most recently released version; {"state": "hold"} - nothing released. Unknown IDs: "latest"."""
     wid = str(wid or "").strip()
     latest = _latest(wid) if wid else None
     if not latest:
@@ -136,7 +136,7 @@ def target(wid):
         return {"state": "latest", "latest": latest}
     cur = next((r for r in rows if r["version"] == latest), None)
     if cur is None:
-        # Index neuer als der letzte Abgleich: jetzt als erste Sichtung vermerken
+        # Index newer than the last comparison: note it now as the first sighting
         _insert(wid, latest)
         cur = next((r for r in _rows(wid) if r["version"] == latest), None)
     if cur is None or released(cur):
@@ -163,15 +163,15 @@ def _why(r):
 
 
 def apply_step(st, pkg=None):
-    """winget-Schritt (Installieren/Aktualisieren ohne feste Version) → Schritt mit der freigegebenen Version.
-    Rückgabe (schritt, None) oder (None, Meldung) wenn nichts freigegeben ist."""
+    """winget step (install/update without a fixed version) → step with the released version.
+    Returns (step, None) or (None, message) if nothing is released."""
     if st.get("type") != "install" or st.get("source") != "winget":
         return st, None
     if (st.get("winget_action") or "install") == "uninstall" or str(st.get("winget_version") or "").strip():
         return st, None
     t = target(st.get("winget_id"))
     if pkg is not None and pkg.get("release_bypass") and not t.get("blocked"):
-        return st, None  # „Aktualisieren“ von Hand: zurückgestellte Versionen ja, gesperrte nie
+        return st, None  # "Aktualisieren" by hand: deferred versions yes, blocked ones never
     if t["state"] == "pin":
         if not util.WINGET_ID_RE.match(str(t["version"])):
             return None, f"{t['reason']} – freigegebene Version {str(t['version'])[:40]!r} ungültig"
@@ -182,8 +182,8 @@ def apply_step(st, pkg=None):
 
 
 def freeze(new_mode):
-    """2.36.2: vor dem Wechsel der Regel – was jetzt freigegeben ist, bleibt freigegeben (als Ausgangsstand).
-    Gesperrte und noch zurückgestellte Versionen bleiben, wie sie sind."""
+    """2.36.2: before the rule is changed - what is released now stays released (as the initial state).
+    Blocked and still deferred versions stay as they are."""
     if new_mode not in MODES or new_mode == mode():
         return 0
     with _lock:
@@ -196,13 +196,13 @@ def freeze(new_mode):
 
 
 def version_ok(wid, version):
-    """Darf diese Version verteilt werden? (winget-Cache) – unbekannte Versionen: ja."""
+    """May this version be distributed? (winget cache) - unknown versions: yes."""
     r = db.q1("SELECT * FROM winget_releases WHERE winget_id=? AND version=?", (str(wid or ""), str(version or "")))
     return r is None or released(r)
 
 
 def allowed_update(wid, installed):
-    """Zeitpläne: darf auf diesem Computer aktualisiert werden? (installierte Version älter als die freigegebene)"""
+    """Schedules: may this computer be updated? (installed version older than the released one)"""
     t = target(wid)
     if t["state"] == "latest":
         return True
@@ -212,7 +212,7 @@ def allowed_update(wid, installed):
 
 
 def overview():
-    """Für die Paketliste: je winget-ID (klein) der Stand der Freigabe."""
+    """For the package list: the release state per winget ID (lower case)."""
     out = {}
     by = {}
     for r in db.q("SELECT * FROM winget_releases ORDER BY first_seen, id"):
@@ -233,7 +233,7 @@ def overview():
 
 
 def set_status(wid, version, status, user=None):
-    """status: approved (freigeben), blocked (sperren), "" (zurück auf die Regel)."""
+    """status: approved (release), blocked (block), "" (back to the rule)."""
     wid, version = str(wid or "").strip(), str(version or "").strip()
     if not wid or not version or len(wid) > 128 or len(version) > 64:
         raise ValueError("winget-ID und Version angeben.")

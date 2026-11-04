@@ -1,8 +1,8 @@
-"""Erreichbarkeit der Computer: online/WinRM speichern und „gerade erreichbar geworden“ melden.
+"""Reachability of the computers: store online/WinRM and report "just became reachable".
 
-Ein Computer gilt als neu erreichbar, sobald WinRM vorher nicht erreichbar war und jetzt ist – egal, ob das der
-Heartbeat, ein Scan oder ein manueller Heartbeat feststellt. Beim Hochfahren öffnet Windows SMB oft früher als
-WinRM; dann ist der Computer schon „online“, aber erst mit WinRM für Scans und Bereitstellungen nutzbar.
+A computer counts as newly reachable as soon as WinRM was unreachable before and is reachable now - no matter whether
+the heartbeat, a scan or a manual heartbeat detects it. At boot, Windows often opens SMB earlier than
+WinRM; the computer is then already "online" but only usable for scans and deployments once WinRM is up.
 """
 import datetime
 import threading
@@ -11,7 +11,7 @@ from . import config, db, guard, pklog, util
 
 
 def update(cid, online, winrm, prev_winrm=None, now=None):
-    """Status speichern. True, wenn WinRM gerade erreichbar geworden ist."""
+    """Store the status. True if WinRM just became reachable."""
     if prev_winrm is None:
         prev_winrm = db.val("SELECT winrm FROM computers WHERE id=?", (cid,), 0)
     now = now or util.now()
@@ -23,7 +23,7 @@ def update(cid, online, winrm, prev_winrm=None, now=None):
 
 
 def after_heartbeat(online_ids, background=False):
-    """Nach einem Heartbeat: Zeitpläne für erreichbare, noch nicht versorgte bzw. vorgemerkte Ziele."""
+    """After a heartbeat: schedules for reachable targets that are not yet served or are queued."""
     ids = sorted(set(online_ids))
     if not ids or guard.paused():
         return
@@ -41,7 +41,7 @@ def after_heartbeat(online_ids, background=False):
 
 
 def notify(ids, background=False):
-    """Heartbeat-Auslöser der Scanprofile und Zeitpläne für neu erreichbare Computer ausführen."""
+    """Run the heartbeat triggers of the scan profiles and schedules for newly reachable computers."""
     ids = sorted(set(ids))
     if not ids or guard.paused():
         return
@@ -62,17 +62,17 @@ def notify(ids, background=False):
         run()
 
 
-# --- Antwortet unter der Adresse wirklich dieser Computer? ---------------------------------------
-# Ein veralteter DNS-Eintrag zeigt oft auf eine Adresse, die DHCP längst einem anderen Gerät gegeben hat (Drucker, Handy,
-# NAS, fremder PC). Dann antwortet „irgendetwas“ und der Computer erschiene online – Scans und Bereitstellungen landeten
-# im schlimmsten Fall auf dem falschen Gerät. Deshalb: neue Adresse (oder lange nicht bestätigt) → kurz nachfragen.
+# --- Does this computer really answer at the address? ---------------------------------------
+# A stale DNS entry often points to an address that DHCP has long since given to another device (printer, phone,
+# NAS, foreign PC). Then "something" answers and the computer would appear online - scans and deployments would, in
+# the worst case, end up on the wrong device. Hence: new address (or not confirmed for a long time) -> ask briefly.
 PROBLEM_TEXT = {
     "other": "Adresse gehört zu einem anderen Gerät",
     "nodomain": "Gerät unter dieser Adresse ist nicht Mitglied der Domäne",
     "unverified": "Anmeldung abgelehnt – Gerät nicht bestätigt",
     "unconfirmed": "Unter der Adresse antwortet vermutlich ein anderes Gerät",
 }
-PROBLEM_RECHECK_MIN = 60  # Problemfälle höchstens stündlich erneut fragen (keine Anmeldeversuche bei fremden Geräten im Minutentakt)
+PROBLEM_RECHECK_MIN = 60  # ask problem cases again at most hourly (no logon attempts at foreign devices every minute)
 _ident_sem = threading.Semaphore(8)
 
 
@@ -92,7 +92,7 @@ def _age_min(ts, now_dt):
 
 
 def _set_addr(cid, _row=None, **kw):
-    # Nur Geändertes schreiben – der Heartbeat prüft viele Computer parallel, unnötige Schreibzugriffe sperren SQLite
+    # Write only what changed - the heartbeat checks many computers in parallel, needless writes lock SQLite
     if _row is not None:
         kw = {k: v for k, v in kw.items() if k not in _row or _row.get(k) != v}
     if kw:
@@ -100,8 +100,8 @@ def _set_addr(cid, _row=None, **kw):
 
 
 def probe(c, now=None, force=False):
-    """Erreichbarkeit samt Identitätsprüfung. Gibt (online, winrm) zurück und speichert resolved_ip/addr_problem.
-    Ohne Prüfung (Einstellung aus) wie bisher nur TCP."""
+    """Reachability including the identity check. Returns (online, winrm) and stores resolved_ip/addr_problem.
+    Without the check (setting off) only TCP as before."""
     from . import dnsres, remote
     now = now or util.now()
     now_dt = util.parse(now) or datetime.datetime.now()
@@ -115,7 +115,7 @@ def probe(c, now=None, force=False):
     prob = c.get("addr_problem") or ""
     verified_ip = c.get("verified_ip") or ""
     if not winrm:
-        # Nur SMB/RPC: nicht prüfbar. War eine andere Adresse bestätigt, ist das sehr wahrscheinlich ein anderes Gerät.
+        # SMB/RPC only: cannot be verified. If a different address was confirmed, this is very likely another device.
         if verified_ip and verified_ip != ip:
             fields.update(addr_problem="unconfirmed", addr_detail=f"Unter {ip} antwortet ein Gerät ohne WinRM – bestätigt "
                                                                   f"war zuletzt {verified_ip}. DNS-Eintrag veraltet oder kein Windows-Gerät?")
@@ -138,12 +138,12 @@ def probe(c, now=None, force=False):
         r = remote.identify(host)
     fields.update(addr_checked_at=now, addr_ip=ip)
     if r.get("error") in ("paused", "other"):
-        # Nicht prüfbar (Dienstkonto-Schutz, Zeitüberschreitung): beim bisherigen Ergebnis bleiben
+        # Cannot be verified (service account protection, timeout): stay with the previous result
         _set_addr(c["id"], c, **fields)
         if prob:
             return _verdict(prob)
-        # Audit 2.29: neue, noch nie bestätigte Adresse → nicht als bestätigt behandeln (erreichbar, aber nicht nutzbar,
-        # bis die Prüfung beim nächsten Durchlauf klappt)
+        # Audit 2.29: new, never confirmed address -> do not treat as confirmed (reachable but not usable
+        # until the check succeeds on the next pass)
         return (True, False) if verified_ip and verified_ip != ip else (True, True)
     if r.get("error") in ("auth", "krb_modified"):
         fields.update(addr_problem="unverified",
@@ -175,10 +175,10 @@ def probe(c, now=None, force=False):
 
 
 def direct_host(c):
-    """2.36.3 (Audit): Adresse für Direktaktionen (Dateien, Dienste, Prozesse, Tools, Speicherplatz, Fernsteuerung, Neustart …).
-    Wie Bereitstellung und Scan nie mit dem Dienstkonto (oder eigenen Anmeldedaten) zu einem Gerät verbinden, das die
-    Identitätsprüfung als fremd/nicht bestätigt markiert hat – sonst erreicht z. B. ein geänderter dNSHostName einen
-    anderen Server (\\server\C$, WinRM). Bei ausgeschalteter Prüfung gilt ein alter Vermerk nicht mehr."""
+    """2.36.3 (Audit): Address for direct actions (files, services, processes, tools, disk space, remote control, restart ...).
+    As with deployment and scan, never connect with the service account (or custom credentials) to a device that the
+    identity check has marked as foreign/unconfirmed - otherwise e.g. a changed dNSHostName reaches another
+    server (\\server\C$, WinRM). With the check switched off, an old note no longer applies."""
     host = (c.get("dns_name") or c.get("name") or "").strip()
     prob = c.get("addr_problem") if "addr_problem" in c else (
         (db.q1("SELECT addr_problem, addr_detail FROM computers WHERE id=?", (c["id"],)) or {}).get("addr_problem")
@@ -192,8 +192,8 @@ def direct_host(c):
 
 
 def _verdict(prob):
-    """(online, winrm) für einen bekannten Problemfall: falsches Gerät/keine Domäne → offline; nicht bestätigt →
-    erreichbar, aber nicht nutzbar (keine Scans/Bereitstellungen)."""
+    """(online, winrm) for a known problem case: wrong device/no domain -> offline; unconfirmed ->
+    reachable but not usable (no scans/deployments)."""
     if prob in ("other", "nodomain", "unconfirmed"):
         return False, False
     if prob == "unverified":

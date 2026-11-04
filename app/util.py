@@ -1,49 +1,49 @@
-"""Hilfsfunktionen."""
+"""Helper functions."""
 import datetime
 import re
 import socket
 
-# Windows PowerShell immer mit vollem Pfad und festen Schaltern starten (64 Bit, ohne Profil/Logo, nie interaktiv,
-# Ausführungsrichtlinie umgangen) – sonst meckert Windows je nach Richtlinie/PATH, und jedes Skript müsste es selbst tun.
-PS_EXE = r"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"           # Anzeige (Vorschau)
-PS_EXE_PS = r'"$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"'     # als PowerShell-Ausdruck
+# Always start Windows PowerShell with the full path and fixed switches (64-bit, no profile/logo, never interactive,
+# execution policy bypassed) - otherwise Windows complains depending on policy/PATH, and every script would have to do it itself.
+PS_EXE = r"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"           # display (preview)
+PS_EXE_PS = r'"$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"'     # as a PowerShell expression
 PS_FLAGS = "-NoLogo -NonInteractive -NoProfile -ExecutionPolicy Bypass"
-# 2.32.2: Skripte erst ganz normal als Datei starten (-File bzw. & 'datei' – gleiche Exitcodes, $PSScriptRoot, und bei
-# AppLocker/WDAC laufen zugelassene Dateien weiter in FullLanguage). Nur wenn Windows die Datei verweigert, wird ihr
-# Inhalt geladen: Eine Ausführungsrichtlinie aus der Gruppenrichtlinie (MachinePolicy/UserPolicy) lässt sich mit
-# „-ExecutionPolicy Bypass“ nicht übersteuern, und mit RemoteSigned hält Windows eine lokale Datei je nach
-# Sicherheitszonen des Kontos (SYSTEM, Dienstkonto) für „fremd“ und verlangt eine Signatur. Geladener Inhalt unterliegt
-# der Ausführungsrichtlinie nicht (wie Befehle über WinRM); AMSI, Virenschutz und Constrained Language Mode gelten
-# weiter. Invoke-Expression statt [ScriptBlock]::Create – das ist im Constrained Language Mode erlaubt.
-# „exit 0“ am Ende: gleicher Exitcode wie bei -File (ohne exit 0, exit N → N, Fehler → 1).
-# 2.32.5: $PKLoadOk setzt die erste Zeile der Ladedatei – kann PowerShell den Inhalt nicht übersetzen (Syntaxfehler),
-# läuft keine Zeile und der Exitcode ist 1 (wie bei -File) statt 0
+# 2.32.2: Start scripts first quite normally as a file (-File or & 'file' - same exit codes, $PSScriptRoot, and with
+# AppLocker/WDAC allowed files continue to run in FullLanguage). Only if Windows refuses the file is its
+# content loaded: an execution policy from group policy (MachinePolicy/UserPolicy) cannot be overridden with
+# "-ExecutionPolicy Bypass", and with RemoteSigned Windows considers a local file, depending on the
+# security zones of the account (SYSTEM, service account), "foreign" and demands a signature. Loaded content is not subject to
+# the execution policy (like commands via WinRM); AMSI, antivirus and Constrained Language Mode still apply.
+# Invoke-Expression instead of [ScriptBlock]::Create - that is allowed in Constrained Language Mode.
+# "exit 0" at the end: same exit code as with -File (without exit 0, exit N → N, error → 1).
+# 2.32.5: $PKLoadOk is set by the first line of the load file - if PowerShell cannot translate the content (syntax error),
+# no line runs and the exit code is 1 (as with -File) instead of 0
 PS_LOAD_PRE = "-Command \"$PKLoadOk = $false; Invoke-Expression ((Get-Content -LiteralPath '"
 PS_LOAD_POST = "' -Raw -Encoding UTF8)); if (-not $PKLoadOk) { exit 1 }; exit 0\""
-# dieselben Teile zum Einbetten in einen PowerShell-String in einfachen Anführungszeichen ('…' + $pfad + '…')
+# the same parts for embedding in a PowerShell string in single quotes ('...' + $path + '...')
 PS_LOAD_PRE_Q = PS_LOAD_PRE.replace("'", "''")
 PS_LOAD_POST_Q = PS_LOAD_POST.replace("'", "''")
-# Start des Rahmens pk_run.ps1 (geplante Aufgabe / eigener Prozess): erst & 'datei'; nur wenn genau diese Datei wegen
-# Ausführungsrichtlinie/Signatur verweigert wird (UnauthorizedAccess), ihren Inhalt laden. Der Exitcode ist hier egal
-# (das Ergebnis steht in pk_exit.txt). Teile zum Einbetten: '…' + $pfad + '…' + $pfad + '…' + $pfad + '…'
+# Start of the frame pk_run.ps1 (scheduled task / own process): first & 'file'; only if exactly this file is refused because of
+# execution policy/signature (UnauthorizedAccess), load its content. The exit code does not matter here
+# (the result is in pk_exit.txt). Parts for embedding: '...' + $path + '...' + $path + '...' + $path + '...'
 PS_START_PARTS = ("-Command \"try { & '", "' } catch { if ($_.FullyQualifiedErrorId -eq 'UnauthorizedAccess' -and "
                   "([string]$_).Contains('pk_run.ps1')) { Invoke-Expression ((Get-Content -LiteralPath '",
                   "' -Raw -Encoding UTF8)) } else { throw } }\"")
 
 
 def ps_start_expr(var):
-    """PowerShell-Ausdruck mit den Argumenten für powershell.exe, die den Rahmen an Pfad var (PS-Ausdruck) starten."""
+    """PowerShell expression with the arguments for powershell.exe that start the frame at path var (PS expression)."""
     q = [x.replace("'", "''") for x in PS_START_PARTS]
     return f"('{PS_FLAGS} {q[0]}' + {var} + '{q[1]}' + {var} + '{q[2]}')"
 
 
 def ps_load_arg(path):
-    """Argumente für powershell.exe, die das Skript an path laden (path ohne einfaches Anführungszeichen)."""
+    """Arguments for powershell.exe that load the script at path (path without a single quote)."""
     return f"{PS_FLAGS} {PS_LOAD_PRE}{path}{PS_LOAD_POST}"
 
 
 def ps_file_arg(path, args=""):
-    """Argumente für powershell.exe -File (Vorschau)."""
+    """Arguments for powershell.exe -File (preview)."""
     return f'{PS_FLAGS} -File "{path}" {args}'.rstrip()
 
 
@@ -73,15 +73,15 @@ def ago(**kw):
     return fmt(datetime.datetime.now() - datetime.timedelta(**kw))
 
 
-# --- Versionen -----------------------------------------------------------
+# --- Versions -----------------------------------------------------------
 def _vparts(v):
     v = (v or "").strip().lower()
     v = re.sub(r"^v(?=\d)", "", v)
-    # Zusätze ohne Versionsbedeutung: „1.2.3 (x64)“, „1.0+build5“, „2.4 [de]“ – sonst gälte 1.2.3 (x64) < 1.2.3
+    # Additions without version meaning: "1.2.3 (x64)", "1.0+build5", "2.4 [de]" - otherwise 1.2.3 (x64) < 1.2.3 would hold
     v = re.sub(r"\s*[\(\[].*?[\)\]]", "", v)
     v = v.split("+", 1)[0].strip()
     v = re.sub(r"\s+(x64|x86|amd64|arm64|64-bit|32-bit|64bit|32bit)$", "", v)
-    # „2.29.6-s3“: drittes Sicherheitsupdate von 2.29.6 – höher als 2.29.6, niedriger als 2.29.7
+    # "2.29.6-s3": third security update of 2.29.6 - higher than 2.29.6, lower than 2.29.7
     sec = re.match(r"^(.*\d)-s(\d+)$", v)
     if sec:
         v = sec.group(1)
@@ -94,7 +94,7 @@ def _vparts(v):
 
 
 def vcmp(a, b):
-    """-1 wenn a<b, 0 gleich, 1 wenn a>b."""
+    """-1 if a<b, 0 equal, 1 if a>b."""
     pa, pb = _vparts(a), _vparts(b)
     n = max(len(pa), len(pb))
     pa += [(0, 0)] * (n - len(pa))
@@ -117,15 +117,15 @@ def is_outdated(installed, latest):
 
 # --- PowerShell ----------------------------------------------------------
 def psq(s):
-    """Sicherer PowerShell-String in einfachen Anführungszeichen."""
-    # PowerShell wertet auch typografische Apostrophe (U+2018–U+201B) als einfache Anführungszeichen
+    """Safe PowerShell string in single quotes."""
+    # PowerShell also treats typographic apostrophes (U+2018–U+201B) as single quotes
     t = str(s if s is not None else "")
     for ch in ("'", "\u2018", "\u2019", "\u201a", "\u201b"):
         t = t.replace(ch, ch + ch)
     return "'" + t + "'"
 
 
-# --- Netzwerk ------------------------------------------------------------
+# --- Network ------------------------------------------------------------
 def tcp_open(host, port, timeout=1.5):
     try:
         with socket.create_connection((host, port), timeout=timeout):
@@ -146,8 +146,8 @@ def like_pattern(value, mode="contains"):
     return v
 
 
-# 2.38: %VAR% auflösen ohne [Environment]::ExpandEnvironmentVariables (im Constrained Language Mode nicht erlaubt).
-# Unbekannte Variablen bleiben stehen (wie unter Windows).
+# 2.38: resolve %VAR% without [Environment]::ExpandEnvironmentVariables (not allowed in Constrained Language Mode).
+# Unknown variables are left as they are (as on Windows).
 PS_EXPAND = r"""function PK-Exp([string]$s) {
   $o = ''
   while ($s -match '^([^%]*)%([^%]+)%(.*)$') {
@@ -161,11 +161,11 @@ PS_EXPAND = r"""function PK-Exp([string]$s) {
 
 
 def ps_write(path_expr, text, cmd=False):
-    """2.38: PowerShell-Code, der text in eine Datei schreibt – ohne .NET-Aufrufe, also auch im Constrained Language
-    Mode (Softwareeinschränkung, AppLocker, App Control). path_expr: PowerShell-Ausdruck für den Pfad.
-    Skripte (.ps1): UTF-8 mit BOM (Windows PowerShell liest Umlaute dann richtig).
-    cmd=True (.cmd): cmd.exe liest Batchdateien in der Codepage der Konsole – UTF-8 ohne BOM, wenn die Konsole auf 65001
-    steht (Bytes fertig aus POCKET KNIFE, ein BOM stünde sonst vor „@echo off“), sonst die OEM-Codepage."""
+    """2.38: PowerShell code that writes text to a file - without .NET calls, so also in Constrained Language
+    Mode (software restriction, AppLocker, App Control). path_expr: PowerShell expression for the path.
+    Scripts (.ps1): UTF-8 with BOM (Windows PowerShell then reads umlauts correctly).
+    cmd=True (.cmd): cmd.exe reads batch files in the console's code page - UTF-8 without BOM if the console is set to 65001
+    (bytes ready-made from POCKET KNIFE, otherwise a BOM would precede "@echo off"), else the OEM code page."""
     t = str(text or "")
     if not cmd:
         return f"Set-Content -LiteralPath ({path_expr}) -Value {psq(t)} -Encoding UTF8 -NoNewline\n"
@@ -178,22 +178,22 @@ def ps_write(path_expr, text, cmd=False):
 
 
 def first_line(text, default=""):
-    """Erste nicht leere Zeile (ohne Fehler bei leerem Text)."""
+    """First non-empty line (no error for empty text)."""
     for line in (text or "").splitlines():
         if line.strip():
             return line.strip()
     return default
 
 
-# --- Reguläre Ausdrücke aus Benutzereingaben -------------------------------------------------------
+# --- Regular expressions from user input -------------------------------------------------------
 _NESTED_Q = re.compile(r"\((?:[^()\\]|\\.)*[*+](?:[^()\\]|\\.)*\)\s*(?:[*+]|\{\d*,)")
 _ALT_Q = re.compile(r"\((?:[^()\\]|\\.)*\|(?:[^()\\]|\\.)*\)\s*(?:[*+]|\{\d*,)")
 REGEX_MAX = 200
 
 
 def _nested_repeat(pattern):
-    """True, wenn eine Wiederholung (+, *, {n}, {n,m}) etwas enthält, das selbst wiederholt oder verzweigt wird –
-    am Syntaxbaum geprüft, also auch bei inneren Klammern wie ((a+))+ oder festen Zahlen wie (.*a){12}."""
+    """True if a repetition (+, *, {n}, {n,m}) contains something that is itself repeated or branched -
+    checked on the syntax tree, so also with inner parentheses like ((a+))+ or fixed numbers like (.*a){12}."""
     try:
         try:
             from re import _parser as sp, _constants as sc  # Python 3.11+
@@ -202,7 +202,7 @@ def _nested_repeat(pattern):
             import sre_constants as sc
         tree = sp.parse(pattern)
     except Exception:
-        return False  # ungültig – meldet danach re.compile
+        return False  # invalid - re.compile reports it afterwards
     reps = {sc.MAX_REPEAT, sc.MIN_REPEAT} | ({sc.POSSESSIVE_REPEAT} if hasattr(sc, "POSSESSIVE_REPEAT") else set())
 
     def items(sub):
@@ -227,8 +227,8 @@ def _nested_repeat(pattern):
 
 
 def regex_problem(pattern):
-    """Grund, warum ein Muster abgelehnt wird (zu lang, katastrophales Backtracking), sonst None.
-    Python-RegEx haben keine Zeitgrenze – ein Muster wie (a+)+$ kann den ganzen Server lahmlegen."""
+    """Reason why a pattern is rejected (too long, catastrophic backtracking), otherwise None.
+    Python regexes have no time limit - a pattern like (a+)+$ can paralyze the whole server."""
     p = pattern or ""
     if len(p) > REGEX_MAX:
         return f"höchstens {REGEX_MAX} Zeichen"

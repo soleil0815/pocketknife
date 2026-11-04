@@ -1,26 +1,26 @@
-"""2.38.4: „gpupdate /force“ auf einem Client – Computer- UND Benutzerrichtlinien der angemeldeten Benutzer.
+"""2.38.4: "gpupdate /force" on a client - computer AND user policies of the logged-on users.
 
-Über WinRM läuft gpupdate im Konto des Dienstkontos (Netzwerkanmeldung). Die Computerrichtlinie wird dabei richtig
-aktualisiert, die Benutzerrichtlinie aber nur für das Dienstkonto selbst – nicht für die Benutzer, die am Computer
-angemeldet sind. Benutzereinstellungen (z. B. Browser-Lesezeichen, Laufwerke, Desktop) kamen so erst bei der nächsten
-Anmeldung oder Hintergrundaktualisierung an, obwohl gpupdate „erfolgreich“ meldete.
+Over WinRM, gpupdate runs in the service account (network logon). The computer policy is refreshed correctly that way,
+but the user policy only for the service account itself - not for the users logged on at the computer. User settings
+(e.g. browser bookmarks, drives, desktop) therefore only arrived at the next logon or background refresh, even though
+gpupdate reported "success".
 
-Deshalb: Computerrichtlinie wie bisher direkt; für jeden angemeldeten Benutzer (Besitzer von explorer.exe) eine kurze
-geplante Aufgabe in seiner Sitzung (Interactive, eingeschränkte Rechte, ohne Kennwort) mit
-„gpupdate /target:user /force“ – so macht es auch Invoke-GPUpdate. Ausgabe und Exitcode kommen über einen Ordner
-unter %SystemRoot%\\Temp zurück, der nur dem Benutzer zusätzlich freigegeben wird. Ab Windows 10 1903 unsichtbar
-(conhost --headless), sonst blitzt kurz ein Konsolenfenster auf.
-Constrained-Language-tauglich: nur Cmdlets, CIM und Programme aus System32.
+Hence: computer policy directly as before; for each logged-on user (owner of explorer.exe) a short scheduled task in
+their session (Interactive, limited rights, no password) runs "gpupdate /target:user /force" - this is also what
+Invoke-GPUpdate does. Output and exit code come back through a folder under %SystemRoot%\\Temp that is additionally
+shared with that user only. Invisible from Windows 10 1903 on (conhost --headless), otherwise a console window
+flashes briefly.
+Constrained-Language-compatible: only cmdlets, CIM and programs from System32.
 """
 import secrets
 
-WAIT_SECONDS = 120  # höchstens so lange auf die Benutzerrichtlinien warten
+WAIT_SECONDS = 120  # wait at most this long for the user policies
 
 SCRIPT = r"""$ErrorActionPreference = 'Continue'
 $id = '__ID__'
 $pkTask = '\POCKETKNIFE\'
 $sys = Join-Path $env:SystemRoot 'System32'
-# Reste früherer Läufe (abgebrochen, Zeitüberschreitung) entfernen – laufende Aufgaben bleiben
+# remove leftovers of earlier runs (aborted, timed out) - running tasks stay
 Get-ScheduledTask -TaskPath $pkTask -ErrorAction SilentlyContinue | Where-Object { $_.TaskName -like 'PK_GP_*' -and $_.State -ne 'Running' } |
   ForEach-Object { Unregister-ScheduledTask -TaskName $_.TaskName -TaskPath $pkTask -Confirm:$false -ErrorAction SilentlyContinue }
 $old = (Get-Date).AddHours(-1)
@@ -30,7 +30,7 @@ Get-ChildItem -Path (Join-Path $env:SystemRoot 'Temp') -Filter 'pk_gp_*' -Direct
 '=== Computerrichtlinie ==='
 (& (Join-Path $sys 'cmd.exe') /d /c 'echo N| gpupdate.exe /target:computer /force' | Out-String).Trim()
 
-# Angemeldete Benutzer: Besitzer von explorer.exe oder sihost.exe (auch Kiosk mit eigener Shell), je Konto einmal
+# Logged-on users: owner of explorer.exe or sihost.exe (also kiosk with its own shell), once per account
 $users = @()
 foreach ($p in @(Get-CimInstance Win32_Process -Filter "Name='explorer.exe' OR Name='sihost.exe'" -ErrorAction SilentlyContinue)) {
   $o = Invoke-CimMethod -InputObject $p -MethodName GetOwner -ErrorAction SilentlyContinue
@@ -58,7 +58,7 @@ foreach ($u in $users) {
   $rf = Join-Path $dir ('r' + $k + '.txt')
   try {
     & icacls.exe $dir /grant ($u + ':(OI)(CI)M') /Q | Out-Null
-    # Ausgabe und Exitcode von gpupdate in den Ordner; "N" beantwortet Rückfragen nach Abmelden/Neustart
+    # gpupdate output and exit code go into the folder; "N" answers prompts about logoff/restart
     $c = '/d /v:on /s /c "echo N| gpupdate.exe /target:user /force >"' + $of + '" 2>&1 & (echo !errorlevel!)>"' + $rf + '""'
     if ($build -ge 18362) {
       $a = New-ScheduledTaskAction -Execute (Join-Path $sys 'conhost.exe') -Argument ('--headless "' + (Join-Path $sys 'cmd.exe') + '" ' + $c)

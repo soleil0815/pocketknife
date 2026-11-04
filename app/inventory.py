@@ -1,5 +1,5 @@
-"""Inventarisierung per PowerShell über WinRM – aufgeteilt in Standard-Scanner (Module),
-die in Scanprofilen frei mit eigenen Scannern kombiniert werden."""
+"""Inventory via PowerShell over WinRM - split into standard scanners (modules)
+that can be freely combined with own scanners in scan profiles."""
 import json
 import os
 import re
@@ -16,7 +16,7 @@ def _load_modules():
     with open(_PS_FILE, "r", encoding="utf-8") as fh:
         lines = fh.read().splitlines()
     prelude, modules, order = [], {}, []
-    cur = None  # None = Kopf, "" = Prelude, sonst Modulschlüssel
+    cur = None  # None = head, "" = prelude, otherwise module key
     for line in lines:
         m = re.match(r"^# @module (\w+) \| (.+)$", line)
         if line.strip() == "# @prelude":
@@ -37,13 +37,13 @@ def _load_modules():
 PRELUDE, MODULES, MODULE_ORDER = _load_modules()
 
 SCAN_END = r"""
-# Aufräumen: Reste abgebrochener Bereitstellungen (Neustart von POCKET KNIFE, Verbindungsabbruch) – älter als 2 Tage
+# Clean-up: leftovers of aborted deployments (restart of POCKET KNIFE, connection loss) - older than 2 days
 try {
   $pkOld = (Get-Date).AddDays(-2)
   Get-ScheduledTask -TaskPath '\POCKETKNIFE\' -ErrorAction SilentlyContinue | Where-Object {
     $i = $_ | Get-ScheduledTaskInfo -ErrorAction SilentlyContinue; $_.State -ne 'Running' -and $i -and $i.LastRunTime -lt $pkOld } |
     Unregister-ScheduledTask -Confirm:$false -ErrorAction SilentlyContinue
-  # Aufgaben älterer Versionen (bis 2.13) mit gespeichertem Kennwort des Dienstkontos sofort entfernen, wenn sie nicht laufen
+  # Remove tasks of older versions (up to 2.13) with the service account's stored password immediately if they are not running
   Get-ScheduledTask -TaskPath '\POCKETKNIFE\' -ErrorAction SilentlyContinue | Where-Object {
     $_.State -ne 'Running' -and "$($_.Principal.LogonType)" -eq 'Password' } |
     Unregister-ScheduledTask -Confirm:$false -ErrorAction SilentlyContinue
@@ -55,7 +55,7 @@ $r.extra = $e
 'PKJSON:' + ($r | ConvertTo-Json -Depth 6 -Compress)
 """
 
-# JSON-Kategorien (inventory_data) je Standard-Scanner
+# JSON categories (inventory_data) per standard scanner
 MODULE_INV = {
     "cpu": ["cpus"], "memory": ["memory"], "disk_drives": ["physical_disks", "volumes"], "displays": ["displays"],
     "environment": ["environment"], "hardware": ["devices"], "local_groups": ["local_groups"],
@@ -63,7 +63,7 @@ MODULE_INV = {
     "product_keys": ["product_keys"], "shares": ["shares"], "features": ["features"], "tasks": ["tasks"],
 }
 CATEGORIES = [c for cats in MODULE_INV.values() for c in cats]
-# Zusatzwerte (computers.extra), die ein Modul vollständig neu setzt
+# Extra values (computers.extra) that a module sets completely anew
 MODULE_EXTRA = {
     "computer": ["winget", "pending_reboot", "timezone", "ps_version", "chassis", "chassis_name", "bios_manufacturer",
                  "asset_tag", "family", "product_version", "sku", "uuid", "domain", "os_serial", "system_drive",
@@ -71,7 +71,7 @@ MODULE_EXTRA = {
                  "domain_controller", "dotnet", "last_wu_install", "user_states", "virtual"],
     "security": ["defender", "bitlocker", "tpm", "firewall", "antivirus"],
     "memory": ["memory_slots", "memory_max"],
-    "nics": ["fast_startup"],  # 2.31: Wake-on-LAN-Bereitschaft
+    "nics": ["fast_startup"],  # 2.31: Wake-on-LAN readiness
 }
 
 CHASSIS = {1: "Sonstiges", 2: "Unbekannt", 3: "Desktop", 4: "Low-Profile-Desktop", 5: "Pizza-Box", 6: "Mini-Tower",
@@ -87,7 +87,7 @@ def module_list():
 
 
 def build_script(modules=None, custom_ids=None):
-    """Prelude + gewählte Standard-Scanner + eigene Scanner. None = alle."""
+    """Prelude + selected standard scanners + own scanners. None = all."""
     from . import scanners
     mods = [m for m in MODULE_ORDER if modules is None or m in modules]
     return "\n".join([PRELUDE] + [MODULES[m][1] for m in mods] + [scanners.script(custom_ids), SCAN_END])
@@ -106,10 +106,10 @@ def _s(v, n=1000):
     return v[:n] if v else None
 
 
-# --- Warteschlange ------------------------------------------------------------------
+# --- Queue --------------------------------------------------------------------------
 _pool = None
 _pool_lock = threading.Lock()
-_scanning = {}  # computer_id -> Profilname
+_scanning = {}  # computer_id -> profile name
 
 
 def pool():
@@ -128,13 +128,13 @@ def scanning_ids():
     return list(_scanning)
 
 
-_follow = {}  # 2.32: computer_id → [(profil, benutzer)] – Scans, die nach dem laufenden Scan dran sind
+_follow = {}  # 2.32: computer_id → [(profile, user)] - scans that are next after the running scan
 
 
 def queue_scan(cid, user=None, profile_id=None, follow=False):
-    """Scan mit Scanprofil einreihen (ohne Angabe: Standardprofil).
-    follow=True (Scan nach einer Bereitstellung, 2.32): Läuft für den Computer gerade ein Scan, wird dieser danach
-    nachgeholt statt verworfen – der laufende hat womöglich noch den Stand vor der Installation gelesen."""
+    """Queue a scan with a scan profile (without a value: default profile).
+    follow=True (scan after a deployment, 2.32): if a scan is currently running for the computer, it is
+    repeated afterwards instead of discarded - the running one may still have read the state before the installation."""
     from . import profiles
     prof = (profiles.get(profile_id) if profile_id else None) or profiles.default()
     with _pool_lock:
@@ -151,7 +151,7 @@ def queue_scan(cid, user=None, profile_id=None, follow=False):
 
 
 def _release(cid):
-    """Scan für cid beendet: einen nachzuholenden Scan starten (2.32), sonst den Computer freigeben."""
+    """Scan for cid finished: start a scan that is to be caught up (2.32), otherwise release the computer."""
     with _pool_lock:
         q = _follow.get(cid)
         if q:
@@ -166,7 +166,7 @@ def _release(cid):
 
 
 def scan_now(cid, user=None, prof=None, wait_s=600):
-    """Scan sofort im aufrufenden Thread (z. B. Schritt „Scannen“ in einem Paket). Gibt den Status zurück."""
+    """Scan immediately in the calling thread (e.g. step "Scannen" in a package). Returns the status."""
     from . import profiles
     prof = prof or profiles.default()
     end = time.time() + wait_s
@@ -219,7 +219,7 @@ def scan(cid, user=None, prof=None):
         except Exception as e:
             ad_warn = f"Active Directory: {e}"
     if not ps_modules and not custom_ids and not do_disk:
-        # Nur der Scanner „Active Directory“ – kein Zugriff auf den Client nötig
+        # Only the scanner "Active Directory" - no access to the client needed
         st = "Fehler" if ad_warn else "OK"
         db.ex("INSERT INTO scan_history(computer_id, ts, status, duration_ms, error, user, warnings, profile_id, "
               "profile_name) VALUES(?,?,?,?,?,?,?,?,?)", (cid, now, st, 0, ad_warn, user or "Zeitplan", None, prof["id"],
@@ -228,9 +228,9 @@ def scan(cid, user=None, prof=None):
         profiles.record(cid, prof["id"], st, now)
         return
     from . import presence
-    online, winrm = presence.probe(c, now)  # nie auf einem fremden Gerät unter einer veralteten Adresse scannen
+    online, winrm = presence.probe(c, now)  # never scan a foreign device under an outdated address
     if presence.update(cid, online, winrm, None, now):
-        # Computer ist durch diesen Scan erstmals wieder erreichbar: Heartbeat-Auslöser nicht verpassen
+        # Computer is reachable again for the first time through this scan: do not miss the heartbeat trigger
         presence.notify([cid], background=True)
     if not winrm:
         prob = db.q1("SELECT addr_problem, addr_detail FROM computers WHERE id=?", (cid,)) or {}
@@ -287,7 +287,7 @@ _dn_cache = {}
 
 
 def _display_name(cid, user):
-    """Anzeigename des angemeldeten Benutzers aus dem AD (zwischengespeichert)."""
+    """Display name of the logged-on user from the AD (cached)."""
     user = (user or "").split(",")[0].strip()
     if not user or "\\" not in user:
         db.ex("UPDATE computers SET extra=json_remove(COALESCE(extra,'{}'), '$.user_display_name') WHERE id=?", (cid,))
@@ -306,7 +306,7 @@ def _display_name(cid, user):
 
 
 def _merge_extra(cid, data, modules):
-    """Zusatzwerte der gescannten Module ersetzen, alle anderen behalten."""
+    """Replace the extra values of the scanned modules, keep all others."""
     raw = db.val("SELECT extra FROM computers WHERE id=?", (cid,))
     try:
         ex = json.loads(raw) if raw else {}
@@ -319,7 +319,7 @@ def _merge_extra(cid, data, modules):
     new = dict(data.get("extra") or {})
     for k in ("firewall", "antivirus", "bitlocker"):
         if k in new:
-            # 2.33.4: leere Einträge („{}“ aus einer leeren PowerShell-Ausgabe) weglassen
+            # 2.33.4: omit empty entries ("{}" from an empty PowerShell output)
             new[k] = [x for x in _L(new[k]) if not (isinstance(x, dict) and not x)]
     if "computer" in modules:
         try:
@@ -337,20 +337,20 @@ def _inv(cid, cat, rows, now):
 
 
 def save(cid, data, modules=None):
-    """Speichert nur die Bereiche, die das Scanprofil tatsächlich gescannt hat."""
+    """Saves only the areas that the scan profile actually scanned."""
     modules = set(MODULE_ORDER if modules is None else modules)
     now = util.now()
-    # Gab es schon einen Anwendungs-Scan? (alte Vollscans ohne Profil zählen mit)
+    # Was there already an application scan? (old full scans without a profile count)
     old_sw = db.q("SELECT name, version FROM software WHERE computer_id=?", (cid,)) if "applications" in modules else []
-    # Gab es schon einen Anwendungs-Scan? Vorhandene Software zählt immer (der Scanverlauf wird nach 14 Tagen gekürzt)
+    # Was there already an application scan? Existing software always counts (the scan history is trimmed after 14 days)
     had_apps = bool(old_sw) or db.val("SELECT 1 FROM scan_history h LEFT JOIN scan_profiles p ON p.id=h.profile_id "
                                       "WHERE h.computer_id=? AND h.status='OK' AND (h.profile_id IS NULL "
                                       "OR p.modules LIKE '%\"applications\"%') LIMIT 1", (cid,))
     if "applications" in modules and data.get("software_error"):
         n_new = len([x for x in _L(data.get("software")) if (x or {}).get("name")])
         if n_new == 0 or n_new < len(old_sw) * 0.5:
-            # Software-Teil des Scans fehlgeschlagen (z. B. Registry nicht lesbar): bisherige Liste behalten,
-            # statt alles als „entfernt“ zu protokollieren und die winget-Zuordnung zu verlieren
+            # Software part of the scan failed (e.g. registry not readable): keep the previous list
+            # instead of logging everything as "removed" and losing the winget assignment
             modules = modules - {"applications"}
             pklog.warn("scan", f"Softwareliste nicht aktualisiert (Scanfehler: {str(data['software_error'])[:200]}).", computer_id=cid)
     with db.tx():
@@ -426,7 +426,7 @@ def _save_software(cid, data, old_sw, now):
     db.exmany("""INSERT INTO software(computer_id, name, version, publisher, install_date, product_code, arch,
                  scope, uninstall_string, quiet_uninstall, hive, reg_path, install_location, size_kb, modified,
                  modify_path, no_remove) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", sw_rows)
-    if old_sw is None:  # erster Anwendungs-Scan: keine Änderungen protokollieren
+    if old_sw is None:  # first application scan: do not log changes
         return
     om, nm = {}, {}
     for r in old_sw:

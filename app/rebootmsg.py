@@ -1,8 +1,8 @@
-"""Text der Windows-Meldung bei Neustart/Herunterfahren (shutdown.exe /c …) – einstellbar unter
-Einstellungen → Zeitpläne & Leistung → „Meldung bei Neustart und Herunterfahren“.
+"""Text of the Windows message shown on restart/shutdown (shutdown.exe /c ...) - configurable under
+Einstellungen -> Zeitpläne & Leistung -> "Meldung bei Neustart und Herunterfahren".
 
-Absender (Standard „POCKET KNIFE“) und je Anlass ein eigener Text mit Platzhaltern:
-{absender}, {sekunden}, {minuten}, {benutzer}. Leeres Feld = Standardtext.
+Sender (default "POCKET KNIFE") and a separate text per occasion with placeholders:
+{absender}, {sekunden}, {minuten}, {benutzer}. An empty field means the default text.
 """
 import re
 
@@ -18,13 +18,13 @@ DEFAULTS = {
 }
 KEYS = {k: f"reboot_msg_{k}" for k in DEFAULTS}
 MAX_SENDER = 60
-MAX_TEXT = 400  # shutdown.exe /c erlaubt höchstens 512 Zeichen – mit Platzhaltern bleibt Luft
+MAX_TEXT = 400  # shutdown.exe /c allows at most 512 characters - leaves headroom for placeholders
 
 
 def clean(s, limit):
-    """Steuerzeichen raus, keine doppelten Anführungszeichen (die zerlegen das Argument von shutdown.exe)."""
+    """Strip control characters and double quotes (they break the shutdown.exe argument)."""
     t = re.sub(r"[\x00-\x1f\x7f]+", " ", str(s or "")).replace('"', "'")
-    # Backslash am Ende: PowerShell 5.1 setzt das Argument in "…" – aus …\" würde shutdown.exe ein Anführungszeichen lesen
+    # Trailing backslash: PowerShell 5.1 wraps the argument in "..." - with ...\" shutdown.exe would read a quotation mark
     return re.sub(r"\s{2,}", " ", t).strip()[:limit].rstrip("\\").rstrip()
 
 
@@ -41,8 +41,8 @@ def render(tpl, sekunden=None, minuten=None, benutzer=None, absender=None):
     return clean(out, 500) or clean(re.sub(r"\{(\w+)\}", lambda m: vals.get(m.group(1), ""), DEFAULTS["step"]), 500)
 
 
-# 2.32.3: Neustart/Herunterfahren mit wählbarer Zeit – der Standardtext nennt dann Minuten bzw. „jetzt“
-# (ein eigener Text aus den Einstellungen gilt unverändert)
+# 2.32.3: restart/shutdown with a selectable delay - the default text then names minutes or "jetzt" (now)
+# (a custom text from the settings applies unchanged)
 DELAY_DEFAULTS = {
     "restart": ("{absender}: Neustart jetzt.", "{absender}: Neustart in {minuten} Minuten."),
     "shutdown": ("{absender}: Herunterfahren jetzt.", "{absender}: Herunterfahren in {minuten} Minuten."),
@@ -51,7 +51,7 @@ MAX_DELAY = 24 * 3600
 
 
 def text_delay(kind, sekunden):
-    """Meldung für Neustart/Herunterfahren aus dem Computer-Menü mit beliebiger Wartezeit (0 … 24 h)."""
+    """Message for restart/shutdown from the computer menu with an arbitrary delay (0 ... 24 h)."""
     s = int(sekunden)
     if clean(db.setting(KEYS[kind]), MAX_TEXT) or 0 < s < 120:
         return text(kind, sekunden=s)
@@ -59,7 +59,7 @@ def text_delay(kind, sekunden):
 
 
 def text(kind, sekunden=None, minuten=None, benutzer=None):
-    """Fertiger Meldungstext für einen Anlass („restart“, „shutdown“, „deploy“, „step“, „kiosk“)."""
+    """Finished message text for one occasion ("restart", "shutdown", "deploy", "step", "kiosk")."""
     if sekunden is not None and minuten is None:
         minuten = round(sekunden / 60, 1)
     if minuten is not None and sekunden is None:
