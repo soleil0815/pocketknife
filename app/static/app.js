@@ -1,8 +1,8 @@
-/* POCKET KNIFE – Weboberfläche (ohne externe Bibliotheken) */
+/* POCKET KNIFE – web interface (no external libraries) */
 'use strict';
 
 // ---------------------------------------------------------------------------
-// Grundfunktionen
+// Basic functions
 // ---------------------------------------------------------------------------
 const $ = (s, r = document) => r.querySelector(s);
 const SVGNS = 'http://www.w3.org/2000/svg';
@@ -33,7 +33,7 @@ function h(tag, attrs, ...kids) {
   return el;
 }
 
-// Elemente mit Daten (Datei-/Ordnernamen, Ausgaben, Kennwörter …) nie übersetzen: Klasse .raw oder pre.out
+// Never translate elements holding data (file/folder names, output, passwords …): class .raw or pre.out
 const NO_TR = 'pre.out, .raw, [data-notr]';
 function append(el, kids) {
   const raw = el.matches && el.matches(NO_TR);
@@ -107,7 +107,7 @@ function icon(name) {
   return s;
 }
 
-// Einzahl für Zähler („1 Eintrag“ statt „1 Einträge“)
+// Singular for counters ("1 Eintrag" instead of "1 Einträge")
 const SINGULAR = { Einträge: 'Eintrag', Programme: 'Programm', Pakete: 'Paket', Bereitstellungen: 'Bereitstellung', Dienste: 'Dienst',
   Profile: 'Profil', Prozesse: 'Prozess', Sammlungen: 'Sammlung', Scans: 'Scan', Sicherungen: 'Sicherung', Zeilen: 'Zeile',
   Zeitpläne: 'Zeitplan', Ziele: 'Ziel', Mandanten: 'Mandant', 'aktive Sitzungen': 'aktive Sitzung', 'eigene Scanner': 'eigener Scanner',
@@ -116,7 +116,7 @@ const localDate = () => { const d = new Date(); return `${d.getFullYear()}-${Str
 const plural = (n, one, many) => `${num(n)} ${n === 1 ? one : many}`;
 
 function btn(label, onClick, opt = {}) {
-  // Asynchrone Aktionen: Knopf bis zum Ende gesperrt – ein Doppelklick startet nichts doppelt
+  // Asynchronous actions: button stays disabled until the end – a double click does not start anything twice
   const click = (e) => {
     const el = e.currentTarget;
     if (el.dataset.busy) return undefined;
@@ -145,8 +145,8 @@ async function api(path, opt = {}) {
   const ct = r.headers.get('content-type') || '';
   const data = ct.includes('json') ? await r.json() : await r.text();
   if (r.status === 401 && !path.startsWith('/api/login')) {
-    // Nur beim ersten 401 die Anmeldung zeigen – parallele Anfragen würden sie sonst neu aufbauen
-    // und schon Eingetipptes löschen
+    // Show the login only on the first 401 – parallel requests would otherwise rebuild it
+    // and erase what was already typed
     const wasIn = S.me;
     S.me = null;
     if (wasIn) renderLogin(data && typeof data.detail === 'string' && data.detail !== 'Nicht angemeldet' ? data.detail : '');
@@ -156,7 +156,7 @@ async function api(path, opt = {}) {
     let msg = 'Fehler ' + r.status;
     let info = null;
     if (data && data.detail) {
-      // detail als Objekt {message, …} (z. B. Repository: benutzt von …, Duplikat): Text + Zusatzangaben
+      // detail as an object {message, …} (e.g. repository: used by …, duplicate): text + additional details
       if (typeof data.detail === 'object' && data.detail.message) { msg = data.detail.message; info = data.detail; }
       else msg = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail);
     }
@@ -190,7 +190,7 @@ function toast(msg, kind = '') {
 }
 
 // ---------------------------------------------------------------------------
-// Formatierung
+// Formatting
 // ---------------------------------------------------------------------------
 function fmtDate(s, withTime = true) {
   if (!s) return '';
@@ -217,8 +217,8 @@ function fmtBytes(n) {
 }
 const num = (n) => (n === null || n === undefined ? '' : Number(n).toLocaleString('de-DE'));
 
-// Eigene Scanner: Spalten mit Byte-Angaben erkennen und lesbar anzeigen (KB/MB/GB/TB).
-// Automatisch: Spaltenname deutet auf eine Größe hin, alle Werte sind Zahlen und mindestens einer ist ≥ 1024.
+// Custom scanners: detect columns with byte values and show them readably (KB/MB/GB/TB).
+// Automatic: the column name suggests a size, all values are numbers and at least one is ≥ 1024.
 const BYTES_NAME = /(size|bytes|length|capacity|größe|groesse|kapazit|speicher|space|^used|^free|frei$|belegt|volumen)/i;
 const BYTES_NOT = /(count|anzahl|percent|prozent|pct|%|ratio|quote|anteil|index|nummer|^id$|_id$|mhz|rpm|time|dauer|(kb|mb|gb|tb)$)/i;
 function bytesColumns(keys, rows, extra = {}) {
@@ -240,13 +240,13 @@ function bytesColumns(keys, rows, extra = {}) {
     return any && big;
   }));
 }
-// Zelle mit Bytewert: lesbar (GB/MB), genauer Wert als Tooltip
+// Cell with a byte value: readable (GB/MB), exact value as tooltip
 const bytesCell = (k) => (r) => {
   const v = r[k];
   if (v === null || v === undefined || v === '' || isNaN(Number(v))) return v ?? '';
   return h('span', { title: `${num(Math.round(Number(v)))} Bytes` }, fmtBytes(v));
 };
-// Spalten für die Ergebnis-Tabelle eines eigenen Scanners
+// Columns for the result table of a custom scanner
 function customCols(rows, extra) {
   const keys = [...new Set(rows.flatMap((r) => Object.keys(r)))].slice(0, 15);
   const bc = bytesColumns(keys, rows, extra);
@@ -288,16 +288,16 @@ function cmpVal(a, b) {
 }
 
 // ---------------------------------------------------------------------------
-// Tabelle
+// Table
 // ---------------------------------------------------------------------------
-// --- Kontextmenü (Rechtsklick) ---------------------------------------------------
+// --- Context menu (right click) ---------------------------------------------------
 let ctxMenu = null;
 function closeCtx() { if (ctxMenu) { ctxMenu.remove(); ctxMenu = null; document.removeEventListener('mousedown', ctxOutside, true); document.removeEventListener('keydown', ctxKey, true); } }
 function ctxOutside(e) { if (ctxMenu && !ctxMenu.contains(e.target)) closeCtx(); }
 function ctxKey(e) { if (e.key === 'Escape') { e.stopPropagation(); e.preventDefault(); closeCtx(); } }
 function contextMenu(x, y, items) {
   closeCtx();
-  // Trenner bereinigen: keine doppelten, keine am Anfang oder Ende
+  // Clean up separators: no duplicates, none at the start or end
   const tidy = (list) => list.filter(Boolean).filter((it, i, a) => !((it === '-' || it.sep) && (i === 0 || a[i - 1] === '-' || a[i - 1].sep || i === a.length - 1)));
   const build = (list) => h('div.cmenu', tidy(tidy(list)).map((it) => {
     if (it === '-' || it.sep) return h('div.cmenu-sep');
@@ -332,15 +332,15 @@ function contextMenu(x, y, items) {
   setTimeout(() => { document.addEventListener('mousedown', ctxOutside, true); document.addEventListener('keydown', ctxKey, true); }, 0);
 }
 
-// --- Tabelle: Sortieren, Spalten verschieben/ausblenden, Spaltenfilter -------------
+// --- Table: sorting, moving/hiding columns, column filters -------------
 const tblPrefs = {
   get(key) { if (!key) return {}; try { return JSON.parse(localStorage.getItem('pk-tbl-' + key) || '{}'); } catch (e) { return {}; } },
-  set(key, v) { if (!key) return; try { localStorage.setItem('pk-tbl-' + key, JSON.stringify(v)); } catch (e) { /* egal */ } },
+  set(key, v) { if (!key) return; try { localStorage.setItem('pk-tbl-' + key, JSON.stringify(v)); } catch (e) { /* ignore */ } },
 };
 const BLANK = '\u0000(leer)';
 
 function table(cols, rows, opt = {}) {
-  // Spaltenreihenfolge, ausgeblendete Spalten und Sortierung je Tabelle merken (Ansicht + Spaltensatz)
+  // Remember column order, hidden columns and sorting per table (view + column set)
   if (opt.key === undefined) opt.key = `${parseHash().parts[0] || ''}|${cols.map((c) => c.key).join(',')}`;
   const pref = tblPrefs.get(opt.key);
   const st = { sort: pref.sort || opt.sort || null, dir: pref.dir || opt.dir || 1, q: opt.liveFilter === false ? '' : (opt.q || '').toLowerCase(), sel: new Set(), limit: opt.pageSize || 500,
@@ -350,7 +350,7 @@ function table(cols, rows, opt = {}) {
   const val = (c, r) => (c.value ? c.value(r) : r[c.key]);
   const textCache = new Map();
   const ftext = (c, r) => {
-    // Wert für Spaltenfilter/Suche: value() > Text der Darstellung > Rohwert
+    // Value for column filter/search: value() > text of the rendering > raw value
     if (c.value || !c.render) { const v = val(c, r); return v === null || v === undefined ? '' : String(v); }
     let m = textCache.get(r); if (!m) { m = {}; textCache.set(r, m); }
     if (!(c.key in m)) { const v = c.render(r); m[c.key] = v instanceof Node ? v.textContent : String(v ?? ''); }
@@ -358,7 +358,7 @@ function table(cols, rows, opt = {}) {
   };
   const save = () => tblPrefs.set(opt.key, { sort: st.sort, dir: st.dir, order: st.order, hidden: [...st.hidden], widths: st.widths });
   const resetCols = () => { st.order = null; st.widths = {}; st.hidden = new Set(cols.filter((c) => c.hidden).map((c) => c.key)); save(); draw(); };
-  // Spalte key vor (after=false) bzw. hinter (after=true) die Spalte target setzen
+  // Place column key before (after=false) or after (after=true) the column target
   const moveCol = (key, target, after) => {
     const keys = ordered().map((k) => k.key).filter((k) => k !== key);
     const i = keys.indexOf(target);
@@ -378,9 +378,9 @@ function table(cols, rows, opt = {}) {
   const fbadge = h('button.small.ghost', { type: 'button', style: { display: 'none' }, onclick: () => { st.filters = {}; draw(); } }, 'Filter zurücksetzen ✕');
   const search = h('input', {
     type: 'search', placeholder: opt.placeholder || 'Filtern …', value: opt.q || '',
-    // opt.liveFilter === false: das Feld filtert nicht beim Tippen (z. B. Datei-Explorer: nur Suche per Enter)
+    // opt.liveFilter === false: the field does not filter while typing (e.g. file explorer: search only on Enter)
     oninput: (e) => { if (opt.liveFilter === false) return; st.q = e.target.value.toLowerCase(); st.limit = opt.pageSize || 500; draw(); },
-    // opt.onSearchEnter: Enter im Filterfeld löst eine weitergehende Suche aus (z. B. Datei-Explorer: alle Unterordner)
+    // opt.onSearchEnter: Enter in the filter field triggers a deeper search (e.g. file explorer: all subfolders)
     onkeydown: (e) => { if (e.key === 'Enter' && opt.onSearchEnter) { e.preventDefault(); opt.onSearchEnter(e.target.value.trim()); } },
   });
   if (opt.searchStyle) Object.assign(search.style, opt.searchStyle);
@@ -409,7 +409,7 @@ function table(cols, rows, opt = {}) {
       if (c) {
         const sv = c.sort || ((x) => val(c, x));
         const empty = (v) => v === null || v === undefined || v === '';
-        // Leere Werte immer ans Ende – auch beim absteigenden Sortieren
+        // Empty values always go to the end – also when sorting descending
         r = [...r].sort((a, b) => { const x = sv(a); const y = sv(b); return empty(x) || empty(y) ? cmpVal(x, y) : cmpVal(x, y) * st.dir; });
       }
     }
@@ -419,7 +419,7 @@ function table(cols, rows, opt = {}) {
 
   function filterMenu(c, anchor) {
     closeCtx();
-    // Werte unter Berücksichtigung der übrigen Filter
+    // Values taking the other filters into account
     const others = cols.filter((k) => k !== c && st.filters[k.key]);
     const base = rows.filter((x) => others.every((k) => passes(k, x)));
     const counts = new Map();
@@ -466,7 +466,7 @@ function table(cols, rows, opt = {}) {
     setTimeout(() => { document.addEventListener('mousedown', ctxOutside, true); document.addEventListener('keydown', ctxKey, true); q.focus(); }, 0);
   }
 
-  // Spalten-Fenster: ein-/ausblenden, Reihenfolge (ziehen oder ▲▼), bleibt für mehrere Änderungen offen
+  // Columns window: show/hide, order (drag or ▲▼), stays open for several changes
   function columnChooser(e) {
     closeCtx();
     const anchor = e.currentTarget;
@@ -486,7 +486,7 @@ function table(cols, rows, opt = {}) {
           h('span.spacer'),
           h('button.small.ghost', { type: 'button', title: 'Nach links', disabled: i === 0, onclick: () => { moveCol(c.key, all[i - 1].key, false); drawList(); } }, '▲'),
           h('button.small.ghost', { type: 'button', title: 'Nach rechts', disabled: i === all.length - 1, onclick: () => { moveCol(c.key, all[i + 1].key, true); drawList(); } }, '▼'));
-        row.addEventListener('dragstart', (ev) => { ccDrag = c.key; ev.dataTransfer.effectAllowed = 'move'; try { ev.dataTransfer.setData('text/plain', c.key); } catch (x) { /* egal */ } row.classList.add('dragging'); });
+        row.addEventListener('dragstart', (ev) => { ccDrag = c.key; ev.dataTransfer.effectAllowed = 'move'; try { ev.dataTransfer.setData('text/plain', c.key); } catch (x) { /* ignore */ } row.classList.add('dragging'); });
         row.addEventListener('dragend', () => { ccDrag = null; row.classList.remove('dragging'); });
         row.addEventListener('dragover', (ev) => {
           if (!ccDrag || ccDrag === c.key) return;
@@ -548,7 +548,7 @@ function table(cols, rows, opt = {}) {
         onclick: c.nosort ? null : () => { if (resizedAt && Date.now() - resizedAt < 300) return; if (st.sort === c.key) st.dir = -st.dir; else { st.sort = c.key; st.dir = 1; } save(); draw(); },
       }, h('span.thl', c.label, arr), fb);
       if (opt.columns !== false) {
-        // Breite ändern: am rechten Rand des Spaltenkopfs ziehen; Doppelklick = automatische Breite
+        // Change width: drag at the right edge of the column header; double click = automatic width
         const rs = h('span.th-rs', { title: 'Ziehen: Breite ändern · Doppelklick: automatisch' });
         rs.addEventListener('click', (e) => e.stopPropagation());
         rs.addEventListener('dblclick', (e) => { e.stopPropagation(); delete st.widths[c.key]; save(); draw(); });
@@ -564,7 +564,7 @@ function table(cols, rows, opt = {}) {
           const up = (ev) => {
             document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up);
             resizing = false;
-            if (Math.abs(ev.clientX - x0) < 2) { apply(w0); if (!st.widths[c.key]) [th, ...cells()].forEach((el) => { el.style.width = el.style.minWidth = el.style.maxWidth = ''; }); return; }  // nur geklickt (z. B. Doppelklick)
+            if (Math.abs(ev.clientX - x0) < 2) { apply(w0); if (!st.widths[c.key]) [th, ...cells()].forEach((el) => { el.style.width = el.style.minWidth = el.style.maxWidth = ''; }); return; }  // just a click (e.g. double click)
             resizedAt = Date.now();
             st.widths[c.key] = Math.max(40, Math.round(w0 + ev.clientX - x0)); save(); draw();
           };
@@ -573,10 +573,10 @@ function table(cols, rows, opt = {}) {
         th.appendChild(rs);
         th.addEventListener('dragstart', (e) => {
           if (resizing) { e.preventDefault(); return; }
-          dragKey = c.key; e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', c.key); } catch (x) { /* egal */ } th.classList.add('dragging');
+          dragKey = c.key; e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', c.key); } catch (x) { /* ignore */ } th.classList.add('dragging');
         });
         th.addEventListener('dragend', () => { th.classList.remove('dragging'); dragKey = null; });
-        // Linke Hälfte: davor einfügen, rechte Hälfte: dahinter – so lässt sich eine Spalte auch ganz nach rechts ziehen
+        // Left half: insert before, right half: insert after – this way a column can also be dragged all the way to the right
         th.addEventListener('dragover', (e) => {
           if (!dragKey || dragKey === c.key) return;
           e.preventDefault();
@@ -605,10 +605,10 @@ function table(cols, rows, opt = {}) {
           type: 'checkbox', checked: st.sel.has(id),
           onclick: (e) => { e.stopPropagation(); if (e.target.checked) st.sel.add(id); else st.sel.delete(id); st.anchor = idx; tr.classList.toggle('selected', e.target.checked); selChanged(); updateCount(list); },
         });
-        // 2.38.3: Die ganze Zelle schaltet das Kästchen um. Ziehbare Zeilen (Computer → Sammlung): beim Drücken auf
-        // die Zelle nicht ziehen – sonst schluckte schon eine kleine Mausbewegung (Touchpad, Fernsitzung) den Klick
-        // und das Kästchen blieb unverändert.
-        // Losgelassen außerhalb der Zelle: der Klick geht an die Zeile – auch dann nur das Kästchen umschalten.
+        // 2.38.3: The whole cell toggles the checkbox. Draggable rows (computer → collection): do not drag when pressing on
+        // the cell – otherwise even a small mouse movement (touchpad, remote session) swallowed the click
+        // and the checkbox stayed unchanged.
+        // Released outside the cell: the click goes to the row – in that case too only toggle the checkbox.
         let chkDown = false;
         const cell = h('td.chk', {
           onclick: (e) => { if (e.target !== cb) { e.stopPropagation(); cb.click(); } },
@@ -625,15 +625,15 @@ function table(cols, rows, opt = {}) {
       }
       for (const c of vcols) {
         const v = c.render ? c.render(r) : val(c, r);
-        // Rohwerte (ohne render) sind Daten – nicht übersetzen (ein Ordner „Daten“ bleibt „Daten“)
+        // Raw values (without render) are data – do not translate (a folder "Daten" stays "Daten")
         const cw = st.widths[c.key];
         tr.appendChild(h('td', { class: (c.cls || '') + (cw ? ' sized' : ''), title: c.title ? c.title(r) : (cw ? ftext(c, r) || undefined : undefined), 'data-k': c.key,
-          'data-notr': rawCol(c) || undefined, // Daten (Namen, Pfade …) nicht übersetzen – erzeugte Texte schon
+          'data-notr': rawCol(c) || undefined, // Data (names, paths …) is not translated – generated texts are
           style: cw ? { width: `${cw}px`, minWidth: `${cw}px`, maxWidth: `${cw}px` } : undefined },
           v instanceof Node ? v : (!c.render && v !== null && v !== undefined && v !== '' ? document.createTextNode(String(v)) : (v ?? ''))));
       }
       if (opt.selectable) {
-        // Wie im Explorer: Klick wählt aus (Strg = hinzufügen, Umschalt = Bereich), Doppelklick öffnet
+        // As in Explorer: click selects (Ctrl = add, Shift = range), double click opens
         tr.addEventListener('click', (e) => {
           if (tr.pkChk && tr.pkChk()) return;
           if (e.target.closest('button,a,input,select')) return;
@@ -660,14 +660,14 @@ function table(cols, rows, opt = {}) {
         tr.addEventListener('dragstart', (e) => {
           if (!st.sel.has(id)) { st.sel.clear(); st.sel.add(id); st.anchor = idx; tr.classList.add('selected'); selChanged(); }
           const ids = api.selectedIds();
-          try { e.dataTransfer.setData('application/x-pk-computers', JSON.stringify(ids)); e.dataTransfer.setData('text/plain', `${ids.length} Computer`); } catch (x) { /* egal */ }
+          try { e.dataTransfer.setData('application/x-pk-computers', JSON.stringify(ids)); e.dataTransfer.setData('text/plain', `${ids.length} Computer`); } catch (x) { /* ignore */ }
           e.dataTransfer.effectAllowed = 'copy';
           S.dragComputers = ids;
         });
         tr.addEventListener('dragend', () => { S.dragComputers = null; });
       }
       if (opt.dragData) {
-        // Allgemein: ausgewählte Zeilen ziehen (z. B. Repository-Ansicht: auf einen Ordner ablegen)
+        // In general: drag selected rows (e.g. repository view: drop onto a folder)
         tr.draggable = true;
         tr.addEventListener('dragstart', (e) => {
           if (!st.sel.has(id)) { st.sel.clear(); st.sel.add(id); st.anchor = idx; tr.classList.add('selected'); selChanged(); }
@@ -748,7 +748,7 @@ function table(cols, rows, opt = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// Dialoge
+// Dialogs
 // ---------------------------------------------------------------------------
 function modal(title, body, buttons = [], opt = {}) {
   const root = $('#modal-root');
@@ -764,7 +764,7 @@ function modal(title, body, buttons = [], opt = {}) {
     if (e.key !== 'Escape' || root.lastChild !== bd || ctxMenu || openMenu) return;
     if (e.target && e.target.closest && e.target.closest('.cmenu, .tmenu')) return;
     if (!opt.sticky) { close(); return; }
-    // Editoren (sticky): nicht versehentlich mit Esc alle Eingaben verwerfen
+    // Editors (sticky): do not accidentally discard all input with Esc
     e.preventDefault();
     if (await confirmDlg('Dialog schließen? Nicht gespeicherte Änderungen gehen verloren.', 'Verwerfen', true)) close();
   };
@@ -792,7 +792,7 @@ function modal(title, body, buttons = [], opt = {}) {
   return { close, el: m };
 }
 
-// Vor dem Entfernen nachfragen (Elemente in Editoren – gespeichert wird erst mit „Speichern“)
+// Ask before removing (items in editors – changes are only saved with "Speichern")
 const askRemove = (text) => confirmDlg(text, 'Entfernen', true);
 
 function closeModals() { document.querySelectorAll('#modal-root .backdrop').forEach((b) => b.remove()); }
@@ -815,13 +815,13 @@ function field(label, input, hint) {
   return [h('label', label), input, hint ? h('div.hint', hint) : null];
 }
 
-// Eingabefeld mit Auswahlliste (statt <datalist>): zeigt beim Öffnen IMMER alle Einträge – der Browser
-// filtert eine datalist nach dem schon eingetragenen Wert, man müsste ihn erst löschen. Beim Tippen wird gefiltert.
-// source: Liste (Text oder [Wert, Bezeichnung]) oder Funktion(q) → Liste/Promise (remote: Server filtert).
+// Input field with selection list (instead of <datalist>): ALWAYS shows all entries when opened – the browser
+// filters a datalist by the value already entered, which you would have to delete first. Filtering happens while typing.
+// source: list (text or [value, label]) or function(q) → list/promise (remote: server filters).
 let comboOpen = null;
 function combo(input, source, opt = {}) {
   const wrap = h('span.combo', { style: opt.width ? { width: opt.width } : {} });
-  // mousedown auf der Liste (auch Bildlaufleiste) nimmt dem Feld nicht den Fokus – sonst schließt sie sofort
+  // mousedown on the list (including the scrollbar) does not take focus from the field – otherwise it closes immediately
   const list = h('div.combo-list', { role: 'listbox', onmousedown: (e) => e.preventDefault() });
   let items = []; let active = -1; let timer = null; let gen = 0;
   const norm = (x) => (Array.isArray(x) ? { v: String(x[0]), l: x[1] } : { v: String(x), l: null });
@@ -872,7 +872,7 @@ function combo(input, source, opt = {}) {
   input.addEventListener('focus', () => open(true));
   input.addEventListener('click', () => { if (!list.isConnected) open(true); });
   input.addEventListener('input', (e) => {
-    if (!e.isTrusted) return; // eigene Auswahl (pick) nicht erneut filtern
+    if (!e.isTrusted) return; // do not filter our own selection (pick) again
     if (opt.remote) { clearTimeout(timer); timer = setTimeout(() => open(false), 250); } else render(input.value);
   });
   input.addEventListener('blur', () => setTimeout(close, 120));
@@ -889,12 +889,12 @@ function combo(input, source, opt = {}) {
   wrap.append(input, tog);
   return wrap;
 }
-// Beim Scrollen der Seite schließen – aber nicht, wenn die Liste selbst scrollt (Mausrad, Pfeiltasten, Bildlaufleiste)
+// Close when the page scrolls – but not when the list itself scrolls (mouse wheel, arrow keys, scrollbar)
 window.addEventListener('scroll', (e) => { if (comboOpen && !(e.target && e.target.classList && e.target.classList.contains('combo-list'))) comboOpen(); }, true);
 window.addEventListener('resize', () => { if (comboOpen) comboOpen(); });
 
 function sel(options, value, attrs = {}) {
-  // 2.38: drittes Element true = Daten (Namen von Paketen, Sammlungen, Mandanten …) – nie übersetzen
+  // 2.38: third element true = data (names of packages, collections, tenants …) – never translate
   return h('select', attrs, options.map(([v, l, raw]) => h('option', { value: v, selected: String(v) === String(value ?? ''), 'data-notr': raw ? true : undefined }, l)));
 }
 
@@ -903,18 +903,18 @@ function kv(pairs) {
 }
 
 // ---------------------------------------------------------------------------
-// Zustand, Layout, Navigation
+// State, layout, navigation
 // ---------------------------------------------------------------------------
 const S = { me: null, timers: [], collections: null, fields: null };
 
-// Wiederkehrende Aktualisierung der aktuellen Ansicht; Fehler (z. B. gelöschtes Objekt) beenden nicht die Seite
-// Wiederholt ausführen – ein noch laufender Durchgang (langsame Antwort) wird nicht überholt
+// Periodic refresh of the current view; errors (e.g. deleted object) do not terminate the page
+// Run repeatedly – a pass that is still running (slow response) is not overtaken
 function every(ms, fn) {
   let busy = false;
   S.timers.push(setInterval(async () => {
     if (busy) return;
     busy = true;
-    try { await fn(); } catch (e) { /* nächster Versuch */ } finally { busy = false; }
+    try { await fn(); } catch (e) { /* next attempt */ } finally { busy = false; }
   }, ms));
 }
 function clearTimers() { S.timers.forEach(clearInterval); S.timers = []; }
@@ -939,12 +939,12 @@ const NAV = [
   ['help', 'Hilfe', 'help'],
 ];
 
-// OU-Admins (Mitglieder der Gruppe eines Mandanten): sehen nur ihre Computer; diese Bereiche gibt es für sie nicht
-// (der Server sperrt sie ohnehin – app/access.py)
-// 2.30: Berichte sehen OU-Admins – nur lesend und nur mit ihren Computern (Mailversand und Benachrichtigungen nicht)
+// OU admins (members of a tenant's group): only see their computers; these areas do not exist for them
+// (the server blocks them anyway – app/access.py)
+// 2.30: OU admins see reports – read-only and only with their computers (no mail sending and no notifications)
 const OU_HIDDEN = new Set(['scanners', 'kiosk', 'settings', 'wingetcache']);
 const isOU = () => !!(S.me && S.me.scoped);
-// 2.29.1: Befehls-/PowerShell-Schritte für OU-Admins nur, wenn beim Mandanten erlaubt (der Server prüft es ohnehin)
+// 2.29.1: Command/PowerShell steps for OU admins only if allowed for the tenant (the server checks this anyway)
 const mayScript = (tid) => !isOU() || !!((S.me.tenants || []).find((t) => t.id === Number(tid)) || {}).allow_scripts;
 function netWarn(r) {
   if (r && r.warnings && r.warnings.length) {
@@ -954,19 +954,19 @@ function netWarn(r) {
 }
 const mayBuild = () => !isOU() || !!S.me.may_build;
 
-// Webseite des Autors (nur ein Link – es wird nichts aus dem Internet geladen)
+// Author's website (just a link – nothing is loaded from the internet)
 const WEBSITE = 'https://helfi.space';
 function websiteLink(cls = '', loggedIn = true) {
-  // 2.36.1: Lizenzhinweis (AGPL-3.0) – führt zur Hilfe „Lizenz“ (Quellcode, Lizenztext), nichts aus dem Internet
+  // 2.36.1: License notice (AGPL-3.0) – leads to the "Lizenz" help (source code, license text), nothing from the internet
   return h('span', { class: cls },
     h('a.raw', { href: WEBSITE, target: '_blank', rel: 'noopener noreferrer', title: 'Webseite – öffnet in einem neuen Tab' }, 'helfi.space'),
     ' · ', loggedIn ? h('a.raw', { href: '#/help?s=license', title: tr('Freie Software unter der GNU Affero General Public License 3 – Quellcode und Lizenztext') }, 'AGPL-3.0')
       : h('span', { title: tr('Freie Software unter der GNU Affero General Public License 3') }, 'AGPL-3.0'));
 }
 
-// Tabellenspalten: Rohwerte (r[key] ohne eigene Darstellung) sind Daten – ein Ordner „Daten“ bleibt „Daten“.
-// Spalten mit value()-Funktion oder Schlüsseln wie …_label/…_text/status/message liefern dagegen Texte von POCKET KNIFE
-// (z. B. „Dienstkonto (Deploy-Benutzer)“, „(neueste)“) – die werden übersetzt. c.raw / c.tr erzwingen das eine oder andere.
+// Table columns: raw values (r[key] without own rendering) are data – a folder "Daten" stays "Daten".
+// Columns with a value() function or keys such as …_label/…_text/status/message, on the other hand, deliver texts from POCKET KNIFE
+// (e.g. "Dienstkonto (Deploy-Benutzer)", "(neueste)") – those are translated. c.raw / c.tr force one or the other.
 const LABEL_COL = /(_label|_text|_txt|^text$|status|message|^result$|^state$|^kind$|^type$|^action$|^phase$|^level$|^category$|reason|^what$|^mode$)/;
 function rawCol(c) {
   if (c.raw !== undefined) return !!c.raw;
@@ -988,7 +988,7 @@ function renderShell() {
   loadNews();
 }
 
-// --- Neuigkeiten (2.28): dezent in der Seitenleiste unter der Version -------------------------------------------
+// --- News (2.28): unobtrusive in the sidebar below the version -------------------------------------------
 const NEWS_KIND = { security: ['err', 'Sicherheit'], new: ['info', 'Neu'], improved: ['ok', 'Verbessert'], fixed: ['', 'Behoben'] };
 let NEWS = null;
 async function loadNews() {
@@ -1052,23 +1052,23 @@ async function newsDlg(focusUpdate = false) {
   [{ label: 'Schließen', cls: 'primary' }], { wide: true });
   if (focusUpdate) setTimeout(() => { const u = document.querySelector('.news-up'); if (u) u.scrollIntoView({ block: 'nearest' }); }, 50);
   if (NEWS.unseen) {
-    try { await POST('/api/news/seen', { version: NEWS.current }); NEWS.unseen = 0; NEWS.security = false; vers.forEach((v) => { v.unseen = false; }); drawNewsPill(); } catch (e) { /* egal */ }
+    try { await POST('/api/news/seen', { version: NEWS.current }); NEWS.unseen = 0; NEWS.security = false; vers.forEach((v) => { v.unseen = false; }); drawNewsPill(); } catch (e) { /* ignore */ }
   }
 }
 
-// 2.33: Update wie bei Docker üblich – Container-Verwaltung (z. B. Dockhand) oder von Hand  sudo sh update.sh
+// 2.33: Update as usual with Docker – container management (e.g. Dockhand) or by hand  sudo sh update.sh
 function updateHow(up) {
   const cmd = (up && up.command) || 'sudo sh update.sh';
   return [h('div.muted.small', { style: { marginTop: '6px' } }, tr('Aktualisieren: mit Ihrer Container-Verwaltung (z. B. Dockhand, Watchtower) – oder auf dem Docker-Host im Ordner mit der docker-compose.yml:')),
     h('div.row', { style: { gap: '6px', alignItems: 'center' } }, h('code.raw', cmd), btn('Kopieren', () => copyText(cmd), { cls: 'small ghost' }))];
 }
-// Hinweise für Hauptadmins: docker-compose.yml zu alt, Datenbank von einer neueren Version
+// Notices for main admins: docker-compose.yml too old, database from a newer version
 function sysHints(hs) {
   return (hs || []).map((x) => h('div.news-up.sec', h('b', tr(x.title)), h('div.small', { style: { marginTop: '4px' } }, tr(x.text)),
     x.command ? h('div.row', { style: { gap: '6px', alignItems: 'center', marginTop: '4px' } }, h('code.raw', x.command), btn('Kopieren', () => copyText(x.command), { cls: 'small ghost' })) : null));
 }
 
-// Einstellungen → Wartung: Hinweis auf neue Versionen (der Server fragt GitHub, nie der Browser)
+// Settings → Wartung: notice about new versions (the server asks GitHub, never the browser)
 function updatesCard() {
   const body = h('div.card-b', h('p.muted', 'Wird geladen …'));
   const card = h('div.card', h('div.card-h', h('h2', 'Neuigkeiten und Updates')), body);
@@ -1133,7 +1133,7 @@ async function route() {
   const gen = (S.nav = (S.nav || 0) + 1);
   clearTimers();
   closeMenu(); closeCtx();
-  S.toolTargets = null;  // Tastenkürzel: Ziele setzt die jeweilige Ansicht (Computerliste, Computerseite)
+  S.toolTargets = null;  // Keyboard shortcuts: the respective view sets the targets (computer list, computer page)
   const { parts, params } = parseHash();
   const view = (isOU() && OU_HIDDEN.has(parts[0])) ? VIEWS.dashboard : (VIEWS[parts[0]] || VIEWS.dashboard);
   document.querySelectorAll('[data-nav]').forEach((a) => {
@@ -1144,8 +1144,8 @@ async function route() {
   try { await view(parts.slice(1), params); }
   catch (e) { if (gen === S.nav) setContent(h('div.empty', 'Fehler: ' + e.message)); }
   if (gen !== S.nav && !S.reroute) {
-    // Während des Ladens wurde weiternavigiert: diese (veraltete) Ansicht könnte die neue überschrieben oder
-    // ihre Timer hinterlassen haben – die aktuelle Seite einmal neu aufbauen
+    // Navigation continued while loading: this (outdated) view might have overwritten the new one or
+    // left its timers behind – rebuild the current page once
     S.reroute = true;
     setTimeout(() => { S.reroute = false; route(); }, 0);
   }
@@ -1155,13 +1155,13 @@ async function collections(reload = false) {
   if (!S.collections || reload) S.collections = await GET('/api/collections');
   return S.collections;
 }
-// --- Sammlungen auswählen: Baum wie in der Seitenleiste, alphabetisch, mit Suche ------------------------------------
+// --- Choose collections: tree as in the sidebar, alphabetical, with search ------------------------------------
 const deCmp = (a, b) => String(a ?? '').localeCompare(String(b ?? ''), 'de', { numeric: true, sensitivity: 'base' });
-// Reihenfolge je Ebene: „Standard“, dann AD, dann eigene Ordner/Sammlungen – jeweils alphabetisch
+// Order per level: "Standard", then AD, then own folders/collections – each alphabetical
 const collRank = (c) => (c.builtin === 1 ? 0 : c.builtin === 2 || c.ad_kind ? 1 : 2);
 const collOrder = (a, b) => collRank(a) - collRank(b) || (a.type === 'folder' ? 0 : 1) - (b.type === 'folder' ? 0 : 1) || deCmp(a.name, b.name);
-// Sortierte Auswahlliste [id, „Ordner › Name“] für einfache Auswahlfelder. Die Beschriftung ist schon fertig übersetzt
-// (eingebaute Namen wie „Standard“/„Alle Computer“ einzeln, eigene Namen nie) – das Auswahlfeld daher mit data-notr anlegen.
+// Sorted selection list [id, "Folder › Name"] for simple select fields. The label is already fully translated
+// (built-in names such as "Standard"/"Alle Computer" individually, custom names never) – so create the select field with data-notr.
 const collNameTr = (name, builtin) => (builtin === 1 ? tr(name) : name);
 function collChoiceLabel(c) {
   const pp = (c.pparts || []).map(([n, b]) => collNameTr(n, b));
@@ -1170,14 +1170,14 @@ function collChoiceLabel(c) {
 function collChoiceOptions(list, keep) {
   const opts = [...list].map((c) => [c.id, collChoiceLabel(c)])
     .sort((a, b) => (a[0] === 0 ? -1 : b[0] === 0 ? 1 : deCmp(a[1], b[1])));
-  // 2.29.9: eine gewählte Sammlung, die hier nicht sichtbar ist (OU-Admin), bleibt erhalten statt still ersetzt zu werden
+  // 2.29.9: a selected collection that is not visible here (OU admin) is kept instead of being silently replaced
   if (keep !== undefined && keep !== null && keep !== '' && !opts.some((o) => String(o[0]) === String(keep))) opts.push([keep, fmtT('Sammlung #{0} (nicht sichtbar)', keep)]);
   return opts;
 }
 
-// Mehrfachauswahl von Sammlungen (Zeitpläne, Scanprofile). set: Set der gewählten IDs (0 = gesamter Bestand).
+// Multi-selection of collections (schedules, scan profiles). set: Set of the selected IDs (0 = entire inventory).
 async function collPicker(set, opt = {}) {
-  const all = await collections(true);  // frisch: neue Sammlungen (AD-Abgleich, andere Admins) sofort sichtbar
+  const all = await collections(true);  // fresh: new collections (AD sync, other admins) visible immediately
   const byParent = new Map();
   for (const c of all) {
     const k = c.parent_id && all.some((x) => x.id === c.parent_id) ? c.parent_id : 0;
@@ -1190,14 +1190,14 @@ async function collPicker(set, opt = {}) {
   if (opt.allowAll !== false) byId.set(0, ALL);
   let openState = {};
   try { const x = JSON.parse(localStorage.getItem('pk-collpick-open') || '{}'); openState = x && typeof x === 'object' && !Array.isArray(x) ? x : {}; } catch (e) { openState = {}; }
-  const saveOpen = () => { try { localStorage.setItem('pk-collpick-open', JSON.stringify(openState)); } catch (e) { /* egal */ } };
+  const saveOpen = () => { try { localStorage.setItem('pk-collpick-open', JSON.stringify(openState)); } catch (e) { /* ignore */ } };
   const q = h('input', { type: 'search', placeholder: tr('Sammlung suchen …'), oninput: () => draw() });
   const onlySel = h('input', { type: 'checkbox', onchange: () => draw() });
   const count = h('span.muted.small');
   const chips = h('div.pick-chips');
   const list = h('div.pick-list.coll-tree');
-  const descend = (id, top = false) => (id === 0 && !top ? [] : byParent.get(id) || []);  // 0 = „gesamter Bestand“ hat keine Kinder
-  // Enthält dieser Zweig etwas Gewähltes (für „aufgeklappt“ und Zähler)?
+  const descend = (id, top = false) => (id === 0 && !top ? [] : byParent.get(id) || []);  // 0 = "gesamter Bestand" has no children
+  // Does this branch contain anything selected (for "expanded" and counter)?
   const selIn = (id) => descend(id).reduce((n, c) => n + (set.has(c.id) ? 1 : 0) + selIn(c.id), 0);
   const toggle = (id, on) => { if (on) set.add(id); else set.delete(id); draw(); if (opt.onchange) opt.onchange(); };
   const row = (c, depth, label) => {
@@ -1221,7 +1221,7 @@ async function collPicker(set, opt = {}) {
   const pathOf = (c) => { const out = []; let p = c.parent_id; const seen = new Set(); while (p && byId.has(p) && !seen.has(p)) { seen.add(p); out.unshift(dispName(byId.get(p))); p = byId.get(p).parent_id; } return out.join(' › '); };
   const draw = () => {
     const term = q.value.trim().toLowerCase();
-    // Nicht mehr vorhandene Sammlungen (gelöscht) bleiben gespeichert – als eigener Chip sichtbar und entfernbar
+    // Collections that no longer exist (deleted) remain stored – visible as a separate chip and removable
     const sel = [...set].map((id) => byId.get(id) || { id, name: fmtT('Sammlung #{0} (nicht mehr vorhanden)', id), missing: true })
       .sort((a, b) => (a.id === 0 ? -1 : b.id === 0 ? 1 : deCmp(dispName(a), dispName(b))));
     count.textContent = fmtT('{0} ausgewählt', sel.length);
@@ -1231,7 +1231,7 @@ async function collPicker(set, opt = {}) {
       : [h('span.muted.small', tr('Noch keine Sammlung ausgewählt'))]));
     let rows;
     if (term || onlySel.checked) {
-      // Suche/„nur ausgewählte“: flache Liste mit Pfad, alphabetisch
+      // Search/"only selected": flat list with path, alphabetical
       const hits = [...byId.values()].filter((c) => c.type !== 'folder' && (!onlySel.checked || set.has(c.id))
         && (!term || `${pathOf(c)} ${dispName(c)} ${c.name}`.toLowerCase().includes(term)))
         .sort((a, b) => (a.id === 0 ? -1 : b.id === 0 ? 1 : deCmp(dispName(a), dispName(b))));
@@ -1260,9 +1260,9 @@ function collectionOptions(list, includeAll = true, onlyType = null) {
 }
 
 // ---------------------------------------------------------------------------
-// Anmeldung
+// Login
 // ---------------------------------------------------------------------------
-// Hell/Dunkel mit einem Klick umschalten (Einstellungen → Wartung bietet zusätzlich „Wie System“)
+// Toggle light/dark with one click (Settings → Wartung additionally offers "Wie System")
 function themeDark() {
   const v = document.documentElement.getAttribute('data-theme');
   return v ? v === 'dark' : !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
@@ -1276,11 +1276,11 @@ function themeToggle() {
   return b;
 }
 
-// Trennbalken zum Ändern der Breite eines Seitenbereichs (z. B. Sammlungsbaum); Breite je Bereich gemerkt,
-// Doppelklick = Standardbreite
+// Divider for changing the width of a side area (e.g. collection tree); width remembered per area,
+// double click = default width
 function splitter(el, key, min = 160, max = 640) {
   const k = 'pk-w-' + key;
-  try { const w = Number(localStorage.getItem(k)); if (w >= min && w <= max) el.style.width = `${w}px`; } catch (e) { /* egal */ }
+  try { const w = Number(localStorage.getItem(k)); if (w >= min && w <= max) el.style.width = `${w}px`; } catch (e) { /* ignore */ }
   const bar = h('div.splitter', { title: 'Ziehen: Breite ändern · Doppelklick: Standardbreite' });
   bar.addEventListener('mousedown', (e) => {
     e.preventDefault();
@@ -1290,11 +1290,11 @@ function splitter(el, key, min = 160, max = 640) {
     const up = () => {
       document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up);
       bar.classList.remove('active'); document.body.classList.remove('col-resizing');
-      try { localStorage.setItem(k, String(Math.round(el.getBoundingClientRect().width))); } catch (x) { /* egal */ }
+      try { localStorage.setItem(k, String(Math.round(el.getBoundingClientRect().width))); } catch (x) { /* ignore */ }
     };
     document.addEventListener('mousemove', mv); document.addEventListener('mouseup', up);
   });
-  bar.addEventListener('dblclick', () => { el.style.width = ''; try { localStorage.removeItem(k); } catch (x) { /* egal */ } });
+  bar.addEventListener('dblclick', () => { el.style.width = ''; try { localStorage.removeItem(k); } catch (x) { /* ignore */ } });
   return bar;
 }
 
@@ -1318,7 +1318,7 @@ function renderLogin(msg = '') {
       try {
         S.me = await api('/api/login', { method: 'POST', body: { username: user.value, password: pass.value } });
         S.me = await GET('/api/me');
-        toolsData().catch(() => {});  // Tastenkürzel
+        toolsData().catch(() => {});  // Keyboard shortcuts
         IDLE.last = Date.now(); IDLE.sent = Date.now();
         renderShell();
         route();
@@ -1339,7 +1339,7 @@ async function logout() {
 }
 
 // ---------------------------------------------------------------------------
-// Ansicht: Übersicht
+// View: Overview
 // ---------------------------------------------------------------------------
 async function viewDashboard() {
   setTop('Übersicht', 'Zustand der Umgebung auf einen Blick');
@@ -1357,7 +1357,7 @@ async function viewDashboard() {
     tile(d.pending_reboot, 'Neustart ausstehend', d.pending_reboot ? 'warn' : '', toColl('Neustart ausstehend')),
     tile(d.deploy_running, 'Laufende Bereitstellungen', 'info', () => go('#/deployments')),
     tile(d.deploy_failed_7d, 'Fehlgeschlagene Ziele (7 Tage)', d.deploy_failed_7d ? 'err' : '', () => go('#/deployments')),
-    // 2.26: nur wenn es welche gibt – Pakete mit Bruch im Repository (Bereitstellungen werden unterbrochen)
+    // 2.26: only if there are any – packages with a break in the repository (deployments are interrupted)
     d.packages_broken ? tile(d.packages_broken, 'Pakete mit Bruch im Repository', 'err', () => go('#/packages')) : null);
 
   const maxOs = Math.max(1, ...d.os.map((o) => o.n));
@@ -1390,7 +1390,7 @@ async function viewDashboard() {
   every(30000, () => { if (parseHash().parts[0] === 'dashboard') route(); });
 }
 
-// winget läuft erst ab Windows 10 1809 / Windows Server 2019 (Build 17763) – wie deploy.WINGET_MIN_BUILD
+// winget only runs from Windows 10 1809 / Windows Server 2019 (build 17763) – like deploy.WINGET_MIN_BUILD
 const WINGET_MIN_BUILD = 17763;
 const WINGET_NA = 'winget gibt es erst ab Windows 10 1809 / Windows Server 2019 – veraltete Programme hier über den winget-Cache (Software → winget-Cache …) oder ein eigenes Paket aktualisieren.';
 const wingetOk = (c) => !c || !c.os_build || !(Number(c.os_build) < WINGET_MIN_BUILD);
@@ -1415,9 +1415,9 @@ async function updateOutdated(wid, computerIds = null) {
 }
 
 // ---------------------------------------------------------------------------
-// Ansicht: Computer (Sammlungsbaum + Liste)
+// View: Computers (collection tree + list)
 // ---------------------------------------------------------------------------
-// --- Bausteine für Rechtsklick-Menüs ------------------------------------------------------
+// --- Building blocks for right-click menus ------------------------------------------------------
 async function scanSubItems(getIds) {
   const meta = await GET('/api/scanprofiles');
   return meta.profiles.map((p) => ({ label: p.name + (p.is_default ? ' (Standard)' : ''), icon: 'refresh',
@@ -1445,13 +1445,13 @@ async function reportSubItems(collectionId) {
     onClick: () => go(`#/reports/${d.key}` + (collectionId && d.params.some((p) => p.type === 'collection') ? `?collection=${collectionId}` : '')) }));
 }
 
-// Datei vom Server laden und speichern – Fehler erscheinen als Meldung statt als Fehlerseite im Browser
+// Download a file from the server and save it – errors appear as a message instead of an error page in the browser
 async function downloadUrl(url) {
   let r;
   try { r = await fetch(url, { credentials: 'same-origin' }); } catch (e) { toast(e.message, 'err'); return; }
   if (!r.ok) {
     let msg = `Fehler ${r.status}`;
-    try { const j = await r.json(); if (j.detail) msg = j.detail; } catch (e) { /* kein JSON */ }
+    try { const j = await r.json(); if (j.detail) msg = j.detail; } catch (e) { /* not JSON */ }
     toast(msg, 'err');
     return;
   }
@@ -1475,8 +1475,8 @@ function tableCsv(t, rows) {
     let v = c.value ? c.value(r) : r[c.key];
     if ((v === null || v === undefined || typeof v === 'object') && c.render) { const x = c.render(r); v = x instanceof Node ? x.textContent : x; }
     v = v === null || v === undefined ? '' : String(v);
-    // Schutz vor Formel-Injektion beim Öffnen in Excel (Werte stammen teils von den Clients)
-    // Audit 2.29: auch mit Leerzeichen davor („ =HYPERLINK(…)“) – Excel ignoriert sie
+    // Protection against formula injection when opening in Excel (values partly come from the clients)
+    // Audit 2.29: also with leading spaces (" =HYPERLINK(…)") – Excel ignores them
     if (/^[\s]*[=+\-@]|^[\t\r]/.test(v) && !/^\s*[-+]?\d+([.,]\d+)?\s*$/.test(v)) v = `'${v}`;
     return /[;"\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
   };
@@ -1495,7 +1495,7 @@ async function heartbeatIds(ids) {
 
 async function memberIdsOf(cid) { return (await GET(`/api/computers?collection=${cid}`)).map((x) => x.id); }
 
-// --- Ansicht: Computer mit Sammlungsbaum ------------------------------------------------------
+// --- View: Computer with collection tree ------------------------------------------------------
 const COLL_ICON = (c) => (c.ad_kind === 'root' ? 'ad' : c.type === 'folder' ? 'folder' : c.type === 'static' ? 'stat' : 'coll');
 
 async function viewComputers(_parts, params) {
@@ -1503,7 +1503,7 @@ async function viewComputers(_parts, params) {
   let cid = params.get('c') ? Number(params.get('c')) : (cols.find((c) => c.builtin === 1 && c.name === 'Alle Computer') || {}).id;
   const current = cols.find((c) => c.id === cid);
   const isAd = (c) => c && c.builtin === 2;
-  // 2.30: fest = Standard-/AD-Sammlung oder (OU-Admin) eine Sammlung, die nur ein Hauptadmin ändern darf
+  // 2.30: locked = default/AD collection or (OU admin) a collection that only a main admin may change
   const locked = (c) => !!(c && (c.builtin || c.editable === false));
   const canNew = !isOU() || mayBuild();
   const lockMsg = (c) => (c.builtin ? 'Standard- und AD-Sammlungen können nicht geändert werden.' : 'Diese Sammlung kann nur ein Hauptadmin ändern – Sie können sie als Kopie für Ihren Bereich anlegen.');
@@ -1511,20 +1511,20 @@ async function viewComputers(_parts, params) {
     btn('Computer hinzufügen', addComputerDlg, { icon: 'plus' }),
     canNew ? btn('Neue Sammlung', () => collectionDlg(null), { icon: 'coll' }) : null);
 
-  // Sammlungsbaum ---------------------------------------------------------------------------
+  // Collection tree ---------------------------------------------------------------------------
   const filterIn = h('input', { type: 'search', placeholder: 'Sammlung suchen …' });
   const treeBody = h('div.tree-body', { tabindex: '0' });
   const tree = h('div.tree', h('div.head', h('h3', 'Sammlungen'),
     canNew ? h('button.ghost.small', { title: 'Neue Sammlung', onclick: () => collectionDlg(null) }, icon('plus')) : null), h('div.tree-filter', filterIn), treeBody);
   const byParent = {};
   cols.forEach((c) => (byParent[c.parent_id || 0] = byParent[c.parent_id || 0] || []).push(c));
-  // 2.33.3: je Ebene alphabetisch – oben wie bisher erst AD, dann Standard, dann eigene; Ordner vor Sammlungen
+  // 2.33.3: alphabetical per level – at the top as before first AD, then Standard, then own; folders before collections
   const treeRank = (c) => (c.builtin === 2 || c.ad_kind ? 0 : c.builtin === 1 ? 1 : 2);
-  // (die Standard-Sammlungen behalten ihre feste Reihenfolge: Alle Computer, Online, Offline …)
+  // (the default collections keep their fixed order: Alle Computer, Online, Offline …)
   Object.values(byParent).forEach((v) => v.sort((a, b) => treeRank(a) - treeRank(b)
     || (a.builtin === 1 && b.builtin === 1 ? 0 : (a.type === 'folder' ? 0 : 1) - (b.type === 'folder' ? 0 : 1) || deCmp(a.name, b.name))));
   const openState = (() => { try { return JSON.parse(localStorage.getItem('pk-tree-open') || '{}'); } catch (e) { return {}; } })();
-  const saveOpen = () => { try { localStorage.setItem('pk-tree-open', JSON.stringify(openState)); } catch (e) { /* egal */ } };
+  const saveOpen = () => { try { localStorage.setItem('pk-tree-open', JSON.stringify(openState)); } catch (e) { /* ignore */ } };
   let selId = cid;
 
   const newIn = (c) => (c && !locked(c) ? c.id : null);
@@ -1557,7 +1557,7 @@ async function viewComputers(_parts, params) {
     const r = await run(() => POST(`/api/collections/${c.id}/duplicate`, {}), 'Dupliziert');
     if (r) go(`#/computers?c=${r.id}`);
   };
-  // Bearbeiten: eigene direkt; Standard-/AD-Sammlungen als Kopie im Dialog; OU-Admin: fremde als Kopie für seinen Bereich
+  // Edit: own ones directly; default/AD collections as a copy in the dialog; OU admin: foreign ones as a copy for their area
   const openEdit = (c) => {
     if (!locked(c)) return collectionDlg(c);
     if (c.builtin && !isOU()) return collectionDlg(c, { copy: true });
@@ -1592,7 +1592,7 @@ async function viewComputers(_parts, params) {
     ]);
   };
 
-  // Ziehen & Ablegen: Sammlungen verschieben (Strg = kopieren), Computer auf statische Sammlungen ziehen
+  // Drag & drop: move collections (Ctrl = copy), drag computers onto static collections
   const dropOn = async (target, e) => {
     const raw = e.dataTransfer.getData('application/x-pk-computers');
     if (raw || S.dragComputers) {
@@ -1629,14 +1629,14 @@ async function viewComputers(_parts, params) {
     const it = h('div.tree-item', {
       class: (c.id === cid ? 'active ' : '') + (c.id === selId && c.id !== cid ? 'focus ' : '') + (S.collClip && S.collClip.mode === 'cut' && S.collClip.id === c.id ? 'cut ' : '')
         + (c.builtin === 2 ? 'ad ' : ''),
-      // Standard- und AD-Bereich sind fest: nur auf- und zuklappen, nicht ziehen (Kopie über Rechtsklick → Kopieren)
+      // Default and AD areas are fixed: only expand/collapse, no dragging (copy via right click → Kopieren)
       style: { paddingLeft: `${8 + depth * 14}px` }, draggable: locked(c) ? 'false' : 'true', title: c.description || '',
       onclick: () => { selId = c.id; if (c.type !== 'folder') go(`#/computers?c=${c.id}`); else { openState[c.id] = !isOpen; saveOpen(); drawTree(); } },
     }, tw, h('span.ic-s', icon(COLL_ICON(c))), h('span.lbl', { class: c.builtin === 1 ? '' : 'raw' }, c.name),
     c.count !== null && c.count !== undefined ? h('span.cnt', num(c.count)) : null);
     it.addEventListener('dblclick', () => openEdit(c));
     it.addEventListener('contextmenu', (e) => { e.preventDefault(); e.stopPropagation(); treeMenu(c, e); });
-    if (!locked(c)) it.addEventListener('dragstart', (e) => { S.dragColl = c.id; try { e.dataTransfer.setData('application/x-pk-collection', String(c.id)); } catch (x) { /* egal */ } e.dataTransfer.effectAllowed = 'copyMove'; });
+    if (!locked(c)) it.addEventListener('dragstart', (e) => { S.dragColl = c.id; try { e.dataTransfer.setData('application/x-pk-collection', String(c.id)); } catch (x) { /* ignore */ } e.dataTransfer.effectAllowed = 'copyMove'; });
     it.addEventListener('dragend', () => { S.dragColl = null; });
     dragTarget(it, c);
     return [it, kids.length && isOpen ? kids.map((k) => renderNode(k, depth + 1)) : null];
@@ -1656,7 +1656,7 @@ async function viewComputers(_parts, params) {
   treeBody.addEventListener('contextmenu', (e) => { if (e.target === treeBody) { e.preventDefault(); treeMenu(null, e); } });
   dragTarget(treeBody, null);
   treeBody.addEventListener('keydown', (e) => {
-    if (e.altKey) return;  // Strg+Alt+… sind Tastenkürzel für Tools, nicht Kopieren/Einfügen
+    if (e.altKey) return;  // Ctrl+Alt+… are keyboard shortcuts for tools, not copy/paste
     const c = cols.find((x) => x.id === selId);
     const k = e.key.toLowerCase();
     if ((e.ctrlKey || e.metaKey) && k === 'c' && c) { S.collClip = { mode: 'copy', id: c.id, name: c.name }; toast(`„${c.name}“ kopiert`); }
@@ -1668,11 +1668,11 @@ async function viewComputers(_parts, params) {
     e.preventDefault();
   });
 
-  // Computerliste ---------------------------------------------------------------------------
+  // Computer list ---------------------------------------------------------------------------
   const rows = await GET('/api/computers' + (cid ? `?collection=${cid}` : ''));
   const t = table([
     { key: 'online', label: '', chooserLabel: 'Status (Punkt)', width: '24px', nosort: true, render: (r) => (r.addr_problem
-      // Antwortet unter der Adresse ein anderes Gerät (veralteter DNS-Eintrag, kein Domänenmitglied …): eigener Hinweis
+      // Another device answers at the address (stale DNS entry, not a domain member …): separate notice
       ? h('span.dot.warn', { title: `${tr('Adresse nicht bestätigt')}: ${tr(r.addr_detail || '')}` })
       : h('span.dot', { class: r.online ? 'on' : 'off', title: r.online ? (r.winrm ? 'Online (WinRM ok)' : 'Online, WinRM nicht erreichbar') : 'Offline' })) },
     { key: 'name', label: 'Name', render: (r) => h('span', h('a', { href: `#/computer/${r.id}` }, r.name), r.scan_allowed ? null : h('span.badge', { style: { marginLeft: '6px' }, title: 'Automatisches Scannen gesperrt' }, 'kein Scan')), value: (r) => r.name, title: (r) => r.dns_name },
@@ -1753,7 +1753,7 @@ async function viewComputers(_parts, params) {
     ]);
   }
   t.el.querySelector('.tbl-scroll').addEventListener('keydown', (e) => {
-    if (e.altKey) return;  // Strg+Alt+… sind Tastenkürzel für Tools
+    if (e.altKey) return;  // Ctrl+Alt+… are keyboard shortcuts for tools
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c' && t.selected().length) { e.preventDefault(); copyText(t.selected().map((r) => r.name).join('\r\n'), `${t.selected().length} Name(n) kopiert`); }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'h' && t.selected().length) { e.preventDefault(); heartbeatIds(t.selectedIds()); }
   });
@@ -1773,7 +1773,7 @@ async function viewComputers(_parts, params) {
   setContent(h('div', { style: { display: 'flex', flex: '1', minWidth: '0' } }, tree, splitter(tree, 'collections'), h('div.pane', t.el, hint)), true);
   every(20000, async () => {
     if (parseHash().parts[0] !== 'computers' || document.querySelector('.cmenu')) return;
-    try { t.setRows(await GET('/api/computers' + (cid ? `?collection=${cid}` : ''))); } catch (e) { /* still */ }
+    try { t.setRows(await GET('/api/computers' + (cid ? `?collection=${cid}` : ''))); } catch (e) { /* silent */ }
   });
 }
 
@@ -1855,7 +1855,7 @@ function filterEditor(root, schema, cols, selfId, onChange, newCond, emptyText) 
     if (!col && t.columns.length && !t.free_columns) { col = t.columns[0]; it.column = col.key; }
     const ops = () => {
       const o = schema.ops[(col || { type: 'any' }).type] || schema.ops.text;
-      // Größenspalte mit älterer Bedingung (z. B. „enthält“): Operator behalten statt stillschweigend ändern
+      // Size column with an older condition (e.g. "contains"): keep the operator instead of silently changing it
       return (col && col.type === 'bytes' && it.op && !o.includes(it.op) && (schema.ops.any || []).includes(it.op)) ? [...o, it.op] : o;
     };
     if (!ops().includes(it.op)) it.op = ops()[0];
@@ -1866,7 +1866,7 @@ function filterEditor(root, schema, cols, selfId, onChange, newCond, emptyText) 
     let cSel;
     if (t.free_columns) {
       cSel = combo(h('input', { value: it.column || '', placeholder: 'Spaltenname', oninput: (e) => { it.column = e.target.value; changed(); },
-        // Nach der Auswahl neu zeichnen: eine Größenspalte bekommt ≥/≤ und Einheiten statt Text-Operatoren
+        // Redraw after the selection: a size column gets ≥/≤ and units instead of text operators
         onchange: (e) => { const nc = t.columns.find((c) => c.key === e.target.value); if ((nc && nc.type) !== (col && col.type)) { it.op = ''; it.value = ''; setTimeout(() => { redraw(); changed(); }, 0); } } }),
       t.columns.map((c) => [c.key, c.type === 'bytes' ? 'Größe' : '']));
     } else {
@@ -1885,7 +1885,7 @@ function filterEditor(root, schema, cols, selfId, onChange, newCond, emptyText) 
     } else if (type === 'date' && (it.op === 'before' || it.op === 'after')) {
       vIn = h('input', { type: 'date', value: it.value || '', onchange: (e) => { it.value = e.target.value; changed(); } });
     } else if (type === 'bytes' && ['gt', 'gte', 'lt', 'lte', 'eq', 'ne'].includes(it.op)) {
-      // Größenangaben: mit Einheit eingeben (500 MB, 10 GB, 1,5 TB – 1 GB = 1024³ Bytes), Vorschläge lesbar
+      // Size values: enter with unit (500 MB, 10 GB, 1,5 TB – 1 GB = 1024³ bytes), readable suggestions
       let sizes = null;
       const input = h('input', { value: it.value || '', placeholder: 'z. B. 10 GB', title: 'Mit Einheit: B, KB, MB, GB, TB (1 GB = 1024³ Bytes). Ohne Einheit: Bytes.',
         oninput: (e) => { it.value = e.target.value; changed(); } });
@@ -1899,7 +1899,7 @@ function filterEditor(root, schema, cols, selfId, onChange, newCond, emptyText) 
         value: it.value || '', placeholder: it.op === 'regex' ? 'regulärer Ausdruck' : it.op === 'wildcard' ? 'z. B. *Office*' : 'Wert',
         oninput: (e) => { it.value = e.target.value; changed(); },
       });
-      // Beim Öffnen alle vorhandenen Werte, beim Tippen filtert der Server
+      // When opening all existing values, while typing the server filters
       vIn = h('span.fval-in', combo(input, (q) => (it.column ? GET(`/api/collections/values?table=${encodeURIComponent(it.table)}&column=${encodeURIComponent(it.column)}&q=${encodeURIComponent(q || '')}&limit=200`) : []), { remote: true, width: '100%' }));
     }
     append(row, [tSel, cSel, oSel, vIn, h('button.ghost', { type: 'button', title: 'Bedingung entfernen', onclick: async () => { if (!(await askRemove(it.value !== '' && it.value !== undefined && it.value !== null ? `Bedingung „${it.value}“ entfernen?` : 'Diese Bedingung entfernen?'))) return; parent.items.splice(parent.items.indexOf(it), 1); redraw(); changed(); } }, icon('x'))]);
@@ -1988,7 +1988,7 @@ async function collectionDlg(c, opt = {}) {
   buttons.push({
     label: 'Speichern', cls: 'primary', onClick: async () => {
       const body = { name: name.value, type: type.value, parent_id: parent.value ? Number(parent.value) : null, filters: tree, match: tree.match, description: desc.value };
-      // Schon angelegt (z. B. erster Versuch scheiterte erst bei den Mitgliedern)? Dann aktualisieren statt doppelt anlegen
+      // Already created (e.g. first attempt failed only at the members)? Then update instead of creating twice
       let id;
       if (createdId) { await PUT(`/api/collections/${createdId}`, body); id = createdId; }
       else if (isNew) { id = (await POST('/api/collections', body)).id; createdId = id; }
@@ -2011,12 +2011,12 @@ async function collectionDlg(c, opt = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// Ansicht: Computerdetails
+// View: Computer details
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
-// Dynamische Sammlung direkt aus Inventarwerten (Rechtsklick → „Dynamische Sammlung erstellen“)
+// Dynamic collection directly from inventory values (right click → "Dynamische Sammlung erstellen")
 // ---------------------------------------------------------------------------
-// Kategorie der Computeransicht -> [Filtertabelle, Hauptspalte, {Zeilenschlüssel: Filterspalte}]
+// Category of the computer view -> [filter table, main column, {row key: filter column}]
 const INV_COLL = {
   software: ['software', 'name'], ad_groups: ['ad_groups', 'name'], cpus: ['cpus', 'name'], displays: ['displays', 'model'],
   environment: ['environment', 'name'], devices: ['devices', 'name'], hotfixes: ['hotfixes', 'hotfix_id'],
@@ -2026,7 +2026,7 @@ const INV_COLL = {
   features: ['features', 'name'], tasks: ['tasks', 'name'], disks: ['disks', 'drive'], disks_physical: ['disks_physical', 'model', { size: 'size_gb' }],
   admins: ['admins', 'name'],
 };
-// Spalten der Computerliste -> Filterspalte der Tabelle „Computer“
+// Columns of the computer list -> filter column of the table "Computer"
 const LIST_COLL = { os: 'os', os_display_version: 'os_display_version', os_build: 'os_build', current_user: 'current_user',
   manufacturer: 'manufacturer', model: 'model', chassis: 'chassis', cpu: 'cpu', os_arch: 'os_arch', description: 'description',
   scan_status: 'scan_status', winget: 'winget_version', ram_gb: 'ram_gb' };
@@ -2043,13 +2043,13 @@ function collGroup(match, items) { return { type: 'group', match, items }; }
 
 function shortVal(v, n = 40) { const s = String(v ?? '').trim(); return s.length > n ? s.slice(0, n - 1) + '…' : s; }
 
-// Neue dynamische Sammlung mit vorbelegtem Filter im normalen Dialog öffnen (Name und Filter lassen sich vor dem Speichern anpassen)
+// Open a new dynamic collection with a prefilled filter in the normal dialog (name and filter can be adjusted before saving)
 function newDynColl(name, filters) {
   collectionDlg({ name: tr(name).slice(0, 120), type: 'dynamic', filters, parent_id: null, description: '' }, { preset: true });
 }
 
-// Untermenü für eine Zeile einer Inventartabelle.
-// table = Filtertabelle, primary = Hauptspalte, rows = markierte Zeilen, clicked = Spalte unter dem Mauszeiger
+// Submenu for a row of an inventory table.
+// table = filter table, primary = main column, rows = selected rows, clicked = column under the mouse pointer
 function dynCollMenu(table, primary, rows, clicked, opt = {}) {
   return {
     label: 'Dynamische Sammlung erstellen', icon: 'coll', sub: async () => {
@@ -2064,7 +2064,7 @@ function dynCollMenu(table, primary, rows, clicked, opt = {}) {
       if (!pc) return [{ label: 'Für diese Tabelle nicht verfügbar', disabled: true }];
       const tl = table === 'computer' ? pc.label : tdef.label;
       const cond = (r, k) => { const c = colOf(k); return collCond(table, c.key, c.type, valOf(r, k)); };
-      // Spalten mit Byte-Werten: lesbar anzeigen und als Schwelle (≥/≤) statt exaktem Bytewert anbieten
+      // Columns with byte values: show readably and offer as a threshold (≥/≤) instead of an exact byte value
       const isBytes = (k, r) => opt.bytes && opt.bytes.has(k) && r && r[k] !== '' && r[k] !== null && !isNaN(Number(r[k]));
       const sizeVal = (n, up) => {
         const u = ['B', 'KB', 'MB', 'GB', 'TB']; let i = 0; let v = Number(n);
@@ -2075,7 +2075,7 @@ function dynCollMenu(table, primary, rows, clicked, opt = {}) {
       const sizeCond = (r, k, op) => ({ type: 'cond', table, column: colOf(k).key, op, value: sizeVal(r[k], op === 'lte') });
       const items = [];
       if (rows.length === 1 && table === 'software') {
-        // Software: zuerst „installiert“ / „nicht installiert“ – Name ohne Präfix, damit er nicht umgeschrieben werden muss
+        // Software: first "installiert" / "nicht installiert" – name without prefix so it does not have to be rewritten
         const r = rows[0];
         const pv = shortVal(valOf(r, primary));
         const pat = uninstallPattern(String(r.name || ''));
@@ -2099,7 +2099,7 @@ function dynCollMenu(table, primary, rows, clicked, opt = {}) {
           const pub = shortVal(r.publisher);
           items.push({ label: `Computer mit Software von „${pub}“`, onClick: () => newDynColl(`Software von ${pub}`, collGroup('all', [cond(r, 'publisher')])) });
         }
-        // angeklickte Spalte (Architektur, Installationsort, winget-ID …) – allein oder zusammen mit dem Programm
+        // clicked column (architecture, install location, winget ID …) – alone or together with the program
         const cc = clicked && !['name', 'version'].includes(clicked) ? colOf(clicked) : null;
         if (cc && cc.type !== 'date' && String(valOf(r, clicked) ?? '').trim() !== '') {
           const cv = shortVal(valOf(r, clicked));
@@ -2134,7 +2134,7 @@ function dynCollMenu(table, primary, rows, clicked, opt = {}) {
           items.push({ label: `Computer mit ${cc.label} = „${cv}“`, onClick: () => newDynColl(`${tl}: ${cc.label} ${cv}`, collGroup('all', [cond(r, clicked)])) });
           items.push({ label: `Computer mit „${pv}“ und ${cc.label} = „${cv}“`, onClick: () => newDynColl(`${tl}: ${pv} – ${cv}`, collGroup('all', [cond(r, primary), cond(r, clicked)])) });
         }
-        // Software: Name ohne Versionsnummer als Muster, damit auch andere Versionen (z. B. „7-Zip 23.01 …“) gefunden werden
+        // Software: name without version number as a pattern so that other versions (e.g. "7-Zip 23.01 …") are found as well
         const pat = table === 'software' ? uninstallPattern(String(r.name || '')) : '';
         const anyVer = pat && pat !== r.name ? { type: 'cond', table, column: 'name', op: 'wildcard', value: pat } : null;
         if (anyVer) items.unshift({ label: `Computer mit „${shortVal(pat)}“ (jede Version)`, onClick: () => newDynColl(`${tl}: ${pat.replace(/\*$/, '')}`, collGroup('all', [anyVer])) });
@@ -2167,10 +2167,10 @@ function dynCollMenu(table, primary, rows, clicked, opt = {}) {
   };
 }
 
-// Spalte unter dem Mauszeiger (Tabellenzellen tragen data-k)
+// Column under the mouse pointer (table cells carry data-k)
 const clickedKey = (e) => { const td = e && e.target && e.target.closest ? e.target.closest('td[data-k]') : null; return td ? td.dataset.k : null; };
 
-// Einzelwert auf der Computer-Übersicht: Rechtsklick → Sammlung „Computer mit <Feld> = Wert“
+// Single value on the computer overview: right click → collection "Computer mit <Feld> = Wert"
 function collValue(el, column, value, label) {
   if (value === null || value === undefined || value === '') return el;
   el.addEventListener('contextmenu', (e) => {
@@ -2194,7 +2194,7 @@ function collValue(el, column, value, label) {
 }
 
 const PC_CATS = [
-  // Gleiche Einträge und Reihenfolge: Schlüssel, Bezeichnung, Icon, Zähler-Schlüssel
+  // Same entries and order: key, label, icon, counter key
   ['computer', 'Computer', 'pc'],
   ['ad_groups', 'Active-Directory-Gruppen', 'users', 'ad_groups'],
   ['software', 'Anwendungen', 'apps', 'software'],
@@ -2226,7 +2226,7 @@ const PC_CATS = [
   ['wmi', 'WMI', 'db'],
 ];
 
-// PowerShell liefert bei genau einem Element ein Objekt statt einer Liste – immer als Liste behandeln
+// PowerShell returns an object instead of a list for exactly one element – always treat as a list
 const arr = (x) => (Array.isArray(x) ? x : x === null || x === undefined || x === '' ? [] : [x]);
 
 const MEM_FORM = { 8: 'DIMM', 12: 'SODIMM', 13: 'SRIMM', 0: '' };
@@ -2238,7 +2238,7 @@ const R = {
   bool: (k) => (r) => yesNo(r[k]),
 };
 
-// Spalten je Kategorie: [Schlüssel, Bezeichnung, Renderer?, CSS-Klasse?]
+// Columns per category: [key, label, renderer?, CSS class?]
 const PC_COLS = {
   ad_groups: [['name', 'Gruppe'], ['dn', 'Distinguished Name', null, 'trunc']],
   cpus: [['name', 'Prozessor'], ['manufacturer', 'Hersteller'], ['cores', 'Kerne'], ['logical', 'Threads'],
@@ -2262,7 +2262,7 @@ const PC_COLS = {
     ['dhcp_server', 'DHCP-Server'], ['mac', 'MAC', null, 'mono'], ['speed', 'Geschwindigkeit', (r) => (!r.speed ? '' : (r.wired !== false && r.speed <= 1e8)
       ? h('span', `${Math.round(r.speed / 1e6)} Mbit/s `, h('span.badge.warn', { title: tr('Kabelgebundene Karte nur mit 10/100 Mbit/s verbunden – Kabel, Switchport oder Energiespar-Einstellung des Treibers prüfen') }, '!'))
       : `${Math.round(r.speed / 1e6)} Mbit/s`)],
-    // 2.31: Wake-on-LAN-Bereitschaft (ab Scan mit 2.31)
+    // 2.31: Wake-on-LAN readiness (from a scan with 2.31)
     ['wol_magic', 'Wake-on-LAN', (r) => (r.wol_magic ? h('span.badge', { class: r.wol_magic === 'an' ? 'ok' : 'warn' }, r.wol_magic) : '')],
     ['wake_armed', 'Darf wecken', R.bool('wake_armed')], ['wol_driver', 'WoL-Treiber-Einstellungen', null, 'wrap']],
   printers: [['name', 'Drucker'], ['driver', 'Treiber'], ['port', 'Anschluss'], ['default', 'Standard', R.bool('default')],
@@ -2343,7 +2343,7 @@ async function viewComputer(parts, params) {
   }));
   const main = h('div.pc-main');
   if (c.addr_problem) {
-    // Unter der Adresse antwortet nicht dieser Computer: deutlich zeigen, warum er als offline gilt
+    // This computer does not answer at the address: show clearly why it counts as offline
     main.appendChild(h('div.card.guard', { style: { marginBottom: '12px' } }, h('div.card-b', h('div.row', { style: { gap: '10px', flexWrap: 'wrap' } },
       h('span.badge.warn', 'Adresse nicht bestätigt'), h('span', c.addr_detail || ''), h('div.spacer'),
       btn('Jetzt erneut prüfen', async () => {
@@ -2396,7 +2396,7 @@ function serviceButtons(c, r) {
 async function uninstallDlg(rows) {
   if (!rows.length) { toast('Keine Software ausgewählt', 'err'); return; }
   if (rows.length > 60) {
-    // Lieber ehrlich begrenzen als stillschweigend nur einen Teil deinstallieren
+    // Better to limit honestly than to silently uninstall only a part
     toast(`Bitte höchstens 60 Installationen auf einmal deinstallieren (ausgewählt: ${rows.length}). Für mehr ein Deinstallationspaket mit Zeitplan verwenden.`, 'err');
     return;
   }
@@ -2508,7 +2508,7 @@ function pcOverview(c, link) {
   const bool = (v) => (v === null || v === undefined ? '' : v ? 'Ja' : 'Nein');
   const warnBool = (v) => (v ? h('span.badge.warn', 'Ja') : v === false ? 'Nein' : '');
 
-  // Angemeldeter Benutzer: Stand des letzten Scans, bei Online-Computern sofort live nachgefragt
+  // Logged-in user: state of the last scan, for online computers queried live immediately
   const userBox = h('span', c.current_user ? usersEl(c.current_user, e.user_states) : (c.online ? h('span.muted', 'wird abgefragt …') : h('span.muted', 'niemand (laut letztem Scan)')));
   const userDn = h('span', e.user_display_name || '');
   if (c.online) {
@@ -2586,7 +2586,7 @@ async function pcCategory(c, cat) {
   if (cat === 'software') {
     const wok = wingetOk(c);
     if (!wok) await wcReady();
-    // 2.35: ohne winget – aktualisierbar, was im winget-Cache bereitliegt
+    // 2.35: without winget – updatable if it is available in the winget cache
     const upOk = (r) => wok || wcHas(r.winget_id);
     const outdated = data.filter((s) => s.outdated && s.winget_id && upOk(s));
     const instDate = (r) => {
@@ -2684,9 +2684,9 @@ async function pcCategory(c, cat) {
     wrapT(vol), h('h3', 'Physische Datenträger'), wrapT(phy));
   }
   if (cat === 'custom_fields') {
-    // Eigene Angaben je Computer – werden nie vom Computer gelesen, nur hier eingetragen. Notizen (freier Text) gibt es
-    // immer; Felder wie „Inventarnummer“ oder „Raum“ legt ein Hauptadmin einmal an (gelten dann für alle Computer und
-    // lassen sich in Sammlungen und eigenen Berichten verwenden).
+    // Own details per computer – never read from the computer, only entered here. Notes (free text) always
+    // exist; fields such as "Inventarnummer" or "Raum" are created once by a main admin (then apply to all computers and
+    // can be used in collections and custom reports).
     const inputs = {};
     const notes = h('textarea', { rows: 5, style: { width: '100%' }, placeholder: 'Freier Text, z. B. Standort, Ansprechpartner, Besonderheiten …', value: c.notes || '' });
     const form = h('div.form', field('Notizen', notes, 'Nur in POCKET KNIFE gespeichert – wird nicht auf den Computer übertragen.'),
@@ -2699,7 +2699,7 @@ async function pcCategory(c, cat) {
     }, { cls: 'primary' });
     let add = null;
     if (!isOU()) {
-      // Neues Feld gleich hier anlegen (gilt für alle Computer) – ohne Umweg über die Einstellungen
+      // Create a new field right here (applies to all computers) – without a detour via the settings
       const fName = h('input', { placeholder: 'Neues Feld, z. B. Inventarnummer', style: { maxWidth: '260px' } });
       const fType = sel([['text', 'Text'], ['number', 'Zahl'], ['date', 'Datum']], 'text');
       add = h('div', { style: { marginTop: '16px' } }, h('div.muted.small', { style: { marginBottom: '6px' } },
@@ -2738,7 +2738,7 @@ async function pcCategory(c, cat) {
         sc.profile_id ? btn(`Jetzt scannen („${sc.profile}“)`, async () => { await scanIds([id], sc.profile_id); }, { cls: 'small', icon: 'refresh' }) : null), wrapT(t));
     };
     if (data.length === 1) return h('div.grid', block(data[0]));
-    // Viele Scanner: Auswahl per Dropdown (gemerkt je Kategorie), „Alle“ zeigt sie untereinander
+    // Many scanners: selection via dropdown (remembered per category), "Alle" shows them one below the other
     const lsKey = `pk-custom-sel-${cat}`;
     const sorted = [...data].sort((a, b) => a.name.localeCompare(b.name, 'de'));
     let cur = localStorageGet(lsKey);
@@ -2750,7 +2750,7 @@ async function pcCategory(c, cat) {
     const body = h('div.grid');
     const show = () => {
       cur = pick.value;
-      try { localStorage.setItem(lsKey, cur); } catch (e) { /* egal */ }
+      try { localStorage.setItem(lsKey, cur); } catch (e) { /* ignore */ }
       body.replaceChildren(...(cur === 'all' ? sorted : sorted.filter((sc) => String(sc.id) === cur)).map(block));
       idx.textContent = cur === 'all' ? '' : `${sorted.findIndex((sc) => String(sc.id) === cur) + 1} / ${sorted.length}`;
     };
@@ -2809,7 +2809,7 @@ function levelBadge(r) {
 }
 
 // ---------------------------------------------------------------------------
-// Ansicht: Software
+// View: Software
 // ---------------------------------------------------------------------------
 async function viewSoftware(_p, params) {
   const cols = await collections();
@@ -2863,7 +2863,7 @@ async function viewSoftware(_p, params) {
   setContent(h('div', { style: { height: '100%', display: 'flex' } }, h('div.pane.card', t.el)));
 }
 
-// --- Ausnahmen der Aktualitätsprüfung (eigene Liste) ----------------------------------------
+// --- Exceptions of the up-to-date check (custom list) ----------------------------------------
 const EXCL_HINT = 'Platzhalter: * (beliebig viele Zeichen) und ? (ein Zeichen), Groß-/Kleinschreibung egal. Beispiele: „Microsoft Visual C++*“, „*Runtime*“, Hersteller „Datev*“, winget-ID „Oracle.JavaRuntimeEnvironment“.';
 
 async function exclusionAddDlg(preset = {}, after) {
@@ -2900,7 +2900,7 @@ async function exclusionAddMany(names) {
   if (!(await confirmDlg(`${plural(names.length, 'Programm', 'Programme')} (exakter Name) von der Aktualitätsprüfung ausnehmen?`, 'Ausnehmen'))) return;
   let ok = 0;
   for (const n of names) {
-    try { await POST('/api/software/exclusions', { field: 'name', pattern: n }); ok += 1; } catch (e) { /* schon vorhanden */ }
+    try { await POST('/api/software/exclusions', { field: 'name', pattern: n }); ok += 1; } catch (e) { /* already present */ }
   }
   toast(`${plural(ok, 'Ausnahme', 'Ausnahmen')} gespeichert – Abgleich läuft`, 'ok');
   const hh = location.hash; setTimeout(() => { if (location.hash === hh) route(); }, 1500);
@@ -3008,16 +3008,16 @@ function wingetPicker(onPick) {
 }
 
 // ---------------------------------------------------------------------------
-// 2.35: winget-Cache – aktuelle Installer ausgewählter winget-Pakete im Repository (für Computer ohne winget)
+// 2.35: winget cache – current installers of selected winget packages in the repository (for computers without winget)
 // ---------------------------------------------------------------------------
-let WC_READY = null;  // { ids: Set, at } – welche winget-IDs im Cache bereitliegen (für „Aktualisieren“ ohne winget)
+let WC_READY = null;  // { ids: Set, at } – which winget IDs are available in the cache (for "Aktualisieren" without winget)
 async function wcReady(fresh = false) {
   if (!fresh && WC_READY && Date.now() - WC_READY.at < 60000) return WC_READY.ids;
   try { WC_READY = { ids: new Set((await GET('/api/wingetcache/ready')).ids || []), at: Date.now() }; } catch (e) { WC_READY = { ids: new Set(), at: Date.now() }; }
   return WC_READY.ids;
 }
 const wcHas = (wid) => !!(wid && WC_READY && WC_READY.ids.has(String(wid).toLowerCase()));
-// 2.35.1: Einträge des winget-Caches (nur Hauptadmins) – für Paketliste und Paket-Editor
+// 2.35.1: Entries of the winget cache (main admins only) – for package list and package editor
 let WC_LIST = null;
 async function wcList(fresh = false) {
   if (isOU()) return null;
@@ -3035,7 +3035,7 @@ function wcBadge(e) {
   const txt = e.status === 'ok' ? `✓ ${e.version || ''}` : e.version && e.status !== 'unsupported' ? `${e.version} · ${tr(e.status_text)}` : tr(e.status_text);
   return h('span.badge', { class: cls, title: e.message || '' }, txt);
 }
-// 2.36: Freigabe neuer winget-Versionen (nur Hauptadmins)
+// 2.36: Approval of new winget versions (main admins only)
 async function wrList() {
   if (isOU()) return null;
   try { return await GET('/api/wingetrelease'); } catch (e) { return null; }
@@ -3088,7 +3088,7 @@ async function wcAdd(ids) {
   WC_LIST = null;
   return true;
 }
-// Paket-Editor, winget-Schritt: Zustand im winget-Cache und „aufnehmen“ (für Computer ohne winget)
+// Package editor, winget step: state in the winget cache and "aufnehmen" (add) (for computers without winget)
 function wcStepField(st) {
   const box = h('div.row', { style: { gap: '6px', alignItems: 'center' } });
   const draw = async () => {
@@ -3216,24 +3216,24 @@ function wcSettingsDlg(d) {
 }
 
 // ---------------------------------------------------------------------------
-// Ansicht: Pakete
+// View: Packages
 // ---------------------------------------------------------------------------
 const PKG_TYPES = { winget: 'winget', custom: 'Eigenes Paket' };
 const INST_TYPES = [['msi', 'MSI (msiexec /i)'], ['exe', 'EXE-Installer'], ['msp', 'MSP-Patch'], ['msu', 'MSU-Update (wusa)'],
   ['cmd', 'Batch (.cmd/.bat)'], ['ps1', 'PowerShell-Datei (.ps1)'], ['script', 'PowerShell-Skript (inline, ohne Dateien)']];
 
 // ---------------------------------------------------------------------------
-// Pakete: Liste, Editor mit Schritten und Bedingungen
+// Packages: list, editor with steps and conditions
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
-// .reg-Dateien (Windows Registry Editor 5.00 / REGEDIT4) in Registry-Einträge umwandeln
+// Convert .reg files (Windows Registry Editor 5.00 / REGEDIT4) into registry entries
 // ---------------------------------------------------------------------------
 function decodeRegFile(buf) {
   const b = new Uint8Array(buf);
   if (b[0] === 0xff && b[1] === 0xfe) return new TextDecoder('utf-16le').decode(b.subarray(2));
   if (b[0] === 0xfe && b[1] === 0xff) return new TextDecoder('utf-16be').decode(b.subarray(2));
   if (b[0] === 0xef && b[1] === 0xbb && b[2] === 0xbf) return new TextDecoder('utf-8').decode(b.subarray(3));
-  // Ohne BOM: UTF-16LE erkennen (jedes zweite Byte 0), sonst UTF-8 bzw. Windows-1252
+  // Without BOM: detect UTF-16LE (every second byte 0), otherwise UTF-8 or Windows-1252
   if (b.length > 4 && b[1] === 0 && b[3] === 0) return new TextDecoder('utf-16le').decode(b);
   try { return new TextDecoder('utf-8', { fatal: true }).decode(b); } catch (e) { return new TextDecoder('windows-1252').decode(b); }
 }
@@ -3244,7 +3244,7 @@ function parseRegText(text) {
   const HIVE = { HKEY_LOCAL_MACHINE: 'HKLM', HKEY_CURRENT_USER: 'HKCU', HKEY_USERS: 'HKU', HKEY_CLASSES_ROOT: 'HKCR', HKEY_CURRENT_CONFIG: 'HKCC',
     HKLM: 'HKLM', HKCU: 'HKCU', HKU: 'HKU', HKCR: 'HKCR', HKCC: 'HKCC' };
   const normKey = (k) => { const [h0, ...rest] = k.split('\\'); return (HIVE[h0.toUpperCase()] || h0) + (rest.length ? '\\' + rest.join('\\') : ''); };
-  // Fortsetzungszeilen (… \ am Zeilenende) zusammenfügen
+  // Join continuation lines (… \ at the end of the line)
   const lines = [];
   let buf = '';
   for (const raw of text.replace(/\r/g, '').split('\n')) {
@@ -3403,7 +3403,7 @@ async function viewPackages(_p, params) {
     ]) });
   if (meta.tenants.length) t.actions.append(tenantSel);
   setContent(h('div', { style: { height: '100%', display: 'flex' } }, h('div.pane.card', t.el)));
-  // Nur die Zeilen auffrischen – Filter, Auswahl und Scrollposition bleiben erhalten
+  // Refresh only the rows – filter, selection and scroll position are preserved
   every(60000, async () => {
     if (parseHash().parts[0] !== 'packages') return;
     const fresh = await GET('/api/packages');
@@ -3411,7 +3411,7 @@ async function viewPackages(_p, params) {
   });
 }
 
-// --- 2.32: Pakete zu einem neuen zusammenfassen -------------------------------------------------
+// --- 2.32: merge packages into a new one -------------------------------------------------
 function mergePackagesDlg(selRows) {
   const list = selRows.slice();
   const name = h('input', { value: list.map((x) => x.name).join(' + ').slice(0, 200) });
@@ -3437,14 +3437,14 @@ function mergePackagesDlg(selRows) {
     field('Art', h('div', seg, hint)),
     field('Bei Fehler', h('label.chk', cont, 'mit dem nächsten Paket weitermachen'), 'Aus: nach einem Fehler werden die weiteren Pakete für diesen Computer nicht mehr ausgeführt.')),
   [{ label: 'Abbrechen' }, { label: 'Zusammenfassen', cls: 'primary', onClick: async () => {
-    // 2.32.5: Duplikatsperre wie beim Speichern eines Pakets (Hauptadmins dürfen nach Rückfrage übersteuern)
+    // 2.32.5: Duplicate lock as when saving a package (main admins may override after confirmation)
     const r = await saveWithDup((x) => POST('/api/packages/merge', { ids: list.map((y) => y.id), name: name.value, mode, continue_on_error: cont.checked, ...x }));
     if (!r) return false;
     toast('Neues Paket angelegt', 'ok'); PKG_META = null; route(); packageDlg(r.id);
   } }], { wide: true });
 }
 
-// --- Pakete exportieren / importieren ------------------------------------------------------
+// --- Export / import packages ------------------------------------------------------
 function saveTextFile(name, text) {
   const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
   const a = h('a', { href: url, download: name, style: { display: 'none' } });
@@ -3492,10 +3492,10 @@ function importPackagesDlg(meta) {
   async function check() {
     if (!data || done) return;
     const my = ++gen;
-    last = null;  // „Importieren“ erst, wenn die Prüfung zur aktuellen Einstellung da ist
+    last = null;  // "Importieren" only once the check matches the current setting
     out.replaceChildren(h('div.muted', tr('Wird geprüft …')));
     const r = await run(() => POST('/api/packages/import', { data, tenant_id: tenant.value || null, conflict: conflict.value, dry_run: true }));
-    if (my !== gen) return;  // überholt (Mandant, Regel oder Datei inzwischen geändert)
+    if (my !== gen) return;  // outdated (tenant, rule or file changed in the meantime)
     if (!r) { out.replaceChildren(); return; }
     last = r;
     showResult(r);
@@ -3522,17 +3522,17 @@ function importPackagesDlg(meta) {
     const r = await run(() => POST('/api/packages/import', { data, tenant_id: tenant.value || null, conflict: conflict.value, dry_run: false }));
     if (!r) return;
     const c = r.count;
-    done = true;  // kein zweiter Import derselben Datei aus diesem Dialog
+    done = true;  // no second import of the same file from this dialog
     [file, tenant, conflict].forEach((x) => { x.disabled = true; });
     const ib = out.closest('.modal') && out.closest('.modal').querySelector('.modal-f button.primary');
-    if (ib) ib.style.display = 'none';  // fertig – nur noch „Schließen“
+    if (ib) ib.style.display = 'none';  // done – only "Schließen" remains
     showResult(r, fmtT('{0} Paket(e) importiert, {1} übersprungen, {2} mit Fehler', c.new + c.copy, c.skip, c.error));
-    route();  // Paketliste dahinter auffrischen – der Dialog bleibt mit dem Ergebnis offen
+    route();  // Refresh the package list behind it – the dialog stays open with the result
     toast(fmtT('{0} Paket(e) importiert, {1} übersprungen, {2} mit Fehler', c.new + c.copy, c.skip, c.error), c.error ? 'err' : 'ok');
   } }], { wide: true });
 }
 
-// --- Bedingungs-Editor (Paket und Schritt) -------------------------------------------------
+// --- Condition editor (package and step) -------------------------------------------------
 function conditionsEditor(c, meta, opt = {}) {
   c.os = c.os || meta.default_conditions.os; c.arch = c.arch || meta.default_conditions.arch;
   c.files = c.files || []; c.registry = c.registry || []; c.collections = c.collections || [];
@@ -3568,9 +3568,9 @@ function conditionsEditor(c, meta, opt = {}) {
 }
 
 // --- Editor ------------------------------------------------------------------------------
-// Name ohne Versionsnummer als Muster („7-Zip 24.08 (x64 edition)“ → „7-Zip*“). Als Version zählt nur eine Zahl mit Punkt
-// (24.08, 3.12.1, v8.6) – „Microsoft 365 Apps“, „Office 16 …“ oder „Windows 10 Update Assistant“ bleiben unverändert,
-// sonst würde aus ihnen ein viel zu breites Muster wie „Microsoft*“.
+// Name without version number as a pattern ("7-Zip 24.08 (x64 edition)" → "7-Zip*"). Only a number with a dot counts as a version
+// (24.08, 3.12.1, v8.6) – "Microsoft 365 Apps", "Office 16 …" or "Windows 10 Update Assistant" remain unchanged,
+// otherwise they would turn into a far too broad pattern like "Microsoft*".
 function uninstallPattern(name) {
   const n = String(name || '');
   const base = n.replace(/\s+v?\d+\.\d[\d.]*\b.*$/i, '').replace(/[\s\-–—:,(]+$/, '').trim();
@@ -3580,7 +3580,7 @@ function uninstallPackageFrom(sw) {
   packageDlg(null, { uninstall: { name: sw.name, pattern: uninstallPattern(sw.name), version: '' } });
 }
 
-// --- Bruchprüfung (2.26): Zustand der Repository-Dateien eines Pakets ---------------------------------------
+// --- Break check (2.26): state of a package's repository files ---------------------------------------
 const INTEG = {
   ok: ['ok', '✓', 'Repository-Dateien unverändert'],
   warn: ['warn', '!', 'Abweichung im Repository – Lauf geht weiter'],
@@ -3614,7 +3614,7 @@ function integrityBox(p, editable, onChange) {
           (ig.total || 0) > rows.length ? h('div.muted.small', fmtT('… und {0} weitere', ig.total - rows.length)) : null),
       h('div.row', { style: { gap: '8px', marginTop: '10px' } },
         btn('Jetzt prüfen', async () => { const r = await run(() => POST(`/api/packages/${p.id}/integrity/check`)); if (r) { draw(r); onChange && onChange(r); } }, { cls: 'small', icon: 'refresh' }),
-        // nur wenn es eigene (sichtbare) Abweichungen gibt – zentrale Dateien bestätigt ein Hauptadmin
+        // only if there are own (visible) deviations – central files are confirmed by a main admin
         editable && ig && (ig.state === 'broken' || ig.state === 'warn') && rows.some((x) => x.path) ? btn('Neuen Stand übernehmen', async () => {
           if (!(await confirmDlg(tr('Den aktuellen Inhalt der Repository-Dateien als richtig bestätigen? Danach laufen Bereitstellungen wieder mit genau diesen Dateien. Fehlende Dateien lassen sich so nicht beheben – dafür das Paket anpassen.'), 'Übernehmen'))) return;
           const r = await run(() => POST(`/api/packages/${p.id}/integrity/accept`));
@@ -3623,7 +3623,7 @@ function integrityBox(p, editable, onChange) {
           if (!r.count) toast(tr('Nichts zu übernehmen – die Dateien entsprechen schon dem bestätigten Stand (oder es fehlen welche: dann das Paket anpassen).'), 'err');
           else toast(r.version_hint ? fmtT('Neuer Stand übernommen. Die MSI hat jetzt Version {0} – bitte die Version im Paket anpassen.', r.version_hint) : tr('Neuer Stand übernommen'), r.version_hint ? 'err' : 'ok');
         }, { cls: 'small primary' }) : null,
-        // Reparatur per Fingerabdruck (2.27): fehlende Dateien wurden evtl. nur verschoben
+        // Repair by fingerprint (2.27): missing files may only have been moved
         editable && ig && rows.some((x) => x.kind === 'missing' && x.path) ? btn('Datei suchen …', () => repairDlg(p, async () => {
           const r = await run(() => POST(`/api/packages/${p.id}/integrity/check`)); if (r) { draw(r); onChange && onChange(r); }
         }), { cls: 'small', icon: 'folder', title: tr('Fehlende Dateien per Fingerabdruck (SHA-256) im Repository suchen und die Pfade übernehmen') }) : null),
@@ -3653,7 +3653,7 @@ async function packageDlg(pidOrPkg, preset = {}) {
       : newStep('install', preset.winget_id ? { source: 'winget', winget_id: preset.winget_id } : {})], post: [] } };
   if (preset.uninstall && isNew) { p.name = `Deinstallation: ${preset.uninstall.name}`; p.description = `Entfernt „${preset.uninstall.name}“ von den Zielcomputern.`; }
   if (preset.winget_id && isNew) p.name = preset.name || preset.winget_id;
-  let selKey = 'props'; // immer mit Name/Eigenschaften beginnen – die Schritte stehen links und sind einen Klick entfernt
+  let selKey = 'props'; // always start with name/properties – the steps are on the left and one click away
   const tree = h('div.pkg-tree');
   const panel = h('div.pkg-panel');
   const PH = meta.phases;
@@ -3707,7 +3707,7 @@ async function packageDlg(pidOrPkg, preset = {}) {
         el.prepend(h('span.pkg-n', String(i + 1)));
         if (!st.enabled) el.classList.add('off');
         el.draggable = true;
-        el.addEventListener('dragstart', (e) => { dragFrom = key; e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', 'step'); } catch (x) { /* egal */ } });
+        el.addEventListener('dragstart', (e) => { dragFrom = key; e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', 'step'); } catch (x) { /* ignore */ } });
         el.addEventListener('dragend', () => { dragFrom = null; });
         el.addEventListener('dragover', (e) => { if (dragFrom) { e.preventDefault(); el.classList.add('dropto'); } });
         el.addEventListener('dragleave', () => el.classList.remove('dropto'));
@@ -3743,7 +3743,7 @@ async function packageDlg(pidOrPkg, preset = {}) {
     } })));
   }
 
-  // Rechte Seite -----------------------------------------------------------------------
+  // Right side -----------------------------------------------------------------------
   const inp = (o, k, attrs = {}) => h('input', { value: o[k] ?? '', oninput: (e) => { o[k] = attrs.type === 'number' ? Number(e.target.value) : e.target.value; changed(); }, ...attrs });
   const ta = (o, k, rows, attrs = {}) => h('textarea.mono', { rows, value: o[k] || '', oninput: (e) => { o[k] = e.target.value; changed(); }, spellcheck: false, ...attrs });
   const chk = (o, k, label) => h('label.chk', h('input', { type: 'checkbox', checked: !!o[k], onchange: (e) => { o[k] = e.target.checked; changed(); } }), label);
@@ -3888,7 +3888,7 @@ async function packageDlg(pidOrPkg, preset = {}) {
   function drawPanel() {
     curStep = null; pvBox = null;
     if (selKey === 'props') {
-      // Bruch oder Abweichung: der Bereich „Repository-Dateien“ steht ganz oben, sonst am Ende
+      // Break or deviation: the "Repository-Dateien" section is at the very top, otherwise at the end
       const igBad = p.id && p.integrity && ['broken', 'warn'].includes(p.integrity.state);
       const igBox = p.id ? integrityBox(p, p.editable !== false, (r) => { p.integrity = r; }) : null;
       if (igBad) igBox.style.marginTop = '0';
@@ -3921,7 +3921,7 @@ async function packageDlg(pidOrPkg, preset = {}) {
       ['Bedingungen', conditionsEditor(st.conditions, meta, { hint: 'Zusätzlich zu den Bedingungen des Pakets. Nicht erfüllt = Schritt wird übersprungen.' })],
       ['Optionen', stepOptions(st)],
     ]);
-    // Bezeichnung des Schritts (erscheint links in der Liste und im Bereitstellungsprotokoll); leer = automatisch
+    // Label of the step (appears on the left in the list and in the deployment log); empty = automatic
     const auto = stepLabel({ ...st, title: '' });
     const titleIn = h('input', { value: st.title || '', placeholder: auto, maxlength: 200, style: { flex: '1', minWidth: '220px' },
       oninput: (e) => { st.title = e.target.value; drawTree(); } });
@@ -3944,14 +3944,14 @@ async function packageDlg(pidOrPkg, preset = {}) {
     } });
   }
   buttons.push({ label: 'Speichern', cls: 'primary', onClick: async () => {
-    // Duplikatsperre (2.27): gleiche Software in einem anderen Bereich → Hinweis; Hauptadmins dürfen übersteuern
+    // Duplicate lock (2.27): same software in another area → notice; main admins may override
     const r = await saveWithDup((x) => (isNew ? POST('/api/packages', { ...body(), ...x }) : PUT(`/api/packages/${p.id}`, { ...body(), ...x })));
     if (r === false) return false;
     if (isNew) p.id = r.id;
     toast('Paket gespeichert', 'ok'); PKG_META = null; route(); netWarn(r);
   } });
   if (!isNew && isOU() && p.editable === false) {
-    // OU-Admin und zentrales Paket: ansehen und auf eigene Computer verteilen – ändern nur als eigene Kopie
+    // OU admin and central package: view and distribute to own computers – change only as own copy
     buttons.length = 0;
     buttons.push({ label: 'Schließen' });
     if (mayBuild()) buttons.push({ label: 'Als eigenes Paket kopieren', icon: 'plus', onClick: async () => {
@@ -3964,7 +3964,7 @@ async function packageDlg(pidOrPkg, preset = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// Zeitpläne
+// Schedules
 // ---------------------------------------------------------------------------
 const SCHED_STATUS = { success: ['Erfolgreich', 'ok'], failed: ['Fehlgeschlagen', 'err'], queued: ['Wartend', 'info'], running: ['Läuft', 'info'],
   skipped: ['Übersprungen', ''], offline: ['Offline', ''], cancelled: ['Abgebrochen', ''] };
@@ -4043,11 +4043,11 @@ async function scheduleDlg(id, preset = {}) {
   const desc = h('textarea', { rows: 2, value: s.description || '' });
   const en = h('input', { type: 'checkbox', checked: !!s.enabled });
   const tenant = meta.tenants.length ? sel([['', '— keiner —'], ...meta.tenants.map((x) => [x.id, x.name, true])], s.tenant_id || '') : null;
-  // 2.30: nur lesbar für OU-Admins (vom Hauptadmin angelegt bzw. zentral) – ansehen, ausführen (Mandant), als Vorlage kopieren
+  // 2.30: read-only for OU admins (created by the main admin or central) – view, run (tenant), copy as template
   const ro = !isNew && s.editable === false;
   const ouEd = !isOU() && tenant ? h('input', { type: 'checkbox', checked: !!s.ou_edit }) : null;
   const kindSeg = h('div.seg');
-  // Pakete in Reihenfolge
+  // Packages in order
   const pkBox = h('div');
   const addPk = sel([['', '+ Paket hinzufügen …'], ...meta.packages.filter((x) => !x.cache).map((x) => [x.id, x.name, true])], '', { onchange: (e) => { if (e.target.value) { s.packages.push(Number(e.target.value)); e.target.value = ''; drawPk(); } } });
   function drawPk() {
@@ -4067,11 +4067,11 @@ async function scheduleDlg(id, preset = {}) {
   idsRow.forEach((x) => x && (x.style.display = w.mode === 'specific' ? '' : 'none'));
   const wingetBox = h('div', h('p.muted.small', { style: { marginTop: 0 } }, 'Aktualisiert auf den Zielen alle Programme, für die das Inventar eine neuere Version im winget-Katalog kennt (sichere Zuordnung). Je Programm entsteht eine Bereitstellung „winget upgrade“; nach dem Update wird neu inventarisiert. Computer vor Windows 10 1809 / Server 2019 werden ausgelassen.'),
     h('div.form', field('Programme', wMode), idsRow, field('Ausnahmen', wEx, 'Diese winget-IDs nie automatisch aktualisieren.'), field('Bereich', wScope)));
-  // Ziele
+  // Targets
   const colSet = new Set(s.targets.collections);
   const colBox = await collPicker(colSet);
   const picker = await computerPicker(s.targets.computers);
-  // Zeitfenster
+  // Time window
   const win = s.window;
   const winBody = h('div.row', { style: { flexWrap: 'wrap', gap: '6px', marginTop: '6px' } },
     ...DAYS.map(([n, l]) => h('label.chk', h('input', { type: 'checkbox', checked: win.days.includes(n), onchange: (e) => { win.days = win.days.filter((x) => x !== n); if (e.target.checked) win.days.push(n); win.days.sort(); } }), l)),
@@ -4082,13 +4082,13 @@ async function scheduleDlg(id, preset = {}) {
   const winBox = h('div.card', { style: { marginTop: '12px' } }, h('div.card-b',
     h('label.chk', winEn, h('b', 'Nur im Zeitfenster ausführen')), winBody,
     h('p.muted.small', { style: { margin: '6px 0 0' } }, 'Fällige Läufe außerhalb des Fensters werden zu Beginn des Fensters nachgeholt; Computer, die außerhalb online kommen (Heartbeat), werden vorgemerkt. Über Mitternacht möglich (z. B. 22:00–05:00). „Jetzt ausführen“ ignoriert das Fenster.')));
-  // Optionen
+  // Options
   const o = s.options;
-  if (o.retry_failed === undefined) o.retry_failed = true;  // Zeitpläne aus älteren Versionen: Standard „nachholen“
+  if (o.retry_failed === undefined) o.retry_failed = true;  // Schedules from older versions: default "nachholen" (catch up)
   const oc = (k, label) => h('label.chk', { style: { display: 'flex' } }, h('input', { type: 'checkbox', checked: !!o[k], onchange: (e) => { o[k] = e.target.checked; } }), label);
   const num = (k, max = 8760) => h('input', { type: 'number', min: 0, max, value: o[k] || 0, style: { maxWidth: '90px' }, onchange: (e) => { o[k] = Number(e.target.value); } });
   const offSel = sel([['wait', 'vormerken und versorgen, sobald sie online sind (Heartbeat)'], ['skip', 'überspringen']], o.offline, { onchange: (e) => { o.offline = e.target.value; } });
-  // 2.31: optional ausgeschaltete Ziele wecken (Standard aus – Computer, die aus sind, bleiben aus)
+  // 2.31: optionally wake powered-off targets (default off – computers that are off stay off)
   const wakeChk = h('input', { type: 'checkbox', checked: !!o.wake_offline, onchange: (e) => { o.wake_offline = e.target.checked; if (o.wake_offline) { o.offline = 'wait'; offSel.value = 'wait'; } offSel.disabled = o.wake_offline; } });
   offSel.disabled = !!o.wake_offline;
   const trig = triggerEditor(s.triggers, { noCatchUp: true, only: ['once', 'interval', 'daily', 'weekly', 'monthly', 'heartbeat'], empty: 'Keine Auslöser – der Zeitplan läuft nur, wenn er manuell gestartet wird.' });
@@ -4152,7 +4152,7 @@ async function scheduleDlg(id, preset = {}) {
     if (mayBuild()) buttons.push({ label: 'Als Vorlage kopieren', cls: 'primary', onClick: async () => { const r = await run(() => POST(`/api/schedules/${s.id}/duplicate`), 'Kopie für Ihren Mandanten angelegt (deaktiviert)'); if (r) { route(); scheduleDlg(r.id); } } });
   } else if (!isNew) {
     buttons.unshift({ label: 'Löschen', cls: 'danger', onClick: async () => { if (!(await confirmDlg(`Zeitplan „${s.name}“ löschen?`, 'Löschen', true))) return false; await DEL(`/api/schedules/${s.id}`); toast('Gelöscht', 'ok'); route(); } });
-    // Beide Knöpfe speichern vorher – deshalb so beschriftet, und die Liste wird danach aktualisiert
+    // Both buttons save first – hence labelled this way, and the list is refreshed afterwards
     buttons.splice(1, 0, { label: 'Speichern & Vorschau', icon: 'list', close: false, onClick: async () => { await PUT(`/api/schedules/${s.id}`, body()); S.dirtyList = true; await schedulePreview({ ...s, ...body() }); } },
       { label: 'Speichern & ausführen', icon: 'send', onClick: async () => { await PUT(`/api/schedules/${s.id}`, body()); await runSchedule({ ...s, kind: s.kind }); route(); } });
   }
@@ -4169,7 +4169,7 @@ async function scheduleDlg(id, preset = {}) {
     { wide: true, sticky: true, help: 'schedules', onClose: () => { if (S.dirtyList) { S.dirtyList = false; route(); } } });
 }
 
-// --- Einstellungen: Mandanten ----------------------------------------------------------------
+// --- Settings: Tenants ----------------------------------------------------------------
 function tenantsCard() {
   const body = h('div.card-b', h('p.muted', 'Wird geladen …'));
   const card = h('div.card', h('div.card-h', h('h2', 'Mandanten'), btn('Neuer Mandant', () => tenantDlg(null), { cls: 'small', icon: 'plus' })), body);
@@ -4178,7 +4178,7 @@ function tenantsCard() {
     t = t || { name: '', description: '', collection_id: null, repo_folder: '', admin_group: '', allow_packages: 0 };
     const name = h('input', { value: t.name });
     const desc = h('input', { value: t.description || '' });
-    // 2.29.9: mehrere Sammlungen je Mandant (z. B. mehrere OUs oder Gruppen) – zusammen ergeben sie seinen Bereich
+    // 2.29.9: several collections per tenant (e.g. several OUs or groups) – together they make up its area
     const colSet = new Set((t.collection_ids && t.collection_ids.length ? t.collection_ids : (t.collection_id ? [t.collection_id] : [])).map(Number));
     const col = await collPicker(colSet, { allowAll: false });
     const folder = h('input', { value: t.repo_folder || '', placeholder: 'leer = automatisch „Mandanten\\<Name>“' });
@@ -4234,10 +4234,10 @@ function tenantsCard() {
   return card;
 }
 
-// --- Bereitstellung: Ergebnis je Schritt -----------------------------------------------------
+// --- Deployment: result per step -----------------------------------------------------
 const STEP_STATUS = { success: ['OK', 'ok'], failed: ['Fehler', 'err'], skipped: ['Übersprungen', ''], notrun: ['Nicht ausgeführt', ''], running: ['Läuft', 'info'] };
-// Schritt erneut ausführen: nur diesen Schritt oder ab diesem Schritt (neue Bereitstellung mit gekürztem Paket)
-// 2.35.1: Paket seit der Bereitstellung geändert → Wiederholen nimmt (wählbar) den aktuellen Stand statt des damaligen
+// Run step again: only this step or from this step onward (new deployment with a shortened package)
+// 2.35.1: Package changed since the deployment → "Wiederholen" uses (selectable) the current state instead of the original one
 const RERUN_CUR = {};
 async function retryStep(did, sid, title, mode, targetIds, names) {
   const who = names.length === 1 ? names[0] : `${names.length} Computern`;
@@ -4273,7 +4273,7 @@ function repoBrowser(onPick, start = '', opt = {}) {
   let path = start || '';
   const list = h('div.list-pick', { style: { maxHeight: '360px' } });
   const crumb = h('div.mono.muted', { style: { marginBottom: '8px' } });
-  // Suche: Datei- oder Ordnername ab dem aktuellen Ordner in allen Unterordnern (mit * und ? als Muster)
+  // Search: file or folder name from the current folder in all subfolders (with * and ? as pattern)
   const q = h('input', { type: 'search', placeholder: tr('Im Repository suchen – Datei- oder Ordnername, z. B. 7z*.msi'), style: { width: '100%', marginBottom: '8px' } });
   const note = h('div.muted.small', { style: { margin: '-4px 0 8px' } });
   let qt = null, qn = 0;
@@ -4283,7 +4283,7 @@ function repoBrowser(onPick, start = '', opt = {}) {
     if (v.replace(/[*?]/g, '').length < 2) { qn++; note.textContent = ''; load(); return; }
     qt = setTimeout(() => search(v), 350);
   });
-  // opt.folderOnly: nur einen Ordner wählen (Dateien sind dann nicht anklickbar); opt.onCancel: geschlossen ohne Wahl
+  // opt.folderOnly: choose only a folder (files are then not clickable); opt.onCancel: closed without a choice
   let picked = false;
   const pickFile = (folder, name) => { if (opt.folderOnly) return; picked = true; onPick(folder, name); m.close(); };
   const m = modal(opt.title || 'Repository durchsuchen', h('div', q, note, crumb, list), [
@@ -4293,20 +4293,20 @@ function repoBrowser(onPick, start = '', opt = {}) {
   const join = (a, b) => (a ? `${a}\\${b}` : b);
   async function search(v, refresh = false) {
     const my = ++qn;
-    ln++;  // eine noch laufende Ordnerliste darf die Treffer nicht überschreiben
+    ln++;  // a still running folder list must not overwrite the hits
     note.textContent = tr(refresh ? 'Repository wird neu eingelesen – diese Suche läuft direkt auf der Freigabe …' : 'Suche läuft …');
     let r;
-    // Immer im ganzen Repository (OU-Admins: im Ordner ihres Mandanten) – nicht nur im gerade geöffneten Ordner
+    // Always in the whole repository (OU admins: in their tenant's folder) – not only in the currently open folder
     try { r = await GET(`/api/repository/search?q=${encodeURIComponent(v)}${refresh ? '&refresh=1' : ''}`); } catch (e) {
       if (my === qn) { note.textContent = e.message; list.replaceChildren(); }
       return;
     }
-    if (my !== qn) return;  // eine neuere Suche läuft schon
+    if (my !== qn) return;  // a newer search is already running
     crumb.textContent = tr('Suche im ganzen Repository');
     const res = r.items.length
       ? fmtT(r.truncated ? '{0} Treffer (Suche abgebrochen – bitte genauer suchen)' : '{0} Treffer', r.items.length)
       : (r.truncated ? tr('Keine Treffer in der Zeit – bitte genauer suchen.') : tr('Keine Treffer.'));
-    // Stand des Index (Arbeitsspeicher des Servers): neue Dateien erscheinen spätestens nach 5 Minuten
+    // State of the index (server memory): new files appear after 5 minutes at the latest
     const ix = r.index || {};
     const stand = r.cached ? (r.age < 60 ? tr('Stand: gerade eben') : fmtT('Stand: vor {0} Min.', Math.round(r.age / 60)))
       : (ix.building ? tr('direkt gesucht – Index wird gerade eingelesen') : tr('direkt gesucht'));
@@ -4322,11 +4322,11 @@ function repoBrowser(onPick, start = '', opt = {}) {
     it.dir ? '' : h('span.muted.small', `  ${fmtBytes(it.size)}`))));
   }
   let ln = 0;
-  // OU-Admin: oberhalb des Mandanten-Ordners gibt es nichts – dort kein „..“
+  // OU admin: there is nothing above the tenant folder – no ".." there
   const ouRoots = isOU() ? (S.me.tenants || []).map((t) => (t.repo_folder || '').toLowerCase()).filter(Boolean) : [];
   async function load() {
     const my = ++ln;
-    qn++;  // laufende Suche verwerfen
+    qn++;  // discard the running search
     let r;
     try { r = await GET('/api/repository?path=' + encodeURIComponent(path)); } catch (e) {
       if (my !== ln) return;
@@ -4335,7 +4335,7 @@ function repoBrowser(onPick, start = '', opt = {}) {
     }
     if (my !== ln) return;
     if (!r) { list.replaceChildren(h('div.muted', 'Repository nicht erreichbar – Pfad unter Einstellungen prüfen.')); return; }
-    path = r.path || path;  // OU-Admin: der Server beginnt im Ordner des Mandanten
+    path = r.path || path;  // OU admin: the server starts in the tenant's folder
     crumb.textContent = (r.root || '') + (path ? '\\' + path : '');
     const items = [];
     if (path && !ouRoots.includes(path.toLowerCase())) items.push(h('div', { onclick: () => { path = path.split('\\').slice(0, -1).join('\\'); load(); } }, icon('up'), ' ..'));
@@ -4354,7 +4354,7 @@ function repoBrowser(onPick, start = '', opt = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// Bereitstellen-Dialog
+// "Bereitstellen" dialog (deploy)
 // ---------------------------------------------------------------------------
 async function deployDlg(opt = {}) {
   const [pkgs, cols] = await Promise.all([GET('/api/packages'), collections()]);
@@ -4406,7 +4406,7 @@ async function deployDlg(opt = {}) {
   ], { wide: true, sticky: true });
 }
 
-// Pakete auswählen (mehrere): Suche, Häkchen, gewählte Pakete als Chips in Ausführungsreihenfolge (ziehen zum Umsortieren)
+// Choose packages (multiple): search, checkmarks, selected packages as chips in execution order (drag to reorder)
 function packagePicker(pkgs, preselected = [], onChange = null) {
   const order = preselected.map(Number).filter((id) => pkgs.some((p) => p.id === id));
   const q = h('input', { type: 'search', placeholder: 'Paket suchen …' });
@@ -4420,7 +4420,7 @@ function packagePicker(pkgs, preselected = [], onChange = null) {
       const p = pkgs.find((x) => x.id === id);
       const c = h('span.chip', { draggable: 'true', title: 'Ziehen zum Umsortieren' }, h('b', `${i + 1}.`), h('span.raw', label(p)),
         h('button', { type: 'button', title: 'Entfernen', onclick: () => { order.splice(order.indexOf(id), 1); draw(); } }, '×'));
-      c.addEventListener('dragstart', (e) => { dragId = id; e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', String(id)); } catch (x) { /* egal */ } });
+      c.addEventListener('dragstart', (e) => { dragId = id; e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', String(id)); } catch (x) { /* ignore */ } });
       c.addEventListener('dragover', (e) => { if (dragId !== null && dragId !== id) e.preventDefault(); });
       c.addEventListener('drop', (e) => { e.preventDefault(); if (dragId === null || dragId === id) return; order.splice(order.indexOf(dragId), 1); order.splice(order.indexOf(id), 0, dragId); dragId = null; draw(); });
       return c;
@@ -4485,9 +4485,9 @@ async function computerPicker(preselected = [], opt = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// Ansicht: Bereitstellungen
+// View: Deployments
 // ---------------------------------------------------------------------------
-// Ziel einer Bereitstellung: Sammlung/Zeitplan-Ziele (falls bekannt) und die ersten Computernamen
+// Target of a deployment: collection/schedule targets (if known) and the first computer names
 function depTargetNames(r) {
   const names = (r.target_names || '').split(', ').filter(Boolean);
   const more = (r.total || 0) - names.length;
@@ -4515,7 +4515,7 @@ async function viewDeployments() {
   every(5000, async () => { if (parseHash().parts[0] === 'deployments') t.setRows(await load()); });
 }
 
-// Bereitstellung mit frei gewählten Schritten wiederholen
+// Repeat a deployment with freely chosen steps
 const STEP_COUNT_LABEL = { success: ['OK', 'ok'], failed: ['Fehler', 'err'], skipped: ['übersprungen', ''], notrun: ['nicht ausgeführt', ''] };
 async function rerunDlg(did, d) {
   const ov = await GET(`/api/deployments/${did}/steps${RERUN_CUR[did] ? '?current=1' : ''}`);
@@ -4528,7 +4528,7 @@ async function rerunDlg(did, d) {
     if (!list.length) continue;
     rows.push(h('div.muted.small', { style: { margin: '10px 0 4px', textTransform: 'uppercase', letterSpacing: '.05em' } }, tr(PHN[ph])));
     for (const st of list) {
-      // Vorauswahl: fehlgeschlagene und danach nicht mehr ausgeführte Schritte (gibt es keine Fehler, alle eingeschalteten)
+      // Preselection: failed steps and steps not executed afterwards (if there are no errors, all enabled ones)
       const cb = checks[st.sid] = h('input', { type: 'checkbox', checked: anyFailed ? !!(st.counts.failed || st.counts.notrun) : st.enabled });
       const badges = Object.entries(st.counts).map(([k, n]) => h('span.badge', { class: (STEP_COUNT_LABEL[k] || ['', ''])[1], style: { marginLeft: '6px' } }, `${n} ${tr((STEP_COUNT_LABEL[k] || [k])[0])}`));
       rows.push(h('label.chk', { style: { display: 'flex', alignItems: 'center', padding: '3px 0' } }, cb, h('span.raw', { style: { marginLeft: '6px' } }, st.title),
@@ -4548,7 +4548,7 @@ async function rerunDlg(did, d) {
     ...ov.targets.map((t) => h('label.chk', { style: { display: 'flex', padding: '2px 0' } }, tchecks[t.tid] = h('input', { type: 'checkbox', checked: t.status !== 'success' }),
       h('span.raw', { style: { marginLeft: '6px' } }, t.computer), h('span', { style: { marginLeft: '6px' } }, depBadge(t.status)))));
   tsel.addEventListener('change', () => { tbox.style.display = tsel.value === 'selected' ? '' : 'none'; });
-  // Neustart: Standard „nie“, außer es ist ein Installations- oder Neustart-Schritt gewählt (dann wie im Paket)
+  // Restart: default "nie" (never), unless an install or restart step is chosen (then as in the package)
   const pkgReboot = (d.package && d.package.reboot) || 'never';
   const rb = sel([['package', fmtT('wie im Paket ({0})', tr({ never: 'nie', if_required: 'bei Bedarf', always: 'immer' }[pkgReboot] || 'nie'))], ['never', 'nie']], 'never');
   rbAuto = () => { const any = ov.steps.some((x) => checks[x.sid].checked && ['install', 'reboot', 'nested'].includes(x.type)); rb.value = any ? 'package' : 'never'; };
@@ -4575,7 +4575,7 @@ async function viewDeployment(parts) {
   const d = await GET(`/api/deployments/${id}`);
   const p = d.package || {};
   const active = ['running', 'queued', 'scheduled'].includes(d.status);
-  if (!(id in RERUN_CUR)) RERUN_CUR[id] = !!d.package_changed;  // Standard: geändertes Paket → aktueller Stand
+  if (!(id in RERUN_CUR)) RERUN_CUR[id] = !!d.package_changed;  // Default: changed package → current state
   if (!d.package_changed) RERUN_CUR[id] = false;
   setTop(`Bereitstellung #${d.id}: ${d.name}`, `${SOURCE[d.source] || d.source} · ${d.created_by || ''} · ${fmtDate(d.created_at)}`,
     active ? btn('Abbrechen', async () => { if (await confirmDlg('Bereitstellung abbrechen? Bereits laufende Installationen werden beendet.', 'Abbrechen', true)) { await run(() => POST(`/api/deployments/${id}/cancel`), 'Abgebrochen'); route(); } }, { cls: 'danger' }) : null,
@@ -4609,7 +4609,7 @@ async function viewDeployment(parts) {
     { key: 'finished_at', label: 'Ende', render: (r) => fmtDate(r.finished_at) },
     { key: 'out', label: '', nosort: true, noFilter: true, render: (r) => (r.finished_at || r.output ? btn('Details', () => targetDetails(r, id, !active), { cls: 'small' }) : '') },
   ], d.targets, { sort: 'computer_name', noun: 'Ziele', onRow: (r) => targetDetails(r, id, !active) });
-  // Fehlgeschlagene Schritte zusammengefasst – einzeln wiederholen
+  // Failed steps summarised – repeat individually
   let fsCard = null;
   if (!active && failed) {
     let fs = [];
@@ -4636,18 +4636,18 @@ async function viewDeployment(parts) {
 }
 
 // ---------------------------------------------------------------------------
-// Wochentage (Zeitfenster der Zeitpläne)
+// Weekdays (time window of the schedules)
 // ---------------------------------------------------------------------------
 const DAYS = [[1, 'Mo'], [2, 'Di'], [3, 'Mi'], [4, 'Do'], [5, 'Fr'], [6, 'Sa'], [7, 'So']];
 
 // ---------------------------------------------------------------------------
-// Ansicht: Berichte
+// View: Reports
 // ---------------------------------------------------------------------------
 async function viewReports(parts, params) {
   const [defs, cols] = await Promise.all([GET('/api/reports'), collections()]);
   const std = defs.find((d) => !d.custom) || defs[0];
   const key = parts[0] || std.key;
-  const ou = isOU();  // 2.30: nur lesen – kein Mailversand, keine eigenen Berichte anlegen/ändern
+  const ou = isOU();  // 2.30: read-only – no mail sending, no creating/changing custom reports
   const isMail = key === 'mail' && !ou;
   const def = defs.find((d) => d.key === key) || std;
   setTop('Berichte', isMail ? 'E-Mail-Versand' : def.title);
@@ -4680,7 +4680,7 @@ async function viewReports(parts, params) {
     def.custom && !ou ? h('span.row', { style: { gap: '6px', marginLeft: '6px', paddingLeft: '10px', borderLeft: '1px solid var(--line)' } },
       btn('Bearbeiten', async () => customReportDlg(await GET(`/api/customreports/${def.id}`), cols), { icon: 'edit' }),
       btn('Duplizieren', async () => { const r = await POST(`/api/customreports/${def.id}/duplicate`); toast('Kopie angelegt', 'ok'); go(`#/reports/${r.key}`); }),
-      btn('Benachrichtigung …', () => customReportAlert(def), { icon: 'bell', title: 'Mail, sobald der Bericht Zeilen liefert' })) : '');  // nie null: DOM-append schreibt sonst „null“
+      btn('Benachrichtigung …', () => customReportAlert(def), { icon: 'bell', title: 'Mail, sobald der Bericht Zeilen liefert' })) : '');  // never null: DOM append would otherwise write "null"
   const res = await GET(`/api/reports/${def.key}?${qs()}`);
   const t = table(res.columns.map((c) => ({ key: c.key, label: c.label, cls: c.type === 'number' || c.type === 'bytes' ? 'right' : '',
     sort: c.type === 'bytes' || c.type === 'number' ? (r) => (r[c.key] === null || r[c.key] === '' ? -1 : Number(r[c.key])) : undefined,
@@ -4692,7 +4692,7 @@ async function viewReports(parts, params) {
 }
 
 // ---------------------------------------------------------------------------
-// E-Mail: Berichtsversand (Abonnements) – Teil der Berichte-Ansicht
+// E-mail: report delivery (subscriptions) – part of the Reports view
 // ---------------------------------------------------------------------------
 const MAIL_TRIGGERS = ['once', 'interval', 'daily', 'weekly', 'monthly'];
 
@@ -4742,7 +4742,7 @@ function mailSubDlg(s, defs, cols, preset) {
   const csv = h('input', { type: 'checkbox', checked: s.options.csv !== false });
   const skip = h('input', { type: 'checkbox', checked: !!s.options.skip_empty });
   const limit = h('input', { type: 'number', min: 0, max: 2000, value: s.options.row_limit ?? 200, style: { maxWidth: '100px' } });
-  // Berichte mit Parametern
+  // Reports with parameters
   const repBox = h('div');
   const addSel = sel([['', '— Bericht hinzufügen —'], ...defs.map((x) => [x.key, x.title])], '');
   addSel.addEventListener('change', () => {
@@ -4822,7 +4822,7 @@ async function mailSendNow(s) {
 }
 
 // ---------------------------------------------------------------------------
-// Einstellungen → E-Mail: SMTP-Server und Benachrichtigungen
+// Settings → E-Mail: SMTP server and notifications
 // ---------------------------------------------------------------------------
 function proxyCard() {
   const box = h('div.card-b', h('p.muted', 'Wird geladen …'));
@@ -4888,7 +4888,7 @@ function mailCard() {
       if (r) { pw.value = ''; pw.placeholder = r.password_set ? '•••••••• (gespeichert – leer lassen zum Behalten)' : 'Kennwort'; }
     }, { cls: 'primary' });
     const testBtn = btn('Testmail senden', async () => {
-      // Erst speichern, damit genau diese Werte getestet werden
+      // Save first so that exactly these values are tested
       const saved = await run(() => PUT('/api/mail/settings', { ...body(), enabled: enabled.checked }));
       if (!saved) return;
       pw.value = '';
@@ -4908,7 +4908,7 @@ function mailCard() {
   return card;
 }
 
-// Ergebnis der Testmail: was der Server geantwortet hat – und woran es liegen kann, wenn trotzdem nichts ankommt
+// Result of the test mail: what the server answered – and what may be the cause if nothing arrives anyway
 function mailTestResult(r) {
   const pre = h('pre.out', { style: { whiteSpace: 'pre-wrap', maxHeight: '260px', overflow: 'auto', margin: '6px 0 12px' } }, (r.transcript || []).join('\n'));
   const tips = [
@@ -4987,7 +4987,7 @@ function alertDlg(a, cols, onSaved) {
 }
 
 // ---------------------------------------------------------------------------
-// Eigene Berichte: Datenquelle, Spalten, Filter, Zusammenfassen – Vorschau und Speichern
+// Custom reports: data source, columns, filters, summarising – preview and saving
 // ---------------------------------------------------------------------------
 const CR_TEMPLATES = [
   ['Leer (Computerliste)', () => ({ source: 'computer', columns: [{ t: 'computer', c: 'name' }] })],
@@ -5153,7 +5153,7 @@ async function customReportAlert(def) {
 }
 
 // ---------------------------------------------------------------------------
-// Ansicht: Protokoll
+// View: Log
 // ---------------------------------------------------------------------------
 async function viewLogs(_p, params) {
   setTop('Protokoll', 'Anmeldungen, Scans, Bereitstellungen und Systemereignisse');
@@ -5180,10 +5180,10 @@ async function viewLogs(_p, params) {
 }
 
 // ---------------------------------------------------------------------------
-// Ansicht: Software-Kiosk (Verwaltung) – Anfragen freigeben, Katalog pflegen, Zugang einstellen
+// View: Software kiosk (administration) – approve requests, maintain catalog, configure access
 // ---------------------------------------------------------------------------
-// Auswahl aus dem AD als aufklappbarer Baum – OUs (mode 'ou') oder Gruppen (mode 'group', mit Suche).
-// Liefert die gewählten Einträge [{dn, name, sam, kind}] oder null bei „Abbrechen“.
+// Selection from AD as an expandable tree – OUs (mode 'ou') or groups (mode 'group', with search).
+// Returns the selected entries [{dn, name, sam, kind}] or null on "Abbrechen".
 function adPicker(mode) {
   return new Promise((resolve) => {
     const chosen = new Map();
@@ -5225,7 +5225,7 @@ function adPicker(mode) {
       const root = { dn: (r0 && r0.dn) || '', name: (r0 && r0.path) || 'Domäne', kind: 'ou' };
       const el = node(root, 0);
       treeBox.replaceChildren(el);
-      el.firstChild.click();  // Domäne aufklappen
+      el.firstChild.click();  // Expand domain
     })();
     let qt = null;
     const q = mode === 'group' ? h('input', { type: 'search', placeholder: 'Gruppe suchen (Name oder Beschreibung) …', style: { width: '100%', marginBottom: '8px' },
@@ -5309,7 +5309,7 @@ async function viewKiosk(_p, params) {
       for (const g of chosen) { const v = g.sam || g.name; if (!low.has(v.toLowerCase())) { have.push(v); low.add(v.toLowerCase()); } }
       grp.value = have.join('\n');
     };
-    // Symbol: Vorschau aus der gewählten Datei (als data:-URL – die Seite erlaubt keine blob:-Bilder)
+    // Icon: preview from the chosen file (as a data: URL – the page does not allow blob: images)
     let iconData = null; let iconFile = null; let iconClear = false;
     const prev = h('div.kiosk-ic');
     const drawPrev = () => {
@@ -5377,7 +5377,7 @@ async function viewKiosk(_p, params) {
   const kTo = h('input', { value: s.kiosk_notify_to || '', placeholder: 'leer = Standard-Empfänger (E-Mail-Einstellungen)' });
   const kMax = h('input', { type: 'number', min: 1, max: 500, value: s.kiosk_max_per_day, style: { maxWidth: '100px' } });
   const url = d.url && !d.url.startsWith('/') ? d.url : `${location.origin}/kiosk`;
-  // Anmeldung mit Windows (Kerberos): Schalter wird mit „Speichern“ übernommen, die Keytab sofort beim Hochladen
+  // Sign-in with Windows (Kerberos): the switch is applied with "Speichern", the keytab immediately on upload
   const kSso = h('input', { type: 'checkbox', checked: !!Number(s.kiosk_sso) });
   const ssoState = h('div');
   const ssoOut = h('div');
@@ -5415,7 +5415,7 @@ async function viewKiosk(_p, params) {
       }, { cls: 'small ghost' }),
       btn('Anleitung', () => go('#/help?s=kiosk-sso'), { cls: 'small ghost', icon: 'help' })),
     ssoOut);
-  // Auswahl aus dem AD-Baum in das Textfeld übernehmen (Gruppen als Kontoname, OUs als DN; ohne Doppelte)
+  // Take the selection from the AD tree into the text field (groups as account name, OUs as DN; without duplicates)
   const pickInto = async (ta, mode) => {
     const sel2 = await adPicker(mode);
     if (!sel2 || !sel2.length) return;
@@ -5460,9 +5460,9 @@ async function viewKiosk(_p, params) {
 }
 
 // ---------------------------------------------------------------------------
-// Ansicht: Einstellungen
+// View: Settings
 // ---------------------------------------------------------------------------
-// --- Einstellungen: Konten (verschlüsselt in der Datenbank) -------------------------------------
+// --- Settings: Accounts (encrypted in the database) -------------------------------------
 function accountsCard() {
   const body = h('div.card-b', h('p.muted', 'Wird geladen …'));
   const card = h('div.card', h('div.card-h', h('h2', 'Dienstkonto & Repository-Konto')), body);
@@ -5502,7 +5502,7 @@ function accountsCard() {
   return card;
 }
 
-// --- Einstellungen: Zertifikat der Weboberfläche -------------------------------------------------
+// --- Settings: Certificate of the web interface -------------------------------------------------
 function filePick(accept, label) {
   const input = h('input', { type: 'file', accept });
   const txt = h('span', label);
@@ -5544,7 +5544,7 @@ function tlsCard() {
     if (!i.https) {
       parts.push(h('div.help-note', 'HTTPS ist abgeschaltet (PK_HTTPS=false). Das Zertifikat wird erst verwendet, wenn PK_HTTPS=true gesetzt und der Container neu gestartet wird.'));
     }
-    // Aktuelles Zertifikat
+    // Current certificate
     if (i.cert) {
       parts.push(h('div.row', { style: { marginBottom: '8px' } }, h('b', 'Aktuell'), h('span.badge', { class: i.source === 'self' ? '' : 'ok' }, SRC[i.source] || i.source),
         i.installed ? h('span.muted.small', `seit ${fmtDate(i.installed)}`) : null, h('div.spacer'),
@@ -5554,7 +5554,7 @@ function tlsCard() {
         i.hostname_ok ? null : field('Hinweis', h('span.badge.warn', { style: { whiteSpace: 'normal' } }, `PK_PUBLIC_HOSTNAME „${i.hostname}“ ist nicht im Zertifikat enthalten`))));
     } else if (i.error) parts.push(h('p.err-text', i.error));
 
-    // Eigenes Zertifikat hochladen
+    // Upload own certificate
     const mode = sel([['pfx', 'PFX / PKCS#12 (.pfx, .p12) – Zertifikat mit Schlüssel'], ['pem', 'PEM / CER (.crt, .cer, .pem) + Schlüsseldatei']], 'pfx');
     const pfx = filePick('.pfx,.p12', 'PFX-Datei wählen …');
     const pfxPw = h('input', { type: 'password', autocomplete: 'new-password', placeholder: 'Kennwort der PFX-Datei' });
@@ -5577,7 +5577,7 @@ function tlsCard() {
       }
       if (!crt.file()) throw new Error('Zertifikat wählen');
       const [a, b] = await Promise.all([crt.file().arrayBuffer(), chainF.file() ? chainF.file().arrayBuffer() : Promise.resolve(new ArrayBuffer(0))]);
-      // Zertifikat und Kette zu einer Datei zusammenfügen (PEM hintereinander; DER-Kette separat nicht möglich)
+      // Combine certificate and chain into one file (PEM concatenated; a DER chain is not possible separately)
       const isPem = (buf) => new TextDecoder().decode(buf.slice(0, 64)).includes('-----BEGIN');
       let all = new Uint8Array(a);
       if (b.byteLength) {
@@ -5607,7 +5607,7 @@ function tlsCard() {
       h('p.muted.small', { style: { marginTop: 0 } }, 'Zum Beispiel ein Zertifikat der eigenen Zertifizierungsstelle (Active Directory-Zertifikatdienste) oder ein gekauftes bzw. Let’s-Encrypt-Zertifikat. Es wird geprüft (Schlüssel passt, gültig, Serverauthentifizierung, Hostname) und ohne Neustart aktiviert. Kein Reverse Proxy nötig.'),
       h('div.form', field('Format', mode)), pfxBox, pemBox, h('div.row', { style: { margin: '8px 0' } }, checkB, installB), result);
 
-    // Zertifikatsanforderung
+    // Certificate request
     parts.push(h('h3', { style: { margin: '18px 0 8px' } }, 'Zertifikatsanforderung (CSR) erstellen'));
     if (i.pending) {
       const ta = h('textarea.mono', { rows: 8, readonly: true, style: { width: '100%', fontSize: '11px' } });
@@ -5637,7 +5637,7 @@ function tlsCard() {
         }, { cls: 'small', icon: 'file' })));
     }
 
-    // Sicherungen / selbstsigniert
+    // Backups / self-signed
     const bsel = i.backups.length ? sel(i.backups.map((b) => [b, b.replace(/^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})$/, '$3.$2.$1 $4:$5:$6')]), i.backups[0]) : null;
     parts.push(h('h3', { style: { margin: '18px 0 8px' } }, 'Zurücksetzen'),
       h('div.row',
@@ -5657,7 +5657,7 @@ function tlsCard() {
   return card;
 }
 
-// --- Einstellungen: Active Directory ----------------------------------------------------------
+// --- Settings: Active Directory ----------------------------------------------------------
 function adCard() {
   const body = h('div.card-b', h('p.muted', 'Wird geladen …'));
   const card = h('div.card', h('div.card-h', h('h2', 'Active Directory'),
@@ -5669,7 +5669,7 @@ function adCard() {
     const paths = { ...a.rules_paths };
     const chk = (k) => h('input', { type: 'checkbox', checked: !!Number(a[k]) });
     const inp = { ad_auto_sync: chk('ad_auto_sync'), ad_sync_disabled: chk('ad_sync_disabled'), ad_ou_collections: chk('ad_ou_collections'), ad_group_collections: chk('ad_group_collections') };
-    // Intervall in Tagen / Stunden / Minuten
+    // Interval in days / hours / minutes
     const mins = Number(a.ad_sync_minutes) || 60;
     const unit = mins % 1440 === 0 ? 1440 : mins % 60 === 0 ? 60 : 1;
     const ivN = h('input', { type: 'number', min: 1, value: mins / unit, style: { maxWidth: '90px' } });
@@ -5739,7 +5739,7 @@ async function viewSettings() {
   const n = (k, attrs = {}) => (inputs[k] = h('input', { type: 'number', min: 0, value: s[k], style: { maxWidth: '140px' }, ...attrs }));
   const t = (k, attrs = {}) => (inputs[k] = h('input', { value: s[k] ?? '', ...attrs }));
   const c = (k) => (inputs[k] = h('input', { type: 'checkbox', checked: !!Number(s[k]) }));
-  // Neuer Repository-Server bzw. neue Freigabe: Kennwort des Zugriffskontos zur Bestätigung (siehe Hilfe)
+  // New repository server or new share: password of the access account for confirmation (see help)
   const repoPw = h('input', { type: 'password', autocomplete: 'new-password', placeholder: 'nur bei neuem Server/neuer Freigabe', style: { maxWidth: '320px' } });
   const repoPwRow = field('Kennwort bestätigen', repoPw, 'Wer Server oder Freigabe des Repositorys ändert, bestätigt das mit dem Kennwort des Zugriffskontos – die gespeicherte Anmeldung geht so nie versehentlich an einen anderen Server.');
   const repoChanged = () => { const show = inputs.repo_path && inputs.repo_path.value.trim() !== String(s.repo_path || '').trim();
@@ -5800,7 +5800,7 @@ async function viewSettings() {
       field('Auf Aufwachen warten (Sek.)', n('wol_wait_seconds', { min: 0, max: 900 }), '0 = nur senden, nicht prüfen. Standard 240 – ein Desktop braucht bis zum Netzwerk meist 30 bis 90 Sekunden.'),
       field('Feste Relays', t('wol_relays', { placeholder: 'z. B. SRV-DRUCK01, SRV-FILE01', style: { width: '100%' } }), 'Optional: Computer, die immer laufen (z. B. Server) und das Paket zuerst senden – so klappt es auch, wenn im Subnetz sonst niemand online ist. Computernamen, durch Komma getrennt.'))));
 
-  // Windows-Benachrichtigung („Toast“) für angemeldete Benutzer nach erfolgreicher Installation/Aktualisierung
+  // Windows notification ("toast") for logged-in users after a successful installation/update
   const toastHost = h('input', { placeholder: 'Computername, z. B. PC001', style: { maxWidth: '220px' } });
   const toastOut = h('div.small');
   inputs.toast_language = sel([['de', 'Deutsch'], ['en', 'English']], s.toast_language || 'de');
@@ -5816,7 +5816,7 @@ async function viewSettings() {
         if (r) toastOut.replaceChildren(h('div', { style: { marginTop: '6px' } }, h('span.badge.' + (r.ok ? 'ok' : 'err'), r.ok ? 'gesendet' : 'nicht gezeigt'), ' ', h('span.raw', r.message)));
       }, { cls: 'small', icon: 'send' })), toastOut), 'Erst speichern – der Test nutzt die gespeicherten Einstellungen.'))));
 
-  // Text der Windows-Meldung bei Neustart/Herunterfahren (shutdown.exe /c)
+  // Text of the Windows message on restart/shutdown (shutdown.exe /c)
   const RB = [
     ['restart', 'Neustart (Computer-Menü)', '{absender}: Neustart in {sekunden} Sekunden.', { sekunden: 60, minuten: 1 }],
     ['shutdown', 'Herunterfahren (Computer-Menü)', '{absender}: Herunterfahren in {sekunden} Sekunden.', { sekunden: 60, minuten: 1 }],
@@ -5845,7 +5845,7 @@ async function viewSettings() {
       ...rbFields)));
   rbUpdate();
 
-  // Namensauflösung und „Antwortet wirklich dieser Computer?“
+  // Name resolution and "Does this computer really answer?"
   const dnsInfo = h('span.muted.small');
   const dnsOut = h('div');
   const dnsName = h('input', { placeholder: 'z. B. PC-0001', style: { maxWidth: '220px' } });
@@ -5899,7 +5899,7 @@ async function viewSettings() {
       field('Automatisch aktualisieren', h('label.chk', c('winget_auto_refresh'), 'Index regelmäßig von cdn.winget.microsoft.com laden')),
       field('Intervall (Std.)', n('winget_refresh_hours', { min: 1 })),
       field('Standard-Bereich', inputs.winget_scope = sel([['machine', 'Computer (--scope machine)'], ['', 'Paketstandard'], ['user', 'Benutzer']], s.winget_scope)),
-      // 2.36: neue winget-Versionen zurückstellen bzw. nur nach Freigabe
+      // 2.36: defer new winget versions or release only after approval
       field('Neue Versionen', h('div.row', { style: { gap: '8px', alignItems: 'center' } },
         inputs.winget_release_mode = sel([['off', 'sofort freigeben'], ['days', 'zurückstellen um …'], ['manual', 'nur nach Freigabe im Paket']], s.winget_release_mode || 'off',
           { onchange: (e) => { relDays.style.display = e.target.value === 'days' ? '' : 'none'; } }),
@@ -5926,7 +5926,7 @@ async function viewSettings() {
         }, { cls: 'small' })), 'Für Netze ohne Internet: source2.msix von einem anderen Rechner laden (https://cdn.winget.microsoft.com/cache/source2.msix) und hier hochladen.'))));
 
   const hostIn = h('input', { placeholder: 'pc-0001.firma.local' });
-  // Diagnosepaket: ZIP zur Fehlersuche – wird nur heruntergeladen, nie verschickt
+  // Diagnostic package: ZIP for troubleshooting – only downloaded, never sent
   const diagDays = sel([['0', 'Seit dem letzten Update'], ['1', '1 Tag'], ['3', '3 Tage'], ['7', '7 Tage'], ['14', '14 Tage'], ['30', '30 Tage']], '7');
   const diagAnon = h('input', { type: 'checkbox', checked: true });
   const diagAlias = h('input', { placeholder: 'z. B. PC-017', style: { maxWidth: '160px' } });
@@ -5984,10 +5984,10 @@ async function viewSettings() {
         if (await confirmDlg(`Feld „${f.name}“ samt ${f.used} Werten löschen?`, 'Löschen', true)) { await run(() => DEL(`/api/fields/${f.id}`), 'Gelöscht'); route(); }
       }, { cls: 'small danger' })))))) : h('p.muted', 'Felder für eigene Angaben je Computer, z. B. Inventarnummer, Raum, Kostenstelle, Garantie bis. Sie sind auch in Sammlungsfiltern nutzbar.'),
     h('div.row', { style: { marginTop: '10px' } }, fName, fType, btn('Hinzufügen', async () => {
-      if (await run(() => POST('/api/fields', { name: fName.value, type: fType.value }), 'Feld angelegt') === undefined) return; // Eingabe behalten
+      if (await run(() => POST('/api/fields', { name: fName.value, type: fType.value }), 'Feld angelegt') === undefined) return; // Keep input
       S.schema = null; route();
     }, { cls: 'small primary' }))));
-  // Sicherung: Einstellungen (Speichern-Knopf des Bereichs) und Liste der Sicherungen
+  // Backup: settings (save button of the section) and list of backups
   const bkList = h('div', h('p.muted', 'Wird geladen …'));
   const bkCard = h('div.card', h('div.card-h', h('h2', 'Automatische Sicherung'),
     btn('Jetzt sichern', async () => { const r = await run(() => POST('/api/backups'), (x) => `Sicherung erstellt (${fmtBytes(x.size)}, ${x.seconds} s)`); if (r) drawBk(); }, { cls: 'small primary', icon: 'download' })),
@@ -6022,7 +6022,7 @@ async function viewSettings() {
   }
   drawBk();
   const rdBody = h('div.card-b', h('p.muted', 'Wird geladen …'));
-  // Zentrales VNC-Kennwort: eigenes Speichern (unabhängig vom Speichern-Knopf des Bereichs)
+  // Central VNC password: separate saving (independent of the section's save button)
   const vncBox = (isSet) => {
     const pw = h('input', { type: 'password', autocomplete: 'new-password', placeholder: isSet ? '•••••••• (gesetzt – zum Ändern neu eingeben)' : 'leer = kein zentrales Kennwort', style: { maxWidth: '320px' } });
     const state = h('span.badge', { class: isSet ? 'ok' : '' }, isSet ? 'gesetzt' : 'nicht gesetzt');
@@ -6062,7 +6062,7 @@ async function viewSettings() {
         'Optional. Ist ein Kennwort hinterlegt, bietet der VNC-Dialog „Zentrales VNC-Kennwort“ an und wählt es vor. Es wird verschlüsselt gespeichert und nie angezeigt. Klassisches VNC wertet nur die ersten 8 Zeichen aus.')),
     h('h3', { style: { margin: '14px 0 6px' } }, 'Aktive Sitzungen'), sesT.el);
   })();
-  // 2.26 Bruchprüfung: Vollprüfung der Fingerabdrücke (Schnellprüfung alle 5 Minuten und vor jedem Lauf läuft immer)
+  // 2.26 Break check: full check of the fingerprints (the quick check every 5 minutes and before every run always runs)
   const integCard = h('div.card', h('div.card-h', h('h2', 'Bruchprüfung der Pakete')), h('div.card-b',
     h('p.muted.small', { style: { marginTop: 0 } }, 'POCKET KNIFE merkt sich Größe, Datum und Fingerabdruck (SHA-256) der Repository-Dateien, die Pakete benutzen. Alle 5 Minuten und vor jeder Bereitstellung wird geprüft, ob sie noch so da sind – fehlt eine Datei oder hat sich die Installationsdatei geändert, wird der Lauf unterbrochen, bis jemand im Paket „Neuen Stand übernehmen“ wählt.'),
     h('div.form',
@@ -6071,7 +6071,7 @@ async function viewSettings() {
       field('Zeitfenster', h('div.row', { style: { gap: '6px', alignItems: 'center' } }, n('integrity_full_start', { min: 0, max: 23, style: { maxWidth: '80px' } }),
         h('span', tr('bis')), n('integrity_full_end', { min: 0, max: 24, style: { maxWidth: '80px' } }), h('span', tr('Uhr'))), 'Stunden, z. B. 1 bis 6 Uhr. Über Mitternacht geht auch (22 bis 5).'),
       field('Höchstens (MB/s)', n('integrity_full_mbps', { min: 5, max: 1000 }), 'Drossel, damit der Dateiserver nachts nicht ausgelastet wird. Gilt auch für das Nachrechnen geänderter Dateien.'))));
-  // 2.27 Repository-Ansicht: Grenzen für das Hochladen
+  // 2.27 Repository view: limits for uploading
   const upCard = h('div.card', h('div.card-h', h('h2', 'Hochladen ins Repository')), h('div.card-b',
     h('p.muted.small', { style: { marginTop: 0 } }, 'In der Ansicht „Repository“ laden Hauptadmins und OU-Admins Dateien hoch – geschrieben wird mit dem Repository-Konto, das dafür Schreibrechte auf der Freigabe braucht. Die Daten laufen über diesen Server zum Dateiserver.'),
     h('div.form',
@@ -6084,7 +6084,7 @@ async function viewSettings() {
     : 'Noch keine Ausnahmen.')).catch(() => {});
   const exclCard = h('div.card', h('div.card-h', h('h2', 'Ausnahmen der Aktualitätsprüfung'), btn('Liste bearbeiten …', () => exclusionsDlg(), { cls: 'small', icon: 'list' })),
     h('div.card-b', h('p.muted.small', { style: { marginTop: 0 } }, 'Eigene Liste von Programmen, die nie als „veraltet“ gelten – z. B. Laufzeitbibliotheken oder Fachanwendungen mit vorgegebener Version. Muster mit * und ?, nach Name, Hersteller oder winget-ID.'), exclInfo));
-  // Bereiche wie in einer Systemsteuerung: links die Liste, rechts die Einstellungen des Bereichs
+  // Sections as in a control panel: the list on the left, the section's settings on the right
   const SECTIONS = [
     ['conn', 'Verbindung & Konten', 'net', [conn, accountsCard(), authCard(sys)], false],
     ['ad', 'Active Directory', 'ad', [adCard()], false],
@@ -6108,7 +6108,7 @@ async function viewSettings() {
       panes[key].style.display = key === k ? '' : 'none';
       navItems[key].classList.toggle('on', key === k);
     }
-    try { history.replaceState(null, '', `#/settings?s=${k}`); } catch (e) { /* egal */ }
+    try { history.replaceState(null, '', `#/settings?s=${k}`); } catch (e) { /* ignore */ }
   };
   const nav = h('nav.set-nav', SECTIONS.map(([k, label, ic]) => (navItems[k] = h('a', { href: '#', onclick: (e) => { e.preventDefault(); showSec(k); } }, icon(ic), h('span', label)))));
   const body = h('div.set-body', SECTIONS.map(([k, , , cards, hasSave]) => (panes[k] = h('div.set-pane', ...cards,
@@ -6156,7 +6156,7 @@ function scannerDlg(sc, meta) {
     recRow.forEach((x) => x && (x.style.display = ['registry', 'files'].includes(type.value) ? '' : 'none'));
   };
   type.addEventListener('change', toggle);
-  // Sofort testen: Scanner auf einem Computer ausführen und Ergebnis zeigen
+  // Test immediately: run the scanner on a computer and show the result
   const testPc = h('select', h('option', { value: '' }, '— Computer wählen —'));
   GET('/api/computers').then((list) => list.filter((c) => c.online).concat(list.filter((c) => !c.online))
     .forEach((c) => testPc.appendChild(h('option', { value: c.id, 'data-notr': true }, c.name + (c.online ? '' : ` (${tr('offline')})`))))).catch(() => {});
@@ -6187,7 +6187,7 @@ function scannerDlg(sc, meta) {
   modal(isNew ? 'Neuer Scanner' : `Scanner: ${sc.name}`, form, buttons, { wide: true, help: 'customscanners' });
 }
 
-// Anmeldeverfahren WinRM/SMB: NTLM, Negotiate oder nur Kerberos – mit Schritt-für-Schritt-Test
+// Sign-in method WinRM/SMB: NTLM, Negotiate or Kerberos only – with step-by-step test
 function authCard(sys) {
   const k = sys.kerberos;
   const envLabel = (k.modes.find((m) => m.key === sys.winrm.env_auth) || { label: sys.winrm.env_auth }).label;
@@ -6250,12 +6250,12 @@ function guardBanner(g) {
 
 function localStorageGet(k) { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } }
 function setTheme(v) {
-  try { if (v) localStorage.setItem('pk-theme', v); else localStorage.removeItem('pk-theme'); } catch (e) { /* egal */ }
+  try { if (v) localStorage.setItem('pk-theme', v); else localStorage.removeItem('pk-theme'); } catch (e) { /* ignore */ }
   if (v) document.documentElement.setAttribute('data-theme', v); else document.documentElement.removeAttribute('data-theme');
   document.querySelectorAll('.theme-btn').forEach((b) => b._upd && b._upd());
 }
 
-// 2.31: Rechenlast – Durchschnitt, Aufgaben mit der meisten Rechenzeit, letzte Spitzen mit Kontext
+// 2.31: CPU load – average, tasks with the most CPU time, latest peaks with context
 function loadBox(l) {
   const sec = (v) => `${String(v).replace('.', ',')} s`;
   const tasks = l.tasks.length ? h('table.tbl.small', h('thead', h('tr', h('th', 'Aufgabe'), h('th.right', 'Läufe'), h('th.right', 'Rechenzeit'), h('th.right', 'zuletzt'))),
@@ -6286,12 +6286,12 @@ const BUILTIN_TOOLS = [
   { key: 'eventlog', name: 'Ereignisanzeige …', icon: 'log', view: 'eventlog' },
   { key: 'command', name: 'Befehl ausführen …', icon: 'terminal', main: true },
 ];
-// 2.32.6: Sitzungszustand angemeldeter Benutzer – gesperrt (Sperrbildschirm) oder getrennt (Remotedesktop/Benutzerwechsel)
+// 2.32.6: Session state of logged-in users – locked (lock screen) or disconnected (Remote Desktop/user switch)
 const USER_STATE = { locked: 'gesperrt', disconnected: 'getrennt' };
 function userStatesOf(states) {
   let o = states || {};
   if (typeof o === 'string') { try { o = JSON.parse(o) || {}; } catch (e) { o = {}; } }
-  const out = {};  // Groß/Klein egal (Win32_ComputerSystem und explorer.exe schreiben Domäne/Name nicht immer gleich)
+  const out = {};  // Case-insensitive (Win32_ComputerSystem and explorer.exe do not always write domain/name the same way)
   Object.entries(o).forEach(([k, v]) => { out[k.toLowerCase()] = v; });
   return out;
 }
@@ -6309,11 +6309,11 @@ function usersEl(users, states) {
   }));
 }
 
-// 2.32.4: Tastenkürzel gehören zum Tool (für alle gleich): beim eigenen Tool im Tool-Dialog festlegen, bei eingebauten
-// Tools unter Tools → „Tastenkürzel …“ (mit Vorgaben). Immer Strg+Alt (+ Umschalt) und A–Z, 0–9 oder F1–F12; schon
-// vergebene Kürzel werden sofort angezeigt. Gilt für die markierten Computer der Computerliste bzw. den geöffneten
-// Computer. Taste über e.code (unabhängig vom Tastaturlayout); in Eingabefeldern, Dialogen und Menüs sind die Kürzel
-// aus – AltGr-Zeichen beim Tippen ({ [ ] } @ €) starten also nie ein Tool.
+// 2.32.4: Keyboard shortcuts belong to the tool (the same for everyone): set in the tool dialog for a custom tool, for built-in
+// tools under Tools → "Tastenkürzel …" (with defaults). Always Ctrl+Alt (+ Shift) and A–Z, 0–9 or F1–F12; shortcuts
+// already assigned are shown immediately. Applies to the selected computers of the computer list or the opened
+// computer. Key via e.code (independent of the keyboard layout); in input fields, dialogs and menus the shortcuts are
+// off – AltGr characters while typing ({ [ ] } @ €) therefore never start a tool.
 let HK = null;
 function hkSet(data) {
   const map = {}, byRef = {};
@@ -6341,7 +6341,7 @@ function comboOf(e) {
 }
 let HK_BUSY = false;
 async function hotkeyRun(ref, combo) {
-  // Ein Kürzel nach dem anderen: zweimal drücken startet ein Tool nicht doppelt
+  // One shortcut at a time: pressing twice does not start a tool twice
   if (HK_BUSY) return;
   HK_BUSY = true;
   try { await hotkeyRun2(ref, combo); } finally { HK_BUSY = false; }
@@ -6351,7 +6351,7 @@ async function hotkeyRun2(ref, combo) {
   if (!targets.length) { toast(`${hkText(combo)}: bitte zuerst Computer markieren (Computerliste) oder einen Computer öffnen`, 'err'); return; }
   let name, exec, asks;
   if (ref.startsWith('tool:')) {
-    // aktuelle Zuordnung holen – das Kürzel kann inzwischen einem anderen Tool gehören (anderer Benutzer, anderer Tab)
+    // fetch the current assignment – the shortcut may meanwhile belong to another tool (other user, other tab)
     await toolsData();
     ref = HK.map[combo];
     if (!ref) { toast(`${hkText(combo)} ist keinem Tool mehr zugeordnet`, 'err'); return; }
@@ -6359,7 +6359,7 @@ async function hotkeyRun2(ref, combo) {
   if (ref.startsWith('builtin:')) {
     const b = BUILTIN_TOOLS.find((x) => x.key === ref.slice(8));
     if (!b) return;
-    // Rückfrage kommt aus dem Tool selbst (Neustart-Dialog, Scanprofil) bzw. Ansichten öffnen nur einen Computer
+    // The confirmation comes from the tool itself (restart dialog, scan profile) or views open only one computer
     if (b.main && isOU()) return;
     name = tr(b.name); asks = !!b.confirm || ['scan', 'power', 'files', 'eventlog', 'diskusage', 'command'].includes(b.key); exec = () => runBuiltin(b, targets);
   } else {
@@ -6367,7 +6367,7 @@ async function hotkeyRun2(ref, combo) {
     if (!t) { toast('Das Tool zu diesem Tastenkürzel gibt es nicht mehr', 'err'); return; }
     name = t.name; asks = !!t.confirm; exec = () => runTool(t, targets);
   }
-  // Mehrere Computer: immer nachfragen (ein Tastendruck soll nie unbemerkt viele Computer treffen)
+  // Several computers: always ask (a key press must never silently hit many computers)
   if (targets.length > 1 && !asks && !(await confirmDlg(`„${name}“ auf ${targets.length} Computern ausführen?`, 'Ausführen'))) return;
   if (targets.length === 1) toast(`${hkText(combo)}: ${name} – ${targets[0].name}`, 'ok');
   await exec();
@@ -6376,7 +6376,7 @@ document.addEventListener('keydown', (e) => {
   const combo = comboOf(e);
   if (!combo || e.repeat || !S.me) return;
   const el = e.target;
-  // Nur beim Schreiben aus: Kontrollkästchen (z. B. Auswahl in der Computerliste) und Knöpfe lösen das Kürzel aus
+  // Only when writing is off: checkboxes (e.g. selection in the computer list) and buttons trigger the shortcut
   if (el && el.closest && el.closest('textarea, select, [contenteditable=""], [contenteditable="true"], .cm-editor')) return;
   if (el && el.tagName === 'INPUT' && !['checkbox', 'radio', 'button', 'submit', 'reset', 'image', 'range', 'color', 'file'].includes((el.type || '').toLowerCase())) return;
   if (document.querySelector('#modal-root .backdrop') || openMenu || ctxMenu) return;
@@ -6387,7 +6387,7 @@ document.addEventListener('keydown', (e) => {
   hotkeyRun(ref, combo).catch((x) => toast(x.message || String(x), 'err'));
 });
 
-// Eingabe eines Tastenkürzels: Kombination einfach drücken; Rück/Entf löscht; schon vergeben → Hinweis mit Namen
+// Entering a keyboard shortcut: just press the combination; Backspace/Del clears; already assigned → notice with name
 function hkInput(value, ref) {
   let cur = value || '';
   const inp = h('input.hk-in', { readonly: true, placeholder: 'Tastenkombination drücken …', title: 'Strg+Alt (+ Umschalt) + Buchstabe, Ziffer oder F1–F12 drücken; Rücktaste/Entf entfernt das Kürzel' });
@@ -6412,13 +6412,13 @@ function hkInput(value, ref) {
   return { el: h('div', h('div.row', { style: { gap: '4px' } }, inp, clear), warn), get value() { return cur; }, conflict: owner };
 }
 
-// 2.32.3: Neustart oder Herunterfahren, Wartezeit wählbar (0 = sofort … 24 h)
+// 2.32.3: Restart or shutdown, delay selectable (0 = immediately … 24 h)
 function powerDialog(targets) {
   const act = sel([['restart', 'Neustart'], ['shutdown', 'Herunterfahren']], 'restart');
   const num = h('input', { type: 'number', min: '0', max: '1440', step: '1', value: '60', style: { width: '110px' } });
   const unit = sel([['1', 'Sekunden'], ['60', 'Minuten']], '1');
   const who = targets.length === 1 ? targets[0].name : `${targets.length} Computern`;
-  // 2.34: Server und Domänencontroller nicht wie einen Arbeitsplatz neu starten – deutlich zeigen und bestätigen lassen
+  // 2.34: do not restart servers and domain controllers like a workstation – show clearly and require confirmation
   let servers = null;
   const sure = h('input', { type: 'checkbox' });
   const warn = h('div');
@@ -6434,7 +6434,7 @@ function powerDialog(targets) {
       users ? h('div.small', fmtT('Laut letztem Stand {0} angemeldete Benutzer auf diesen Servern – ihre Sitzungen werden beendet.', users)) : null,
       h('label.chk', { style: { marginTop: '6px' } }, sure, dcs.length ? tr('Ja, auch die Domänencontroller') : tr('Ja, auch die Server'))));
   }).catch(() => {
-    // Prüfung fehlgeschlagen: vorsichtshalber wie mit Servern – nur mit Häkchen ausführen
+    // Check failed: to be safe treat like servers – run only with the checkbox ticked
     servers = [{ unknown: true }];
     warn.replaceChildren(h('div.news-up.sec', { style: { marginBottom: '10px' } },
       h('b', 'Nicht geprüft, ob Server oder Domänencontroller dabei sind'),
@@ -6497,7 +6497,7 @@ function menuOutside(e) { if (openMenu && !openMenu.contains(e.target)) closeMen
 async function toolsMenu(anchor, targets) {
   if (openMenu) { closeMenu(); return; }
   if (!targets.length) { toast('Bitte zuerst Computer auswählen', 'err'); return; }
-  if (S.menuLoading) return; // Doppelklick: nicht zwei Menüs öffnen
+  if (S.menuLoading) return; // Double click: do not open two menus
   S.menuLoading = true;
   let data;
   try { data = await toolsData(); } finally { S.menuLoading = false; }
@@ -6542,7 +6542,7 @@ async function toolsMenu(anchor, targets) {
   setTimeout(() => { document.addEventListener('mousedown', menuOutside, true); document.addEventListener('keydown', menuKey, true); q.focus(); }, 0);
 }
 
-// Fernsitzung in eigenem Tab öffnen (Verbindungsdialog erscheint dort)
+// Open remote session in its own tab (the connection dialog appears there)
 function openRemote(targets, proto) {
   if (targets.length > 6) { toast('Bitte höchstens 6 Computer gleichzeitig öffnen', 'err'); return; }
   targets.forEach((t) => {
@@ -6589,12 +6589,12 @@ async function runTool(t, targets) {
     return;
   }
   if (t.confirm && !(await confirmDlg(`Tool „${t.name}“ auf ${targets.length === 1 ? targets[0].name : targets.length + ' Computern'} ausführen?`, 'Ausführen', true))) return;
-  // Läuft als Job auf dem Server weiter, auch wenn dieses Fenster geschlossen wird
+  // Keeps running as a job on the server even if this window is closed
   const r = await run(() => POST(`/api/tools/${t.id}/jobs`, { ids: targets.map((x) => x.id) }));
   if (r) jobDialog(t.name + (t.run_as === 'system' ? ' (als SYSTEM)' : ''), r.job);
 }
 
-// 2.31: Wake-on-LAN – senden und abwarten, ob der Computer aufwacht (zweiter Versuch über andere Relays automatisch)
+// 2.31: Wake-on-LAN – send and wait to see whether the computer wakes up (second attempt via other relays automatically)
 function wakeDialog(targets) {
   const rows = targets.map((c) => ({ c, res: null, st: null }));
   const body = h('div');
@@ -6625,13 +6625,13 @@ function wakeDialog(targets) {
   draw();
   (async () => {
     for (const r of rows) {
-      // auch nach dem Schließen weiter senden – sonst bekämen die übrigen Computer nie ein Magic Packet
+      // keep sending even after closing – otherwise the remaining computers would never get a magic packet
       try { r.res = await POST('/api/tools/builtin/wake', { computer_id: r.c.id }); } catch (e) { r.res = { exit: 1, output: e.message }; }
       if (!closed) draw();
     }
     const poll = async () => {
       if (closed) return;
-      await Promise.all(rows.filter((r) => !final(r)).map(async (r) => { try { r.st = await GET(`/api/computers/${r.c.id}/wake`); } catch (e) { /* nächster Versuch */ } }));
+      await Promise.all(rows.filter((r) => !final(r)).map(async (r) => { try { r.st = await GET(`/api/computers/${r.c.id}/wake`); } catch (e) { /* next attempt */ } }));
       draw();
       if (rows.some((r) => !final(r))) setTimeout(poll, 4000);
     };
@@ -6639,7 +6639,7 @@ function wakeDialog(targets) {
   })();
 }
 
-// Ergebnisse eines Tool-Auftrags (je Computer Status und Ausgabe) – im eigenen Fenster oder eingebettet (Befehl ausführen)
+// Results of a tool job (status and output per computer) – in its own window or embedded (run command)
 function jobPanel(jid) {
   const body = h('div');
   let closed = false;
@@ -6694,9 +6694,9 @@ function jobDialog(title, jid) {
     { wide: true, onClose: p.stop });
 }
 
-// 2.34: Befehl (PowerShell/CMD) direkt ausführen – ohne vorher ein Tool anzulegen; auf Wunsch als Tool speichern.
-// Nur Hauptadmins (wie Tools anlegen). Die letzten Befehle merkt sich die Seite bis zum Neuladen (nicht gespeichert:
-// in einem Befehl kann ein Kennwort stehen).
+// 2.34: Run a command (PowerShell/CMD) directly – without creating a tool first; save as a tool on request.
+// Main admins only (like creating tools). The page remembers the last commands until reload (not stored:
+// a command may contain a password).
 const CMD_HIST = [];
 const CMD_LAST = { type: 'powershell', script: '', run_as: 'service' };
 async function commandDlg(targets) {
@@ -6747,7 +6747,7 @@ async function commandDlg(targets) {
     if (panel) panel.stop();
     panel = jobPanel(r.job);
     out.replaceChildren(h('h3', { style: { margin: '0 0 8px' } }, 'Ergebnis'), panel.el);
-    return false;  // Fenster bleibt offen: Befehl anpassen und erneut ausführen
+    return false;  // Window stays open: adjust the command and run again
   };
   script.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.ctrlKey) { e.preventDefault(); exec().catch((x) => toast(x.message || String(x), 'err')); } });
   modal(targets.length === 1 ? `Befehl ausführen – ${targets[0].name}` : `Befehl ausführen – ${targets.length} Computer`, h('div', form, out), [
@@ -6804,7 +6804,7 @@ function runDialog(title, targets, exec) {
   for (let i = 0; i < Math.min(4, rows.length); i++) worker();
 }
 
-// --- Verwaltung -----------------------------------------------------------------
+// --- Administration -----------------------------------------------------------------
 async function viewTools() {
   setTop('Tools', 'Befehle für einzelne oder mehrere Computer – aufrufbar über „Tools ▾“ oder per Rechtsklick auf Computer',
     btn('Neuer Ordner', async () => {
@@ -6817,8 +6817,8 @@ async function viewTools() {
   const q = h('input', { type: 'search', placeholder: 'Filtern …' });
   const box = h('div.ttree');
   let closed = new Set();
-  try { closed = new Set(JSON.parse(localStorage.getItem('pk-tools-closed') || '[]')); } catch (e) { /* egal */ }
-  const saveClosed = () => { try { localStorage.setItem('pk-tools-closed', JSON.stringify([...closed])); } catch (e) { /* egal */ } };
+  try { closed = new Set(JSON.parse(localStorage.getItem('pk-tools-closed') || '[]')); } catch (e) { /* ignore */ }
+  const saveClosed = () => { try { localStorage.setItem('pk-tools-closed', JSON.stringify([...closed])); } catch (e) { /* ignore */ } };
   const typeIcon = (t) => (t.type === 'url' ? 'net' : 'terminal');
   const row = (ic, name, type, runas, desc, onClick, cls = '', hk = '') => h('div.trow', { class: cls, onclick: onClick, ondblclick: onClick },
     h('span.tname', h('span.ic', { 'data-ic': ic }, icon(ic)), h('span', name), hk ? h('kbd.hk', { title: 'Mein Tastenkürzel' }, hk) : null), h('span.muted', type), h('span.muted', runas), h('span.muted.trunc', desc));
@@ -6866,7 +6866,7 @@ const BUILTIN_DESC = {
 
 async function toolDlg(tool, presetFolder) {
   const data = await toolsData();
-  const isNew = !tool || !tool.id;  // 2.34: ohne id = neues Tool mit Vorgaben (aus „Befehl ausführen“)
+  const isNew = !tool || !tool.id;  // 2.34: without id = new tool with defaults (from "Befehl ausführen")
   tool = tool || { name: '', folder: presetFolder || '', type: 'powershell', script: '', run_as: 'service', confirm: 0, description: '' };
   const name = h('input', { value: tool.name });
   const folders = [...new Set(data.tools.map((x) => x.folder).filter(Boolean))].sort();
@@ -6877,7 +6877,7 @@ async function toolDlg(tool, presetFolder) {
   const desc = h('input', { value: tool.description || '' });
   const confirm = h('input', { type: 'checkbox', checked: !!tool.confirm });
   const hk = hkInput(tool.hotkey || '', isNew ? null : `tool:${tool.id}`);
-  // 2.32.7: Dateien aus dem Repository, Zeitlimit, Erfolgscodes, Danach scannen
+  // 2.32.7: Files from the repository, time limit, success codes, scan afterwards
   const repo = h('input', { value: tool.repo_path || '', placeholder: 'z. B. Tools\\iperf' });
   const repoBtn = btn('Wählen …', async () => { const f = await repoPickFolder(repo.value || ''); if (f !== undefined && f !== null) repo.value = f; }, { cls: 'small' });
   const timeout = h('input', { type: 'number', min: '10', max: '14400', step: '1', value: tool.timeout_s || '', placeholder: String(data.default_timeout || 1800), style: { width: '120px' } });
@@ -6927,7 +6927,7 @@ async function toolDlg(tool, presetFolder) {
   modal(isNew ? 'Neues Tool' : `Tool: ${tool.name}`, form, buttons, { wide: true, sticky: true });
 }
 
-// --- Scanprofile -----------------------------------
+// --- Scan profiles -----------------------------------
 const TRIG_UNITS = [['m', 'Minuten'], ['h', 'Stunden'], ['d', 'Tage']];
 const WEEKDAYS = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
 
@@ -7061,7 +7061,7 @@ const TRIG_LABELS = { once: 'Einmalig', interval: 'Intervall', daily: 'Täglich'
 
 async function profileDlg(p, meta) {
   const isNew = !p;
-  // Neue Profile wirken wie die festen zunächst auf „Alle Computer“ (id 0)
+  // New profiles initially apply to "Alle Computer" (id 0) like the built-in ones
   p = p ? JSON.parse(JSON.stringify(p)) : { name: '', description: '', modules: meta.modules.map((m) => m.key), scanners: [], collections: [0], computers: [], triggers: [], enabled: 1 };
   const fixed = !!p.builtin_key;
   const name = h('input', { value: p.name, disabled: fixed });
@@ -7144,11 +7144,11 @@ async function profileDlg(p, meta) {
   modal(isNew ? 'Neues Scanprofil' : `Scanprofil: ${p.name}`, tabsBox(tabs), buttons, { wide: true, sticky: true, help: 'profiles' });
 }
 
-// Scannen mit Profilauswahl (Menü am Knopf)
+// Scan with profile selection (menu on the button)
 async function scanMenu(anchor, ids) {
   if (openMenu) { closeMenu(); return; }
   if (!ids.length) { toast('Bitte zuerst Computer auswählen', 'err'); return; }
-  if (S.menuLoading) return; // Doppelklick: nicht zwei Menüs öffnen
+  if (S.menuLoading) return; // Double click: do not open two menus
   S.menuLoading = true;
   let meta;
   try { meta = await GET('/api/scanprofiles'); } finally { S.menuLoading = false; }
@@ -7172,7 +7172,7 @@ async function scanProfileDlg(ids) {
 }
 
 // ---------------------------------------------------------------------------
-// Hilfe: Handbuch (Markdown) mit Inhaltsverzeichnis, Suche und Sprungzielen
+// Help: manual (Markdown) with table of contents, search and jump targets
 // ---------------------------------------------------------------------------
 const HELP_FOR = { dashboard: 'overview', computers: 'computers', computer: 'computerview', software: 'software', packages: 'packages',
   deployments: 'deployments', deployment: 'deployments', schedules: 'schedules', rules: 'schedules', scanners: 'scanning', tools: 'tools',
@@ -7180,7 +7180,7 @@ const HELP_FOR = { dashboard: 'overview', computers: 'computers', computer: 'com
 const HELP_PDF = { de: 'POCKET-KNIFE-Handbuch.pdf', en: 'POCKET-KNIFE-Manual.pdf' };
 let HELP_CACHE = null;
 
-// Elemente ohne Übersetzung bauen (der Hilfetext ist bereits in der gewählten Sprache)
+// Build elements without translation (the help text is already in the selected language)
 function rawEl(tag, cls, ...kids) {
   const el = document.createElement(tag);
   if (cls) el.className = cls;
@@ -7192,7 +7192,7 @@ function rawEl(tag, cls, ...kids) {
 }
 
 function mdInline(text) {
-  // **fett**, *kursiv*, `code`, [Text](Link), ![Bild](Pfad)
+  // **bold**, *italic*, `code`, [text](link), ![image](path)
   const out = [];
   const re = /(!?\[([^\]]*)\]\(([^)\s]+)\))|(`([^`]+)`)|(\*\*([^*]+)\*\*)|(\*([^*\s][^*]*)\*)/g;
   let last = 0; let m;
@@ -7208,7 +7208,7 @@ function mdInline(text) {
         const a = rawEl('a', '', m[2]);
         if (/^#/.test(m[3])) a.href = '#/help?s=' + m[3].slice(1);
         else if (/^(https?:|mailto:)/i.test(m[3])) { a.href = m[3]; a.rel = 'noopener noreferrer'; a.target = '_blank'; }
-        // Audit 2.29: andere Schemata (javascript:, data: …) nie als Link
+        // Audit 2.29: other schemes (javascript:, data: …) never as a link
         out.push(a);
       }
     } else if (m[4]) out.push(rawEl('code', '', m[5]));
@@ -7261,7 +7261,7 @@ function parseHelp(md) {
       continue;
     }
     if (/^(\s*)([-*]|\d+\.)\s+/.test(l)) {
-      // Listen mit einer Unterebene (eingerückte Punkte) und eingerückten Codeblöcken innerhalb eines Punkts
+      // Lists with one sub-level (indented items) and indented code blocks within an item
       const isItem = (x) => /^(\s*)([-*]|\d+\.)\s+/.test(x);
       const ind = (x) => /^(\s*)/.exec(x)[1].length;
       const isFence = (x) => /^\s*```/.test(x);
@@ -7350,7 +7350,7 @@ async function viewHelp(_parts, params) {
     el.scrollIntoView({ block: 'start' });
     Object.values(links).forEach((a) => a.classList.remove('on'));
     if (links[id]) links[id].classList.add('on');
-    try { history.replaceState(null, '', `#/help?s=${id}`); } catch (e) { /* egal */ }
+    try { history.replaceState(null, '', `#/help?s=${id}`); } catch (e) { /* ignore */ }
   };
   q.addEventListener('input', () => {
     const f = q.value.trim().toLowerCase();
@@ -7368,7 +7368,7 @@ async function viewHelp(_parts, params) {
 // Start
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
-// Ansicht: Dateien auf dem Client (Browser-Dateimanager über die Freigaben C$, D$ …)
+// View: Files on the client (browser file manager via the shares C$, D$ …)
 // ---------------------------------------------------------------------------
 let FILE_CLIP = null; // { cid, action: 'copy'|'move', src, names }
 
@@ -7381,9 +7381,9 @@ async function viewFiles(parts, params) {
   const tools = h('div.row', { style: { gap: '6px', flexWrap: 'wrap' } });
   const listBox = h('div.fx-list');
   const info = h('span.muted.small');
-  // EIN Suchfeld links über der Liste (2.25.7): Enter bzw. „Suchen“ durchsucht den geöffneten Ordner samt allen
-  // Unterordnern auf dem Client. Ein Filter nur für den aktuellen Ordner gibt es hier nicht mehr – vorher standen ein
-  // Filterfeld (links, sah nach Suche aus) und das Suchfeld (rechts) nebeneinander.
+  // ONE search field on the left above the list (2.25.7): Enter or "Suchen" searches the opened folder including all
+  // subfolders on the client. There is no longer a filter for the current folder only – previously a
+  // filter field (left, looked like a search) and the search field (right) sat side by side.
   let searching = false, busy = false;
   const deepBtn = (get) => btn('Suchen', () => doSearch(get()), { cls: 'small primary', icon: 'folder',
     title: tr('Den geöffneten Ordner und alle Unterordner auf dem Computer durchsuchen (Enter im Feld)') });
@@ -7399,19 +7399,19 @@ async function viewFiles(parts, params) {
   let cur = params.get('path') || '';
   let focusName = params.get('focus') || '';
   let redirects = 0;
-  let curNames = new Set(); // Namen im aktuellen Ordner – Hochladen überschreibt nicht ungefragt
+  let curNames = new Set(); // Names in the current folder – uploading does not overwrite without asking
   let selected = new Set();
-  // Versteckte Einträge (Attribut „versteckt“, z. B. ProgramData, $Recycle.Bin, desktop.ini) wie im Windows-Explorer
-  // standardmäßig ausgeblendet (2.35.6); umschaltbar, die Wahl merkt sich der Browser
+  // Hidden entries (attribute "hidden", e.g. ProgramData, $Recycle.Bin, desktop.ini) are hidden by default
+  // as in Windows Explorer (2.35.6); can be toggled, the browser remembers the choice
   let showHidden = false;
-  try { showHidden = localStorage.getItem('pk-files-hidden') === '1'; } catch (e) { /* egal */ }
+  try { showHidden = localStorage.getItem('pk-files-hidden') === '1'; } catch (e) { /* ignore */ }
   let lastList = null;
 
   let loadGen = 0;
   const navGen = S.nav;
   async function load(path) {
-    // Nur die zuletzt angeforderte Liste zählt: kommt eine ältere Antwort später an, darf sie weder angezeigt
-    // werden noch „cur“ bestimmen – sonst wirken Löschen/Umbenennen/Einfügen im falschen Ordner
+    // Only the most recently requested list counts: if an older response arrives later, it must neither be displayed
+    // nor determine "cur" – otherwise delete/rename/paste would act on the wrong folder
     const gen = ++loadGen;
     const want = path || '';
     selected = new Set();
@@ -7423,12 +7423,12 @@ async function viewFiles(parts, params) {
       if (gen !== loadGen || navGen !== S.nav) return;
       cur = want; listBox.replaceChildren(h('div.empty', e.message)); drawCrumbs(); drawTools(); return;
     }
-    if (gen !== loadGen || navGen !== S.nav) return; // überholt oder Ansicht verlassen
+    if (gen !== loadGen || navGen !== S.nav) return; // superseded or view left
     cur = want;
-    try { history.replaceState(null, '', `#/files/${cid}${cur ? '?path=' + encodeURIComponent(cur) : ''}`); } catch (e) { /* egal */ }
+    try { history.replaceState(null, '', `#/files/${cid}${cur ? '?path=' + encodeURIComponent(cur) : ''}`); } catch (e) { /* ignore */ }
     if (!cur) { drawDrives(d.drives); drawCrumbs(); drawTools(); return; }
     if (d.redirect) {
-      // Verknüpfung (z. B. „All Users“ → C:\ProgramData): wie im Windows-Explorer zum Ziel wechseln
+      // Link (e.g. "All Users" → C:\ProgramData): switch to the target as in Windows Explorer
       if ((redirects = (redirects || 0) + 1) > 5) { redirects = 0; listBox.replaceChildren(h('div.empty', 'Verknüpfungen zeigen im Kreis.')); return; }
       toast(`Verknüpfung: ${d.path} → ${d.redirect}`, 'ok');
       load(d.redirect);
@@ -7444,7 +7444,7 @@ async function viewFiles(parts, params) {
 
   async function doSearch(term) {
     const v = String(term || '').trim();
-    if (busy) return;  // ein Klick = eine Suche auf dem Client
+    if (busy) return;  // one click = one search on the client
     if (!cur) { toast(tr('Zuerst ein Laufwerk oder einen Ordner öffnen – gesucht wird ab dort.'), 'err'); return; }
     if (v.replace(/[*?]/g, '').length < 2) { toast(tr('Bitte mindestens 2 Zeichen eingeben.'), 'err'); return; }
     const gen = ++loadGen;
@@ -7460,7 +7460,7 @@ async function viewFiles(parts, params) {
       if (gen !== loadGen || navGen !== S.nav) return;
       listBox.replaceChildren(h('div.empty', e.message, ' ', btn('Zurück zum Ordner', () => load(base), { cls: 'small ghost' }))); return;
     } finally { busy = false; }
-    if (gen !== loadGen || navGen !== S.nav) return;  // überholt (anderer Ordner geöffnet, neue Suche)
+    if (gen !== loadGen || navGen !== S.nav) return;  // superseded (another folder opened, new search)
     drawResults(r, v, base);
   }
 
@@ -7518,7 +7518,7 @@ async function viewFiles(parts, params) {
   function parentOf(path) {
     const p = path.replace(/\\+$/, '');
     const i = p.lastIndexOf('\\');
-    if (i < 3) return p.length <= 3 ? '' : p.slice(0, 3); // auf Laufwerkswurzel bzw. Laufwerksliste
+    if (i < 3) return p.length <= 3 ? '' : p.slice(0, 3); // at drive root or drive list
     return p.slice(0, i);
   }
 
@@ -7552,7 +7552,7 @@ async function viewFiles(parts, params) {
       els.push(uploadBtn());
       els.push(btn(showHidden ? 'Versteckte ausblenden' : 'Versteckte anzeigen', () => {
         showHidden = !showHidden;
-        try { localStorage.setItem('pk-files-hidden', showHidden ? '1' : '0'); } catch (e) { /* egal */ }
+        try { localStorage.setItem('pk-files-hidden', showHidden ? '1' : '0'); } catch (e) { /* ignore */ }
         drawTools();
         if (lastList && !searching) drawList(lastList);
       }, { cls: 'small ghost', title: tr('Versteckte Ordner und Dateien (z. B. ProgramData, $Recycle.Bin, desktop.ini) ein- oder ausblenden') }));
@@ -7617,13 +7617,13 @@ async function viewFiles(parts, params) {
 
   async function download(r, folder = cur) {
     const url = `/api/computers/${cid}/files/download?path=${encodeURIComponent(folder)}&name=${encodeURIComponent(r.name)}`;
-    // Erst prüfen (gesperrt, zu groß, Verknüpfung …) – sonst landet ein Fehler als Textseite im Browser
+    // Check first (locked, too large, link …) – otherwise an error ends up as a text page in the browser
     try { await GET(url + '&check=1'); } catch (e) { toast(e.message, 'err'); return; }
     window.location.href = url;
   }
 
   function drawList(d0) {
-    // Ausgeblendet wird nur, was versteckt ist – der gesuchte Eintrag („focus“) bleibt immer sichtbar
+    // Only what is hidden gets hidden – the entry being looked for ("focus") always stays visible
     const fl = (focusName || '').toLowerCase();
     const items = showHidden ? d0.items : d0.items.filter((x) => !x.hidden || (fl && x.name.toLowerCase() === fl));
     const nHid = d0.items.length - items.length;
@@ -7641,7 +7641,7 @@ async function viewFiles(parts, params) {
       { key: 'size', label: 'Größe', cls: 'right', render: (r) => (r.dir || r.reparse ? '' : fmtBytes(r.size)), sort: (r) => (r.dir ? -1 : r.size) },
       { key: 'modified', label: 'Geändert', render: (r) => fmtDate(r.modified), sort: (r) => r.modified || '' },
     ], d.items, { key: null, noun: 'Einträge', sort: 'name', selectable: true, id: (r) => r.name, ...fxTableOpts(''),
-      // Nichts im Ordner gefunden → gleich die Suche in den Unterordnern anbieten
+      // Nothing found in the folder → offer the search in the subfolders right away
       empty: nHid ? fmtT('Nur versteckte Einträge ({0}) – „Versteckte anzeigen“', nHid) : 'Leerer Ordner',
       onRow: (r) => open(r),
       onSelect: (sx) => { selected = new Set(sx.map((x) => x.name)); },
@@ -7672,7 +7672,7 @@ async function viewFiles(parts, params) {
 }
 
 // ---------------------------------------------------------------------------
-// Ansicht: Ereignisanzeige (Windows-Ereignisprotokolle live über WinRM)
+// View: Event viewer (Windows event logs live via WinRM)
 // ---------------------------------------------------------------------------
 const EV_LEVEL_BADGE = { 1: ['err', 'Kritisch'], 2: ['err', 'Fehler'], 3: ['warn', 'Warnung'], 4: ['', 'Info'], 0: ['', 'Info'], 5: ['', 'Ausführlich'] };
 
@@ -7699,11 +7699,11 @@ async function viewEventLog(parts, params) {
     const gen = ++evGen;
     if (!c.online) toast(`${c.name} ist laut Heartbeat offline – der Versuch kann fehlschlagen.`, 'err');
     status.textContent = 'Wird vom Computer gelesen …';
-    try { history.replaceState(null, '', `#/eventlog/${cid}?log=${encodeURIComponent(logSel.value)}`); } catch (e) { /* egal */ }
+    try { history.replaceState(null, '', `#/eventlog/${cid}?log=${encodeURIComponent(logSel.value)}`); } catch (e) { /* ignore */ }
     let d;
     try { d = await GET(`/api/computers/${cid}/eventlog?log=${encodeURIComponent(logSel.value)}&level=${lvlSel.value}&count=${cntSel.value}&q=${encodeURIComponent(q.value.trim())}`); }
     catch (e) { if (gen !== evGen) return; status.textContent = ''; out.replaceChildren(h('div.empty', e.message)); return; }
-    if (gen !== evGen) return; // eine neuere Abfrage läuft
+    if (gen !== evGen) return; // a newer query is running
     status.textContent = '';
     const t = table([
       { key: 'level', label: 'Stufe', render: (r) => { const b = EV_LEVEL_BADGE[r.level] || ['', r.levelName]; return h('span.badge', { class: b[0] }, r.levelName || b[1]); }, sort: (r) => r.level },
@@ -7721,7 +7721,7 @@ async function viewEventLog(parts, params) {
 }
 
 // ---------------------------------------------------------------------------
-// Ansicht: Speicherplatz-Analyse (Ringdiagramm mit Zoom in die Ordnerebenen)
+// View: Disk space analysis (donut chart with zoom into the folder levels)
 // ---------------------------------------------------------------------------
 async function viewDiskUsage(parts, params) {
   const cid = Number(parts[0]);
@@ -7750,7 +7750,7 @@ async function viewDiskUsage(parts, params) {
     scanBtn.disabled = true;
     const navGen = S.nav;
     const poll = async () => {
-      if (navGen !== S.nav) return; // weg navigiert – der Scan läuft auf dem Server weiter und erscheint in der Liste
+      if (navGen !== S.nav) return; // navigated away – the scan keeps running on the server and appears in the list
       let j;
       try { j = await GET(`/api/diskusage/jobs/${r.job}`); } catch (e) { status.textContent = e.message; scanBtn.disabled = false; return; }
       if (j.status === 'running') {
@@ -7777,7 +7777,7 @@ async function viewDiskUsage(parts, params) {
   duRender(body, res, (p) => { pathIn.value = p; startScan(p); }, cid);
 }
 
-// Kategorien in fester Reihenfolge (Farbe folgt dem Eintrag in der aktuellen Ansicht), Rest/Dateien neutral
+// Categories in fixed order (colour follows the entry in the current view), rest/files neutral
 const DU_SLOTS = 8;
 function duRender(body, res, rescan, cid) {
   const root = res.tree;
@@ -7798,7 +7798,7 @@ function duRender(body, res, rescan, cid) {
   body.replaceChildren(h('div.card', h('div.card-b', crumbs, info, h('div.du-wrap', chartBox, side))));
 
   const pathOf = (st) => st.slice(1).reduce((p, n) => join(p, n.n), root.n);
-  // Im Explorer (Dateien) öffnen – nur lokale Laufwerkspfade (C:\…) sind über die Freigaben erreichbar
+  // Open in Explorer (Dateien) – only local drive paths (C:\…) are reachable via the shares
   const canExplore = (p) => !!cid && /^[A-Za-z]:(\\|$)/.test(p);
   const explore = (dir, name) => go(`#/files/${cid}?path=${encodeURIComponent(/^[A-Za-z]:$/.test(dir) ? dir + '\\' : dir)}${name ? '&focus=' + encodeURIComponent(name) : ''}`);
   const kidsOf = (n) => (n.k || []).filter((k) => k.s > 0);
@@ -7845,7 +7845,7 @@ function duRender(body, res, rescan, cid) {
     canExplore(vpath) ? btn('Im Explorer öffnen', () => explore(vpath), { cls: 'small ghost', icon: 'folder', title: 'Diesen Ordner in „Dateien“ öffnen – löschen, verschieben, herunterladen' }) : null,
     btn('Diesen Ordner neu analysieren', () => rescan(vpath), { cls: 'small ghost', icon: 'refresh' }),
     btn('Pfad kopieren', () => copyText(vpath), { cls: 'small ghost' })].filter(Boolean));
-    // Ringdiagramm: Mitte = aktueller Ordner, innerer Ring = Inhalt, äußerer Ring = eine Ebene tiefer
+    // Donut chart: centre = current folder, inner ring = contents, outer ring = one level deeper
     const S0 = 330; const R0 = 70; const R1 = 118; const R2 = 160;
     const svg = svgEl('svg', { viewBox: `${-S0 / 2} ${-S0 / 2} ${S0} ${S0}`, class: 'du-svg', role: 'img', 'aria-label': `Belegung von ${vpath}` });
     const total = v.s || 1;
@@ -7859,7 +7859,7 @@ function duRender(body, res, rescan, cid) {
         seg.addEventListener('mouseleave', hideTip);
         seg.addEventListener('click', () => { hideTip(); open(k); });
         svg.appendChild(seg);
-        // äußerer Ring: Inhalt des Unterordners im selben Farbton, heller
+        // outer ring: contents of the subfolder in the same hue, lighter
         let b = a;
         for (const g of kidsOf(k)) {
           const b1 = b + (2 * Math.PI * g.s) / total;
@@ -7872,12 +7872,12 @@ function duRender(body, res, rescan, cid) {
           }
           b = b1;
         }
-        // Beschriftung nur für große Stücke
+        // Label only for large segments
         const rr = (R0 + R1) / 2;
         const mid = (a + a1) / 2;
-        // waagerechter Platz im Ringstück: oben/unten entlang des Bogens, links/rechts nur die Ringbreite
+        // horizontal space in the ring segment: top/bottom along the arc, left/right only the ring width
         const avail = Math.abs(Math.sin(mid)) > 0.5 ? (R1 - R0 - 4) : Math.min((a1 - a) * rr * 0.8, 90);
-        const room = Math.floor(Math.min(avail, 90) / 5.4); // Platz für so viele Zeichen
+        const room = Math.floor(Math.min(avail, 90) / 5.4); // room for that many characters
         if (a1 - a > 0.3 && room >= 4) {
           const tx = svgEl('text', { x: (rr * Math.sin(mid)).toFixed(1), y: (-rr * Math.cos(mid)).toFixed(1), class: 'du-lbl', 'text-anchor': 'middle', 'dominant-baseline': 'middle' });
           tx.textContent = k.n.length > room ? k.n.slice(0, room - 1) + '…' : k.n;
@@ -7895,7 +7895,7 @@ function duRender(body, res, rescan, cid) {
     if (stack.length > 1) { const t3 = svgEl('text', { y: 32, class: 'du-cback', 'text-anchor': 'middle' }); t3.textContent = tr('↑ zurück'); svg.appendChild(t3); }
     chartBox.replaceChildren(svg, tip);
 
-    // Liste daneben: genaue Werte, sortiert, mit Balken (klickbar wie das Diagramm)
+    // List next to it: exact values, sorted, with bars (clickable like the chart)
     const rows = kidsOf(v).map((k, i) => ({ ...k, _i: i, _pct: (100 * k.s) / total }));
     const t = table([
       { key: 'n', label: 'Name', render: (r) => h('span.row', { style: { gap: '6px', flexWrap: 'nowrap' } },
@@ -7923,17 +7923,17 @@ function duRender(body, res, rescan, cid) {
 }
 
 // ---------------------------------------------------------------------------
-// Ansicht: Repository (2.27) – Installationsdateien über POCKET KNIFE verwalten: Ordner, Hochladen (in Stücken, mit
-// Fortsetzen), Umbenennen, Verschieben (Pfade in Paketen werden angepasst), Löschen (nur, was kein Paket benutzt).
-// Geschrieben wird immer mit dem Repository-/Dienstkonto auf dem Server – der Browser hat keinen Zugriff auf die Freigabe.
+// View: Repository (2.27) – manage installation files through POCKET KNIFE: folders, upload (in chunks, with
+// resume), rename, move (paths in packages are adjusted), delete (only what no package uses).
+// Writing is always done with the repository/service account on the server – the browser has no access to the share.
 // ---------------------------------------------------------------------------
-let REPO_CLIP = null;  // { items: [voller Pfad …] } – „Ausschneiden“, dann im Zielordner „Einfügen“
+let REPO_CLIP = null;  // { items: [full path …] } – "Ausschneiden" (cut), then "Einfügen" (paste) in the target folder
 const repoJoin = (a, b) => (a ? `${a}\\${b}` : b);
 const repoParent = (p) => { const i = String(p || '').lastIndexOf('\\'); return i < 0 ? '' : p.slice(0, i); };
 const repoBase = (p) => { const s = String(p || ''); const i = s.lastIndexOf('\\'); return i < 0 ? s : s.slice(i + 1); };
 const unixDate = (t) => { if (!t) return ''; const d = new Date(t * 1000); const z = (n) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())} ${z(d.getHours())}:${z(d.getMinutes())}`; };
 
-// Fehler „wird noch benutzt“ (409): Liste der Pakete zeigen statt eines langen Toasts
+// Error "still in use" (409): show the list of packages instead of a long toast
 function repoBlockedDlg(e, title = 'Nicht möglich') {
   const used = e && e.info && e.info.used_by;
   if (!used || !used.length) { toast(e.message, 'err'); return; }
@@ -7944,7 +7944,7 @@ function repoBlockedDlg(e, title = 'Nicht möglich') {
   [{ label: 'OK', cls: 'primary' }]);
 }
 
-// Vorschau eines Umbaus (Verschieben/Umbenennen/Assistent): betroffene Pakete mit altem und neuem Pfad
+// Preview of a restructuring (move/rename/wizard): affected packages with old and new path
 function repoPlanView(pv) {
   const els = [];
   if (pv.problems && pv.problems.length) {
@@ -7974,7 +7974,7 @@ function repoPlanView(pv) {
   return h('div', els);
 }
 
-// Umbau ausführen: erst Vorschau (dry_run), bei betroffenen Paketen bestätigen lassen, dann ausführen
+// Perform restructuring: preview first (dry_run), have it confirmed for affected packages, then execute
 async function repoRunPlan(preview, execute, opt = {}) {
   let pv;
   try { pv = await preview(); } catch (e) { if (e.status === 409) repoBlockedDlg(e); else toast(e.message, 'err'); return null; }
@@ -7996,7 +7996,7 @@ async function repoRunPlan(preview, execute, opt = {}) {
   return r;
 }
 
-// Dateien aus einem Ziehen vom Desktop einsammeln (auch ganze Ordner)
+// Collect files from a drag from the desktop (including whole folders)
 async function droppedFiles(dt) {
   const out = [];
   const items = [...(dt.items || [])].map((it) => (it.webkitGetAsEntry ? it.webkitGetAsEntry() : null)).filter(Boolean);
@@ -8019,7 +8019,7 @@ async function droppedFiles(dt) {
   return out;
 }
 
-// Upload-Warteschlange: eine Datei nach der anderen, in Stücken; Abbruch/Netzfehler → „Fortsetzen“ an derselben Stelle
+// Upload queue: one file after another, in chunks; abort/network error → "Fortsetzen" (resume) at the same point
 function repoUploader(getInfo, onChange) {
   const box = h('div.up-box', { style: { display: 'none' } });
   const list = h('div.up-list');
@@ -8027,7 +8027,7 @@ function repoUploader(getInfo, onChange) {
   box.append(head, list);
   const q = [];
   let running = false;
-  let overwriteAll = null;  // null = fragen, true = alle überschreiben, false = alle überspringen
+  let overwriteAll = null;  // null = ask, true = overwrite all, false = skip all
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   function drawHead() {
@@ -8061,7 +8061,7 @@ function repoUploader(getInfo, onChange) {
   async function cancel(it) {
     it.cancel = true;
     if (it.state !== 'run') { it.state = 'cancelled'; it.draw(); drawHead(); }
-    if (it.token) { try { await DEL(`/api/repository/upload/${it.token}`); } catch (e) { /* egal */ } }
+    if (it.token) { try { await DEL(`/api/repository/upload/${it.token}`); } catch (e) { /* ignore */ } }
   }
   function add(files, folder) {
     const info = getInfo() || {};
@@ -8109,7 +8109,7 @@ function repoUploader(getInfo, onChange) {
         const dt = (Date.now() - t0) / 1000; if (dt > 1) it.speed = (it.sent - b0) / dt;
         it.draw();
       } catch (e) {
-        if (e.info && e.info.received !== undefined) { it.sent = e.info.received; continue; }  // Server hat einen anderen Stand
+        if (e.info && e.info.received !== undefined) { it.sent = e.info.received; continue; }  // Server has a different state
         if (e.info && e.info.restart) { it.token = null; it.sent = 0; return one(it); }
         if (e.status === 404 || e.status === 403 || e.status === 400) { it.state = 'error'; it.msg = e.message; it.draw(); return; }
         fails += 1;
@@ -8121,7 +8121,7 @@ function repoUploader(getInfo, onChange) {
     let fin;
     try { fin = await POST(`/api/repository/upload/${it.token}/finish`, {}); }
     catch (e) {
-      if (e.info && e.info.restart && !it.restarted) { it.restarted = true; it.token = null; it.sent = 0; return one(it); }  // Zwischendatei kaputt: einmal neu
+      if (e.info && e.info.restart && !it.restarted) { it.restarted = true; it.token = null; it.sent = 0; return one(it); }  // Temporary file broken: once more
       const d = e.info && e.info.duplicate;
       if (d && e.info.can_override && e.info.token) {
         const go = await new Promise((res) => modal(tr('Gibt es schon'), h('div', h('p', e.message),
@@ -8157,7 +8157,7 @@ function repoUploader(getInfo, onChange) {
   return { el: box, add, busy: () => running };
 }
 
-// Ordner wählen (für „Verschieben nach …“) – derselbe Browser wie im Paket-Editor
+// Choose folder (for "Verschieben nach …"): same browser as in the package editor
 function repoPickFolder(start) {
   return new Promise((res) => repoBrowser((folder) => res(folder), start, { folderOnly: true, title: 'Zielordner wählen', onCancel: () => res(null) }));
 }
@@ -8175,12 +8175,12 @@ async function viewRepository(_parts, params) {
   let cur = params.get('path') || '';
   let rows = [];
   let tbl = null;
-  const roots = info.roots || null;  // OU-Admin: nur die eigenen Mandantenordner
+  const roots = info.roots || null;  // OU admin: only their own tenant folders
   const isRoot = (p) => (roots ? roots.some((r) => r.toLowerCase() === String(p || '').toLowerCase()) : !p);
   const inScope = (p) => !roots || roots.some((r) => { const a = String(p || '').toLowerCase(); const b = r.toLowerCase(); return a === b || a.startsWith(b + '\\'); });
   if (!cur && roots && roots.length) cur = roots[0];
   const up = repoUploader(() => info, () => load(cur, true));
-  // Wer etwas zieht: interne Einträge (Verschieben) oder Dateien vom Desktop (Hochladen)
+  // Who is dragging: internal entries (move) or files from the desktop (upload)
   let dragItems = null;
   const isFileDrag = (e) => [...((e.dataTransfer && e.dataTransfer.types) || [])].includes('Files');
 
@@ -8195,7 +8195,7 @@ async function viewRepository(_parts, params) {
     h('div.row', { style: { gap: '8px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '4px' } }, tools, h('div.spacer'), status),
     limits, crumbs, up.el, listBox)));
 
-  // Ablegen vom Desktop auf die Liste = in den geöffneten Ordner hochladen
+  // Dropping from the desktop onto the list = upload into the opened folder
   listBox.addEventListener('dragover', (e) => { if (isFileDrag(e)) { e.preventDefault(); listBox.classList.add('dropto'); } });
   listBox.addEventListener('dragleave', (e) => { if (!listBox.contains(e.relatedTarget)) listBox.classList.remove('dropto'); });
   listBox.addEventListener('drop', async (e) => {
@@ -8206,7 +8206,7 @@ async function viewRepository(_parts, params) {
   });
 
   async function uploadEntries(entries, folder) {
-    // entries: {file, rel: „A/B/x.msi“} bzw. {dir: „A/B“} – erst die Ordner anlegen, dann die Dateien hochladen
+    // entries: {file, rel: "A/B/x.msi"} or {dir: "A/B"} – create the folders first, then upload the files
     const dirs = new Set(entries.filter((x) => x.dir).map((x) => x.dir.replace(/\//g, '\\')));
     const files = entries.filter((x) => x.file).map((x) => {
       const relDir = repoParent(String(x.rel || x.file.name).replace(/\//g, '\\'));
@@ -8232,7 +8232,7 @@ async function viewRepository(_parts, params) {
     catch (e) { if (gen !== loadGen || navGen !== S.nav) return; listBox.replaceChildren(h('div.empty', e.message)); return; }
     if (gen !== loadGen || navGen !== S.nav) return;
     cur = d.path || '';
-    try { history.replaceState(null, '', `#/repository${cur ? '?path=' + encodeURIComponent(cur) : ''}`); } catch (e) { /* egal */ }
+    try { history.replaceState(null, '', `#/repository${cur ? '?path=' + encodeURIComponent(cur) : ''}`); } catch (e) { /* ignore */ }
     rows = d.items.map((x) => ({ ...x, path: repoJoin(cur, x.name) }));
     drawCrumbs(d.root);
     drawTools();
@@ -8255,7 +8255,7 @@ async function viewRepository(_parts, params) {
     const els = [];
     let start = 0;
     if (roots) {
-      // OU-Admin: Pfad beginnt bei seinem Mandantenordner
+      // OU admin: path starts at their tenant folder
       const r = roots.find((x) => cur.toLowerCase() === x.toLowerCase() || cur.toLowerCase().startsWith(x.toLowerCase() + '\\')) || roots[0] || '';
       start = r ? r.split('\\').length : 0;
       els.push(crumbDrop(h('a.raw', { href: '#', onclick: (e) => { e.preventDefault(); load(r); } }, r || '\\'), r));
@@ -8346,7 +8346,7 @@ async function viewRepository(_parts, params) {
     ], rows, { key: 'repo-view', noun: 'Einträge', sort: 'name', selectable: true, id: (r) => r.path, placeholder: tr('In diesem Ordner filtern …'),
       empty: tr('Leerer Ordner – Dateien hierher ziehen oder „Dateien hochladen“.'),
       onRow: (r) => open(r),
-      dragData: (sel, e) => { dragItems = sel.map((x) => x.path); try { e.dataTransfer.setData('text/plain', dragItems.join('\n')); } catch (x) { /* egal */ } e.dataTransfer.effectAllowed = 'move'; },
+      dragData: (sel, e) => { dragItems = sel.map((x) => x.path); try { e.dataTransfer.setData('text/plain', dragItems.join('\n')); } catch (x) { /* ignore */ } e.dataTransfer.effectAllowed = 'move'; },
       dragEnd: () => { setTimeout(() => { dragItems = null; }, 0); },
       canDrop: (r, e) => r.dir && !r.link && ((dragItems && !dragItems.includes(r.path)) || isFileDrag(e)),
       onDrop: async (r, e) => {
@@ -8379,7 +8379,7 @@ async function viewRepository(_parts, params) {
   load(cur);
 }
 
-// Assistent „Repository umstrukturieren“ (Hauptadmin): Ordner auf einmal in einen neuen Hauptordner verschieben
+// Wizard "Repository umstrukturieren" (main admin): move folders into a new main folder in one go
 async function repoRestructureDlg(after) {
   let d;
   try { d = await GET('/api/repository?used=1&path='); } catch (e) { toast(e.message, 'err'); return; }
@@ -8415,7 +8415,7 @@ async function repoRestructureDlg(after) {
     } }], { wide: true });
 }
 
-// Reparatur per Fingerabdruck: fehlende Dateien eines Pakets im Repository wiederfinden und Pfade übernehmen
+// Repair by fingerprint: find missing files of a package in the repository again and adopt paths
 async function repairDlg(p, onDone) {
   const r = await run(() => POST(`/api/packages/${p.id}/repair/suggest`));
   if (!r) return;
@@ -8442,7 +8442,7 @@ async function repairDlg(p, onDone) {
     } }], { wide: true });
 }
 
-// Speichern mit Duplikatsperre: Hauptadmins dürfen nach Rückfrage übersteuern
+// Save with duplicate lock: main admins may override after confirmation
 async function saveWithDup(send) {
   try { return await send({}); } catch (e) {
     const d = e.info && e.info.duplicate;
@@ -8466,9 +8466,9 @@ const VIEWS = {
 };
 
 // ---------------------------------------------------------------------------
-// Abmeldung bei Inaktivität: Eingaben (Maus, Tastatur, auch in Fernsitzungen) werden höchstens einmal pro Minute
-// gemeldet. Automatische Aktualisierungen zählen nicht. Kurz vor Ablauf erscheint ein Hinweis; der Server
-// entscheidet (mehrere Tabs teilen sich dieselbe Sitzung).
+// Logout on inactivity: input (mouse, keyboard, also in remote sessions) is reported at most once per minute
+// Automatic refreshes do not count. A notice appears shortly before expiry; the server
+// decides (multiple tabs share the same session).
 // ---------------------------------------------------------------------------
 const IDLE = { last: Date.now(), sent: 0, warn: null, checking: false };
 function idleActivity() {
@@ -8483,10 +8483,10 @@ function idleActivity() {
 setInterval(async () => {
   if (!S.me || IDLE.checking) return;
   const limit = (S.me.idle_minutes || 30) * 60000;
-  if (Date.now() - IDLE.last < limit - 120000) return;  // in diesem Tab kürzlich aktiv – nichts zu prüfen
+  if (Date.now() - IDLE.last < limit - 120000) return;  // recently active in this tab – nothing to check
   IDLE.checking = true;
   try {
-    const r = await api('/api/session/idle');  // 401 → Anmeldung mit Hinweis „wegen Inaktivität abgemeldet“
+    const r = await api('/api/session/idle');  // 401 → login with notice "wegen Inaktivität abgemeldet"
     if (r.remaining <= 100 && S.me) {
       const txt = `Abmeldung wegen Inaktivität in ${Math.max(0, Math.round(r.remaining))} s – zum Weiterarbeiten klicken oder eine Taste drücken.`;
       if (!IDLE.warn) {
@@ -8494,7 +8494,7 @@ setInterval(async () => {
         document.body.appendChild(IDLE.warn);
       } else IDLE.warn.textContent = txt;
     }
-  } catch (e) { /* abgemeldet oder Netzwerkfehler */ } finally { IDLE.checking = false; }
+  } catch (e) { /* signed out or network error */ } finally { IDLE.checking = false; }
 }, 15000);
 
 window.addEventListener('hashchange', route);
@@ -8504,7 +8504,7 @@ window.addEventListener('hashchange', route);
     S.me = await api('/api/me');
     renderShell();
     route();
-    toolsData().catch(() => {});  // Tastenkürzel
+    toolsData().catch(() => {});  // Keyboard shortcuts
   } catch (e) {
     if (!S.me) renderLogin();
   }

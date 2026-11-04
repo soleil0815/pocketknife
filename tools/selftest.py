@@ -1053,7 +1053,7 @@ def _():
     src = open(ad.__file__, encoding="utf-8").read()
     assert "out[key] = bool(is_acc or kiosk_match(c, e, strict=True, cache=kcache))" in src  # 2.25.1: check in check_sessions
     js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "kiosk.js"), encoding="utf-8").read()
-    assert "ssoOff(); // nach dem Abmelden" in js, "after logout do not log in automatically again immediately"
+    assert "ssoOff(); // after logging out" in js, "after logout do not log in automatically again immediately"
 
 
 @test("2.16 Reports: no \"null\" in the toolbar; help shows code blocks and sub-items in lists")
@@ -5362,7 +5362,7 @@ def _():
     run = js[js.index("async function hotkeyRun2"):js.index("document.addEventListener('keydown', (e) => {\n  const combo")]
     assert "'wake'" not in run, "waking does not ask by itself – with several computers confirmation by the shortcut"
     assert "if (HK_BUSY) return;" in js and "ref = HK.map[combo];" in run
-    assert js.count("if (e.altKey) return;  // Strg+Alt+") == 2
+    assert js.count("if (e.altKey) return;  // Ctrl+Alt+") == 2
     assert "if (t.confirm && !(await confirmDlg(`„${t.name}“ für" in js
     wd = js[js.index("function wakeDialog(targets)"):js.index("function jobDialog(")]
     assert "slice(0, 200)" not in wd and "if (closed) break;" not in wd
@@ -6102,7 +6102,7 @@ def _():
     js = open(os.path.join(root, "app", "static", "app.js"), encoding="utf-8").read()
     dlg = js[js.index("async function commandDlg(targets)"):]
     dlg = dlg[:dlg.index("\n}\n")]
-    assert "/api/tools-command" in dlg and "toolDlg({" in dlg and "return false;  // Fenster bleibt offen" in dlg and "if (busy) return false;" in dlg
+    assert "/api/tools-command" in dlg and "toolDlg({" in dlg and "return false;  // Window stays open" in dlg and "if (busy) return false;" in dlg
     assert "localStorage" not in dlg, "do not store history (passwords)"
     assert "{ key: 'command', name: 'Befehl ausführen …', icon: 'terminal', main: true }" in js and "if (b.key === 'command') { commandDlg(targets); return; }" in js
     assert "const isNew = !tool || !tool.id;" in js
@@ -6476,9 +6476,9 @@ def _():
         db.set_setting("repo_path", old_repo or "")
     js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
     assert "['wingetcache', 'winget-Cache', 'db']," in js and "'wingetcache']);" in js[js.index("const OU_HIDDEN"):js.index("const OU_HIDDEN") + 120]
-    sw = js[js.index("async function viewSoftware("):js.index("// --- Ausnahmen der Aktualitätsprüfung")]
+    sw = js[js.index("async function viewSoftware("):js.index("// --- Exceptions of the up-to-date check")]
     assert "#/wingetcache" not in sw, "no longer under software"
-    pk = js[js.index("async function viewPackages("):js.index("// --- 2.32: Pakete zu einem neuen zusammenfassen")]
+    pk = js[js.index("async function viewPackages("):js.index("// --- 2.32: merge packages into a new one")]
     assert "go('#/wingetcache')" in pk and "key: 'wcache'" in pk and "In den winget-Cache aufnehmen" in pk and "].filter(Boolean), shown," in pk
     assert "const w = wcStepField(st);" in js
     assert "(!x.cache || x.id === Number(st.package_id))" in js and "meta.packages.filter((x) => !x.cache)" in js

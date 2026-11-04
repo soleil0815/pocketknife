@@ -1,4 +1,4 @@
-/* POCKET KNIFE – Fernsitzung im Browser */
+/* POCKET KNIFE – remote session in the browser */
 body.remote { margin: 0; height: 100vh; overflow: hidden; background: #0d1016; color: var(--text); display: flex; flex-direction: column; }
 #rd-bar { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: var(--panel); border-bottom: 1px solid var(--line); flex: none; z-index: 5; }
 #rd-bar .name { font-weight: 600; }

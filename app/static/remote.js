@@ -1,4 +1,4 @@
-/* POCKET KNIFE – RDP/VNC im Browser (Apache Guacamole, lokal gebündelt) */
+/* POCKET KNIFE – RDP/VNC in the browser (Apache Guacamole, bundled locally) */
 'use strict';
 
 const $ = (s, r = document) => r.querySelector(s);
@@ -37,10 +37,10 @@ async function api(path, opt = {}) {
   return data;
 }
 function prefs() { try { return JSON.parse(localStorage.getItem('pk-remote') || '{}'); } catch (e) { return {}; } }
-function savePrefs(p) { try { localStorage.setItem('pk-remote', JSON.stringify(p)); } catch (e) { /* egal */ } }
-try { const th = localStorage.getItem('pk-theme'); if (th) document.documentElement.setAttribute('data-theme', th); } catch (e) { /* egal */ }
+function savePrefs(p) { try { localStorage.setItem('pk-remote', JSON.stringify(p)); } catch (e) { /* ignore */ } }
+try { const th = localStorage.getItem('pk-theme'); if (th) document.documentElement.setAttribute('data-theme', th); } catch (e) { /* ignore */ }
 
-// Guacamole-Statuscodes → verständliche Meldungen
+// Guacamole status codes → understandable messages
 const STATUS = {
   256: 'Diese Funktion wird vom Ziel nicht unterstützt.', 512: 'Interner Fehler im Guacamole-Dienst.',
   513: 'Der Guacamole-Dienst ist ausgelastet.', 514: 'Der Computer antwortet nicht (Zeitüberschreitung).',
@@ -88,7 +88,7 @@ function drawBar() {
 
 function setState(text, cls = '') { stateEl.textContent = text; stateEl.className = 'state ' + (cls || 'muted'); }
 
-// --- Verbindungsdialog --------------------------------------------------------
+// --- Connection dialog --------------------------------------------------------
 async function start() {
   if (!CID) { overlayCard('Fernsitzung', h('p', 'Kein Computer angegeben. Bitte die Fernsitzung aus POCKET KNIFE heraus öffnen.')); return; }
   drawBar();
@@ -119,7 +119,7 @@ function optionsDlg(errorText) {
     h('input', { type: 'radio', name: 'auth', checked: authMode.v === v, disabled, onchange: () => { authMode.v = v; drawCred(); } }), label, sub ? h('span.muted.small', ' ', sub) : null);
   function drawCred() {
     credBox.replaceChildren();
-    // 2.37: Computer eines Mandanten – dort sind andere Administrator und könnten ein gesendetes Kennwort abgreifen
+    // 2.37: computers of a tenant – other administrators are there and could intercept a submitted password
     if (PROTO === 'rdp' && authMode.v === 'own' && (st.tenant_names || []).length) {
       credBox.append(h('div.rd-msg', { style: { color: 'var(--warn, #c77700)' } },
         `Achtung: Dieser Computer gehört zum Mandanten ${st.tenant_names.join(', ')}. Dort sind auch andere Administratoren – sie könnten Ihr Kennwort abgreifen. Besser „Andere Anmeldedaten eingeben“ mit einem Konto, das nur hier gilt.`));
@@ -140,7 +140,7 @@ function optionsDlg(errorText) {
       radio('own', 'Mit meiner POCKET KNIFE-Anmeldung', !own, own ? `(${own})` : st.sso_enabled ? '– nicht verfügbar, bitte neu anmelden' : '– in den Einstellungen ausgeschaltet'),
       radio('manual', 'Andere Anmeldedaten eingeben'),
       radio('prompt', 'Erst auf dem Computer anmelden', false, '(Windows-Anmeldebildschirm; nur ohne NLA)'));
-    // Anmeldedaten gehen nur noch mit NLA an den Computer (2.37)
+    // Credentials are only sent to the computer with NLA (2.37)
   } else {
     authSel.append(radio('prompt', 'Ohne Kennwort / Nachfrage vom Server'),
       st.vnc_password_set ? radio('central', 'Zentrales VNC-Kennwort', false, '(aus den Einstellungen)') : null,
@@ -189,7 +189,7 @@ function optionsDlg(errorText) {
   overlayCard(`${LABEL}: ${S.computer.name}`, body, [btn('Schließen', () => window.close()), btn('Verbinden', go, 'primary')]);
 }
 
-// --- Verbindung ---------------------------------------------------------------
+// --- Connection ---------------------------------------------------------------
 function targetSize(size) {
   if (size && size !== 'window') { const [w, hh] = size.split('x').map(Number); return [w, hh]; }
   return [Math.max(640, stage.clientWidth || window.innerWidth), Math.max(480, stage.clientHeight || (window.innerHeight - 40))];
@@ -197,27 +197,27 @@ function targetSize(size) {
 
 let connectGen = 0;
 async function connect(o, size) {
-  if (S.connecting) return; // Enter + Klick: nicht zwei Sitzungen gleichzeitig aufbauen
+  if (S.connecting) return; // Enter + click: do not set up two sessions at the same time
   S.connecting = true;
   const gen = ++connectGen;
-  // „Abbrechen“ während der Anmeldung: diese Verbindung verwerfen, auch wenn die Antwort noch kommt
+  // "Abbrechen" during sign-in: discard this connection, even if the response still arrives
   overlayCard(`Verbinde mit ${S.computer.name} …`, h('p.muted', { style: { textAlign: 'center' } }, 'Verbindung wird aufgebaut.'),
     [btn('Abbrechen', () => { connectGen++; S.connecting = false; disconnect(true); })], true);
   let tok;
   try { tok = await api('/api/remote/connect', { method: 'POST', body: o }); } catch (e) { S.connecting = false; if (gen === connectGen) optionsDlg(e.message); return; }
   S.connecting = false;
-  if (gen !== connectGen) return; // abgebrochen
+  if (gen !== connectGen) return; // cancelled
   if (S.client) {
-    // Vorherige Sitzung sauber trennen – ihr spätes „getrennt“ darf die neue nicht überdecken
+    // Disconnect the previous session cleanly – its late "disconnected" must not mask the new one
     const old = S.client;
     old.onstatechange = null; old.onerror = null;
-    try { old.disconnect(); } catch (e) { /* egal */ }
+    try { old.disconnect(); } catch (e) { /* ignore */ }
   }
   if (typeof Guacamole === 'undefined') { optionsDlg('Die Guacamole-Bibliothek wurde nicht geladen.'); return; }
   const [w, hh] = targetSize(size);
   const dpi = Math.round(96 * Math.min(2, window.devicePixelRatio || 1));
   let tz = '';
-  try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) { /* egal */ }
+  try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) { /* ignore */ }
   const tunnel = new Guacamole.WebSocketTunnel('/api/remote/tunnel');
   const client = new Guacamole.Client(tunnel);
   S.client = client; S.ended = false; S.lastError = null;
@@ -253,22 +253,22 @@ async function connect(o, size) {
   client.onrequired = (params) => requiredDlg(params);
   client.onname = (name) => { if (name) document.title = `${name} – ${LABEL} – POCKET KNIFE`; };
 
-  // Maus (Desktop) und Touch (Tablet)
+  // Mouse (desktop) and touch (tablet)
   const mouse = new Guacamole.Mouse(el);
   mouse.onEach(['mousedown', 'mouseup', 'mousemove'], (e) => { if (S.state === 3 && !o.read_only) client.sendMouseState(e.state, true); });
   mouse.on('mousedown', () => focusStage());
   try {
     const touch = new Guacamole.Mouse.Touchscreen(el);
     touch.onEach(['mousedown', 'mouseup', 'mousemove'], (e) => { if (S.state === 3 && !o.read_only) client.sendMouseState(e.state, true); });
-  } catch (e) { /* ohne Touch */ }
+  } catch (e) { /* without touch */ }
   el.addEventListener('contextmenu', (e) => e.preventDefault());
 
-  // Tastatur: nur, wenn kein Eingabefeld der Oberfläche den Fokus hat (eine Instanz für alle Verbindungen)
+  // Keyboard: only if no input field of the interface has focus (one instance for all connections)
   const kb = S.keyboard || new Guacamole.Keyboard(document);
   const typing = () => { const a = document.activeElement; return overlay.childNodes.length || (a && ['INPUT', 'TEXTAREA', 'SELECT'].includes(a.tagName)); };
   kb.onkeydown = (sym) => { if (typing() || S.state !== 3 || o.read_only) return true; client.sendKeyEvent(1, sym); return false; };
   kb.onkeyup = (sym) => { if (typing() || S.state !== 3 || o.read_only) return; client.sendKeyEvent(0, sym); };
-  if (!S.keyboard) window.addEventListener('blur', () => { try { S.keyboard.reset(); } catch (e) { /* egal */ } });
+  if (!S.keyboard) window.addEventListener('blur', () => { try { S.keyboard.reset(); } catch (e) { /* ignore */ } });
   S.keyboard = kb;
 
   const q = new URLSearchParams({ token: tok.token, width: w, height: hh, dpi, tz });
@@ -289,11 +289,11 @@ function ended() {
 }
 
 function disconnect(cancel) {
-  if (S.client) { try { S.client.disconnect(); } catch (e) { /* egal */ } }
+  if (S.client) { try { S.client.disconnect(); } catch (e) { /* ignore */ } }
   if (cancel) optionsDlg();
 }
 
-// Server fragt fehlende Anmeldedaten nach (Guacamole „required“, z. B. bei NLA oder VNC-Kennwort)
+// Server asks for missing credentials (Guacamole "required", e.g. with NLA or VNC password)
 function requiredDlg(params) {
   const inputs = {};
   const LBL = { username: 'Benutzer', password: 'Kennwort', domain: 'Domäne' };
@@ -368,22 +368,22 @@ document.addEventListener('fullscreenchange', () => { document.body.classList.to
 function toggleFullscreen() {
   if (document.fullscreenElement) { document.exitFullscreen(); return; }
   document.documentElement.requestFullscreen().catch(() => toast('Vollbild nicht möglich', 'err'));
-  try { if (navigator.keyboard && navigator.keyboard.lock) navigator.keyboard.lock(); } catch (e) { /* nicht unterstützt */ }
+  try { if (navigator.keyboard && navigator.keyboard.lock) navigator.keyboard.lock(); } catch (e) { /* not supported */ }
 }
 
-// Leiste bei ausgeblendetem Modus über den oberen Rand einblenden
+// Slide the bar in over the top edge when in hidden mode
 const hot = h('div');
 hot.id = 'rd-hot';
 document.body.appendChild(hot);
 hot.addEventListener('mouseenter', () => { bar.classList.add('show'); setTimeout(() => bar.classList.remove('show'), 2500); });
 
-// Eingaben in der Fernsitzung zählen als Aktivität – sonst meldete die Abmeldung bei Inaktivität den Bediener mitten
-// in der Arbeit ab (der Haupt-Tab sieht diese Eingaben nicht) und beendete damit die Sitzung
+// Input in the remote session counts as activity – otherwise the inactivity logout would sign the operator out in the middle
+// of their work (the main tab does not see this input) and thereby end the session
 let pkActiveSent = 0;
 ['pointerdown', 'keydown', 'wheel', 'touchstart', 'mousemove'].forEach((ev) => window.addEventListener(ev, () => {
   if (Date.now() - pkActiveSent > 60000) { pkActiveSent = Date.now(); fetch('/api/session/active', { method: 'POST', credentials: 'same-origin', headers: { 'X-PK-Request': '1' } }).catch(() => {}); }
 }, { capture: true, passive: true }));
 window.addEventListener('beforeunload', (e) => { if (S.state === 3) { e.preventDefault(); e.returnValue = ''; } });
-window.addEventListener('unload', () => { if (S.client) try { S.client.disconnect(); } catch (e) { /* egal */ } });
+window.addEventListener('unload', () => { if (S.client) try { S.client.disconnect(); } catch (e) { /* ignore */ } });
 
 start();
