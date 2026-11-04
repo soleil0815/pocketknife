@@ -1,12 +1,12 @@
-"""Kerberos statt NTLM für WinRM und SMB.
+"""Kerberos instead of NTLM for WinRM and SMB.
 
-- erzeugt beim Start eine krb5.conf aus PK_DOMAIN (KDC per DNS-SRV oder PK_KDC);
-  eine eigene /data/krb5.conf hat Vorrang
-- Anmeldeverfahren: Einstellung „auth_mode“ (Oberfläche) vor PK_WINRM_AUTH (.env)
-  ntlm      – wie bisher (WinRM und SMB nur NTLM)
-  negotiate – Kerberos, wenn möglich, sonst automatisch NTLM
-  kerberos  – nur Kerberos (kein NTLM-Rückfall)
-- test(): Schritt-für-Schritt-Prüfung inkl. Anzeige, welches Verfahren der Client tatsächlich sieht
+- generates a krb5.conf at startup from PK_DOMAIN (KDC via DNS SRV or PK_KDC);
+  an own /data/krb5.conf takes precedence
+- login method: setting "auth_mode" (UI) before PK_WINRM_AUTH (.env)
+  ntlm      - as before (WinRM and SMB NTLM only)
+  negotiate - Kerberos if possible, otherwise NTLM automatically
+  kerberos  - Kerberos only (no NTLM fallback)
+- test(): step-by-step check incl. display of which method the client actually sees
 """
 import ipaddress
 import os
@@ -31,9 +31,9 @@ def conf_path():
 
 
 def setup():
-    """krb5.conf schreiben und KRB5_CONFIG setzen – vor der ersten Kerberos-Nutzung."""
+    """Write krb5.conf and set KRB5_CONFIG - before the first Kerberos use."""
     if os.environ.get("KRB5_CONFIG") and os.environ["KRB5_CONFIG"] not in (GEN_CONF, CUSTOM_CONF):
-        return  # vom Betreiber gesetzt
+        return  # set by the operator
     if os.path.exists(CUSTOM_CONF):
         os.environ["KRB5_CONFIG"] = CUSTOM_CONF
         return
@@ -44,7 +44,7 @@ def setup():
     lines = ["[libdefaults]", f"  default_realm = {r}",
              f"  dns_lookup_kdc = {'false' if KDC_ENV else 'true'}", "  dns_lookup_realm = false",
              "  rdns = false", "  dns_canonicalize_hostname = fallback",
-             "  udp_preference_limit = 0",  # TCP: große Tickets bei vielen Gruppen
+             "  udp_preference_limit = 0",  # TCP: large tickets with many groups
              "  forwardable = true", "  ticket_lifetime = 10h", "  default_ccache_name = MEMORY:pocketknife", ""]
     if KDC_ENV:
         lines += ["[realms]", f"  {r} = {{"] + [f"    kdc = {k}" for k in KDC_ENV] + ["  }", ""]
@@ -58,7 +58,7 @@ def setup():
 
 
 def available():
-    """(True, Version) wenn die Kerberos-Bibliotheken im Container vorhanden sind."""
+    """(True, version) if the Kerberos libraries are present in the container."""
     try:
         import gssapi  # noqa: F401
         try:
@@ -71,8 +71,8 @@ def available():
 
 
 def mode():
-    # Audit 2.29: CredSSP gibt das Kennwort des Dienstkontos an jeden Client weiter (dort von jedem lokalen Admin
-    # auslesbar, z. B. OU-Admins) – wird nicht mehr unterstützt; „credssp“ in der .env gilt als Negotiate.
+    # Audit 2.29: CredSSP passes the service account's password on to every client (readable there by any local admin,
+    # e.g. OU admins) - no longer supported; "credssp" in the .env counts as Negotiate.
     m = (_setting("auth_mode") or config.WINRM_AUTH or "ntlm").strip().lower()
     if m == "credssp":
         _warn_credssp()
@@ -112,7 +112,7 @@ def smb_protocol(m=None):
 
 
 def principal(user):
-    """benutzer@REALM – Kerberos versteht „DOMÄNE\\benutzer“ nicht."""
+    """user@REALM - Kerberos does not understand "DOMAIN\\user"."""
     u = (user or "").strip()
     if "\\" in u:
         u = u.split("\\", 1)[1]
@@ -135,14 +135,14 @@ def is_ip(host):
 
 
 def host(h, m=None):
-    """Für Kerberos den vollständigen DNS-Namen verwenden (SPN HOST/HTTP/cifs/<fqdn>)."""
+    """Use the full DNS name for Kerberos (SPN HOST/HTTP/cifs/<fqdn>)."""
     h = (h or "").strip()
     if not uses_kerberos(m) or not h or is_ip(h) or "." in h or not config.DOMAIN:
         return h
     return f"{h}.{config.DOMAIN}".lower()
 
 
-# --- Fehlertexte -------------------------------------------------------------------
+# --- Error texts -------------------------------------------------------------------
 HINTS = [
     ("clock skew", "Die Uhrzeit von Container/Host und Domänencontroller weicht mehr als 5 Minuten ab. "
                    "Zeitsynchronisation (NTP) des Docker-Hosts prüfen."),
@@ -183,9 +183,9 @@ def _account_problem(msg):
                                   "password has expired", "client not found"))
 
 
-# --- Ticket holen ------------------------------------------------------------------------
+# --- Obtain a ticket ------------------------------------------------------------------------
 def tgt(user, password):
-    """Holt ein Ticket-Granting-Ticket (prüft KDC-Erreichbarkeit und Kennwort)."""
+    """Obtains a ticket-granting ticket (checks KDC reachability and password)."""
     import gssapi
     from . import guard
     guard.check()
@@ -224,7 +224,7 @@ def _kdcs():
 
 
 def test(computer=None, m="kerberos"):
-    """Prüfung Schritt für Schritt. m = zu testendes Verfahren (Standard: nur Kerberos)."""
+    """Step-by-step check. m = method to test (default: Kerberos only)."""
     from . import remote
     steps = []
     state = {}
@@ -282,7 +282,7 @@ def test(computer=None, m="kerberos"):
         step(f"Dienstticket cifs/{fq} (SMB)", lambda: service_ticket(state["creds"], "cifs", fq) and "erhalten")
 
         def winrm():
-            # 2.38: im Constrained Language Mode gibt es WindowsIdentity nicht – dann „unbekannt“ und whoami
+            # 2.38: WindowsIdentity does not exist in Constrained Language Mode - then "unknown" and whoami
             out, err, _ = remote.ps(fq, "if ($ExecutionContext.SessionState.LanguageMode -eq 'FullLanguage') { "
                                          "$i = [Security.Principal.WindowsIdentity]::GetCurrent(); $i.AuthenticationType; $i.Name } "
                                          "else { 'unbekannt (eingeschränkter Sprachmodus)'; whoami.exe }; "
@@ -321,7 +321,7 @@ def test(computer=None, m="kerberos"):
             try:
                 info = remote.smb_probe(srv, m, user=config.repo_login(), password=config.repo_password(), share=remote._unc(root).lstrip("\\").split("\\")[1])
             except Exception as e:
-                # Kurzname/IP: Hinweis nur, wenn es tatsächlich scheitert (Kurznamen löst Kerberos meist über DNS auf)
+                # Short name/IP: notice only if it actually fails (Kerberos usually resolves short names via DNS)
                 if is_ip(srv):
                     raise RuntimeError(f"{e} – Kerberos funktioniert nicht mit IP-Adressen: im Repository-Pfad den DNS-Namen eintragen")
                 if "." not in srv:

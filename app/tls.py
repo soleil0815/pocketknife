@@ -1,14 +1,14 @@
-"""Zertifikat der Weboberfläche: selbstsigniert, eigenes Zertifikat (PFX/PEM) oder Zertifikatsanforderung (CSR).
+"""Certificate of the web UI: self-signed, own certificate (PFX/PEM) or certificate signing request (CSR).
 
-Dateien unter /data/tls:
-  server.crt   Serverzertifikat inkl. Zwischenzertifikate (PEM, Reihenfolge: Server → Zwischen-CAs)
-  server.key   privater Schlüssel (PEM, nur für root lesbar)
-  pending.key  Schlüssel einer offenen Zertifikatsanforderung (bis das signierte Zertifikat eingespielt ist)
-  pending.csr  die offene Anforderung
-  backup/      die letzten Zertifikate vor einem Wechsel
+Files under /data/tls:
+  server.crt   server certificate incl. intermediate certificates (PEM, order: server → intermediate CAs)
+  server.key   private key (PEM, readable by root only)
+  pending.key  key of an open certificate request (until the signed certificate is imported)
+  pending.csr  the open request
+  backup/      the last certificates before a change
 
-Ein neues Zertifikat wird ohne Neustart aktiv: der laufende TLS-Kontext von uvicorn lädt die Dateien neu
-(gilt für alle neuen Verbindungen).
+A new certificate becomes active without a restart: the running TLS context of uvicorn reloads the files
+(applies to all new connections).
 """
 import datetime
 import hashlib
@@ -37,8 +37,8 @@ BACKUP_DIR = os.path.join(config.TLS_DIR, "backup")
 SELF_ORG = "POCKET KNIFE"
 MAX_UPLOAD = 256 * 1024
 
-_ctx = None      # ssl.SSLContext, mit dem uvicorn lauscht (von run.py registriert)
-_active = None   # aktuell ausgelieferter Kontext (nach einem Wechsel ein neuer)
+_ctx = None      # ssl.SSLContext uvicorn listens with (registered by run.py)
+_active = None   # currently served context (a new one after a change)
 
 
 class CertError(ValueError):
@@ -53,9 +53,9 @@ def _new_context():
 
 
 def register(ctx):
-    """Der Kontext des Webservers bleibt bestehen; bei jedem Handshake wird per SNI-Rückruf auf den
-    aktuellen Kontext umgeschaltet. So wird ein neues Zertifikat sofort verwendet – auch beim Wechsel
-    zwischen RSA und ECDSA (ein bestehender Kontext würde den alten Schlüsseltyp zusätzlich behalten)."""
+    """The web server's context stays in place; on every handshake an SNI callback switches to the
+    current context. This way a new certificate is used immediately - also when switching
+    between RSA and ECDSA (an existing context would additionally keep the old key type)."""
     global _ctx, _active
     _ctx = ctx
     _active = None
@@ -104,7 +104,7 @@ def _write(path, data, private=False):
         os.remove(tmp)
     except OSError:
         pass
-    # Schlüssel gleich mit 0600 anlegen (nicht erst schreiben und dann einschränken)
+    # create the key with 0600 right away (do not write first and restrict afterwards)
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600 if private else 0o644)
     with os.fdopen(fd, "wb") as f:
         f.write(data)
@@ -120,7 +120,7 @@ def _meta(source, **extra):
 
 
 # ---------------------------------------------------------------------------
-# Selbstsigniert
+# Self-signed
 # ---------------------------------------------------------------------------
 def _self_signed():
     pk = rsa.generate_private_key(public_exponent=65537, key_size=3072)
@@ -149,12 +149,12 @@ def _pair_ok(cert, key):
 
 
 def ensure():
-    """Beim Start: vorhandenes Zertifikat verwenden oder ein selbstsigniertes erzeugen."""
+    """At startup: use the existing certificate or generate a self-signed one."""
     config.ensure_dirs()
     if os.path.exists(CERT) and os.path.exists(KEY):
         if _pair_ok(CERT, KEY):
             return CERT, KEY
-        # Zertifikat und Schlüssel passen nicht (z. B. Absturz während des Austauschs): letzte gute Sicherung nehmen
+        # Certificate and key do not match (e.g. crash during the swap): take the last good backup
         for d in sorted(os.listdir(BACKUP_DIR), reverse=True) if os.path.isdir(BACKUP_DIR) else []:
             c, k = os.path.join(BACKUP_DIR, d, "server.crt"), os.path.join(BACKUP_DIR, d, "server.key")
             if os.path.exists(c) and os.path.exists(k) and _pair_ok(c, k):
@@ -172,10 +172,10 @@ def ensure():
 
 
 # ---------------------------------------------------------------------------
-# Lesen
+# Reading
 # ---------------------------------------------------------------------------
 def _load_certs(data):
-    """PEM (auch mehrere) oder DER."""
+    """PEM (also several) or DER."""
     if not data:
         return []
     if b"-----BEGIN" in data:
@@ -186,7 +186,7 @@ def _load_certs(data):
     try:
         return [x509.load_der_x509_certificate(data)]
     except ValueError:
-        try:  # PKCS#7 (.p7b) als DER
+        try:  # PKCS#7 (.p7b) as DER
             from cryptography.hazmat.primitives.serialization import pkcs7
             return pkcs7.load_der_pkcs7_certificates(data)
         except Exception:
@@ -267,7 +267,7 @@ def _describe(c):
 
 
 def _order(leaf, others):
-    """Kette ab dem Serverzertifikat aufbauen (Wurzel-CA wird mitgeliefert, schadet aber nicht)."""
+    """Build the chain starting from the server certificate (the root CA is included, but does no harm)."""
     chain, cur, rest = [leaf], leaf, [o for o in others if o != leaf]
     while rest:
         nxt = next((o for o in rest if o.subject == cur.issuer), None)
@@ -319,7 +319,7 @@ def current_pem():
 
 
 # ---------------------------------------------------------------------------
-# Prüfen und installieren
+# Check and install
 # ---------------------------------------------------------------------------
 def _check(key, certs):
     if not certs:
@@ -349,7 +349,7 @@ def _check(key, certs):
         warn.append("Das Zertifikat enthält keine alternativen Namen (SAN) – aktuelle Browser akzeptieren nur den SAN, nicht den CN.")
     if not d["self_signed"] and len(chain) == 1:
         warn.append("Keine Zwischenzertifikate mitgeliefert – falls die ausstellende CA eine Zwischen-CA ist, diese mit hochladen.")
-    # Probe: lässt sich die Kombination in einen TLS-Kontext laden?
+    # Test: can the combination be loaded into a TLS context?
     pem = b"".join(c.public_bytes(serialization.Encoding.PEM) for c in chain)
     tmpc, tmpk = CERT + ".probe", KEY + ".probe"
     try:
@@ -367,7 +367,7 @@ def _check(key, certs):
 
 
 def parse(kind, data, password="", key_data=None, key_password=""):
-    """kind = pfx | pem. data/key_data = Bytes. Liefert (key, certs)."""
+    """kind = pfx | pem. data/key_data = bytes. Returns (key, certs)."""
     if len(data or b"") > MAX_UPLOAD or len(key_data or b"") > MAX_UPLOAD:
         raise CertError("Datei zu groß.")
     if kind == "pfx":
@@ -417,7 +417,7 @@ def _backup():
 
 
 def reload():
-    """Neues Zertifikat im laufenden Webserver aktivieren. True = sofort aktiv."""
+    """Activate a new certificate in the running web server. True = active immediately."""
     global _active
     if _ctx is None:
         return False
@@ -474,7 +474,7 @@ def restore(name, user=""):
 
 
 # ---------------------------------------------------------------------------
-# Zertifikatsanforderung (z. B. für die Active-Directory-Zertifizierungsstelle)
+# Certificate request (e.g. for the Active Directory certification authority)
 # ---------------------------------------------------------------------------
 def create_csr(cn, names, org="", ou="", country="", key_type="rsa3072", user=""):
     cn = (cn or "").strip() or config.PUBLIC_HOSTNAME

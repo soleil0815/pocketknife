@@ -1,5 +1,5 @@
-"""Pakete aus Schritten: Vorbereitung, Schritte, Abschluss – mit Bedingungen,
-„Ausführen als“ und Fehlerverhalten je Schritt. Ausführung je Zielcomputer über die Klasse Runner."""
+"""Packages made of steps: preparation, steps, completion - with conditions,
+"Ausführen als" (run as) and per-step error behavior. Execution per target computer via the Runner class."""
 import base64
 import json
 import re
@@ -24,7 +24,7 @@ STEP_TYPES = {"install": "Installieren", "uninstall": "Deinstallieren", "command
               "sleep": "Warten", "message": "Nachricht", "logoff": "Abmelden"}
 PHASES = [("pre", "Vorbereitung"), ("main", "Schritte"), ("post", "Abschluss")]
 INSTALL_TYPES = {".msi": "msi", ".msp": "msp", ".msu": "msu", ".exe": "exe", ".cmd": "cmd", ".bat": "cmd", ".ps1": "ps1", ".reg": "reg"}
-# Registry-Schritt
+# Registry step
 REG_ACTIONS = {"set": "Wert setzen", "delete_value": "Wert löschen", "delete_key": "Schlüssel löschen", "create_key": "Schlüssel anlegen"}
 REG_KINDS = {"REG_SZ": "String", "REG_EXPAND_SZ": "ExpandString", "REG_DWORD": "DWord", "REG_QWORD": "QWord",
              "REG_MULTI_SZ": "MultiString", "REG_BINARY": "Binary"}
@@ -35,7 +35,7 @@ MAX_DEPTH = 5
 
 
 def reboot_text(st):
-    """Meldung des Schritts „Neustart“: eigener Text des Schritts (Platzhalter erlaubt) oder der eingestellte Standard."""
+    """Message of the "Neustart" (restart) step: the step's own text (placeholders allowed) or the configured default."""
     from . import rebootmsg
     try:
         d = max(0, int(st.get("delay_sec", 60)))
@@ -49,9 +49,9 @@ def _id():
     return secrets.token_hex(4)
 
 
-# --- Bedingungen ---------------------------------------------------------------------------
+# --- Conditions --------------------------------------------------------------------------
 def default_conditions():
-    """Standardmäßig ist alles ausgewählt – bei Bedarf abwählen."""
+    """Everything is selected by default - deselect if needed."""
     return {"os": [k for k, _ in OS_KEYS], "arch": [k for k, _ in ARCH_KEYS], "ps_min": "", "logged_on": "always",
             "files": [], "registry": [], "collections": []}
 
@@ -97,7 +97,7 @@ def clean_conditions(c, label="Bedingungen"):
 
 
 def client_checks(c):
-    """Müssen Bedingungen auf dem Client geprüft werden?"""
+    """Do conditions have to be checked on the client?"""
     full = default_conditions()
     return bool(set(c["os"]) != set(full["os"]) or set(c["arch"]) != set(full["arch"]) or c["ps_min"]
                 or c["logged_on"] != "always" or c["files"] or c["registry"])
@@ -124,7 +124,7 @@ def describe_conditions(c):
 
 
 def cond_script(c):
-    """PowerShell, das PK_COND_OK oder PK_COND_FAIL:<Grund> ausgibt (läuft per WinRM, ohne geplante Aufgabe)."""
+    """PowerShell that outputs PK_COND_OK or PK_COND_FAIL:<reason> (runs via WinRM, without a scheduled task)."""
     q = util.psq
     lines = [r"""$ErrorActionPreference = 'SilentlyContinue'
 function PKV($v) { if ("$v" -match '(\d+)(\.\d+)?(\.\d+)?(\.\d+)?') { $s = $matches[1] + $(if ($matches[2]) { $matches[2] } else { '.0' }) + $matches[3] + $matches[4]; try { [version]$s } catch { $null } } else { $null } }
@@ -194,7 +194,7 @@ HIVES = {"HKLM": "HKEY_LOCAL_MACHINE", "HKCU": "HKEY_CURRENT_USER", "HKCR": "HKE
          "HKCC": "HKEY_CURRENT_CONFIG"}
 
 
-# --- Schritte -------------------------------------------------------------------------------
+# --- Steps --------------------------------------------------------------------------------
 def install_type_for(filename):
     m = re.search(r"\.[A-Za-z0-9]+$", filename or "")
     return INSTALL_TYPES.get(m.group(0).lower()) if m else None
@@ -359,7 +359,7 @@ def clean_reg_entry(e, label):
 
 
 def reg_line(e, view="64"):
-    """Gleichwertiger reg.exe-Aufruf (für die Vorschau)."""
+    """Equivalent reg.exe call (for the preview)."""
     v = "" if view == "64" else " /reg:32"
     path = f'"{e["path"]}"'
     nm = (f'/v "{e["name"]}"' if e.get("name") else "/ve")
@@ -423,9 +423,9 @@ def step_title(st, packages=None):
     return STEP_TYPES[t]
 
 
-# --- Pakete ---------------------------------------------------------------------------------
+# --- Packages -----------------------------------------------------------------------------
 def legacy_steps(p):
-    """Pakete aus Versionen vor 2.3 (ein Installationsbefehl) als Schritt-Paket darstellen."""
+    """Represent packages from versions before 2.3 (a single install command) as a step package."""
     st = {"id": "s1", "type": "install", "enabled": True, "run_as": "inherit", "on_error": "stop", "timeout_min": 0,
           "conditions": default_conditions(), "title": ""}
     if p.get("type") == "winget":
@@ -443,7 +443,7 @@ def legacy_steps(p):
 
 
 def normalize(p):
-    """Paket (DB-Zeile, Bereitstellungs-Snapshot oder Ad-hoc-Paket) in die Schritt-Form bringen."""
+    """Bring a package (DB row, deployment snapshot or ad-hoc package) into step form."""
     p = dict(p)
     steps = p.get("steps")
     if isinstance(steps, str):
@@ -453,7 +453,7 @@ def normalize(p):
             steps = None
     if not steps or not any(steps.get(k) for k, _ in PHASES):
         steps = legacy_steps(p)
-        # Alte Pakete liefen immer als SYSTEM (bzw. wie bei der Deinstallation festgelegt)
+        # Old packages always ran as SYSTEM (or as defined for the uninstall)
         p["run_as"] = p.get("run_as") if p.get("run_as") in RUN_AS else "system"
     conds = p.get("conditions")
     if isinstance(conds, str):
@@ -462,8 +462,8 @@ def normalize(p):
         except ValueError:
             conds = None
     p["steps"] = {k: list(steps.get(k) or []) for k, _ in PHASES}
-    # Fehlende oder doppelte Schritt-IDs (sehr alte Snapshots, Importe): fest nach Position ergänzen – dieselbe
-    # Bereitstellung ergibt also immer dieselben IDs (Wiederholen, Ergebnis je Schritt)
+    # Missing or duplicate step IDs (very old snapshots, imports): add them deterministically by position - the same
+    # deployment therefore always gets the same IDs (retry, result per step)
     seen = set()
     for pi, (k, _l) in enumerate(PHASES):
         for i, st in enumerate(p["steps"][k]):
@@ -477,7 +477,7 @@ def normalize(p):
 
 
 def clean_package(data):
-    """Prüft ein Paket aus dem Editor und liefert die zu speichernden Werte."""
+    """Validates a package from the editor and returns the values to save."""
     name = (data.get("name") or "").strip()
     if not name:
         raise ValueError("Name fehlt.")
@@ -490,7 +490,7 @@ def clean_package(data):
             n += 1
             cs = clean_step(s, f"{label}, Schritt {len(steps[key]) + 1}")
             if cs["id"] in seen_ids:
-                cs["id"] = _id()  # doppelte ID (Import, API): eindeutig machen – „Schritt wiederholen“ braucht sie
+                cs["id"] = _id()  # duplicate ID (import, API): make it unique - "Schritt wiederholen" (retry step) needs it
             seen_ids.add(cs["id"])
             steps[key].append(cs)
     if not n:
@@ -500,7 +500,7 @@ def clean_package(data):
     if tenant and not db.val("SELECT 1 FROM tenants WHERE id=?", (tenant,)):
         raise ValueError("Mandant nicht gefunden.")
     if tenant:
-        # Pakete eines Mandanten dürfen nur Dateien aus dessen Repository-Ordner verwenden
+        # Packages of a tenant may only use files from that tenant's repository folder
         base = (db.val("SELECT repo_folder FROM tenants WHERE id=?", (tenant,)) or "").replace("/", "\\").strip("\\").lower()
         base = "\\".join(x for x in base.split("\\") if x not in ("", "."))
         if base:
@@ -526,11 +526,11 @@ def clean_package(data):
          "reboot": data.get("reboot") if data.get("reboot") in ("never", "if_required", "always") else "never",
          "rescan": 1 if data.get("rescan", 1) else 0,
          "rescan_profile_id": _int(data.get("rescan_profile_id"), 0, 10 ** 9, 0) or None,
-         # Windows-Benachrichtigung für den angemeldeten Benutzer: "" = Einstellung, "on" = immer, "off" = nie
+         # Windows notification for the logged-on user: "" = setting, "on" = always, "off" = never
          "notify_user": data.get("notify_user") if data.get("notify_user") in ("on", "off") else "",
          "conditions": clean_conditions(data.get("conditions"), "Paket-Bedingungen"),
          "steps": steps, "tenant_id": tenant, "folder_name": (data.get("folder_name") or "").strip()[:120]}
-    # Kompatibilitätsfelder aus dem ersten Installationsschritt (Paketliste, Regeln, Versionsanzeige)
+    # Compatibility fields from the first install step (package list, rules, version display)
     first = next((s for k, _ in PHASES for s in steps[k] if s["type"] == "install"), None)
     legacy = {"type": "custom", "winget_id": None, "winget_action": None, "winget_version": None, "winget_scope": None,
               "extra_args": None, "folder": None, "install_type": None, "install_file": None, "arguments": None,
@@ -548,7 +548,7 @@ def clean_package(data):
 
 
 def check_nesting(pid, p):
-    """Schleifen (Paket enthält sich selbst) und zu tiefe Verschachtelung verhindern."""
+    """Prevent loops (a package containing itself) and nesting that is too deep."""
     def walk(steps, stack):
         for k, _ in PHASES:
             for s in steps.get(k) or []:
@@ -565,7 +565,7 @@ def check_nesting(pid, p):
 
 
 def expand(p, stack=None):
-    """Verschachtelte Pakete für die Bereitstellung auflösen (Snapshot – spätere Änderungen wirken nicht nach)."""
+    """Resolve nested packages for the deployment (snapshot - later changes have no effect)."""
     stack = stack or []
     p = normalize(p)
     for k, _ in PHASES:
@@ -590,18 +590,18 @@ def iter_steps(p):
             yield k, s
 
 
-# --- Ausführen-als und Vorschau --------------------------------------------------------------
+# --- Run as and preview --------------------------------------------------------------------
 def effective_run_as(st, pkg):
     ra = st.get("run_as") or "inherit"
     if ra == "inherit":
         ra = pkg.get("run_as") or "deploy"
     note = ""
     if st["type"] == "install" and st.get("source") == "winget" and ra == "deploy":
-        # winget ist für das Dienstkonto meist nicht registriert – als SYSTEM läuft es zuverlässig
+        # winget is usually not registered for the service account - it runs reliably as SYSTEM
         ra, note = "system", "winget läuft als Lokales System, weil der App-Installer für das Dienstkonto nicht registriert ist."
     elif ra == "deploy" and pkg.get("tenant_id"):
-        # Audit 2.29: Mandantenpakete nie als domänenweites Dienstkonto – ihre Dateien (Mandantenordner) kann der OU-Admin
-        # austauschen, egal wer das Paket gespeichert hat. Die Dateien kopiert POCKET KNIFE selbst; SYSTEM genügt.
+        # Audit 2.29: tenant packages never as the domain-wide service account - the OU admin can swap their files (tenant folder)
+        # no matter who saved the package. POCKET KNIFE copies the files itself; SYSTEM is enough.
         ra, note = "system", "Mandantenpaket – läuft als Lokales System statt als Dienstkonto."
     return ra, note
 
@@ -618,7 +618,7 @@ RUN_DIR = "C:\\Windows\\Temp\\PocketKnife\\<Lauf>"
 
 
 def preview(st, pkg):
-    """Was auf dem Client tatsächlich ausgeführt wird – für die Anzeige im Paket-Editor."""
+    """What is actually executed on the client - for the display in the package editor."""
     st = dict(st)
     ra, note = effective_run_as(st, pkg)
     lines, notes = [], [note] if note else []
@@ -734,13 +734,13 @@ def preview(st, pkg):
     return {"command": "\n".join(lines), "run_as": ra, "run_as_label": run_as_label(ra), "notes": notes}
 
 
-# --- Skripte je Schritt ----------------------------------------------------------------------
+# --- Scripts per step ----------------------------------------------------------------------
 PS_NOTE = ("Verweigert Windows die Skriptdatei (Ausführungsrichtlinie per GPO, Signatur, Sicherheitszone), lädt POCKET KNIFE "
            "ihren Inhalt und führt ihn aus – Parameter, $PSScriptRoot und Exitcode bleiben gleich.")
 
 
 def _write_file(name, text, encoding="UTF8"):
-    # 2.38: ohne .NET (Constrained Language Mode) – siehe util.ps_write; .cmd in der Codepage der Konsole
+    # 2.38: without .NET (Constrained Language Mode) - see util.ps_write; .cmd in the console code page
     return f"$pkF = Join-Path $PKDir '{name}'\n" + util.ps_write("$pkF", text, cmd=(encoding == "OEM"))
 
 
@@ -763,7 +763,7 @@ def body_for(st, pkg):
         extra = " /XC /XN /XO" if not st.get("overwrite", True) else ""
         return (util.PS_EXPAND + f"$pkT = PK-Exp {tgt}\n"
                 "New-Item -ItemType Directory -Path $pkT -Force | Out-Null\n"
-                # robocopy liest \" als Anführungszeichen: abschließenden \ entfernen (Laufwerk: C:\ -> C:\.)
+                # robocopy reads \" as a quotation mark: remove the trailing \ (drive: C:\ -> C:\.)
                 "$pkT = $pkT.TrimEnd('\\'); if ($pkT -match '^[A-Za-z]:$') { $pkT += '\\.' }\n"
                 f"PK-Run 'robocopy.exe' ('\"' + (Join-Path $PKDir 'payload') + '\" \"' + $pkT + '\" /E /XJ /R:1 /W:2 /NP /NJH /NJS{extra}')\n"
                 "if ($global:PKExit -lt 8) { Write-Output 'Kopieren erfolgreich.'; $global:PKExit = 0 }\n")
@@ -774,8 +774,8 @@ def body_for(st, pkg):
 
 REG_FUNCS = r"""
 $global:PKRegFail = 0
-# 2.38.2: Werte mit Namen wie Password/Kennwort/Secret/Token nie in die Ausgabe (sie landet im Protokoll der
-# Bereitstellung) – z. B. das VNC-Kennwort ist nur mit einem bekannten Schlüssel verschlüsselt
+# 2.38.2: Values with names like Password/Kennwort/Secret/Token never go into the output (it ends up in the log of the
+# deployment) - e.g. the VNC password is encrypted only with a known key
 function PK-RegShow([string]$Name, $Data) {
   if ($Name -match '__SECRET_RX__') { return '******** (verborgen)' }
   if ($Data -is [array]) { ($Data -join '; ') } else { [string]$Data }
@@ -784,8 +784,8 @@ function PK-RegBase([string]$Hive, [string]$View) {
   $h = @{ HKLM = 'LocalMachine'; HKCU = 'CurrentUser'; HKU = 'Users'; HKCR = 'ClassesRoot'; HKCC = 'CurrentConfig' }[$Hive]
   [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]$h, $(if ($View -eq '32') { 'Registry32' } else { 'Registry64' }))
 }
-# 2.38: Constrained Language Mode (Softwareeinschränkung, AppLocker, App Control) – dort keine .NET-Registry-Klassen,
-# sondern die Registry-Cmdlets. 32-Bit-Ansicht: HKLM\SOFTWARE → HKLM\SOFTWARE\WOW6432Node (nur dort leitet Windows um).
+# 2.38: Constrained Language Mode (software restriction, AppLocker, App Control) - no .NET registry classes there,
+# but the registry cmdlets. 32-bit view: HKLM\SOFTWARE -> HKLM\SOFTWARE\WOW6432Node (only there does Windows redirect).
 function PK-RegPath([string]$Hive, [string]$Path, [string]$View) {
   $root = @{ HKLM = 'HKEY_LOCAL_MACHINE'; HKCU = 'HKEY_CURRENT_USER'; HKU = 'HKEY_USERS'; HKCR = 'HKEY_CLASSES_ROOT'; HKCC = 'HKEY_CURRENT_CONFIG' }[$Hive]
   $p = $Path
@@ -858,14 +858,14 @@ function PK-Reg([string]$Action, [string]$Hive, [string]$Path, [string]$Name, [s
 """
 
 
-# Namen von Registry-Werten, deren Inhalt nie in Ausgabe, Protokoll oder Vorschau steht (2.38.2)
+# Names of registry values whose content never appears in output, log or preview (2.38.2)
 SECRET_VALUE_RX = r"(?i)pass(word|wd|phrase)?|pwd|kennwort|secret|token|credential|private.?key|api.?key"
 REG_FUNCS = REG_FUNCS.replace("__SECRET_RX__", SECRET_VALUE_RX)
 
 
 def _ps_data(e):
     k, d = e["kind"], e["data"]
-    # 2.38: vorzeichenbehaftet schon hier umrechnen (statt [BitConverter] – im Constrained Language Mode nicht erlaubt)
+    # 2.38: convert signed values here already (instead of [BitConverter] - not allowed in Constrained Language Mode)
     if k == "REG_DWORD":
         v = int(d) & 0xFFFFFFFF
         return f"([int]{v - (1 << 32) if v >= (1 << 31) else v})"
@@ -895,14 +895,14 @@ def reg_body(st):
 
 
 def evaluate(st, code):
-    """(erfolgreich, neustart_nötig)"""
+    """(success, restart_needed)"""
     if st["type"] == "install" and st.get("source") == "winget":
         return deploy.evaluate({"type": "winget"}, code)
     codes = {int(x) for x in (st.get("success_codes") or "0").split(",") if re.match(r"^-?\d+$", x.strip())}
     return code in codes, code in deploy.REBOOT_CODES
 
 
-# --- Ausführung je Zielcomputer --------------------------------------------------------------
+# --- Execution per target computer ---------------------------------------------------------
 class Runner:
     def __init__(self, did, tid, computer, cancel, set_status, user=None):
         self.did, self.tid, self.c = did, tid, computer
@@ -910,7 +910,7 @@ class Runner:
         self.cancel = cancel
         self.set_status = set_status
         self.user = user
-        # Zufallsteil im Namen des Arbeitsordners: nicht vorhersagbar (kein Vorab-Anlegen durch Benutzer)
+        # Random part in the working folder name: not predictable (no pre-creation by users)
         self.token = __import__("secrets").token_hex(4)
         self.n = 0
         self.results = []
@@ -918,7 +918,7 @@ class Runner:
         self.reboot_needed = False
         self.last_code = 0
 
-    # Hilfen
+    # helpers
     def _check_cancel(self):
         if self.cancel():
             raise remote.Cancelled("Abgebrochen")
@@ -934,14 +934,14 @@ class Runner:
         return r
 
     def check(self, conds):
-        """(ok, grund)"""
+        """(ok, reason)"""
         from . import collections_
         for cc in conds.get("collections") or []:
-            if cc["id"] == 0:  # Pseudo-Sammlung „Alle Computer“
+            if cc["id"] == 0:  # pseudo collection "Alle Computer"
                 mem, name = True, "Alle Computer"
             else:
-                # Audit 2.29: fehlt die Sammlung oder lässt sie sich gerade nicht auswerten, gilt die Bedingung als NICHT
-                # erfüllt (beide Arten) – sonst würde aus „nicht Mitglied von Ausnahmen“ still „überall installieren“
+                # Audit 2.29: if the collection is missing or cannot be evaluated right now, the condition counts as NOT
+                # met (both kinds) - otherwise "not a member of exceptions" would silently become "install everywhere"
                 name = db.val("SELECT name FROM collections WHERE id=?", (cc["id"],))
                 if name is None:
                     return False, f"Sammlung #{cc['id']} aus der Bedingung gibt es nicht mehr – Paket-Bedingung anpassen"
@@ -969,7 +969,7 @@ class Runner:
             self.log.append(f"=== Paket „{pkg['name']}“ übersprungen: {why} ===\n")
             return "skipped", why
         failed, fail_msg = False, ""
-        soft = []  # mehrere Pakete (Zeitplan/Mehrfachauswahl) mit „weiter nach Fehler“: am Ende trotzdem „fehlgeschlagen“
+        soft = []  # several packages (schedule/multi-selection) with "continue after error": still "failed" at the end
         for phase in ("pre", "main"):
             for st in pkg["steps"][phase]:
                 if failed:
@@ -985,7 +985,7 @@ class Runner:
             if res == "failed" and st.get("on_error", "stop") == "stop" and not failed:
                 failed, fail_msg = True, f"{step_title(st)}: {msg}"
         if not failed and soft:
-            # Sonst gälte der Computer als versorgt: kein erneuter Versuch, Liste grün, obwohl ein Paket fehlt
+            # Otherwise the computer would count as supplied: no new attempt, list green although a package is missing
             return "failed", f"{len(soft)} Paket(e) fehlgeschlagen – " + "; ".join(soft)
         return ("failed", fail_msg) if failed else ("success", "")
 
@@ -1040,12 +1040,12 @@ class Runner:
                 return "success", ""
             if t == "message":
                 tm = f"/TIME:{st['timeout_sec']} " if st.get("timeout_sec") else ""
-                # Audit 2.29: Text bereinigt (keine " – Windows PowerShell 5.1 gibt das Argument sonst zerlegt an msg.exe weiter)
+                # Audit 2.29: text sanitized (no " - Windows PowerShell 5.1 otherwise splits the argument when passing it to msg.exe)
                 txt = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", " ", st["text"]).replace('"', "'").rstrip().rstrip("\\") or "-"
                 out, err, _ = remote.ps(self.host, f"& msg.exe * {tm}{util.psq(txt)} 2>&1; 'Exitcode: ' + $LASTEXITCODE")
                 mrc = re.search(r"Exitcode:\s*(-?\d+)", out or "")
                 if mrc and int(mrc.group(1)) != 0:
-                    # msg.exe meldet z. B. 1, wenn niemand angemeldet ist – kein Grund, das Paket abzubrechen
+                    # msg.exe reports e.g. 1 if nobody is logged on - no reason to abort the package
                     self._record(phase, st, "success", f"Nachricht nicht zugestellt (Exitcode {mrc.group(1)}, evtl. niemand angemeldet)",
                                  out=out, t0=t0, depth=depth)
                     return "success", ""
@@ -1062,14 +1062,14 @@ class Runner:
         return "failed", "Unbekannter Schritt"
 
     def _client_step(self, st, pkg, phase, depth, t0):
-        # 2.36: neue winget-Versionen zurückgestellt → die zuletzt freigegebene Version (vor dem winget-Cache: der hält
-        # genau diese Version bereit)
+        # 2.36: new winget versions held back -> the last approved version (before the winget cache: it keeps
+        # exactly this version ready)
         if st["type"] == "install" and st.get("source") == "winget":
             from . import wingetrelease
             try:
                 st2, why = wingetrelease.apply_step(st, pkg)
             except Exception as e:
-                # 2.36.2: nicht prüfbar → nicht einfach die neueste (vielleicht gesperrte) Version installieren
+                # 2.36.2: not checkable -> do not simply install the latest (possibly blocked) version
                 why = f"Freigabe der winget-Version nicht prüfbar: {str(e)[:200]}"
                 self._record(phase, st, "failed", why, t0=t0, depth=depth)
                 return "failed", why
@@ -1078,7 +1078,7 @@ class Runner:
                 return "skipped", why
             if st2 is not st:
                 pin = st2["winget_version"]
-                # nie herunterstufen: ist schon dieselbe oder eine neuere Version installiert, nichts tun
+                # never downgrade: if the same or a newer version is already installed, do nothing
                 have = [r["version"] for r in db.q("SELECT version FROM software WHERE computer_id=? AND lower(winget_id)=?",
                                                     (self.c.get("id"), str(st2.get("winget_id") or "").lower())) if r["version"]]
                 if any(util.vcmp(str(v), pin) >= 0 for v in have):
@@ -1086,7 +1086,7 @@ class Runner:
                     self._record(phase, st, "skipped", why, t0=t0, depth=depth)
                     return "skipped", why
                 st = {**st2, "title": f"{step_title(st)} – freigegebene Version {pin} ({st2.get('release_note')})"}
-        # 2.35.1: Computer ohne winget – winget-Schritt aus dem winget-Cache, wenn er dort bereitliegt
+        # 2.35.1: computer without winget - winget step from the winget cache, if it is available there
         if st["type"] == "install" and st.get("source") == "winget":
             try:
                 from . import wingetcache
@@ -1119,7 +1119,7 @@ class Runner:
             code, out = remote.run_as_system(self.host, body_for(st, pkg), name, timeout_s=timeout, cancel=self.cancel,
                                              run_as=ra, run_user_sid=pkg.get("run_user_sid"))
         except BaseException:
-            # Auch bei Abbruch oder halb fertiger Kopie: kopierte Dateien nicht auf dem Ziel liegen lassen
+            # Even on abort or a half-finished copy: do not leave copied files on the target
             remote.remove_package_copy(self.host, name)
             raise
         if st["type"] == "install" and st.get("source") == "winget" and code == 9010:
@@ -1131,9 +1131,9 @@ class Runner:
             self.reboot_needed = True
         msg = deploy.WINGET_MESSAGES.get(code, "") if st["type"] == "install" and st.get("source") == "winget" else ""
         if msg and not ok:
-            msg = f"Fehlgeschlagen – {msg} (Exitcode {code})"  # Klartext und Code: beides wird für die Fehlersuche gebraucht
+            msg = f"Fehlgeschlagen – {msg} (Exitcode {code})"  # plain text and code: both are needed for troubleshooting
         elif not ok:
-            # 2.32.5: gehärtetes Windows (9013–9016) – nur bei einem Fehlschlag, Erfolgscodes des Schritts gehen vor
+            # 2.32.5: hardened Windows (9013-9016) - only on failure, the step's success codes take precedence
             code, hard = remote.apply_hard(code, out)
             if hard:
                 self.last_code = code
@@ -1147,13 +1147,13 @@ class Runner:
         if note:
             out = f"Hinweis: {note}\n{out or ''}"
         if ra == "user":
-            # 2.37: Arbeitsordner und Ergebnisdatei gehören dann dem angemeldeten Benutzer – er könnte sie verändern
+            # 2.37: working folder and result file then belong to the logged-on user - he could change them
             msg += " (Ergebnis vom angemeldeten Benutzer gemeldet)"
         self._record(phase, st, "success" if ok else "failed", msg, code=code, out=out, t0=t0, ra=ra, depth=depth)
         return ("success" if ok else "failed"), msg
 
     def _find_installed(self, st):
-        """Passende Einträge in „Programme und Features“ – live per WinRM, sonst aus dem letzten Scan."""
+        """Matching entries in "Programme und Features" - live via WinRM, otherwise from the last scan."""
         import fnmatch
         from . import uninstall
         script = r"""$ErrorActionPreference = 'SilentlyContinue'
@@ -1185,7 +1185,7 @@ $out = foreach ($r in $roots) { Get-ChildItem -Path $r | ForEach-Object {
         pat, ver = st["match_name"].lower(), (st.get("match_version") or "").lower()
         hits = [r for r in rows if fnmatch.fnmatch((r.get("name") or "").lower(), pat)
                 and (not ver or fnmatch.fnmatch((r.get("version") or "").lower(), ver))]
-        # winget-Zuordnung aus dem Inventar ergänzen (für den winget-Weg)
+        # add the winget mapping from the inventory (for the winget path)
         inv = {r["name"]: r for r in db.q("SELECT name, winget_id, winget_sure FROM software WHERE computer_id=?", (self.c["id"],))}
         seen, out = set(), []
         for r in hits:
@@ -1212,18 +1212,18 @@ $out = foreach ($r in $roots) { Get-ChildItem -Path $r | ForEach-Object {
         for sw in hits:
             self._check_cancel()
             p2 = uninstall.package_for(sw, st.get("command") or None, explicit, bool(st.get("cleanup")))
-            # Benutzer-Einträge laufen immer im Kontext dieses Benutzers (siehe uninstall.package_for)
+            # User entries always run in the context of this user (see uninstall.package_for)
             ra = p2.get("run_as") if p2.get("run_as_forced") else (explicit or p2.get("run_as") or "system")
             if p2.get("type") == "winget":
                 ra = "system" if ra == "deploy" else ra
             if ra == "deploy" and not (st.get("command") or "").strip():
-                # Der Befehl kommt aus der Registry des Clients (UninstallString) – wer dort Administrator ist (z. B. ein
-                # OU-Admin), bestimmt ihn. Nie als das domänenweite Dienstkonto ausführen, sondern als Lokales System.
+                # The command comes from the client's registry (UninstallString) - whoever is administrator there (e.g. an
+                # OU admin) determines it. Never run it as the domain-wide service account, but as Local System.
                 ra = "system"
-            # 2.32.5: Rumpf passend zur Art (winget uninstall oder Befehl) – vorher waren die beiden vertauscht
+            # 2.32.5: body matching the kind (winget uninstall or command) - the two were swapped before
             body = deploy.build_body(p2)
             if ra == "deploy" and pkg.get("tenant_id"):
-                ra = "system"  # Audit 2.29: Mandantenpakete nie als Dienstkonto (siehe effective_run_as)
+                ra = "system"  # Audit 2.29: tenant packages never as the service account (see effective_run_as)
             self.n += 1
             name = f"{self.did}_{self.tid}_{self.n}_{self.token}"
             self.set_status(f"Schritt: deinstalliere {sw['name']} …")
@@ -1245,8 +1245,8 @@ $out = foreach ($r in $roots) { Get-ChildItem -Path $r | ForEach-Object {
         return status, msg
 
     def _winget_offline_copy(self, name):
-        """Fehlt winget, die Dateien des App-Installers aus dem Repository vorher auf den Client kopieren (2.37: der
-        Client lädt nie selbst aus dem Internet; liegen sie noch nicht dort, lädt POCKET KNIFE sie jetzt)."""
+        """If winget is missing, first copy the App Installer files from the repository to the client (2.37: the
+        client never downloads from the internet itself; if they are not there yet, POCKET KNIFE loads them now)."""
         from . import wingetboot
         if not db.setting("winget_bootstrap"):
             return
@@ -1262,7 +1262,7 @@ $out = foreach ($r in $roots) { Get-ChildItem -Path $r | ForEach-Object {
                 try:
                     wingetboot.refresh(self.user)
                 except Exception:
-                    return  # der Schritt meldet „liegt noch nicht im Repository“
+                    return  # the step reports "liegt noch nicht im Repository" (is not in the repository yet)
             self.set_status(f"Schritt {self.n}: kopiere den App-Installer (winget) aus dem Repository …")
             remote.copy_package(folder, self.host, name + "\\winget")
 
@@ -1303,8 +1303,8 @@ $out = foreach ($r in $roots) { Get-ChildItem -Path $r | ForEach-Object {
                 except remote.RemoteError:
                     continue
                 if before and out.strip() == before:
-                    continue  # noch nicht neu gestartet
-                time.sleep(20)  # Dienste starten lassen
+                    continue  # not restarted yet
+                time.sleep(20)  # let services start
                 self.reboot_needed = False
                 note = "" if went_down else " (Herunterfahren wurde nicht beobachtet)"
                 self._record(phase, st, "success", f"Neu gestartet, wieder erreichbar (Start {out.strip()}){note}", t0=t0, depth=depth)

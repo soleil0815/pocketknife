@@ -1,8 +1,8 @@
-"""Active Directory / Samba über LDAPS: Anmeldung, Gruppenprüfung, Computer-Abgleich.
+"""Active Directory / Samba over LDAPS: logon, group check, computer sync.
 
-Das Zertifikat jedes Domänencontrollers wird beim ersten Kontakt vertraut (TOFU) und VOR dem Senden des
-Kennworts verglichen. Änderung: protokollieren (Standard) oder ablehnen (Einstellung „strikt“).
-Mit PK_LDAP_CA_FILE wird stattdessen gegen die CA der Domäne geprüft.
+The certificate of each domain controller is trusted on first contact (TOFU) and compared BEFORE the
+password is sent. On change: log (default) or reject (setting "strikt" (strict)).
+With PK_LDAP_CA_FILE, the check is made against the domain's CA instead.
 """
 import datetime
 import hashlib
@@ -23,10 +23,10 @@ class ADError(Exception):
 
 
 class GroupConfigError(ADError):
-    """Gruppe nicht gefunden oder mehrdeutig – eine Konfigurationsfrage, keine Störung des AD."""
+    """Group not found or ambiguous - a configuration issue, not an AD outage."""
 
 
-CA_FILE = config._env("PK_LDAP_CA_FILE").strip()  # optional: CA der Domäne (PEM) – dann echte Zertifikatsprüfung
+CA_FILE = config._env("PK_LDAP_CA_FILE").strip()  # optional: the domain's CA (PEM) - then a real certificate check is made
 
 
 def _pool():
@@ -42,7 +42,7 @@ def _pool():
 
 
 def _fingerprints():
-    """{server: fingerprint} – je Domänencontroller ein eigenes Zertifikat."""
+    """{server: fingerprint} - one certificate of its own per domain controller."""
     raw = db.setting_raw("ldap_cert_fingerprints") or ""
     try:
         d = json.loads(raw) if raw else {}
@@ -52,9 +52,9 @@ def _fingerprints():
 
 
 def _check_fingerprint(c):
-    """Vor dem Senden des Kennworts: Zertifikat des DC mit dem gespeicherten vergleichen (Trust on first use).
-    Strikt (Einstellung ldap_cert_strict): bei Änderung abbrechen; sonst protokollieren und übernehmen.
-    Mit PK_LDAP_CA_FILE prüft TLS selbst gegen die CA – dann wird nur noch protokolliert."""
+    """Before sending the password: compare the DC's certificate with the stored one (trust on first use).
+    Strict (setting ldap_cert_strict): abort on change; otherwise log and accept.
+    With PK_LDAP_CA_FILE, TLS itself checks against the CA - then only logging is done."""
     strict = bool(db.setting("ldap_cert_strict")) and not CA_FILE
     try:
         sock = c.socket
@@ -63,7 +63,7 @@ def _check_fingerprint(c):
     except Exception:
         der, host = None, "?"
     if not der:
-        if strict:  # strikt heißt: ohne geprüftes Zertifikat geht kein Kennwort hinaus
+        if strict:  # strict means: no password goes out without a verified certificate
             raise ADError("Das LDAPS-Zertifikat des Domänencontrollers ließ sich nicht lesen – Verbindung abgelehnt (strikte Prüfung).")
         return
     fp = hashlib.sha256(der).hexdigest().upper()
@@ -83,8 +83,8 @@ def _check_fingerprint(c):
         pklog.warn("ldap", f"LDAPS-Zertifikat von {host} hat sich geändert. Alt: {old} Neu: {fp}")
     else:
         pklog.info("ldap", f"LDAPS-Zertifikat von {host} automatisch vertraut: {fp}")
-    # Audit 2.29: je Name mehrere Zertifikate merken – hinter dem Domänennamen antworten oft mehrere DCs mit eigenem
-    # Zertifikat; ersetzen hieße, dass die strikte Prüfung bei jedem Wechsel ablehnt (und Admins sie abschalten)
+    # Audit 2.29: remember several certificates per name - behind the domain name often several DCs answer, each with its own
+    # certificate; replacing would mean strict checking rejects at every switch (and admins turn it off)
     known[host] = (olds + [fp])[-FP_MAX:]
     db.set_setting("ldap_cert_fingerprints", json.dumps(known))
     db.set_setting("ldap_cert_fingerprint", fp)
@@ -100,7 +100,7 @@ def _fp_list(v):
 
 
 def trust_pending():
-    """Vom Administrator bestätigtes neues Zertifikat übernehmen."""
+    """Accept a new certificate confirmed by the administrator."""
     try:
         p = json.loads(db.setting_raw("ldap_cert_pending") or "{}")
     except ValueError:
@@ -116,8 +116,8 @@ def trust_pending():
 
 
 def bind(user, password, result=None):
-    """Gibt eine gebundene Verbindung zurück oder None bei abgelehnter Anmeldung.
-    Ist `result` ein dict, wird dort die LDAP-Antwort des Servers abgelegt."""
+    """Returns a bound connection or None if the logon was rejected.
+    If `result` is a dict, the server's LDAP response is stored in it."""
     if not password:
         return None
     c = Connection(_pool(), user=user, password=password, authentication=SIMPLE,
@@ -130,7 +130,7 @@ def bind(user, password, result=None):
     except Exception as e:
         raise ADError(f"LDAPS-Verbindung zu {', '.join(config.LDAP_SERVERS)}:{config.LDAP_PORT} fehlgeschlagen: {e}")
     try:
-        _check_fingerprint(c)  # VOR dem Bind – das Kennwort geht nur an einen bekannten Server
+        _check_fingerprint(c)  # BEFORE the bind - the password goes only to a known server
     except ADError:
         try:
             c.unbind()
@@ -139,7 +139,7 @@ def bind(user, password, result=None):
         raise
     try:
         ok = c.bind()
-    except Exception as e:  # Netzwerkfehler (z. B. LDAPSocketReceiveError) kommen trotz raise_exceptions=False
+    except Exception as e:  # network errors (e.g. LDAPSocketReceiveError) come despite raise_exceptions=False
         try:
             c.unbind()
         except Exception:
@@ -210,15 +210,15 @@ def _gentime(v):
 
 
 def _search(c, base, flt, attrs):
-    """Seitenweise Suche. Bricht ab, wenn der Server einen Fehler meldet – ein unvollständiges Ergebnis
-    darf nie als „Computer verschwunden“ gewertet werden (raise_exceptions=False liefert sonst still weniger)."""
+    """Paged search. Aborts if the server reports an error - an incomplete result
+    must never be taken as "computer disappeared" (raise_exceptions=False otherwise silently returns less)."""
     try:
         out = [e for e in c.extend.standard.paged_search(base, flt, SUBTREE, attributes=attrs,
                                                           paged_size=500, generator=True)
                if e.get("type") == "searchResEntry"]
     except ADError:
         raise
-    except Exception as e:  # Verbindungsabbruch mitten in der Suche
+    except Exception as e:  # connection dropped in the middle of the search
         raise ADError(f"LDAP-Suche in {base} fehlgeschlagen: {e}")
     res = c.result or {}
     code = res.get("result")
@@ -227,17 +227,17 @@ def _search(c, base, flt, attrs):
     return out
 
 
-# --- Anmeldung -------------------------------------------------------------
-IN_CHAIN = "1.2.840.113556.1.4.1941"  # LDAP_MATCHING_RULE_IN_CHAIN (AD und Samba AD)
+# --- Logon ---------------------------------------------------------------
+IN_CHAIN = "1.2.840.113556.1.4.1941"  # LDAP_MATCHING_RULE_IN_CHAIN (AD and Samba AD)
 
 
 def norm_dn(dn):
-    """Vergleichbare Form eines DN (Groß/Klein und Leerzeichen um , und = egal)."""
+    """Comparable form of a DN (case and spaces around , and = do not matter)."""
     return re.sub(r"\s*([,=+])\s*", r"\1", (dn or "").strip()).lower()
 
 
 def _sid_str(raw):
-    """Binäre objectSid -> 'S-1-5-21-…'."""
+    """Binary objectSid -> 'S-1-5-21-...'."""
     b = bytes(raw)
     auth = int.from_bytes(b[2:8], "big")
     subs = [int.from_bytes(b[8 + 4 * i:12 + 4 * i], "little") for i in range(b[1])]
@@ -245,8 +245,8 @@ def _sid_str(raw):
 
 
 def _find_groups(c, g, attrs=("distinguishedName",)):
-    """Gruppen zu einem Namen: zuerst nach sAMAccountName (im ganzen AD eindeutig), nur ohne Treffer nach cn (der ist
-    nur je Container eindeutig). So kann eine gleichnamige Gruppe in einer anderen OU eine echte nicht verdrängen."""
+    """Groups for a name: first by sAMAccountName (unique in the whole AD), only without a hit by cn (which is
+    unique only per container). This way a same-named group in another OU cannot displace the real one."""
     esc = escape_filter_chars(g)
     res = _search(c, config.BASE_DN, f"(&(objectClass=group)(sAMAccountName={esc}))", list(attrs))
     if res:
@@ -255,7 +255,7 @@ def _find_groups(c, g, attrs=("distinguishedName",)):
 
 
 def _group_dn(c):
-    """Kanonischen DN der Zugriffsgruppe ermitteln (Name, sAMAccountName oder DN)."""
+    """Determine the canonical DN of the access group (name, sAMAccountName or DN)."""
     g = config.ACCESS_GROUP
     if "=" in g:
         c.search(g, "(objectClass=group)", "BASE", attributes=["distinguishedName"])
@@ -267,7 +267,7 @@ def _group_dn(c):
     if not res:
         raise GroupConfigError(f"Zugriffsgruppe '{g}' wurde im AD nicht gefunden.")
     if len({norm_dn(r["dn"]) for r in res}) > 1:
-        # cn ist nur je Container eindeutig – eine gleichnamige Gruppe woanders darf nie Zugriff geben
+        # cn is unique only per container - a same-named group elsewhere must never grant access
         raise GroupConfigError(f"Zugriffsgruppe '{g}' ist mehrdeutig (mehrere Gruppen heißen so) – bitte in PK_ACCESS_GROUP den "
                       "vollständigen DN eintragen.")
     return res[0]["dn"]
@@ -285,7 +285,7 @@ def _member_of(c, dn, strict=False):
 
 
 def _primary_group_dn(c, user_entry, strict=False):
-    """DN der primären Gruppe (steht nicht in memberOf, z. B. Domänen-Benutzer)."""
+    """DN of the primary group (not in memberOf, e.g. Domain Users)."""
     try:
         rid = int(_attr(user_entry, "primaryGroupID", 0) or 0)
         sid = _raw(user_entry, "objectSid")
@@ -301,18 +301,18 @@ def _primary_group_dn(c, user_entry, strict=False):
 
 
 def _strict_ok(c):
-    """Nachprüfung laufender Sitzungen: eine gestörte Suche (Zeitüberschreitung, DC beschäftigt …) ist „nicht prüfbar“,
-    nie „kein Mitglied“ – sonst meldete eine kurze Störung Benutzer ab. 32 = Objekt gibt es nicht."""
+    """Re-check of running sessions: a disturbed search (timeout, DC busy ...) is "not checkable",
+    never "not a member" - otherwise a brief disturbance would log users out. 32 = object does not exist."""
     code = (c.result or {}).get("result")
     if code not in (0, None, 32):
         raise ADError(f"LDAP-Suche gestört: {(c.result or {}).get('description') or code}")
 
 
 def is_member(c, user_entry, group_dn, strict=False):
-    """Prüft (auch verschachtelte) Mitgliedschaft. Gibt (True/False, Methode) zurück."""
+    """Checks (also nested) membership. Returns (True/False, method)."""
     target = norm_dn(group_dn)
     user_dn = user_entry["dn"]
-    # 1) Serverseitig über die gesamte Kette (schnell, AD und aktuelles Samba)
+    # 1) Server-side over the whole chain (fast, AD and current Samba)
     try:
         c.search(user_dn, f"(memberOf:{IN_CHAIN}:={escape_filter_chars(group_dn)})", "BASE",
                  attributes=["distinguishedName"])
@@ -320,7 +320,7 @@ def is_member(c, user_entry, group_dn, strict=False):
             return True, "in-chain"
     except Exception:
         pass
-    # 2) Clientseitig: memberOf rekursiv + primäre Gruppe (funktioniert überall)
+    # 2) Client-side: memberOf recursively + primary group (works everywhere)
     mo = user_entry["attributes"].get("memberOf") or []
     queue = list(mo if isinstance(mo, list) else [mo])
     pg = _primary_group_dn(c, user_entry, strict)
@@ -343,18 +343,18 @@ def is_member(c, user_entry, group_dn, strict=False):
     return False, "rekursiv"
 
 
-# --- Kiosk: wer darf Software für seinen eigenen Rechner anfordern? ---------------------------
+# --- Kiosk: who may request software for their own computer? --------------------------------
 def _lines(v):
     return [x.strip() for x in str(v or "").replace(";", "\n").splitlines() if x.strip()]
 
 
 def kiosk_rules():
-    """(Gruppen, OUs) aus den Einstellungen. Gruppen: Name oder DN (auch verschachtelt); OUs: DN."""
+    """(groups, OUs) from the settings. Groups: name or DN (also nested); OUs: DN."""
     return _lines(db.setting("kiosk_groups")), _lines(db.setting("kiosk_ous"))
 
 
 def _resolve_group(c, g, strict=False):
-    """DN zu Name/DN – None, wenn nicht gefunden oder mehrdeutig. strict: Störungen des AD als Fehler weitergeben."""
+    """DN for name/DN - None if not found or ambiguous. strict: pass disturbances of the AD on as errors."""
     try:
         if "=" in g:
             c.search(g, "(objectClass=group)", "BASE", attributes=["distinguishedName"])
@@ -362,7 +362,7 @@ def _resolve_group(c, g, strict=False):
             return hit[0]["dn"] if hit else None
         res = _find_groups(c, g)
         if len({norm_dn(r["dn"]) for r in res}) != 1:
-            return None  # nicht gefunden oder mehrdeutig (gleicher cn in anderem Container) → nie raten
+            return None  # not found or ambiguous (same cn in another container) -> never guess
         return res[0]["dn"]
     except Exception:
         if strict:
@@ -371,8 +371,8 @@ def _resolve_group(c, g, strict=False):
 
 
 def resolve_group_strict(c, g):
-    """Gruppe eindeutig auflösen → (DN, SID); ADError mit verständlicher Meldung bei „nicht gefunden“ oder „mehrdeutig“.
-    Die SID bleibt einer Gruppe für immer – eine gelöschte und gleichnamig neu angelegte Gruppe erbt sie nicht."""
+    """Resolve a group uniquely -> (DN, SID); ADError with an understandable message for "not found" or "ambiguous".
+    The SID stays with a group forever - a deleted group re-created with the same name does not inherit it."""
     g = str(g or "").strip()
     if "=" in g:
         c.search(g, "(objectClass=group)", "BASE", attributes=["distinguishedName", "objectSid"])
@@ -388,7 +388,7 @@ def resolve_group_strict(c, g):
 
 
 def group_dn_by_sid(c, sid):
-    """Aktueller DN einer Gruppe zu ihrer SID (übersteht Umbenennen/Verschieben) – oder None."""
+    """Current DN of a group for its SID (survives rename/move) - or None."""
     if not sid or not re.match(r"^S-1-[0-9-]+$", sid):
         return None
     res = _search(c, config.BASE_DN, f"(&(objectClass=group)(objectSid={sid}))", ["distinguishedName"])
@@ -396,8 +396,8 @@ def group_dn_by_sid(c, sid):
 
 
 def kiosk_match(c, user_entry, strict=False, cache=None):
-    """Darf dieser Benutzer den Kiosk verwenden? (Kiosk eingeschaltet und Benutzer in einer der OUs bzw. Gruppen)
-    strict/cache: Nachprüfung laufender Sitzungen (Störung → Fehler; Gruppen-DNs je Durchlauf nur einmal auflösen)."""
+    """May this user use the kiosk? (Kiosk enabled and user in one of the OUs or groups)
+    strict/cache: re-check of running sessions (disturbance -> error; resolve group DNs only once per pass)."""
     if not db.setting("kiosk_enabled"):
         return False
     groups, ous = kiosk_rules()
@@ -419,8 +419,8 @@ def kiosk_match(c, user_entry, strict=False, cache=None):
 
 
 def member_of_any(sam, groups):
-    """Ist der Benutzer (sAMAccountName) Mitglied einer dieser Gruppen (Name oder DN, auch verschachtelt)?
-    True/False – oder None, wenn das AD gerade nicht prüfbar ist (mit dem Dienstkonto)."""
+    """Is the user (sAMAccountName) a member of one of these groups (name or DN, also nested)?
+    True/False - or None if the AD cannot be checked right now (with the service account)."""
     groups = [g for g in (groups or []) if g]
     if not groups:
         return True
@@ -448,9 +448,9 @@ def member_of_any(sam, groups):
 
 
 def authenticate(username, password, allow_kiosk=False):
-    """Prüft Benutzer + Passwort + Gruppenmitgliedschaft mit den Daten des Benutzers selbst.
-    Das Dienstkonto wird dafür nicht benötigt – die Anmeldung funktioniert also auch,
-    wenn das Dienstkonto gesperrt ist. Rolle „admin“ (Zugriffsgruppe) oder – nur bei allow_kiosk – „kiosk“."""
+    """Checks user + password + group membership using the user's own credentials.
+    The service account is not needed for this - so the logon also works
+    if the service account is locked. Role "admin" (access group) or - only with allow_kiosk - "kiosk"."""
     username = (username or "").strip()
     if not username or not password:
         raise ADError("Benutzername und Passwort angeben.")
@@ -473,8 +473,8 @@ def authenticate(username, password, allow_kiosk=False):
             raise ADError("Ihr Passwort ist abgelaufen oder muss geändert werden.")
         raise ADError("Benutzername oder Passwort falsch.")
     try:
-        # Wer ist wirklich angemeldet? Ein eingegebener Name kann als UPN auf ein anderes Konto passen als der gleich-
-        # namige sAMAccountName (z. B. nach Umbenennungen) – die Sitzung muss dem Konto gehören, dessen Kennwort stimmte.
+        # Who is really logged on? An entered name can match a different account as UPN than the same-named
+        # sAMAccountName (e.g. after renames) - the session must belong to the account whose password was correct.
         bound = _whoami_sam(uc)
         attrs = ["distinguishedName", "displayName", "sAMAccountName", "userPrincipalName", "memberOf",
                  "userAccountControl", "primaryGroupID", "objectSid"]
@@ -500,10 +500,10 @@ def authenticate(username, password, allow_kiosk=False):
             ok, how = False, ""
         role, scope = "admin", None
         if not ok:
-            # Anmeldung am Kiosk: Kiosk-Rolle vor OU-Admin (dort will man Software für den eigenen Rechner)
+            # Kiosk logon: kiosk role before OU admin (there one wants software for one's own computer)
             tids = [] if allow_kiosk and kiosk_match(uc, e) else tenant_scope(uc, e)
             if tids:
-                # OU-Admin: Mitglied der AD-Gruppe eines Mandanten → Verwaltung nur für dessen Computer
+                # OU admin: member of a tenant's AD group -> administration only for its computers
                 scope, how = tids, "mandant"
             elif allow_kiosk and kiosk_match(uc, e):
                 role, how = "kiosk", "kiosk"
@@ -519,12 +519,12 @@ def authenticate(username, password, allow_kiosk=False):
 
 
 def tenant_scope(c, user_entry):
-    """IDs der Mandanten, in deren OU-Admin-Gruppe der Benutzer ist (auch verschachtelt). Nur Mandanten mit Sammlung –
-    ohne Sammlung gäbe es keine Computer (und nie „alle“)."""
+    """IDs of the tenants in whose OU admin group the user is (also nested). Only tenants with a collection -
+    without a collection there would be no computers (and never "all")."""
     ids = []
     for t in db.q("SELECT id, admin_group, admin_group_dn, admin_group_sid FROM tenants WHERE COALESCE(admin_group, '') != '' "
                   "AND collection_id IS NOT NULL ORDER BY id"):
-        # Nur die beim Speichern eindeutig ermittelte Gruppe zählt (SID; ältere Stände: DN) – nie erneut nach Namen suchen
+        # Only the group determined uniquely at save time counts (SID; older states: DN) - never search by name again
         gdn = group_dn_by_sid(c, t.get("admin_group_sid")) if t.get("admin_group_sid") else t.get("admin_group_dn")
         if not gdn:
             continue
@@ -537,7 +537,7 @@ def tenant_scope(c, user_entry):
 
 
 def _whoami_sam(c):
-    """sAMAccountName des gebundenen Kontos (LDAP „Who am I?“, RFC 4532) – oder None, wenn der Server es nicht liefert."""
+    """sAMAccountName of the bound account (LDAP "Who am I?", RFC 4532) - or None if the server does not provide it."""
     try:
         w = c.extend.standard.who_am_i()
     except Exception:
@@ -547,21 +547,21 @@ def _whoami_sam(c):
         w = w[2:]
     if "\\" in w:
         return w.split("\\", 1)[1] or None
-    return None  # andere Formen (dn:…) nicht raten – dann gilt der genaue Abgleich über UPN/sAMAccountName
+    return None  # other forms (dn:...) - do not guess; then the exact match via UPN/sAMAccountName applies
 
 
 _cfg_warned = {}
 
 
 def check_sessions(items):
-    """Nachprüfung laufender Sitzungen in EINEM Durchlauf (eine Verbindung des Dienstkontos, Gruppen nur einmal aufgelöst).
-    items: [(schlüssel, sAMAccountName, rolle)] → {schlüssel: Ergebnis}
-      True       = Hauptadmin (Zugriffsgruppe) bzw. Kiosk weiter erlaubt
-      [ids]      = OU-Admin dieser Mandanten
-      False      = Konto weg/deaktiviert bzw. in keiner passenden Gruppe mehr → abmelden
-      None       = gerade nicht prüfbar (AD gestört, Dienstkonto-Schutz) → Sitzung bleibt, bald erneut prüfen
-    Eine Störung zählt nie als „kein Mitglied“. „Zugriffsgruppe fehlt/mehrdeutig“ ist dagegen eine Konfigurationsfrage:
-    dann ist niemand Hauptadmin (wie bei der Anmeldung) – die Mandanten-Gruppen werden trotzdem geprüft."""
+    """Re-check of running sessions in ONE pass (one connection of the service account, groups resolved only once).
+    items: [(key, sAMAccountName, role)] -> {key: result}
+      True       = main admin (access group) or kiosk still allowed
+      [ids]      = OU admin of these tenants
+      False      = account gone/disabled or in no matching group any more -> log out
+      None       = cannot be checked right now (AD disturbed, service account protection) -> session stays, check again soon
+    A disturbance never counts as "not a member". "Access group missing/ambiguous", on the other hand, is a configuration issue:
+    then nobody is main admin (as at logon) - the tenant groups are still checked."""
     items = list(items)
     if not items:
         return {}
@@ -575,14 +575,14 @@ def check_sessions(items):
             acc = _group_dn(c)
         except GroupConfigError as e:
             acc = None
-            if time.time() - _cfg_warned.get("acc", 0) > 900:  # höchstens alle 15 Minuten ins Protokoll
+            if time.time() - _cfg_warned.get("acc", 0) > 900:  # at most every 15 minutes into the log
                 _cfg_warned["acc"] = time.time()
                 pklog.warn("auth", f"Nachprüfung der Sitzungen: {e} – bis das behoben ist, ist niemand Hauptadmin.")
         tenants = []
         for t in db.q("SELECT id, admin_group_dn, admin_group_sid FROM tenants WHERE COALESCE(admin_group, '') != '' "
                       "AND collection_id IS NOT NULL ORDER BY id"):
             gdn = group_dn_by_sid(c, t.get("admin_group_sid")) if t.get("admin_group_sid") else t.get("admin_group_dn")
-            if gdn:  # Gruppe im AD gelöscht (SID unbekannt) → dieser Mandant gibt niemandem mehr Zugang
+            if gdn:  # group deleted in the AD (SID unknown) -> this tenant no longer gives anyone access
                 tenants.append((int(t["id"]), gdn))
         kcache = {}
         for key, sam, role in items:
@@ -607,7 +607,7 @@ def check_sessions(items):
                 tids = [tid for tid, gdn in tenants if is_member(c, e, gdn, strict=True)[0]]
                 out[key] = tids if tids else False
             except Exception:
-                out[key] = None  # nur diese Sitzung gerade nicht prüfbar
+                out[key] = None  # only this session cannot be checked right now
     except Exception:
         for k, _s, _r in items:
             out.setdefault(k, None)
@@ -622,12 +622,12 @@ def check_sessions(items):
 
 
 def still_allowed(sam, role="admin"):
-    """Einzelne Sitzung nachprüfen (siehe check_sessions)."""
+    """Re-check a single session (see check_sessions)."""
     return check_sessions([(0, sam, role)]).get(0)
 
 
 def _admin_member(c, e):
-    """Mitglied der Zugriffsgruppe? (Administratoren dürfen den Kiosk für ihren eigenen Rechner auch nutzen.)"""
+    """Member of the access group? (Administrators may also use the kiosk for their own computer.)"""
     try:
         return bool(is_member(c, e, _group_dn(c))[0])
     except ADError:
@@ -635,8 +635,8 @@ def _admin_member(c, e):
 
 
 def sso_user(sam):
-    """Windows-Anmeldung am Kiosk: Benutzer aus einem gültigen Kerberos-Ticket mit dem Dienstkonto nachschlagen.
-    Ergibt immer die Rolle „kiosk“ – die Verwaltung verlangt weiterhin Benutzername und Kennwort."""
+    """Windows logon at the kiosk: look up the user from a valid Kerberos ticket with the service account.
+    Always yields the role "kiosk" - administration still requires user name and password."""
     sam = str(sam or "").strip()
     if not sam or len(sam) > 256:
         raise ADError("Kein Benutzername im Ticket.")
@@ -649,7 +649,7 @@ def sso_user(sam):
                         f"(userPrincipalName={escape_filter_chars(sam)}@*)))",
                         ["distinguishedName", "displayName", "sAMAccountName", "memberOf", "userAccountControl",
                          "primaryGroupID", "objectSid"])
-        found = [e for e in found if str(_attr(e, "sAMAccountName", "") or "").lower() == sam.lower()]  # nur genau dieses Konto
+        found = [e for e in found if str(_attr(e, "sAMAccountName", "") or "").lower() == sam.lower()]  # only exactly this account
         if not found:
             raise ADError("Benutzerobjekt nicht gefunden (Basis-DN prüfen).")
         e = found[0]
@@ -676,7 +676,7 @@ def _cn(dn):
 
 
 def display_name(sam):
-    """Anzeigename eines Benutzers (für „Angemeldeter Benutzer“)."""
+    """Display name of a user (for "Angemeldeter Benutzer" (logged-on user))."""
     c = service_conn()
     try:
         res = _search(c, config.BASE_DN, f"(&(objectClass=user)(sAMAccountName={escape_filter_chars(sam)}))",
@@ -686,7 +686,7 @@ def display_name(sam):
         c.unbind()
 
 
-# --- LAPS und BitLocker -------------------------------------------------------
+# --- LAPS and BitLocker -----------------------------------------------------
 LAPS_ATTRS = ["msLAPS-Password", "msLAPS-EncryptedPassword", "msLAPS-PasswordExpirationTime",
               "ms-Mcs-AdmPwd", "ms-Mcs-AdmPwdExpirationTime"]
 BL_ATTRS = ["msFVE-RecoveryPassword", "msFVE-RecoveryGuid", "msFVE-VolumeGuid", "whenCreated", "cn"]
@@ -702,7 +702,7 @@ def _computer_dn(c, dn, name):
 
 
 def _read_attrs(c, dn, attrs):
-    """Liest Attribute einzeln – unbekannte (Schema nicht erweitert) oder gesperrte werden übersprungen."""
+    """Reads attributes one by one - unknown (schema not extended) or locked ones are skipped."""
     out = {}
     for a in attrs:
         try:
@@ -724,8 +724,8 @@ def _txt(v):
 
 
 def laps(dn, name):
-    """LAPS-Kennwort (Windows LAPS im Klartext oder Legacy LAPS). Verschlüsselte Kennwörter
-    (Windows LAPS mit Verschlüsselung) können außerhalb von Windows nicht entschlüsselt werden."""
+    """LAPS password (Windows LAPS in plain text or legacy LAPS). Encrypted passwords
+    (Windows LAPS with encryption) cannot be decrypted outside Windows."""
     c = service_conn()
     try:
         dn = _computer_dn(c, dn, name)
@@ -761,7 +761,7 @@ def laps(dn, name):
 
 
 def bitlocker_keys(dn, name):
-    """BitLocker-Wiederherstellungsschlüssel aus den msFVE-RecoveryInformation-Objekten unter dem Computer."""
+    """BitLocker recovery key from the msFVE-RecoveryInformation objects under the computer."""
     c = service_conn()
     try:
         dn = _computer_dn(c, dn, name)
@@ -797,11 +797,11 @@ def bitlocker_keys(dn, name):
     return res
 
 
-# Nur Windows-Computer (andere Betriebssysteme werden nicht unterstützt)
+# Windows computers only (other operating systems are not supported)
 WINDOWS_FILTER = "(&(objectClass=computer)(operatingSystem=Windows*))"
 
 
-# --- Computer-Abgleich -------------------------------------------------------
+# --- Computer sync ---------------------------------------------------------
 COMPUTER_ATTRS = ["cn", "dNSHostName", "operatingSystem", "operatingSystemVersion", "distinguishedName",
                   "lastLogonTimestamp", "whenCreated", "userAccountControl", "description", "objectGUID", "location",
                   "memberOf"]
@@ -815,7 +815,7 @@ def _guid(e):
 
 
 def _upsert(e, now):
-    """Computerobjekt aus dem AD übernehmen. Gibt (computer_id, neu?) zurück."""
+    """Adopt a computer object from the AD. Returns (computer_id, new?)."""
     guid = _guid(e)
     name = _attr(e, "cn") or ""
     dns = _attr(e, "dNSHostName") or (f"{name}.{config.DOMAIN}" if config.DOMAIN else name)
@@ -849,7 +849,7 @@ def _upsert(e, now):
 
 
 def refresh_computer(cid):
-    """Scanner „Active Directory“: AD-Daten eines einzelnen Computers neu lesen."""
+    """Scanner "Active Directory": re-read the AD data of a single computer."""
     comp = db.q1("SELECT name, dn, ad_guid FROM computers WHERE id=?", (cid,))
     if not comp:
         return False
@@ -869,9 +869,9 @@ def refresh_computer(cid):
     return True
 
 
-# --- Container (OUs) ein-/ausschließen ---------------------------------------------------
+# --- Include/exclude containers (OUs) --------------------------------------------------
 def split_dn(dn):
-    """DN in RDNs zerlegen (beachtet maskierte Kommas „\\,“)."""
+    """Split a DN into RDNs (respects escaped commas "\\,")."""
     parts, cur, esc = [], "", False
     for ch in dn or "":
         if esc:
@@ -904,7 +904,7 @@ def rdn_name(dn):
 
 
 def dn_path(dn):
-    """„OU=MOBILE,OU=WORKSTATION,DC=firma,DC=local“ → „firma.local/WORKSTATION/MOBILE“"""
+    """'OU=MOBILE,OU=WORKSTATION,DC=firma,DC=local' -> 'firma.local/WORKSTATION/MOBILE'"""
     parts = split_dn(dn)
     dcs = [p.split("=", 1)[1] for p in parts if p.upper().startswith("DC=")]
     rest = [re.sub(r"\\(.)", r"\1", p.split("=", 1)[1]) for p in parts if not p.upper().startswith("DC=")]
@@ -917,7 +917,7 @@ def _is_under(dn, base):
 
 
 def container_rules():
-    """[{dn, include}] – Standard: die Basis(en) aus der .env einschließen."""
+    """[{dn, include}] - default: include the base(s) from the .env."""
     raw = db.setting("ad_containers")
     try:
         rules = json.loads(raw) if raw else None
@@ -929,7 +929,7 @@ def container_rules():
 
 
 def rule_for(dn, rules):
-    """Nächstgelegene Regel (längster passender Container) entscheidet."""
+    """The nearest rule (longest matching container) decides."""
     best = None
     for r in rules:
         if _is_under(dn, r["dn"]) and (best is None or len(norm_dn(r["dn"])) > len(norm_dn(best["dn"]))):
@@ -938,7 +938,7 @@ def rule_for(dn, rules):
 
 
 def list_containers():
-    """Alle OUs und Container der Domäne (für die Auswahl in den Einstellungen)."""
+    """All OUs and containers of the domain (for the selection in the settings)."""
     c = service_conn()
     try:
         res = _search(c, config.BASE_DN, "(|(objectClass=organizationalUnit)(&(objectClass=container)(!(isCriticalSystemObject=FALSE))))",
@@ -963,7 +963,7 @@ def list_containers():
     return out
 
 
-# --- AD durchsuchen (Baumauswahl für OUs und Gruppen) -------------------------------------------
+# --- Browse the AD (tree selection for OUs and groups) ----------------------------------------
 _HIDDEN = re.compile(r"(?i)^CN=(System|Program Data|ForeignSecurityPrincipals|Managed Service Accounts|Keys|LostAndFound|"
                      r"NTDS Quotas|TPM Devices|Infrastructure)(,|$)")
 _GROUP_TYPE = {2: "global", 4: "lokal (Domäne)", 8: "universell"}
@@ -976,7 +976,7 @@ def _under_base(dn):
 
 
 def _oc_list(e):
-    """objectClass als Liste kleingeschriebener Namen – ldap3 liefert ohne Schema-Abruf (get_info=NONE) Listen."""
+    """objectClass as a list of lowercase names - ldap3 returns lists without a schema fetch (get_info=NONE)."""
     v = (e.get("attributes") or {}).get("objectClass") or []
     if not isinstance(v, (list, tuple)):
         v = [v]
@@ -998,7 +998,7 @@ def _browse_item(e):
 
 
 def browse(dn=None, groups=False):
-    """Eine Ebene des AD: OUs/Container (aufklappbar) und – bei groups=True – die Gruppen darin."""
+    """One level of the AD: OUs/containers (expandable) and - with groups=True - the groups in them."""
     base = dn or config.BASE_DN
     if not _under_base(base):
         raise ADError("Nur Einträge innerhalb der eigenen Domäne.")
@@ -1041,19 +1041,19 @@ def search_groups(q, limit=50):
     return sorted(out, key=lambda x: x["name"].lower())
 
 
-AD_DELETE_GRACE_DAYS = 7  # „aus POCKET KNIFE löschen“: erst nach so vielen Tagen durchgehender Abwesenheit
+AD_DELETE_GRACE_DAYS = 7  # "delete from POCKET KNIFE": only after this many days of continuous absence
 
 
 def sync_computers(user=None):
-    flt = WINDOWS_FILTER  # fest: nur Windows-Computer
+    flt = WINDOWS_FILTER  # fixed: Windows computers only
     attrs = COMPUTER_ATTRS
     rules = container_rules()
     bases = [r["dn"] for r in rules if r["include"]]
-    # Basen, die unter einer anderen eingeschlossenen Basis liegen, nicht doppelt durchsuchen
+    # Do not search bases twice that lie below another included base
     bases = [b for b in bases if not any(o != b and _is_under(b, o) for o in bases)]
     sync_disabled = bool(db.setting("ad_sync_disabled"))
     if not bases:
-        # Ohne eingeschlossenen Container würde „nichts gefunden“ als „alle verschwunden“ gelten
+        # Without an included container, "nothing found" would count as "all disappeared"
         db.set_setting("ad_last_sync", util.now())
         db.set_setting("ad_last_status", "Fehler: kein Container eingeschlossen (Einstellungen → Active Directory)")
         raise ADError("Kein AD-Container eingeschlossen – Abgleich übersprungen (Einstellungen → Active Directory).")
@@ -1074,7 +1074,7 @@ def sync_computers(user=None):
     finally:
         c.unbind()
     keep = []
-    disabled = set()  # deaktiviert und nicht abgeglichen – aber weiterhin im AD, also nicht „verschwunden“
+    disabled = set()  # disabled and not synced - but still in the AD, so not "disappeared"
     for e in found:
         r = rule_for(e["dn"], rules)
         if not r or not r["include"]:
@@ -1107,9 +1107,9 @@ def sync_computers(user=None):
             db.ex(f"UPDATE computers SET ad_enabled=0, ad_present=1, ad_missing_since=NULL WHERE id IN ({ph})", dis_ids)
         db.ex("UPDATE computers SET ad_missing_since=NULL WHERE ad_present=1 AND ad_missing_since IS NOT NULL")
         present = [r for r in known if r["present"]]
-        # Nur bisher vorhandene zählen – bereits als fehlend markierte würden den Schutz sonst dauerhaft auslösen
+        # Count only those previously present - ones already marked missing would otherwise trigger the protection permanently
         missing = [r["id"] for r in present if r["ad_guid"] not in seen and r["ad_guid"] not in disabled]
-        # Schutz: verschwindet auf einmal ein großer Teil (oder alles), ist eher die Suche/der Container falsch als der Bestand
+        # Protection: if a large part (or everything) suddenly disappears, the search/container is more likely wrong than the inventory
         if missing and ((len(present) >= 10 and len(missing) > max(5, len(present) * 0.25))
                         or (len(present) >= 3 and len(missing) == len(present))):
             pklog.warn("ad", f"AD-Abgleich: {len(missing)} von {len(present)} Computern wären nicht mehr im Abgleich – "
@@ -1118,12 +1118,12 @@ def sync_computers(user=None):
         if missing:
             ph = ",".join("?" * len(missing))
             db.ex(f"UPDATE computers SET ad_present=0, ad_missing_since=? WHERE id IN ({ph})", [now] + missing)
-        # Ältere „nicht im AD“-Einträge (vor dieser Version) starten ihre Karenzzeit jetzt
+        # Older "nicht im AD" (not in the AD) entries (from before this version) start their grace period now
         db.ex("UPDATE computers SET ad_missing_since=? WHERE ad_present=0 AND ad_missing_since IS NULL", (now,))
         removed = 0
         if db.setting("ad_remove_missing"):
-            # Löschen erst nach einer Karenzzeit: ein Computer muss AD_DELETE_GRACE_DAYS durchgehend fehlen
-            # (schützt vor fehlenden Leserechten auf eine OU, kurzzeitigen LDAP-Problemen o. Ä.)
+            # Delete only after a grace period: a computer must be missing for AD_DELETE_GRACE_DAYS continuously
+            # (protects against missing read rights on an OU, brief LDAP problems, etc.)
             gone = [r["id"] for r in db.q("SELECT id FROM computers WHERE ad_present=0 AND ad_missing_since IS NOT NULL "
                                           "AND ad_missing_since < ?", (util.ago(days=AD_DELETE_GRACE_DAYS),))]
             if gone:
@@ -1131,10 +1131,10 @@ def sync_computers(user=None):
                 removed = len(gone)
     try:
         sync_ad_collections()
-    except Exception as e:  # Sammlungen dürfen den Abgleich nicht scheitern lassen
+    except Exception as e:  # collections must not make the sync fail
         pklog.warn("ad", f"AD-Sammlungen konnten nicht aktualisiert werden: {e}")
     if new_ids:
-        # Neue Computer: mit dem Standardprofil scannen, sobald sie online sind
+        # New computers: scan with the default profile as soon as they are online
         from . import profiles
         try:
             profiles.mark_new(new_ids)
@@ -1176,8 +1176,8 @@ def _referenced_collections():
     return ids
 
 
-# --- Automatische Sammlungen aus OUs und AD-Gruppen ------------------------------------------
-AD_BUILTIN = 2  # builtin=2: von POCKET KNIFE aus dem AD gepflegt (nicht änderbar, aber kopierbar)
+# --- Automatic collections from OUs and AD groups ------------------------------------------
+AD_BUILTIN = 2  # builtin=2: maintained by POCKET KNIFE from the AD (not editable, but copyable)
 
 
 def _ad_coll(kind, dn, name, parent, ctype, flt, sort):
@@ -1197,7 +1197,7 @@ def _ends(dn):
 
 
 def sync_ad_collections():
-    """Spiegelt die OU-Struktur (nur Container mit Computern) und die Computergruppen als Sammlungen."""
+    """Mirrors the OU structure (only containers with computers) and the computer groups as collections."""
     want_ou = bool(db.setting("ad_ou_collections"))
     want_grp = bool(db.setting("ad_group_collections"))
     keep = set()
@@ -1237,8 +1237,8 @@ def sync_ad_collections():
                     flt = {"type": "group", "match": "all", "items": [
                         {"type": "cond", "table": "ad_groups", "column": "dn", "op": "equals", "value": g["dn"]}]}
                     keep.add(_ad_coll("group", g["dn"], g["name"], folder, "dynamic", flt, 0))
-        # Von Zeitplänen, Scanprofilen oder Mandanten verwendete AD-Sammlungen bleiben (dann eben leer) erhalten,
-        # damit deren Ziele nicht stillschweigend verschwinden, wenn eine OU/Gruppe vorübergehend leer ist
+        # AD collections used by schedules, scan profiles or tenants are kept (just empty then),
+        # so that their targets do not silently disappear when an OU/group is temporarily empty
         used = _referenced_collections()
         allc = {r["id"]: r["parent_id"] for r in db.q("SELECT id, parent_id FROM collections")}
         for cid in list(used):

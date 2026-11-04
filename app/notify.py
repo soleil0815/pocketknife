@@ -1,12 +1,11 @@
-"""Berichte per E-Mail (Abonnements) und Benachrichtigungen bei Ereignissen.
+"""Reports by e-mail (subscriptions) and notifications on events.
 
-Berichtsversand: ein oder mehrere vorhandene Berichte (mit ihren Parametern) zu festen Zeiten an
-Empfänger senden – als HTML-Tabelle im Text und als CSV-Anhang. Auslöser wie bei Scanprofilen/Zeitplänen
-(einmalig, Intervall, täglich, wöchentlich, monatlich).
+Report delivery: send one or more existing reports (with their parameters) to recipients at fixed times –
+as an HTML table in the body and as a CSV attachment. Triggers as with scan profiles/schedules
+(once, interval, daily, weekly, monthly).
 
-Benachrichtigungen: feste Ereignisarten, jede einzeln abschaltbar (Standard: aus). Jede Meldung wird je
-Gegenstand (z. B. Computer + Laufwerk) nur einmal verschickt; optional Erinnerung nach N Stunden und
-Entwarnung, wenn der Zustand behoben ist.
+Notifications: fixed event types, each can be switched off individually (default: off). Each message is sent only once per
+item (e.g. computer + drive); optionally a reminder after N hours and an all-clear when the condition is resolved.
 """
 import datetime
 import json
@@ -25,7 +24,7 @@ E = mailer.E
 
 
 # =================================================================================================
-# Berichte per E-Mail
+# Reports by e-mail
 # =================================================================================================
 def _parse(row):
     if not row:
@@ -111,7 +110,7 @@ def clean(data):
 
 
 def _baseline(old, new_triggers, reenabled):
-    """Neue/geänderte/wieder aktivierte Auslöser starten ab jetzt (kein sofortiger Versand für vergangene Termine)."""
+    """New/changed/re-enabled triggers start from now (no immediate sending for past appointments)."""
     state = dict((old or {}).get("state") or {})
     olds = {t["id"]: t for t in (old or {}).get("triggers") or []}
     strip = lambda x: {k: v for k, v in x.items() if k != "id"}  # noqa: E731
@@ -153,7 +152,7 @@ def delete(sid, user=None):
 
 
 def next_run(s, now):
-    """Nächster Termin (Text) – kleinster künftiger Zeitpunkt der aktiven Auslöser."""
+    """Next appointment (text) – earliest future point in time of the active triggers."""
     if not s["enabled"]:
         return None
     from . import schedules
@@ -171,7 +170,7 @@ def next_run(s, now):
 
 
 def build(s):
-    """Mail aus den Berichten eines Versands bauen → (betreff, html, text, anhänge, zeilen_gesamt)."""
+    """Build the mail from the reports of a delivery → (subject, html, text, attachments, total_rows)."""
     parts, texts, files, total = [], [], [], 0
     limit = s["options"]["row_limit"]
     for r in s["reports"]:
@@ -248,7 +247,7 @@ def send_subscription(sid, reason="Zeitplan", user=None, to_override=None):
 
 
 def evaluate():
-    """Jede Minute vom Scheduler: fällige Versände starten."""
+    """Every minute from the scheduler: start due deliveries."""
     if not mailer.configured():
         return
     now = datetime.datetime.now()
@@ -273,7 +272,7 @@ def evaluate():
                              name=f"mail-{s['id']}").start()
 
 
-RETRY_MINUTES = (5, 15, 30)  # 2.37: Berichtsversand nach einem Fehler (z. B. SMTP kurz weg) erneut versuchen
+RETRY_MINUTES = (5, 15, 30)  # 2.37: retry report delivery after an error (e.g. SMTP briefly unavailable)
 
 
 def _send_bg(sid, reason, sleep=time.sleep):
@@ -281,10 +280,10 @@ def _send_bg(sid, reason, sleep=time.sleep):
         try:
             send_subscription(sid, reason if not n else f"{reason}, {n + 1}. Versuch")
             return
-        except ValueError as e:  # z. B. „läuft gerade“ – wird sonst nirgends protokolliert
+        except ValueError as e:  # e.g. "läuft gerade" (already running) – not logged anywhere else
             pklog.warn("mail", f"Berichtsversand #{sid} ({reason}) übersprungen: {e}")
             return
-        except Exception as e:  # bereits protokolliert
+        except Exception as e:  # already logged
             if n >= len(RETRY_MINUTES) or not db.val("SELECT enabled FROM mail_reports WHERE id=?", (sid,)):
                 return
             wait = RETRY_MINUTES[n]
@@ -294,7 +293,7 @@ def _send_bg(sid, reason, sleep=time.sleep):
 
 
 # =================================================================================================
-# Benachrichtigungen
+# Notifications
 # =================================================================================================
 ALERTS = [
     {"key": "low_disk", "title": "Wenig Speicherplatz",
@@ -329,11 +328,11 @@ ALERTS = [
 ]
 ALERTS_BY_KEY = {a["key"]: a for a in ALERTS}
 REPORT_ALERT = "report:"
-_report_checked = {}  # key → Zeitpunkt der letzten Prüfung (eigene Berichte nicht jede Minute)
+_report_checked = {}  # key → time of the last check (custom reports not every minute)
 
 
 def all_alerts():
-    """Feste Benachrichtigungen + je eigenem Bericht eine („Mail, wenn der Bericht Zeilen liefert“)."""
+    """Fixed notifications + one per custom report ("Mail, wenn der Bericht Zeilen liefert")."""
     from . import customreports
     out = list(ALERTS)
     for r in customreports.all_reports():
@@ -354,7 +353,7 @@ def alert_def(key):
         return next((a for a in all_alerts() if a["key"] == key), None)
     return None
 DEFAULT_ALERT = {"enabled": False, "recipients": "", "params": {}, "repeat_hours": 0, "resolved": True}
-MAX_ITEMS = 200  # Zeilen je Benachrichtigung
+MAX_ITEMS = 200  # rows per notification
 
 
 def alert_config(key):
@@ -398,7 +397,7 @@ def save_alert(key, data, user=None):
     since = old["since"] if old["enabled"] and enabled else (util.now() if enabled else None)
     scope = lambda pp: {k: v for k, v in pp.items() if k not in ("interval", "partial")}  # noqa: E731
     if scope(old["params"]) != scope(params):
-        # Andere Grenzen: offene Meldungen neu bewerten (sonst bleiben veraltete Einträge „aktiv“)
+        # Different limits: re-evaluate open messages (otherwise stale entries stay "active")
         db.ex("DELETE FROM mail_alert_state WHERE alert=?", (key,))
     db.ex("""INSERT INTO mail_alerts(key, enabled, recipients, params, repeat_hours, resolved, since) VALUES(?,?,?,?,?,?,?)
              ON CONFLICT(key) DO UPDATE SET enabled=excluded.enabled, recipients=excluded.recipients, params=excluded.params,
@@ -411,14 +410,14 @@ def save_alert(key, data, user=None):
 
 
 def preview_alert(key, data):
-    """Was würde mit diesen (noch nicht gespeicherten) Einstellungen jetzt gemeldet?"""
+    """What would be reported now with these (not yet saved) settings?"""
     a = alert_def(key)
     if not a:
         raise ValueError("Unbekannte Benachrichtigung.")
     cfg = alert_config(key)
     cfg["params"] = _clean_alert_params(a, data, cfg["params"])
     if not cfg["since"]:
-        cfg["since"] = util.ago(days=7)  # Vorschau für Ereignisse: die letzten 7 Tage
+        cfg["since"] = util.ago(days=7)  # preview for events: the last 7 days
     return _check_one(a, cfg, True)
 
 
@@ -460,7 +459,7 @@ def _coll(params):
     return "1=1", []
 
 
-# Jede Prüfung liefert {item_key: {Spalte: Wert}} – die aktuell zutreffenden Gegenstände
+# Each check returns {item_key: {column: value}} – the items that currently apply
 def _check_low_disk(p, cfg):
     w, a = _coll(p)
     gb = float(p.get("gb") or 0)
@@ -485,11 +484,11 @@ def _check_low_disk(p, cfg):
 
 
 def _resolved_low_disk(p, key):
-    """Hysterese: erst als behoben werten, wenn wieder 10 % über der Grenze (vermeidet Flattern um den Grenzwert)."""
+    """Hysteresis: only treat as resolved once back 10 % above the limit (avoids flapping around the threshold)."""
     cid, drive = key.split(":", 1)
     r = db.q1("SELECT size, free FROM disks WHERE computer_id=? AND UPPER(drive)=?", (int(cid), drive))
     if not r or not r["size"]:
-        return True  # Laufwerk/Computer gibt es nicht mehr
+        return True  # drive/computer no longer exists
     gb, pct = float(p.get("gb") or 0), float(p.get("pct") or 0)
     ok_gb = gb <= 0 or r["free"] >= gb * 1.1 * 1073741824
     ok_pct = pct <= 0 or 100.0 * r["free"] / r["size"] >= pct * 1.1
@@ -515,7 +514,7 @@ def _check_scan_failed(p, cfg):
     w, a = _coll(p)
     rows = db.q(f"""SELECT c.id, c.name, c.last_scan_attempt, c.scan_error FROM computers c
                    WHERE {w} AND (c.scan_status='Fehler' OR (c.scan_status='Läuft' AND c.scan_error IS NOT NULL))
-                   ORDER BY c.name""", a)  # während des erneuten Versuchs nicht „Behoben“ melden
+                   ORDER BY c.name""", a)  # do not report "Behoben" (resolved) during the retry
     return {str(r["id"]): {"computer": r["name"], "attempt": (r["last_scan_attempt"] or "")[:16],
                            "error": (r["scan_error"] or "")[:300]} for r in rows}
 
@@ -549,12 +548,12 @@ def _check_backup_failed(p, cfg):
     ts = last[:19]
     if cfg["since"] and ts < cfg["since"][:19]:
         return {}
-    # Ein Eintrag je Tag: die automatische Sicherung wird alle 10 Minuten neu versucht – sonst käme jedes Mal eine Mail
+    # One entry per day: the automatic backup is retried every 10 minutes – otherwise a mail would be sent every time
     return {ts[:10]: {"time": ts[:16], "error": last.split("FEHLGESCHLAGEN:", 1)[-1].strip()[:300]}}
 
 
 def _check_breakglass(p, cfg):
-    """Audit 2.29: Benutzung und Fehlversuche des Notfallzugangs (aus dem Protokoll)."""
+    """Audit 2.29: use and failed attempts of the emergency access (from the log)."""
     rows = db.q("""SELECT id, ts, message FROM logs WHERE category='auth' AND message LIKE 'Notfallzugang:%' AND ts >= ?
                    ORDER BY id LIMIT 200""", (cfg["since"] or util.now(),))
     return {str(r["id"]): {"time": (r["ts"] or "")[:16], "event": r["message"][len("Notfallzugang:"):].strip()[:300]} for r in rows}
@@ -575,15 +574,15 @@ CHECKS = {
 
 
 def _check_report(a, p):
-    """Eigener Bericht: jede Zeile ist ein Fall. Kennung = Computer + Text-/Ja-Nein-Spalten (Zahlen, Daten und Größen
-    dürfen sich ändern). Gleiche Kennung mehrfach → durchnummeriert, damit keine Zeile verschluckt wird.
-    → (fälle, spalten, gekürzt)."""
+    """Custom report: each row is a case. Identifier = computer + text/yes-no columns (numbers, dates and sizes
+    may change). Same identifier multiple times → numbered so that no row is swallowed.
+    → (cases, columns, truncated)."""
     import hashlib
     from . import customreports
     r = customreports.get(int(a["key"][len(REPORT_ALERT):]))
     if not r:
         return {}, [], False
-    # Ohne die Zeilengrenze des Berichts – sonst „verschwinden“ Zeilen, sobald neue davor einsortiert werden
+    # Without the row limit of the report – otherwise rows "disappear" as soon as new ones are sorted in before them
     d = {**r["definition"], "limit": customreports.MAX_LIMIT}
     res = customreports.execute(d, {"collection": p.get("collection") or ""})
     cols = [(c["key"], c["label"]) for c in res["columns"]]
@@ -599,8 +598,8 @@ def _check_report(a, p):
 
 
 def rebaseline_report(rid):
-    """Nach einer Änderung am eigenen Bericht: aktuelle Zeilen still als bekannt übernehmen (keine Flut aus
-    „neu“ und „behoben“, nur weil sich die Kennung der Zeilen durch andere Spalten geändert hat)."""
+    """After a change to the custom report: silently adopt the current rows as known (no flood of
+    "neu" and "behoben" just because the rows' identifier changed through other columns)."""
     key = f"{REPORT_ALERT}{rid}"
     if not db.val("SELECT enabled FROM mail_alerts WHERE key=?", (key,), 0):
         return
@@ -616,7 +615,7 @@ def rebaseline_report(rid):
 
 
 def _in_scope_low_disk(p, item):
-    """Gehört das Laufwerk noch zum Bereich der Benachrichtigung (Sammlung, Laufwerksfilter)?"""
+    """Does the drive still belong to the scope of the notification (collection, drive filter)?"""
     cid, drive = item.split(":", 1)
     drives = [d for d in (p.get("drives") or "").split(", ") if d]
     if drives and drive not in drives:
@@ -636,14 +635,14 @@ def _is_resolved(key, p, item, current):
 
 
 _check_lock = threading.Lock()
-_backoff = {}  # key → (bis wann pausiert, Fehlversuche) nach Sendefehlern
-_last_error = {}  # key → zuletzt protokollierter Fehlertext (nicht jede Minute dasselbe protokollieren)
+_backoff = {}  # key → (paused until, failed attempts) after send errors
+_last_error = {}  # key → last logged error text (do not log the same thing every minute)
 
 
 def check_alerts(only=None, dry=False):
-    """Alle aktiven Benachrichtigungen prüfen und neue/erinnerte/behobene Meldungen versenden.
-    dry=True: nichts senden/speichern, nur das Ergebnis liefern (Vorschau in der Oberfläche).
-    Nur ein Lauf gleichzeitig (Minuten-Takt und „Jetzt prüfen“) – sonst gingen dieselben Fälle doppelt raus."""
+    """Check all active notifications and send new/reminded/resolved messages.
+    dry=True: send/save nothing, only return the result (preview in the UI).
+    Only one run at a time (minute tick and "Jetzt prüfen") – otherwise the same cases would go out twice."""
     if dry:
         return _check_alerts(only, True)
     with _check_lock:
@@ -668,7 +667,7 @@ def _check_alerts(only, dry):
                 continue
             _report_checked[key] = time.time()
         if not dry and not only and _backoff.get(key, (0, 0))[0] > time.time():
-            continue  # nach Sendefehlern kurz pausieren (1, 2, 4 … bis 60 Minuten)
+            continue  # pause briefly after send errors (1, 2, 4 … up to 60 minutes)
         try:
             out[key] = _check_one(a, cfg, dry)
             if not dry:
@@ -703,7 +702,7 @@ def _check_one(a, cfg, dry):
     if cfg["repeat_hours"] and a["resolvable"]:
         lim = util.ago(hours=cfg["repeat_hours"])
         remind = {k: v for k, v in current.items() if k in state and (state[k]["last_sent"] or "") < lim}
-    # Gekürztes Ergebnis: fehlende Zeilen sind nicht „behoben“, nur nicht mehr mitgezählt
+    # Truncated result: missing rows are not "behoben" (resolved), just no longer counted
     resolved = [] if truncated else [k for k in state if a["resolvable"] and _is_resolved(key, p, k, current)]
     if dry:
         return {"current": len(current), "new": len(new), "remind": len(remind), "resolved": len(resolved),
@@ -772,7 +771,7 @@ def _resolved_label(key, item, st):
 
 
 def cleanup():
-    """Alte Einträge nicht auflösbarer Meldungen (Bereitstellungen, Sicherungen) nach 180 Tagen entfernen."""
+    """Remove old entries of messages that cannot be resolved (deployments, backups) after 180 days."""
     db.ex("DELETE FROM mail_alert_state WHERE alert IN ('deploy_failed','backup_failed','breakglass') AND first_seen < ?",
           (util.ago(days=180),))
     db.ex("DELETE FROM mail_alert_state WHERE alert NOT IN (SELECT key FROM mail_alerts WHERE enabled=1)")

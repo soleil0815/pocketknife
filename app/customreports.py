@@ -1,17 +1,17 @@
-"""Eigene Berichte: Spalten, Filter, Sortierung und Zusammenfassung frei aus allen Inventardaten wählen.
+"""Custom reports: freely choose columns, filters, sorting and grouping from all inventory data.
 
 Definition (JSON):
-    {"source": "computer" | "software" | "disks" | "printers" | "custom:7" …,   – eine Zeile je …
+    {"source": "computer" | "software" | "disks" | "printers" | "custom:7" ...,   - one row per ...
      "columns": [{"t": "computer", "c": "name", "label": ""}, {"t": "software", "c": "version"}],
-     "filter": <Filterbaum wie bei Sammlungen – welche Computer>,
-     "rows": <Filterbaum nur über die Quelle – welche Zeilen>,
+     "filter": <filter tree as for collections - which computers>,
+     "rows": <filter tree over the source only - which rows>,
      "collection": "" | id,
-     "group": false,            – gleiche Zeilen zusammenfassen und zählen
-     "sort": {"i": 0, "dir": "asc"},  – Spaltennummer, „count“ = Anzahl
+     "group": false,            - combine identical rows and count them
+     "sort": {"i": 0, "dir": "asc"},  - column number, "count" = number
      "limit": 5000}
 
-Alle Spalten und Operatoren kommen aus dem Katalog der Sammlungsfilter (collections_), Werte werden als
-Parameter übergeben – es entsteht nie SQL aus Benutzereingaben.
+All columns and operators come from the catalog of the collection filters (collections_), values are passed as
+parameters - SQL is never built from user input.
 """
 import json
 
@@ -24,7 +24,7 @@ PREFIX = "my_"
 
 
 class _T:
-    """Zwischenspeicher der Tabellendefinitionen für einen Lauf."""
+    """Cache of the table definitions for one run."""
     def __init__(self):
         self.cache = {}
 
@@ -58,7 +58,7 @@ def clean(data):
             raise ValueError("Spalten nur aus „Computer“ oder der gewählten Datenquelle.")
         if t == "computer" and col == "collection":
             raise ValueError("„Sammlung“ ist keine Spalte.")
-        collections_._col(t, tabs.get(t), col)  # prüft, ob es die Spalte gibt
+        collections_._col(t, tabs.get(t), col)  # checks that the column exists
         cols.append({"t": t, "c": col, "label": (c.get("label") or "").strip()[:80]})
     if not cols:
         raise ValueError("Mindestens eine Spalte wählen.")
@@ -89,17 +89,17 @@ def clean(data):
            "sort": {"i": si, "dir": "desc" if sort.get("dir") == "desc" else "asc"}, "limit": limit}
     if source == "computer":
         out["rows"] = _tree(None)
-    _sql(out, {})  # Filter prüfen (ungültige Operatoren, Werte, RegEx …)
+    _sql(out, {})  # check the filter (invalid operators, values, RegEx ...)
     return {"name": name[:120], "description": (data.get("description") or "").strip()[:1000], "definition": out}
 
 
 def _row_tree(node, source, tdef, depth=0):
-    """Bedingungen nur über die Quellzeile (keine EXISTS – die Zeile selbst muss passen)."""
+    """Conditions only over the source row (no EXISTS - the row itself must match)."""
     if depth > 8:
         raise ValueError("Zu tief verschachtelt.")
     match = node.get("match", "all")
     if match not in collections_.MATCH_LABELS:
-        match = "all"  # wie bei den Sammlungen
+        match = "all"  # as with the collections
     parts = []
     for it in node.get("items") or []:
         if not isinstance(it, dict):
@@ -125,7 +125,7 @@ def _labels(d, tabs):
         lab = c.get("label") or (known[c["c"]][0] if c["c"] in known else c["c"])
         seen[lab] = seen.get(lab, 0) + 1
         out.append(lab)
-    # Gleiche Bezeichnungen (z. B. „Name“ des Computers und der Anwendung) unterscheidbar machen
+    # Make identical labels distinguishable (e.g. "Name" of the computer and of the application)
     for i, c in enumerate(d["columns"]):
         if seen[out[i]] > 1 and not c.get("label"):
             out[i] = f"{out[i]} ({'Computer' if c['t'] == 'computer' else src_label})"
@@ -162,7 +162,7 @@ def _sql(d, params):
             s, p = collections_.where_for(int(coll))
             where.append(f"({s})")
             wp += p
-    if params.get("_scope") is not None:  # 2.30: OU-Admin – nur seine Computer (vom Server gesetzt)
+    if params.get("_scope") is not None:  # 2.30: OU admin - only their computers (set by the server)
         where.append("c.id IN (SELECT value FROM json_each(?))")
         wp.append(params["_scope"])
     group = d.get("group")
@@ -177,7 +177,7 @@ def _sql(d, params):
     si = d["sort"]["i"]
     order = "cnt" if si == "count" and group else f"c{si}"
     direction = "DESC" if d["sort"]["dir"] == "desc" else "ASC"
-    # Zahlen numerisch, Texte ohne Groß/klein sortieren; leere Werte ans Ende
+    # Numbers sorted numerically, texts case-insensitively; empty values at the end
     stype = None if order == "cnt" else types[si]
     okey = f"CAST({order} AS REAL)" if stype in ("number", "bytes") or order == "cnt" else (f"{order} COLLATE NOCASE" if stype in ("text", "any") else order)
     sql += f" ORDER BY ({order} IS NULL OR {order} = ''), {okey} {direction}"
@@ -186,7 +186,7 @@ def _sql(d, params):
 
 
 def execute(d, params=None, limit=None):
-    """→ {columns, rows, truncated}. rows enthalten zusätzlich _cid (nicht zusammengefasst)."""
+    """→ {columns, rows, truncated}. rows additionally contain _cid (not grouped)."""
     params = params or {}
     if limit:
         d = {**d, "limit": min(int(d["limit"]), int(limit))}
@@ -207,7 +207,7 @@ def execute(d, params=None, limit=None):
     return {"columns": columns, "rows": rows, "truncated": truncated}
 
 
-# --- Speicherung -------------------------------------------------------------------------------
+# --- Storage -----------------------------------------------------------------------------------
 def _parse(row):
     if not row:
         return None
@@ -250,7 +250,7 @@ def save(rid, data, user=None):
 
 
 def usage(rid):
-    """Wo wird der Bericht verwendet? (Berichtsversand, Benachrichtigung)"""
+    """Where is the report used? (report mailing, notification)"""
     key = f"{PREFIX}{rid}"
     subs = [s["name"] for s in db.q("SELECT name, reports FROM mail_reports")
             if any(r.get("key") == key for r in (json.loads(s["reports"] or "[]") or []))]
@@ -268,7 +268,7 @@ def delete(rid, user=None):
             reps = json.loads(s["reports"] or "[]") or []
             keep = [x for x in reps if x.get("key") != key]
             if len(keep) != len(reps):
-                # Leer gewordene Versände deaktivieren statt löschen (Einstellungen bleiben erhalten)
+                # Deactivate mailings that became empty instead of deleting them (settings are kept)
                 db.ex("UPDATE mail_reports SET reports=?, enabled=CASE WHEN ? THEN enabled ELSE 0 END WHERE id=?",
                       (json.dumps(keep), 1 if keep else 0, s["id"]))
         db.ex("DELETE FROM mail_alerts WHERE key=?", (f"report:{rid}",))
@@ -284,7 +284,7 @@ def duplicate(rid, user=None):
     return save(None, {"name": f"{r['name']} (Kopie)", "description": r.get("description"), "definition": r["definition"]}, user)
 
 
-# --- Anbindung an Berichte/Benachrichtigungen ----------------------------------------------------
+# --- Connection to reports/notifications ----------------------------------------------------
 def definitions():
     return [{"key": r["key"], "title": r["name"], "desc": r.get("description") or "Eigener Bericht", "custom": True,
              "id": r["id"], "params": [{"name": "collection", "label": "Sammlung", "type": "collection", "default": ""}]}

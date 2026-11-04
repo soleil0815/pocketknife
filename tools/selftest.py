@@ -1878,7 +1878,7 @@ def _():
     from app import toast
     u = toast.USER_PS
     assert "Done 12" in u and "$st.Enabled -eq 0" in u and "ShowInActionCenter -eq 0) { Done 11 }" in u
-    assert u.index("Done 12") < u.index("Rückfall"), "check the switch-off BEFORE falling back to \"Windows PowerShell\""
+    assert u.index("Done 12") < u.index("# Fallback: sender"), "check the switch-off BEFORE falling back to \"Windows PowerShell\""
     assert toast.RESULT_TEXT[12][0] is False
     script, _d = toast.build_send_script([("installed", "7-Zip", "26.00")])
     assert "[ScriptBlock]::Create([IO.File]::ReadAllText(" in script and "$pol -eq 'AllSigned'" in script, "encoded starter only with GPO AllSigned/Restricted"

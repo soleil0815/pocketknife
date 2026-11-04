@@ -1,17 +1,17 @@
-"""OU-Admins (Mandanten-Admins): eingeschränkte Verwaltung für die Computer eines Mandanten.
+"""OU admins (tenant admins): restricted management for the computers of one tenant.
 
-- Hauptadmins = Mitglieder der Zugriffsgruppe (PK_ACCESS_GROUP, z. B. POCKETKNIFE-Admins) und der Notfallzugang:
-  dürfen alles, wie bisher.
-- OU-Admins = Mitglieder der AD-Gruppe eines Mandanten (Einstellungen → Mandanten → „OU-Admins“), NICHT in der
-  Zugriffsgruppe. Die Gruppe des Mandanten erlaubt die Anmeldung – aber nur für die Computer seiner Sammlung (z. B. eine
-  OU). Ist jemand in mehreren Mandanten-Gruppen, betreut er alle diese Mandanten.
+- Main admins = members of the access group (PK_ACCESS_GROUP, e.g. POCKETKNIFE-Admins) and the emergency access:
+  may do everything, as before.
+- OU admins = members of a tenant's AD group (Settings → Mandanten → "OU-Admins"), NOT in the
+  access group. The tenant's group allows login - but only for the computers of its collection (e.g. an
+  OU). Someone in several tenant groups manages all of those tenants.
 
-Durchsetzung auf dem Server, nie nur in der Oberfläche:
-1. Freigabeliste ROUTES: Für OU-Admins ist jede Schnittstelle gesperrt, die hier nicht ausdrücklich steht (eine neue,
-   vergessene Schnittstelle ist also zu, nicht offen). Der Selbsttest prüft, dass jede Route bewusst eingeordnet ist.
-2. Pfad-Prüfung: Routen mit Computer im Pfad ({cid}) prüfen den Computer gegen den Bereich (sonst 404 – fremde
-   Computer werden nicht einmal bestätigt).
-3. Die Handler selbst filtern Listen (Computer, Software, Protokoll …) und prüfen Computer-IDs im Inhalt der Anfrage.
+Enforced on the server, never only in the UI:
+1. Allow list ROUTES: for OU admins every endpoint that is not explicitly listed here is blocked (a new,
+   forgotten endpoint is therefore closed, not open). The self-test checks that every route is deliberately classified.
+2. Path check: routes with a computer in the path ({cid}) check the computer against the scope (otherwise 404 - foreign
+   computers are not even confirmed).
+3. The handlers themselves filter lists (computers, software, log ...) and check computer IDs in the request body.
 """
 import json
 import re
@@ -24,23 +24,23 @@ from . import db
 
 _cache = {}
 _clock = threading.Lock()
-TTL = 30  # Sekunden – neue Computer in der OU sind spätestens dann sichtbar
+TTL = 30  # seconds - new computers in the OU are visible at the latest then
 
 
 def scoped(user):
-    """True, wenn der Benutzer ein OU-Admin ist (eingeschränkt)."""
+    """True if the user is an OU admin (restricted)."""
     return bool(user) and user.get("scope") is not None
 
 
 def tenant_ids(user):
-    """Mandanten des OU-Admins (Liste) – None für Hauptadmins (alle)."""
+    """Tenants of the OU admin (list) - None for main admins (all)."""
     if not scoped(user):
         return None
     return [int(t) for t in user["scope"]]
 
 
 def tenants(user):
-    """Zeilen der Mandanten des OU-Admins."""
+    """Rows of the OU admin's tenants."""
     ids = tenant_ids(user) or []
     if not ids:
         return []
@@ -48,16 +48,16 @@ def tenants(user):
 
 
 def may_build(user):
-    """Darf eigene Pakete/Zeitpläne anlegen? Hauptadmins immer; OU-Admins, wenn bei einem ihrer Mandanten erlaubt."""
+    """May create own packages/schedules? Main admins always; OU admins if allowed for one of their tenants."""
     if not scoped(user):
         return True
     return any(t.get("allow_packages") for t in tenants(user))
 
 
 def may_script(user, tenant_id=None):
-    """Darf eigenen Code in Pakete schreiben (Befehl, PowerShell, eigener Deinstallationsbefehl)? Hauptadmins immer;
-    OU-Admins nur, wenn beim Mandanten „eigene Pakete“ UND „Skript-Schritte“ erlaubt sind (2.29.1). Skripte als Datei
-    im Repository-Ordner des Mandanten (.ps1/.cmd über „Installieren“) brauchen das nicht."""
+    """May write own code into packages (command, PowerShell, custom uninstall command)? Main admins always;
+    OU admins only if the tenant allows both "own packages" AND "script steps" (2.29.1). Scripts as a file
+    in the tenant's repository folder (.ps1/.cmd via "Installieren") do not need this."""
     if not scoped(user):
         return True
     return any(t.get("allow_packages") and t.get("allow_scripts") and (tenant_id is None or t["id"] == tenant_id)
@@ -65,12 +65,12 @@ def may_script(user, tenant_id=None):
 
 
 def build_tenants(user):
-    """Mandanten, für die der OU-Admin Pakete/Zeitpläne bauen darf."""
+    """Tenants for which the OU admin may build packages/schedules."""
     return [t for t in tenants(user) if t.get("allow_packages")]
 
 
 def tenant_cols(t):
-    """Sammlungen eines Mandanten (2.29.9: mehrere möglich) – Liste von IDs. Ältere Stände: nur collection_id."""
+    """Collections of a tenant (2.29.9: several possible) - list of IDs. Older versions: only collection_id."""
     raw = (t or {}).get("collection_ids")
     out = []
     if raw:
@@ -84,7 +84,7 @@ def tenant_cols(t):
 
 
 def computer_ids(user):
-    """Erlaubte Computer-IDs (set) – None für Hauptadmins (alle)."""
+    """Allowed computer IDs (set) - None for main admins (all)."""
     if not scoped(user):
         return None
     key = tuple(sorted(tenant_ids(user)))
@@ -96,7 +96,7 @@ def computer_ids(user):
     from . import collections_
     ids = set()
     for t in tenants(user):
-        for col in tenant_cols(t):  # Mandant ohne Sammlung: keine Computer (nie „alle“)
+        for col in tenant_cols(t):  # tenant without a collection: no computers (never "all")
             try:
                 ids.update(collections_.member_ids(col))
             except Exception:
@@ -117,7 +117,7 @@ def can_computer(user, cid):
 
 
 def need_computer(user, cid):
-    """404, wenn der Computer nicht im Bereich liegt (fremde Computer werden nicht bestätigt)."""
+    """404 if the computer is not in scope (foreign computers are not confirmed)."""
     try:
         cid = int(cid or 0)
     except (TypeError, ValueError):
@@ -128,7 +128,7 @@ def need_computer(user, cid):
 
 
 def _ints(ids):
-    """2.32.5: Computer-IDs als Zahlen – Unsinn in der Anfrage ist ein 400, kein interner Fehler."""
+    """2.32.5: computer IDs as numbers - nonsense in the request is a 400, not an internal error."""
     if ids is None:
         return []
     if not isinstance(ids, (list, tuple, set)):
@@ -140,7 +140,7 @@ def _ints(ids):
 
 
 def check_ids(user, ids):
-    """Computer-IDs aus einer Anfrage: alle müssen im Bereich liegen (sonst 403 – nie stillschweigend mehr)."""
+    """Computer IDs from a request: all must be in scope (otherwise 403 - never silently more)."""
     ids = _ints(ids)
     allowed = computer_ids(user)
     if allowed is None:
@@ -152,26 +152,26 @@ def check_ids(user, ids):
 
 
 def limit_ids(user, ids):
-    """Computer-IDs auf den Bereich beschneiden (für „alle Mitglieder einer Sammlung“)."""
+    """Trim computer IDs to the scope (for "all members of a collection")."""
     allowed = computer_ids(user)
     ids = _ints(ids)
     return ids if allowed is None else [i for i in ids if i in allowed]
 
 
 def sql_in(user, col):
-    """SQL-Bedingung „col liegt im Bereich“ + Parameter – (\"1=1\", []) für Hauptadmins.
-    Als JSON-Liste übergeben: keine Begrenzung der SQL-Variablen bei vielen Computern."""
+    """SQL condition "col is in scope" + parameters - ("1=1", []) for main admins.
+    Passed as a JSON list: no limit on SQL variables with many computers."""
     allowed = computer_ids(user)
     if allowed is None:
         return "1=1", []
     return f"{col} IN (SELECT value FROM json_each(?))", [json.dumps(sorted(allowed))]
 
 
-# --- Pakete ----------------------------------------------------------------------------------
+# --- Packages --------------------------------------------------------------------------------
 def can_see_package(user, row):
-    """Sehen und verteilen: Hauptadmins alles; OU-Admins (2.37) zentrale Pakete und die ihrer eigenen Mandanten –
-    Pakete anderer Mandanten (samt Schritten, Pfaden, Skripten) sehen sie nicht. Ändern nur die eigenen
-    (can_edit_package)."""
+    """View and distribute: main admins everything; OU admins (2.37) central packages and those of their own tenants -
+    packages of other tenants (including steps, paths, scripts) are not visible to them. Only their own can be
+    changed (can_edit_package)."""
     if not row:
         return False
     if not scoped(user):
@@ -181,8 +181,8 @@ def can_see_package(user, row):
 
 
 def can_edit_package(user, row):
-    """Ändern/Löschen: nur Pakete eines eigenen Mandanten mit „eigene Pakete erlaubt“ – nie zentrale.
-    2.30: und nur, wenn OU-Admins sie ändern dürfen (von ihnen angelegt bzw. vom Hauptadmin freigegeben)."""
+    """Change/delete: only packages of an own tenant with "own packages allowed" - never central ones.
+    2.30: and only if OU admins may change them (created by them or released by the main admin)."""
     if not scoped(user):
         return True
     t = row.get("tenant_id") if row else None
@@ -197,8 +197,8 @@ def need_package(user, pid):
 
 
 def own_tenant_for(user, requested):
-    """Mandant für ein neues/geändertes Paket oder einen Zeitplan eines OU-Admins: muss einer seiner Mandanten mit
-    „eigene Pakete erlaubt“ sein; ohne Angabe der erste davon."""
+    """Tenant for a new/changed package or schedule of an OU admin: must be one of their tenants with
+    "own packages allowed"; without a value, the first of them."""
     ok = [t["id"] for t in build_tenants(user)]
     if not ok:
         raise HTTPException(403, "Eigene Pakete und Zeitpläne sind für Ihren Mandanten nicht freigegeben.")
@@ -214,9 +214,9 @@ def own_tenant_for(user, requested):
 
 
 def check_nested(user, pkg_steps, tenant_id=None):
-    """Verschachtelte Pakete: nur zentrale oder solche desselben Mandanten wie das äußere Paket – für alle, auch
-    Hauptadmins. Sonst könnte ein (anderer) Mandant ändern, was in diesem Paket mitläuft – bei einem zentralen Paket auf
-    allen Computern. Das gilt nur fürs Einbauen (sehen: can_see_package)."""
+    """Nested packages: only central ones or those of the same tenant as the outer package - for everyone, including
+    main admins. Otherwise a (different) tenant could change what runs along inside this package - for a central package on
+    all computers. This applies only to embedding (viewing: can_see_package)."""
     from . import steps as stp
     own = int(tenant_id or 0)
     for _k, s in stp.iter_steps(stp.normalize({"steps": pkg_steps})):
@@ -228,9 +228,9 @@ def check_nested(user, pkg_steps, tenant_id=None):
                                          "lassen sich nur zentrale Pakete und Pakete desselben Mandanten.")
 
 
-# --- Bereitstellungen / Zeitpläne --------------------------------------------------------
+# --- Deployments / schedules -------------------------------------------------------------
 def deployment_targets_in_scope(user, did):
-    """(alle Ziele im Bereich?, mindestens eines im Bereich?)"""
+    """(all targets in scope?, at least one in scope?)"""
     allowed = computer_ids(user)
     ids = [r["computer_id"] for r in db.q("SELECT computer_id FROM deployment_targets WHERE deployment_id=?", (int(did),))]
     if allowed is None:
@@ -240,7 +240,7 @@ def deployment_targets_in_scope(user, did):
 
 
 def need_deployment(user, did, write=False):
-    """Lesen: mindestens ein Ziel im Bereich. Ändern (abbrechen, wiederholen, löschen): ALLE Ziele im Bereich."""
+    """Read: at least one target in scope. Change (cancel, repeat, delete): ALL targets in scope."""
     if not db.val("SELECT 1 FROM deployments WHERE id=?", (int(did or 0),)):
         raise HTTPException(404)
     if not scoped(user):
@@ -253,8 +253,8 @@ def need_deployment(user, did, write=False):
 
 
 def can_see_schedule(user, s):
-    """2.30: OU-Admins sehen die Zeitpläne ihres Mandanten und – nur lesend, nur mit ihren Computern – die zentralen,
-    die mindestens einen ihrer Computer erreichen (andere gehen sie nichts an)."""
+    """2.30: OU admins see the schedules of their tenant and - read-only, only with their computers - the central ones
+    that reach at least one of their computers (the others are none of their business)."""
     if not scoped(user):
         return True
     if not s:
@@ -266,7 +266,7 @@ def can_see_schedule(user, s):
 
 
 def can_edit_schedule(user, s):
-    """Ändern/Löschen: Hauptadmins alles; OU-Admins nur Zeitpläne ihres Mandanten, die sie ändern dürfen (2.30)."""
+    """Change/delete: main admins everything; OU admins only schedules of their tenant that they may change (2.30)."""
     if not scoped(user):
         return True
     return bool(s and s.get("tenant_id") and int(s["tenant_id"]) in [t["id"] for t in build_tenants(user)] and s.get("ou_edit"))
@@ -284,7 +284,7 @@ def need_schedule(user, sid, write=False, run=False):
     return s
 
 
-# --- Freigabeliste der Schnittstellen für OU-Admins ------------------------------------------
+# --- Allow list of endpoints for OU admins ---------------------------------------------------
 def _p_cid(user, pp):
     need_computer(user, pp.get("cid"))
 
@@ -350,8 +350,8 @@ def _p_sched_run(user, pp):
 
 
 def can_edit_collection(user, row):
-    """2.30: Hauptadmins alles (außer Standard-/AD-Sammlungen, das prüft der Handler); OU-Admins nur Sammlungen, die
-    ihr Mandant angelegt hat – und nur mit „eigene Pakete erlaubt“."""
+    """2.30: main admins everything (except default/AD collections, which the handler checks); OU admins only collections that
+    their tenant created - and only with "own packages allowed"."""
     if not scoped(user):
         return True
     t = (row or {}).get("tenant_id")
@@ -374,14 +374,14 @@ def _p_coll_r(user, pp):
 
 
 def _p_creport(user, pp):
-    pass  # eigene Berichte: lesen erlaubt, Ergebnisse auf eigene Computer beschränkt (Handler)
+    pass  # own reports: reading allowed, results restricted to own computers (handler)
 
 
 def _p_repo(user, pp):
-    """Repository: nur mit „eigene Pakete erlaubt“ und einem Repository-Ordner des Mandanten (der Handler beschränkt
-    den Pfad darauf)."""
+    """Repository: only with "own packages allowed" and a repository folder of the tenant (the handler restricts
+    the path to it)."""
     if not [t for t in build_tenants(user) if (t.get("repo_folder") or "").strip()]:
-        # 2.27: Ordner automatisch („Mandanten\\<Name>“) – sobald der Mandant eigene Pakete bauen darf
+        # 2.27: folder automatically ("Mandanten\\<Name>") - as soon as the tenant may build own packages
         from . import repofiles
         for t in build_tenants(user):
             try:
@@ -395,17 +395,17 @@ def _p_repo(user, pp):
 
 OPEN = None
 ROUTES = {
-    # Sitzung
+    # Session
     ("GET", "/api/me"): OPEN,
-    ("GET", "/api/news"): OPEN,             # Handler: OU-Admins nur Neuigkeiten für alle, nie Update-Hinweise
+    ("GET", "/api/news"): OPEN,             # Handler: OU admins only news for everyone, never update notices
     ("POST", "/api/news/seen"): OPEN,
-    # Übersicht und Computer (Handler filtern Listen)
+    # Overview and computers (handlers filter lists)
     ("GET", "/api/dashboard"): OPEN,
     ("GET", "/api/computers"): OPEN,
     ("GET", "/api/computers/{cid}"): _p_cid,
     ("GET", "/api/computers/{cid}/cat/{cat}"): _p_cid,
     ("PUT", "/api/computers/{cid}/fields"): _p_cid,
-    ("PUT", "/api/computers/{cid}"): _p_cid,              # Notizen zum Computer
+    ("PUT", "/api/computers/{cid}"): _p_cid,              # notes on the computer
     ("POST", "/api/computers/{cid}/loggedon"): _p_cid,
     ("POST", "/api/computers/{cid}/service"): _p_cid,
     ("POST", "/api/computers/{cid}/process/kill"): _p_cid,
@@ -427,64 +427,64 @@ ROUTES = {
     ("DELETE", "/api/diskusage/{sid}"): _p_du_scan,
     ("POST", "/api/computers/{cid}/test"): _p_cid,
     ("POST", "/api/computers/{cid}/action"): _p_cid,
-    ("POST", "/api/computers/heartbeat"): OPEN,        # Handler prüft die IDs
-    ("POST", "/api/computers/power-check"): OPEN,      # 2.34: Handler prüft die IDs
-    ("POST", "/api/computers/scan"): OPEN,             # Handler prüft die IDs
+    ("POST", "/api/computers/heartbeat"): OPEN,        # handler checks the IDs
+    ("POST", "/api/computers/power-check"): OPEN,      # 2.34: handler checks the IDs
+    ("POST", "/api/computers/scan"): OPEN,             # handler checks the IDs
     ("GET", "/api/software/{sid}/uninstall"): _p_software,
-    ("POST", "/api/uninstall"): OPEN,                  # Handler prüft Installationen/Computer
-    # Tools (anlegen/ändern nur Hauptadmins)
+    ("POST", "/api/uninstall"): OPEN,                  # handler checks installations/computers
+    # Tools (only main admins create/change)
     ("GET", "/api/tools"): OPEN,
-    ("POST", "/api/tools/{tid}/run"): OPEN,            # Handler prüft den Computer
-    ("POST", "/api/tools/builtin/{what}"): OPEN,       # Handler prüft den Computer
-    ("GET", "/api/computers/{cid}/wake"): _p_cid,      # 2.31: Ergebnis von Wake-on-LAN
-    ("POST", "/api/tools/{tid}/jobs"): OPEN,           # Handler prüft die IDs
+    ("POST", "/api/tools/{tid}/run"): OPEN,            # handler checks the computer
+    ("POST", "/api/tools/builtin/{what}"): OPEN,       # handler checks the computer
+    ("GET", "/api/computers/{cid}/wake"): _p_cid,      # 2.31: result of Wake-on-LAN
+    ("POST", "/api/tools/{tid}/jobs"): OPEN,           # handler checks the IDs
     ("GET", "/api/tooljobs/{jid}"): _p_tooljob,
-    # Nur lesen (für die Oberfläche)
+    # Read only (for the UI)
     ("GET", "/api/scanners"): OPEN,
     ("GET", "/api/scanprofiles"): OPEN,
     ("GET", "/api/fields"): OPEN,
-    ("GET", "/api/collections"): OPEN,                 # Handler zählt nur eigene Computer
-    # 2.30: eigene Sammlungen (nur mit „eigene Pakete erlaubt“) – enthalten nie mehr als die Computer des Mandanten
+    ("GET", "/api/collections"): OPEN,                 # handler counts only own computers
+    # 2.30: own collections (only with "own packages allowed") - never contain more than the tenant's computers
     ("GET", "/api/collections/schema"): OPEN,
     ("GET", "/api/collections/values"): OPEN,
     ("POST", "/api/collections"): _p_build,
-    ("POST", "/api/collections/preview"): OPEN,       # Handler: nur eigene Computer
+    ("POST", "/api/collections/preview"): OPEN,       # handler: only own computers
     ("PUT", "/api/collections/{cid}"): _p_coll_w,
     ("DELETE", "/api/collections/{cid}"): _p_coll_w,
     ("POST", "/api/collections/{cid}/move"): _p_coll_w,
     ("POST", "/api/collections/{cid}/rename"): _p_coll_w,
     ("POST", "/api/collections/{cid}/members"): _p_coll_w,
-    ("POST", "/api/collections/{cid}/duplicate"): _p_coll_r,  # Handler: Kopie gehört dem eigenen Mandanten
-    # 2.30: Berichte lesen – Ergebnisse nur mit eigenen Computern; anlegen/ändern und Mailversand nur Hauptadmins
+    ("POST", "/api/collections/{cid}/duplicate"): _p_coll_r,  # handler: the copy belongs to the own tenant
+    # 2.30: read reports - results only with own computers; create/change and mail sending only main admins
     ("GET", "/api/reports"): OPEN,
     ("GET", "/api/reports/{key}"): OPEN,
     ("GET", "/api/reports/{key}/csv"): OPEN,
     ("GET", "/api/customreports/{rid}"): _p_creport,
-    # Software (Handler filtern)
+    # Software (handlers filter)
     ("GET", "/api/software"): OPEN,
     ("GET", "/api/software/detail"): OPEN,
     ("POST", "/api/software/update"): OPEN,
     ("GET", "/api/winget/status"): OPEN,
-    ("GET", "/api/wingetcache/ready"): OPEN,      # 2.35: nur welche winget-IDs bereitliegen (Knopf „Aktualisieren“)
+    ("GET", "/api/wingetcache/ready"): OPEN,      # 2.35: only which winget IDs are ready (button "Aktualisieren")
     ("GET", "/api/winget/search"): OPEN,
-    # Pakete: alle sehen und verteilen (zentrale und die anderer Mandanten); ändern nur eigene, nur mit Freigabe
+    # Packages: view and distribute all (central ones and those of other tenants); change only own, only with permission
     ("GET", "/api/packages"): OPEN,
     ("GET", "/api/packages/meta"): OPEN,
     ("GET", "/api/packages/{pid}"): _p_pkg,
     ("POST", "/api/packages"): _p_build,
-    ("POST", "/api/packages/merge"): _p_build,       # 2.32: Handler prüft jedes Paket (sichtbar) und den Mandanten
+    ("POST", "/api/packages/merge"): _p_build,       # 2.32: handler checks each package (visible) and the tenant
     ("PUT", "/api/packages/{pid}"): _p_pkg_edit,
-    ("POST", "/api/packages/export"): OPEN,      # Handler: nur sichtbare Pakete (need_package je Paket)
-    ("POST", "/api/packages/import"): _p_build,  # wie „Paket anlegen“; Mandant erzwungen, Regeln aus _pkg_values
-    ("POST", "/api/packages/{pid}/duplicate"): _p_pkg,                 # Handler: Kopie in den eigenen Mandanten, nur mit Freigabe
-    ("POST", "/api/packages/{pid}/integrity/check"): _p_pkg,        # Handler: Details nur zu eigenen Mandanten-Ordnern
-    ("POST", "/api/packages/{pid}/integrity/accept"): _p_pkg_edit,  # Handler: nur Dateien in eigenen Mandanten-Ordnern
+    ("POST", "/api/packages/export"): OPEN,      # handler: only visible packages (need_package per package)
+    ("POST", "/api/packages/import"): _p_build,  # like "Paket anlegen"; tenant enforced, rules from _pkg_values
+    ("POST", "/api/packages/{pid}/duplicate"): _p_pkg,                 # handler: copy into the own tenant, only with permission
+    ("POST", "/api/packages/{pid}/integrity/check"): _p_pkg,        # handler: details only for own tenant folders
+    ("POST", "/api/packages/{pid}/integrity/accept"): _p_pkg_edit,  # handler: only files in own tenant folders
     ("DELETE", "/api/packages/{pid}"): _p_pkg_edit,
     ("POST", "/api/packages/preview"): OPEN,
     ("GET", "/api/repository"): _p_repo,
     ("GET", "/api/repository/msi"): _p_repo,
-    ("GET", "/api/repository/search"): _p_repo,       # Handler beschränkt den Pfad auf den eigenen Ordner
-    # 2.27: Repository-Ansicht – Handler (repofiles.need_scope) erlaubt nur den eigenen Mandantenordner
+    ("GET", "/api/repository/search"): _p_repo,       # handler restricts the path to the own folder
+    # 2.27: repository view - handler (repofiles.need_scope) allows only the own tenant folder
     ("GET", "/api/repository/info"): _p_repo,
     ("GET", "/api/repository/usage"): _p_repo,
     ("POST", "/api/repository/mkdir"): _p_repo,
@@ -492,48 +492,48 @@ ROUTES = {
     ("POST", "/api/repository/move"): _p_repo,
     ("POST", "/api/repository/delete"): _p_repo,
     ("POST", "/api/repository/upload"): _p_repo,
-    ("PUT", "/api/repository/upload/{token}"): _p_repo,           # Handler: nur eigene Uploads
+    ("PUT", "/api/repository/upload/{token}"): _p_repo,           # handler: only own uploads
     ("POST", "/api/repository/upload/{token}/finish"): _p_repo,
     ("DELETE", "/api/repository/upload/{token}"): _p_repo,
     ("POST", "/api/packages/{pid}/repair/suggest"): _p_pkg_edit,
-    ("POST", "/api/packages/{pid}/repair/apply"): _p_pkg_edit,   # Handler: nur Pfade im eigenen Mandantenordner
-    # Bereitstellungen
+    ("POST", "/api/packages/{pid}/repair/apply"): _p_pkg_edit,   # handler: only paths in the own tenant folder
+    # Deployments
     ("GET", "/api/deployments"): OPEN,
-    ("POST", "/api/deployments"): OPEN,                # Handler prüft Paket und Computer
+    ("POST", "/api/deployments"): OPEN,                # handler checks package and computers
     ("GET", "/api/deployments/{did}"): _p_dep,
-    ("GET", "/api/deployments/{did}/failed_steps"): _p_dep_w,   # Schritt-Titel: nur, wenn alle Ziele eigene sind
+    ("GET", "/api/deployments/{did}/failed_steps"): _p_dep_w,   # step titles: only if all targets are own
     ("POST", "/api/deployments/{did}/cancel"): _p_dep_w,
     ("POST", "/api/deployments/{did}/redeploy"): _p_dep_w,
     ("POST", "/api/deployments/{did}/retry"): _p_dep_w,
-    ("GET", "/api/deployments/{did}/steps"): _p_dep_w,          # Titel enthalten Befehle – nie bei fremden Zielen
+    ("GET", "/api/deployments/{did}/steps"): _p_dep_w,          # titles contain commands - never for foreign targets
     ("POST", "/api/deployments/{did}/rerun"): _p_dep_w,
     ("DELETE", "/api/deployments/{did}"): _p_dep_w,
-    # Zeitpläne des eigenen Mandanten
+    # Schedules of the own tenant
     ("GET", "/api/schedules"): OPEN,
     ("GET", "/api/schedules/{sid}"): _p_sched,
     ("GET", "/api/schedules/{sid}/preview"): _p_sched,
     ("POST", "/api/schedules"): _p_build,
     ("PUT", "/api/schedules/{sid}"): _p_sched_w,
     ("DELETE", "/api/schedules/{sid}"): _p_sched_w,
-    ("POST", "/api/schedules/{sid}/run"): _p_sched_run,     # zentrale: nur Hauptadmins
-    ("POST", "/api/schedules/{sid}/duplicate"): _p_sched,    # Handler: Kopie gehört dem eigenen Mandanten
-    ("POST", "/api/schedules/{sid}/reset"): _p_sched_run,  # nur eigene Computer (Handler), zentrale: nur Hauptadmins
-    # Mandanten: nur die eigenen sehen
+    ("POST", "/api/schedules/{sid}/run"): _p_sched_run,     # central ones: only main admins
+    ("POST", "/api/schedules/{sid}/duplicate"): _p_sched,    # handler: the copy belongs to the own tenant
+    ("POST", "/api/schedules/{sid}/reset"): _p_sched_run,  # only own computers (handler), central ones: only main admins
+    # Tenants: see only your own
     ("GET", "/api/tenants"): OPEN,
-    # Protokoll der eigenen Computer
+    # Log of the own computers
     ("GET", "/api/logs"): OPEN,
     ("GET", "/api/logs/csv"): OPEN,
-    # Fernsitzungen auf eigene Computer
+    # Remote sessions on own computers
     ("GET", "/api/remote/status"): OPEN,
-    ("POST", "/api/remote/connect"): OPEN,             # Handler prüft den Computer
-    ("GET", "/api/remote/sessions"): OPEN,             # Handler: nur eigene
-    ("DELETE", "/api/remote/sessions/{sid}"): OPEN,    # Handler: nur eigene
+    ("POST", "/api/remote/connect"): OPEN,             # handler checks the computer
+    ("GET", "/api/remote/sessions"): OPEN,             # handler: only own
+    ("DELETE", "/api/remote/sessions/{sid}"): OPEN,    # handler: only own
 }
 
 
 def route_path(request):
-    """Pfadmuster der aufgerufenen Route („/api/computers/{cid}“) – über die Endpunkt-Funktion, die Starlette beim
-    Zuordnen in den Scope schreibt (scope["route"] gibt es nicht in jeder FastAPI-Version)."""
+    """Path pattern of the called route ("/api/computers/{cid}") - via the endpoint function that Starlette writes into
+    the scope when matching (scope["route"] does not exist in every FastAPI version)."""
     route = request.scope.get("route")
     path = getattr(route, "path", None) if route is not None else None
     if not path:
@@ -543,12 +543,12 @@ def route_path(request):
             if getattr(r, "endpoint", None) is ep and method in (getattr(r, "methods", None) or ()):
                 path = r.path
                 break
-    # „{cid:int}“ → „{cid}“ (Starlette-Konverter)
+    # "{cid:int}" → "{cid}" (Starlette converter)
     return re.sub(r"\{(\w+):[^}]+\}", r"{\1}", path) if path else None
 
 
 def enforce(request, user):
-    """Für OU-Admins: Route muss freigegeben sein; Pfad-Parameter werden geprüft."""
+    """For OU admins: the route must be allowed; path parameters are checked."""
     if not scoped(user):
         return
     key = (request.method.upper(), route_path(request))

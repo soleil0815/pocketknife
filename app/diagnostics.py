@@ -1,14 +1,14 @@
-"""Diagnosepaket (Einstellungen → Wartung): eine ZIP-Datei zur Fehlersuche – wird nur heruntergeladen,
-nie von selbst verschickt.
+"""Diagnostic package (Einstellungen → Wartung): a ZIP file for troubleshooting – it is only downloaded,
+never sent on its own.
 
-Inhalt: Version und Umgebung, Einstellungen (ohne Kennwörter, Keytab, Schlüssel), Protokoll des Zeitraums,
-Fehler mit technischen Details, Statistik zu Scans und Bereitstellungen, fehlgeschlagene Ziele mit Schrittergebnissen.
+Contents: version and environment, settings (without passwords, keytab, keys), log of the period,
+errors with technical details, statistics on scans and deployments, failed targets with step results.
 
-Anonymisieren (empfohlen): Rechner-, Benutzer- und Servernamen, Domäne, IP-/MAC-/Mail-Adressen und AD-Pfade werden
-durch Platzhalter ersetzt. Die Platzhalter sind dauerhaft gleich (Tabelle diag_alias) – PC-017 ist in jedem Paket derselbe
-Rechner. Merkmale, an denen Fehler hängen können, bleiben sichtbar: Länge über 15 Zeichen („-LANG“), Umlaute („-UML“),
-Sonderzeichen („-SZ“), kurzer Name vs. vollständiger DNS-Name. Die Zuordnung bleibt auf dem Server; sie lässt sich in der
-Oberfläche nachschlagen oder als CSV herunterladen.
+Anonymize (recommended): computer, user and server names, domain, IP/MAC/mail addresses and AD paths are replaced
+by placeholders. The placeholders are permanently the same (table diag_alias) – PC-017 is the same computer in every package.
+Features that errors can depend on remain visible: length over 15 characters ("-LANG"), umlauts ("-UML"),
+special characters ("-SZ"), short name vs. full DNS name. The mapping stays on the server; it can be looked up in the
+UI or downloaded as CSV.
 """
 import bisect
 import collections
@@ -37,7 +37,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS diag_alias_unique ON diag_alias(kind, alias);"
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 START_RX = re.compile(r"^POCKET KNIFE (\S+) gestartet\.$")
 
-# Einstellungen, deren Werte Namen/Adressen enthalten (werden beim Anonymisieren mit ersetzt bzw. gekürzt)
+# Settings whose values contain names/addresses (replaced or shortened as well when anonymizing)
 FREE_TEXT_SETTINGS = {"toast_sender", "ldap_cert_pending", "ad_last_status", "proxy_url", "proxy_user", "repo_path", "smtp_host", "smtp_user", "smtp_from", "mail_default_to", "kiosk_notify_to", "kiosk_groups",
                       "kiosk_ous", "dns_servers", "ad_filter", "ad_containers", "public_url", "base_url"}
 COMMON_WORDS = {"admin", "administrator", "administrators", "administratoren", "test", "user", "users", "system", "guest",
@@ -50,13 +50,13 @@ def _ensure():
         if stmt.strip():
             try:
                 db.ex(stmt)
-            except Exception:  # noqa: BLE001 – z. B. Index bei schon doppelt vergebenen Platzhaltern (vor 2.23)
+            except Exception:  # noqa: BLE001 – e.g. index with placeholders that were already assigned twice (before 2.23)
                 pass
 
 
-# --- Versionsgeschichte --------------------------------------------------------------------------
+# --- Version history --------------------------------------------------------------------------
 def record_start():
-    """Beim Start: ab wann welche Version läuft. Beim ersten Mal aus den Startmeldungen im Protokoll nachgetragen."""
+    """At startup: since when which version has been running. The first time, filled in from the startup messages in the log."""
     _ensure()
     if not db.val("SELECT COUNT(*) FROM version_history", default=0):
         last = None
@@ -76,7 +76,7 @@ def history():
 
 
 class _VersionAt:
-    """Version, die zu einem Zeitpunkt lief (Einträge vor der ersten bekannten Version: „vor X“)."""
+    """Version that was running at a point in time (entries before the first known version: "vor X")."""
 
     def __init__(self, hist):
         self.ts = [h["started_at"] for h in hist]
@@ -92,7 +92,7 @@ class _VersionAt:
 
 
 def _changelog(oldest):
-    """CHANGELOG-Abschnitte von der ältesten Version im Zeitraum bis heute (ältere zählen nicht)."""
+    """CHANGELOG sections from the oldest version in the period until today (older ones do not count)."""
     try:
         text = open(os.path.join(ROOT, "CHANGELOG.md"), encoding="utf-8").read()
     except OSError:
@@ -104,13 +104,13 @@ def _changelog(oldest):
         m = re.match(r"## pocketknife-(\S+)", sec)
         if oldest and m and m.group(1) == oldest:
             break
-        if len(out) > 300:  # wöchentliche Sicherheitsupdates: viele kleine Versionen
+        if len(out) > 300:  # weekly security updates: many small versions
             break
     return "".join(out)
 
 
 def _fixed_list():
-    """Selbsttest-Prüfungen = Liste der behobenen Fehler, die nicht zurückkommen dürfen (mit Version)."""
+    """Self-test checks = list of fixed errors that must not come back (with version)."""
     try:
         src = open(os.path.join(ROOT, "tools", "selftest.py"), encoding="utf-8").read()
     except OSError:
@@ -120,14 +120,14 @@ def _fixed_list():
             + "\n".join(f"- {n}" for n in names) + "\n")
 
 
-# --- Platzhalter ---------------------------------------------------------------------------------
+# --- Placeholders ---------------------------------------------------------------------------------
 PREFIX = {"dc": "dom", "computer": "PC", "user": "USER", "server": "SRV", "ip": "IP", "mac": "MAC", "mail": "MAIL", "ou": "OU", "group": "GRUPPE",
           "display": "Person", "tenant": "MANDANT"}
 ANON_DOMAIN, ANON_NETBIOS = "firma.local", "FIRMA"
 
 
 def _marks(real):
-    """Merkmale, an denen Fehler hängen können – bleiben im Platzhalter sichtbar."""
+    """Features that errors can depend on – remain visible in the placeholder."""
     short = real.split(".")[0]
     m = ""
     if len(short) > 15:
@@ -143,14 +143,14 @@ class Anonymizer:
     def __init__(self, enabled=True):
         self.enabled = enabled
         self.map = {}       # (kind, real_lower) → alias
-        self.text = {}      # real text (lower) → alias, für die Ersetzung in Freitext
+        self.text = {}      # real text (lower) → alias, for replacement in free text
         self._pairs = None
         self._spaced = None
         if not enabled:
             return
         _ensure()
-        self.used = collections.defaultdict(set)   # vergebene Platzhalter je Art
-        self.pending = []                          # neue Zuordnungen – gesammelt gespeichert (flush)
+        self.used = collections.defaultdict(set)   # assigned placeholders per kind
+        self.pending = []                          # new mappings – saved in bulk (flush)
         for r in db.q("SELECT kind, real, alias FROM diag_alias"):
             self.map[(r["kind"], r["real"].lower())] = r["alias"]
             self.used[r["kind"]].add(r["alias"])
@@ -164,7 +164,7 @@ class Anonymizer:
         a = self.map.get(key)
         if a:
             return a
-        # Nummer im Speicher vergeben (build() läuft nie parallel) – je Platzhalter genau ein Name
+        # Assign the number in memory (build() never runs in parallel) – exactly one name per placeholder
         n = self.count.get(kind, 0)
         while True:
             n += 1
@@ -185,7 +185,7 @@ class Anonymizer:
         self._add_pair(kind, key[1], a)
         return a
 
-    # Bekannte Namen einsammeln (vor dem Ersetzen in Freitext)
+    # Collect known names (before replacing in free text)
     def learn(self):
         if not self.enabled:
             return
@@ -194,7 +194,7 @@ class Anonymizer:
                       "description FROM computers"):
             a = self.alias("computer", c["name"])
             if c["dns_name"] and c["dns_name"].lower() != (c["name"] or "").lower():
-                self.text[c["dns_name"].lower()] = f"{a.lower()}.{ANON_DOMAIN}"  # vollständiger DNS-Name bleibt als solcher erkennbar
+                self.text[c["dns_name"].lower()] = f"{a.lower()}.{ANON_DOMAIN}"  # full DNS name stays recognizable as such
             for u in re.split(r"[,;]\s*", c["current_user"] or ""):
                 if u.strip():
                     self.alias("user", u.split("\\")[-1].split("@")[0])
@@ -213,7 +213,7 @@ class Anonymizer:
                     self.alias("display", r["display_name"])
         except Exception:
             pass
-        # AD-Gruppen aus Kiosk-Freigaben (Name oder DN je Zeile) – Gruppennamen verraten oft die Organisation
+        # AD groups from kiosk approvals (name or DN per line) – group names often reveal the organization
         group_lines = str(db.setting("kiosk_groups") or "").splitlines()
         try:
             for r in db.q("SELECT groups FROM kiosk_items WHERE COALESCE(groups,'')<>''"):
@@ -224,8 +224,8 @@ class Anonymizer:
             g = g.strip()
             if g and not re.match(r"^(CN|OU|DC)=", g, re.I):
                 self.alias("group", g.split("\\")[-1])
-        # Audit 2.29: Mandanten (Namen verraten Kunden), deren Admin-Gruppen, Anzeigenamen der Sitzungen und
-        # Computer-Beschreibungen (oft Personennamen)
+        # Audit 2.29: tenants (names reveal customers), their admin groups, display names of the sessions and
+        # computer descriptions (often person names)
         try:
             for t in db.q("SELECT name, admin_group, admin_group_dn FROM tenants"):
                 if t["name"]:
@@ -249,7 +249,7 @@ class Anonymizer:
             pass
         for c in db.q("SELECT description FROM computers WHERE COALESCE(description,'') <> ''"):
             d = c["description"].strip()
-            if " " in d and 5 <= len(d) <= 120:  # einzelne Wörter („Empfang“) sind meist Rollen, keine Namen
+            if " " in d and 5 <= len(d) <= 120:  # single words ("Empfang") are mostly roles, not names
                 self.alias("display", d)
         for s in list(config.LDAP_SERVERS or []) + [config.PUBLIC_HOSTNAME] + _setting_hosts():
             if s and s.lower() not in ("localhost", "127.0.0.1") and s.lower() != dom:
@@ -264,13 +264,13 @@ class Anonymizer:
             db.exmany("INSERT OR IGNORE INTO diag_alias(kind, real, alias, created) VALUES(?,?,?,?)", self.pending)
             self.pending = []
 
-    # Ersetzen im Freitext: Wörter herauslösen und im Wörterbuch nachschlagen (statt einer riesigen Regex, die bei
-    # tausenden Namen bei jedem neuen Platzhalter neu übersetzt werden müsste). Nur Einträge mit Leerzeichen (Personen,
-    # Gruppen) laufen über eine kleine Regex.
+    # Replacing in free text: extract words and look them up in the dictionary (instead of a huge regex that would have to be
+    # recompiled for each new placeholder with thousands of names). Only entries with spaces (persons,
+    # groups) go through a small regex.
     def _add_pair(self, kind, real, a):
         if self._pairs is None or kind in ("ip", "mac", "mail", "ou") or len(real) < 3:
             return
-        if real in COMMON_WORDS or real in _vocabulary():  # „admin“, „Anmeldung“ … nie als Name ersetzen
+        if real in COMMON_WORDS or real in _vocabulary():  # never replace "admin", "Anmeldung" … as a name
             return
         self._pairs[real] = a
         if not WORD_RX.fullmatch(real):
@@ -293,7 +293,7 @@ class Anonymizer:
         self._build()
         pairs = self._pairs
         if self._spaced is None:
-            # Namen, die nicht als ein „Wort“ erkannt werden (Leerzeichen, ' & + Klammern …), über eine kleine Regex
+            # Names that are not recognized as a "word" (spaces, ' & + brackets …), via a small regex
             sp = sorted((k for k in pairs if not WORD_RX.fullmatch(k)), key=len, reverse=True)
             self._spaced = re.compile(r"(?<![\wÄÖÜäöüß-])(" + "|".join(re.escape(k) for k in sp) + r")(?![\wÄÖÜäöüß-])",
                                       re.I) if sp else False
@@ -302,7 +302,7 @@ class Anonymizer:
 
         def word(m):
             w = m.group(0)
-            segs = re.split(r"([._])", w)  # pc7.firma.local, BUCHH-PC7_install.log: längsten bekannten Teil ersetzen
+            segs = re.split(r"([._])", w)  # pc7.firma.local, BUCHH-PC7_install.log: replace the longest known part
             out, i = [], 0
             while i < len(segs):
                 if segs[i] in (".", "_"):
@@ -312,7 +312,7 @@ class Anonymizer:
                 hit = None
                 for j in range(len(segs), i, -1):
                     if (j - i) % 2 == 0:
-                        continue  # muss auf einem Wort enden, nicht auf einem Trenner
+                        continue  # must end on a word, not on a separator
                     cand = "".join(segs[i:j]).lower()
                     if cand in pairs:
                         hit = (j, pairs[cand])
@@ -327,18 +327,18 @@ class Anonymizer:
         return WORD_RX.sub(word, t)
 
     def __call__(self, text):
-        """Freitext anonymisieren. Kennwörter in Befehlszeilen werden immer maskiert – auch ohne Anonymisierung."""
+        """Anonymize free text. Passwords in command lines are always masked – even without anonymization."""
         if text is None:
             return text
         t = _mask_secrets(str(text))
         if not self.enabled:
             return t
         dn_parts = list(config.BASE_DN.split(",")) if config.BASE_DN else []
-        # AD-Pfade: DC=beispiel,DC=lan → DC=firma,DC=local; OU=…/CN=… → Platzhalter
+        # AD paths: DC=beispiel,DC=lan → DC=firma,DC=local; OU=…/CN=… → placeholder
         if dn_parts:
             t = re.sub(re.escape(config.BASE_DN), ",".join("DC=" + p for p in ANON_DOMAIN.split(".")), t, flags=re.I)
         t = re.sub(r"\b(DC)=([^,=\s\\]+)", lambda m: m.group(0) if m.group(2).lower() in ANON_DOMAIN.split(".")
-                   else f"{m.group(1)}={self.alias('dc', m.group(2)).lower()}", t, flags=re.I)  # Teil-Domänen (DC=sub,…)
+                   else f"{m.group(1)}={self.alias('dc', m.group(2)).lower()}", t, flags=re.I)  # partial domains (DC=sub,…)
         t = re.sub(r"\b(OU)=((?:\\.|[^,\\])+)", lambda m: f"{m.group(1)}={self.alias('ou', m.group(2))}", t)
         t = re.sub(r"\b(CN)=((?:\\.|[^,\\])+)", lambda m: f"{m.group(1)}={self.alias('group', m.group(2))}", t)
         t = re.sub(r"[A-Za-z0-9._%+\-ÄÖÜäöüß]+@[A-Za-z0-9.\-ÄÖÜäöüß]+\.[A-Za-z]{2,}", lambda m: self.alias("mail", m.group(0)), t)
@@ -346,29 +346,29 @@ class Anonymizer:
         t = re.sub(r"(?<![0-9A-Fa-f:.\-])([0-9A-Fa-f]{2}([:-])[0-9A-Fa-f]{2}(?:\2[0-9A-Fa-f]{2}){4})(?![0-9A-Fa-f:\-]|\.[0-9A-Fa-f])", _mac_sub(self), t)
         t = re.sub(r"(?<![0-9A-Za-z:.])((?:[0-9A-Fa-f]{0,4}:){2,7}[0-9A-Fa-f]{0,4}(?:%\w+)?)(?![0-9A-Za-z:]|\.\d)",
                    lambda m: m.group(1) if _keep_ip6(m.group(1)) else self.alias("ip", m.group(1).lower()), t)
-        # DOMÄNE\benutzer – auch unbekannte Benutzer (in JSON auch mit doppeltem Backslash)
+        # DOMAIN\user – also unknown users (in JSON also with a double backslash)
         if config.NETBIOS:
             t = re.sub(re.escape(config.NETBIOS) + r"(\\+)([A-Za-z0-9._\-$ÄÖÜäöüß]+)",
                        lambda m: f"{ANON_NETBIOS}{m.group(1)}{self.alias('user', m.group(2))}", t, flags=re.I)
-        # Fehlgeschlagene Anmeldung: der eingetippte Name kann alles sein (auch ein versehentlich eingetipptes Kennwort)
+        # Failed login: the typed name can be anything (even an accidentally typed password)
         t = re.sub(r"(Anmeldung fehlgeschlagen für ')([^']{1,200})(')", lambda m: m.group(1) + self.alias("user", _user_part(m.group(2)) or "?") + m.group(3), t)
         return self._replace_words(t)
 
 
 _build_lock = threading.Lock()
-# „Wort“ für die Namenssuche im Freitext: Buchstaben aller Sprachen (é, ø, ñ …), Ziffern, Punkt, Unterstrich, Bindestrich
+# "Word" for the name search in free text: letters of all languages (é, ø, ñ …), digits, dot, underscore, hyphen
 WORD_RX = re.compile(r"[^\W_][\w.\-]*")
 
-# Kennwörter in Befehlszeilen (Schritttitel, Ausgaben): PASSWORD=…, /p:…, net use … /user:x KENNWORT, -AsPlainText
+# Passwords in command lines (step titles, outputs): PASSWORD=…, /p:…, net use … /user:x PASSWORD, -AsPlainText
 _SECRET_RXS = [
     (re.compile(r"(?i)\b([\w-]*(?:password|passwort|passwd|kennwort|pwd|secret|token|apikey|api_key)[\w-]*\s*[=:]\s*)"
                 r"(\"[^\"]*\"|'[^']*'|[^\s;,]+)"), lambda m: m.group(1) + "***"),
     (re.compile(r"(?i)((?<![\w-])-(?:password|passwort|kennwort|pwd|secret|token)\s+)(\"[^\"]*\"|'[^']*'|\S+)"), lambda m: m.group(1) + "***"),
     (re.compile(r"(?i)(/user:\S+\s+)(?!/)(\"[^\"]*\"|\S+)"), lambda m: m.group(1) + "***"),
     (re.compile(r"(?i)(ConvertTo-SecureString\s+(?:-String\s+)?)(\"[^\"]*\"|'[^']*')"), lambda m: m.group(1) + "'***'"),
-    # Audit 2.29: cmdkey /pass:, psexec -p, sqlcmd -P, net user <name> <kennwort>, HTTP-Anmeldedaten, GitHub-Tokens
+    # Audit 2.29: cmdkey /pass:, psexec -p, sqlcmd -P, net user <name> <password>, HTTP credentials, GitHub tokens
     (re.compile(r"(?i)(/pass(?:word)?:)(\"[^\"]*\"|\S+)"), lambda m: m.group(1) + "***"),
-    (re.compile(r"(?<=\s)(-[pP]\s+)(?!-)(?![\d:]+(?:\s|$))(\"[^\"]*\"|'[^']*'|\S+)"), lambda m: m.group(1) + "***"),  # Ports (-p 8443:8443) bleiben
+    (re.compile(r"(?<=\s)(-[pP]\s+)(?!-)(?![\d:]+(?:\s|$))(\"[^\"]*\"|'[^']*'|\S+)"), lambda m: m.group(1) + "***"),  # ports (-p 8443:8443) are kept
     (re.compile(r"(?i)(\bnet(?:\.exe)?\s+user\s+(?:\"[^\"]*\"|\S+)\s+)(?!/)(\"[^\"]*\"|\S+)"), lambda m: m.group(1) + "***"),
     (re.compile(r"\b([Bb]earer|[Bb]asic|BEARER|BASIC)\s+(?=\S*[\d+/=]|\S*[A-Z]\S*[a-z]|\S*[a-z]\S*[A-Z])[A-Za-z0-9._~+/=\-]{12,}"), lambda m: m.group(1) + " ***"),
     (re.compile(r"\b(?:gh[opusr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})"), lambda m: "***"),
@@ -382,17 +382,17 @@ def _mask_secrets(t):
 
 
 def _keep_ip6(a):
-    """Keine IPv6-Adresse: Uhrzeiten (12:30:45), MAC-ähnliches, Schleife ::1."""
+    """Not an IPv6 address: times (12:30:45), MAC-like strings, loopback ::1."""
     if re.fullmatch(r"\d{1,2}(:\d{2}){1,3}", a) or a in ("::", "::1") or re.fullmatch(r"([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}", a):
         return True
     core = a.split("%")[0]
     if not re.search(r"[0-9A-Fa-f]", core):
-        return True  # nur Doppelpunkte, z. B. „[System.IO.File]::“
+        return True  # only colons, e.g. "[System.IO.File]::"
     return core.count(":") < 3 and "::" not in core
 
 
 def _user_part(u):
-    """„Kiosk: FIRMA\\max“ → „max“ (Protokoll und Bereitstellungen nennen den Auslöser mit Vorsatz)."""
+    """"Kiosk: FIRMA\\max" → "max" (log and deployments name the trigger with a prefix)."""
     u = re.sub(r"^(Kiosk|Zeitplan|Regel|Tool):\s*", "", str(u or "").strip(), flags=re.I)
     return u.split("\\")[-1].split("@")[0].strip()
 
@@ -401,9 +401,9 @@ def _mac_sub(an):
     def sub(m):
         mac = m.group(1)
         if mac.upper().startswith("02:00:00:00:"):
-            return mac  # schon ein Platzhalter
+            return mac  # already a placeholder
         if m.group(2) == "-" and re.fullmatch(r"[\d-]+", mac):
-            return mac  # nur Ziffern mit Bindestrich: Datum/Uhrzeit (z. B. in Dateinamen von Protokollen), keine MAC-Adresse
+            return mac  # only digits with hyphens: date/time (e.g. in log file names), not a MAC address
         return an.alias("mac", mac.upper().replace("-", ":"))
     return sub
 
@@ -412,8 +412,8 @@ _vocab = None
 
 
 def _vocabulary():
-    """Wörter aus den Texten von POCKET KNIFE (ab 5 Buchstaben) – nie als Name im Freitext ersetzen. Sonst wird aus einem
-    Benutzer oder Rechner, der zufällig „Anmeldung“ heißt, „USER-004 fehlgeschlagen“ in jeder Meldung."""
+    """Words from the POCKET KNIFE texts (from 5 letters) – never replaced as a name in free text. Otherwise a
+    user or computer that happens to be called "Anmeldung" would turn every message into "USER-004 fehlgeschlagen"."""
     global _vocab
     if _vocab is None:
         words = set()
@@ -423,7 +423,7 @@ def _vocabulary():
                 if not v:
                     continue
                 low_v = v.lower()
-                # nur Wörter, die übersetzt wurden – Namen in Beispielen („FIRMA\\mueller“) stehen auch in der Übersetzung
+                # only words that were translated – names in examples ("FIRMA\\mueller") also appear in the translation
                 words.update(w.lower() for w in re.findall(r"[A-Za-zÄÖÜäöüß]{5,}", k) if w.lower() not in low_v)
         except (OSError, ValueError):
             pass
@@ -449,19 +449,19 @@ def _setting_hosts():
     return out
 
 
-# --- Inhalte --------------------------------------------------------------------------------------
+# --- Contents --------------------------------------------------------------------------------------
 def _csv(rows, cols):
     from . import reports
     buf = io.StringIO()
     w = csv.writer(buf, delimiter=";")
     w.writerow(cols)
     for r in rows:
-        w.writerow([reports._safe(r.get(c)) for c in cols])  # Audit 2.29: Formel-Injektion entschärfen
+        w.writerow([reports._safe(r.get(c)) for c in cols])  # Audit 2.29: defuse formula injection
     return "\ufeff" + buf.getvalue()
 
 
 def _norm_msg(m):
-    """Meldung ohne Zahlen/Namen in Anführungszeichen – zum Zählen gleichartiger Fehler."""
+    """Message without numbers/names in quotation marks – for counting similar errors."""
     m = re.sub(r"„[^“]*“|\"[^\"]*\"|'[^']*'", "„…“", str(m or ""))
     m = re.sub(r"\d+", "#", m)
     return m[:160]
@@ -474,7 +474,7 @@ def _settings(an):
             continue
         v = db.setting(k)
         if k == "proxy_user" and an.enabled and v:
-            v = an.alias("user", _user_part(v))  # ganzer Wert ist ein Konto – auch kurze Namen ersetzen
+            v = an.alias("user", _user_part(v))  # the whole value is an account – also replace short names
         elif k in FREE_TEXT_SETTINGS and an.enabled:
             v = an(v)
         out[k] = v
@@ -564,7 +564,7 @@ def _stats(since, an):
 
 
 def _per_version(logs, targets):
-    """Je Version: Warnungen/Fehler im Protokoll und Ergebnisse der Bereitstellungen."""
+    """Per version: warnings/errors in the log and results of the deployments."""
     out = collections.OrderedDict()
     for r in logs:
         v = out.setdefault(r["version"], {"log_warn": 0, "log_error": 0, "targets_success": 0, "targets_failed": 0})
@@ -614,7 +614,7 @@ Nichts davon wird automatisch verschickt.
 
 
 def build(days=7, anonymize=True, user=None):
-    """ZIP als Bytes. days: 1–30, 0 = seit dem letzten Update. Immer nur ein Paket gleichzeitig."""
+    """ZIP as bytes. days: 1–30, 0 = since the last update. Only one package at a time."""
     with _build_lock:
         return _build(days, anonymize, user)
 
@@ -623,7 +623,7 @@ def _build(days, anonymize, user):
     hist = history()
     vat = _VersionAt(hist)
     days = int(7 if days is None else days)
-    if days <= 0:  # 0 = seit dem Start der laufenden Version (höchstens DAYS_MAX Tage)
+    if days <= 0:  # 0 = since the start of the running version (at most DAYS_MAX days)
         since = max(hist[-1]["started_at"] if hist else util.ago(days=DAYS_MAX), util.ago(days=DAYS_MAX))
         label = "seit-update"
     else:
@@ -653,7 +653,7 @@ def _build(days, anonymize, user):
         r["version"] = vat(r["started_at"] or r["created_at"])
         if anonymize:
             r["computer_name"] = an.alias("computer", r["computer_name"]) if r["computer_name"] else r["computer_name"]
-        # auch ohne Anonymisierung durch an(): Kennwörter in Befehlszeilen werden immer maskiert
+        # even without anonymization through an(): passwords in command lines are always masked
         r["created_by"], r["message"], r["deployment"] = an(r["created_by"]), an(r["message"]), an(r["deployment"])
         if r["status"] == "failed":
             try:
@@ -665,7 +665,7 @@ def _build(days, anonymize, user):
                 s.pop("output", None)
                 for k, v in list(s.items()):
                     if isinstance(v, str) and k not in ("phase", "type", "status", "run_as", "started", "finished", "sid"):
-                        s[k] = an(v)  # Titel (erste Befehlszeile, Pfade), Meldung …
+                        s[k] = an(v)  # title (first command line, paths), message …
             failed.append({k: r[k] for k in ("version", "deployment_id", "deployment", "source", "computer_name", "exit_code", "message",
                                               "started_at", "finished_at")} | {"steps": steps, "output_tail": an((r["output"] or "")[-MAX_OUTPUT:])})
     scans = db.q("""SELECT h.ts, c.name AS computer, h.status, h.duration_ms, h.profile_name, h.error, h.warnings FROM scan_history h
@@ -675,7 +675,7 @@ def _build(days, anonymize, user):
         if anonymize:
             r["computer"] = an.alias("computer", r["computer"]) if r["computer"] else r["computer"]
         r["error"], r["warnings"], r["profile_name"] = an(r["error"]), an(r["warnings"]), an(r["profile_name"])
-    # Meldungen erst anonymisieren, dann Zahlen zusammenfassen; getrennt: ganzer Zeitraum / nur laufende Version
+    # First anonymize messages, then aggregate numbers; separately: whole period / running version only
     stats = {"zeitraum": _stats(since, an),
              "aktuelle_version": {"version": config.VERSION, "seit": max(cur_start, since), "update_im_zeitraum": cur_start > since,
                                   **_stats(max(cur_start, since), an)},
@@ -702,14 +702,14 @@ def _build(days, anonymize, user):
                                                           "status", "exit_code", "message", "started_at", "finished_at"]))
         z.writestr("fehlgeschlagen.json", json.dumps(failed, ensure_ascii=False, indent=1, default=str))
         z.writestr("scans.csv", _csv(scans, ["ts", "version", "computer", "status", "duration_ms", "profile_name", "error", "warnings"]))
-    an.flush()  # neue Platzhalter dauerhaft merken (Nachschlagen, gleiche Platzhalter im nächsten Paket)
+    an.flush()  # remember new placeholders permanently (lookup, same placeholders in the next package)
     from . import pklog
     pklog.info("system", f"Diagnosepaket erstellt ({f'{days} Tage' if days > 0 else 'seit dem Update'}, {'anonymisiert' if anonymize else 'nicht anonymisiert'}).", user=user)
     return buf.getvalue(), f"pocketknife-diagnose-{config.VERSION}-{util.now()[:10]}-{label}{'-anonym' if anonymize else ''}.zip"
 
 
 def lookup(alias):
-    """Platzhalter → echter Name (nur in der Oberfläche, für Administratoren)."""
+    """Placeholder → real name (only in the UI, for administrators)."""
     _ensure()
     a = (alias or "").strip()
     rows = db.q("SELECT kind, real, alias FROM diag_alias WHERE lower(alias)=lower(?) OR lower(alias) LIKE lower(?)",

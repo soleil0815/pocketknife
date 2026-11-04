@@ -1,4 +1,4 @@
-"""Direkte Aktionen auf Clients: Dienste steuern, Prozesse beenden, Live-Abfragen, BitLocker vom Client."""
+"""Direct actions on clients: control services, terminate processes, live queries, BitLocker from the client."""
 import json
 import re
 
@@ -29,7 +29,7 @@ def _L(x):
     return x if isinstance(x, list) else ([] if x is None else [x])
 
 
-# --- Dienste -----------------------------------------------------------------
+# --- Services -----------------------------------------------------------------
 SERVICES_PS = r"""
 'PKJSON:' + (ConvertTo-Json -Depth 3 -Compress -InputObject @(Get-CimInstance Win32_Service | ForEach-Object {
   [ordered]@{ name = $_.Name; display = $_.DisplayName; state = $_.State; start = $_.StartMode; account = $_.StartName
@@ -86,7 +86,7 @@ $w = Get-CimInstance Win32_Service -Filter ("Name='" + $n + "'")
     return res
 
 
-# --- Prozesse ----------------------------------------------------------------
+# --- Processes ----------------------------------------------------------------
 PROCESSES_PS = r"""
 function D($d) { if ($d) { try { ([datetime]$d).ToString('yyyy-MM-dd HH:mm:ss') } catch { $null } } }
 try { $pl = Get-Process -IncludeUserName -ErrorAction Stop } catch { $pl = Get-Process }
@@ -138,7 +138,7 @@ Stop-Process -Id {pid} -Force
     return True
 
 
-# --- BitLocker direkt vom Client ------------------------------------------------
+# --- BitLocker directly from the client ------------------------------------------------
 BITLOCKER_PS = r"""
 'PKJSON:' + (ConvertTo-Json -Compress -InputObject @(Get-BitLockerVolume -ErrorAction Stop | ForEach-Object {
   $v = $_
@@ -155,14 +155,14 @@ def bitlocker_from_client(cid):
     return _L(_json(out))
 
 
-# --- Ereignisanzeige (Live über WinRM) ------------------------------------------
+# --- Event viewer (live via WinRM) ------------------------------------------
 EVENT_LOGS = {"System": "System", "Application": "Anwendung", "Security": "Sicherheit",
               "Setup": "Setup", "Microsoft-Windows-Windows Defender/Operational": "Defender"}
 EVENT_LEVELS = {1: "Kritisch", 2: "Fehler", 3: "Warnung", 4: "Information", 0: "Information", 5: "Ausführlich"}
 
 
 def event_log(cid, log="System", level=0, count=100, query=""):
-    """Liest die neuesten Ereignisse eines Protokolls. level: 0=alle, sonst nur <= level (1 Kritisch … 3 Warnung)."""
+    """Reads the newest events of a log. level: 0=all, otherwise only <= level (1 critical ... 3 warning)."""
     _c, host = _host(cid)
     if log not in EVENT_LOGS:
         raise ValueError("Unbekanntes Protokoll")

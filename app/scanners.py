@@ -1,7 +1,7 @@
-"""Eigene Scanner: Registry, Dateien & Ordner, WMI, PowerShell.
+"""Custom scanners: registry, files & folders, WMI, PowerShell.
 
-Jeder aktive Scanner wird beim Inventar-Scan auf dem Client ausgeführt; die Ergebnisse
-landen als Kategorie „custom:<id>“ in der Tabelle inventory_data.
+Every active scanner is run on the client during the inventory scan; the results
+end up as category "custom:<id>" in the inventory_data table.
 """
 import json
 
@@ -38,7 +38,7 @@ $paths = @(Get-Item -Path {util.psq(target)} -ErrorAction SilentlyContinue)
 if ({'$true' if extra.get('recurse') else '$false'}) {{ $paths += @(Get-ChildItem -Path {util.psq(target)} {recurse} -ErrorAction SilentlyContinue) }}
 $pkFull = $ExecutionContext.SessionState.LanguageMode -eq 'FullLanguage'
 foreach ($k in $paths) {{
-  # 2.38: im Constrained Language Mode keine Methoden der Registry-Klassen – Werte über Get-ItemProperty (ohne Typ)
+  # 2.38: in Constrained Language Mode no methods of the registry classes - read values via Get-ItemProperty (without type)
   $pv = if ($pkFull) {{ $null }} else {{ Get-ItemProperty -LiteralPath $k.PSPath -ErrorAction SilentlyContinue }}
   foreach ($n in $(if ($pkFull) {{ $k.GetValueNames() }} else {{ @($k.Property) }})) {{
     $v = if ($pkFull) {{ $k.GetValue($n) }} elseif ($n -eq '(default)') {{ $pv.'(default)' }} else {{ $pv.$n }}
@@ -49,10 +49,10 @@ foreach ($k in $paths) {{
 }}"""
     if t == "files":
         recurse = "-Recurse" if extra.get("recurse") else ""
-        # Umgebungsvariablen (%SYSTEMDRIVE%, $env:ProgramData) auflösen; „**“ = beliebig viele Ordnerebenen
+        # resolve environment variables (%SYSTEMDRIVE%, $env:ProgramData); "**" = any number of folder levels
         return f"""
 {util.PS_EXPAND}$pkPath = PK-Exp {util.psq(target)}
-# $env:NAME auflösen – ohne [regex]::Replace mit Skriptblock (Constrained Language Mode, 2.38)
+# resolve $env:NAME - without [regex]::Replace with a script block (Constrained Language Mode, 2.38)
 while ($pkPath -match '^(.*?)\\$env:(\\w+)(.*)$') {{
   $pkV = Get-Item -LiteralPath ('env:' + $Matches[2]) -ErrorAction SilentlyContinue
   if (-not $pkV) {{ break }}
@@ -80,12 +80,12 @@ $pkItems | Select-Object -First {MAX_ROWS} | ForEach-Object {{
         ns = extra.get("namespace") or "root\\cimv2"
         return f"""
 Get-CimInstance -Namespace {util.psq(ns)} -Query {util.psq(target)} -ErrorAction Stop | Select-Object -First {MAX_ROWS} | ForEach-Object {{ PKO $_ }}"""
-    # powershell: Ausgabe robust in Tabellenzeilen umwandeln – Objekte, Hashtables, Texte, Write-Host,
-    # Format-Table/-List (wird als Text übernommen) und Fehlermeldungen
-    # Eigener Code wird als Base64 übergeben und erst zur Laufzeit übersetzt: ein Syntaxfehler (z. B. eine
-    # fehlende Klammer) trifft dann nur diesen Scanner (Spalte „fehler“) statt das ganze Inventarskript
-    # 2.38: als Text-Literal und Invoke-Expression (im Constrained Language Mode erlaubt; [ScriptBlock]::Create nicht).
-    # Ein Syntaxfehler trifft weiterhin nur diesen Scanner (Spalte „fehler“).
+    # powershell: robustly convert the output into table rows - objects, hashtables, text, Write-Host,
+    # Format-Table/-List (taken over as text) and error messages
+    # Custom code is passed as Base64 and only compiled at run time: a syntax error (e.g. a
+    # missing bracket) then affects only this scanner (column "fehler") instead of the whole inventory script
+    # 2.38: as a text literal and Invoke-Expression (allowed in Constrained Language Mode; [ScriptBlock]::Create is not).
+    # A syntax error still affects only this scanner (column "fehler").
     return f"""
 $ErrorActionPreference = 'Continue'
 $pkCode = {util.psq(target or '')}
@@ -111,7 +111,7 @@ $pkOut | Where-Object {{ $_ -ne $null }} | Select-Object -First {MAX_ROWS} | For
 
 
 def script(ids=None):
-    """Skriptteil für eigene Scanner. ids=None: alle aktiven, sonst nur die angegebenen (aktiven)."""
+    """Script part for custom scanners. ids=None: all active ones, otherwise only the given (active) ones."""
     rows = db.q("SELECT * FROM custom_scanners WHERE enabled=1 ORDER BY id")
     if ids is not None:
         want = {int(i) for i in ids}
@@ -122,7 +122,7 @@ def script(ids=None):
 def script_for(rows):
     if not rows:
         return ""
-    # Hashtable statt [ordered]: deren Indexer nimmt Schlüssel immer als Schlüssel (nie als Position)
+    # Hashtable instead of [ordered]: its indexer always treats a key as a key (never as a position)
     parts = ["$r.custom = @{}"]
     for sc in rows:
         key = str(sc["id"])

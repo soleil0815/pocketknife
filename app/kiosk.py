@@ -1,9 +1,9 @@
-"""Software-Kiosk: Nutzer installieren freigegebene Software selbst – nur auf dem Rechner, an dem sie gerade
-angemeldet sind (live per WinRM geprüft). Je Paket einstellbar: sofort oder erst nach Freigabe durch einen
-Administrator. Deinstallieren (über ein hinterlegtes Deinstallationspaket) und Neustart planen.
+"""Software kiosk: users install approved software themselves – only on the machine they are currently
+logged on to (checked live via WinRM). Configurable per package: immediately or only after approval by an
+administrator. Uninstalling (via a configured uninstall package) and scheduling a restart.
 
-Wer den Kiosk benutzen darf, legen AD-Gruppen und/oder OUs fest (Einstellungen → Kiosk, siehe ad.kiosk_match).
-Kiosk-Sitzungen haben keinerlei Zugriff auf die Verwaltung (auth.current lässt nur die Rolle „admin“ zu).
+Who may use the kiosk is determined by AD groups and/or OUs (Einstellungen → Kiosk, see ad.kiosk_match).
+Kiosk sessions have no access at all to the administration (auth.current only allows the role "admin").
 """
 import concurrent.futures
 import datetime
@@ -15,14 +15,14 @@ import time
 
 from . import ad, collections_, config, db, deploy, guard, mailer, pklog, remote, steps, util
 
-LIVE_TTL = 90  # Sekunden: so lange gilt „Benutzer ist an Computer X angemeldet“ als geprüft
+LIVE_TTL = 90  # seconds: how long "user is logged on to computer X" counts as verified
 MAX_CANDIDATES = 6
 _live = {}
 _live_lock = threading.Lock()
 _req_lock = threading.Lock()
-GROUP_TTL = 300  # Sekunden: so lange gilt das Ergebnis „Benutzer ist in Gruppe X“ (AD nicht bei jedem Klick fragen)
+GROUP_TTL = 300  # seconds: how long the result "user is in group X" is valid (do not query AD on every click)
 _grp_cache = {}
-_grp_lock = threading.Lock()  # Prüfen + Anlegen einer Anfrage atomar (Doppelklick, zwei Tabs)
+_grp_lock = threading.Lock()  # check + create a request atomically (double click, two tabs)
 OPEN_DEPLOY = ("queued", "running", "scheduled")
 REBOOT_WHEN = ("now", "1h", "12:00", "18:00", "20:00")
 
@@ -41,8 +41,8 @@ def _sam(u):
 
 
 def _domain_sam(entry, computer_name):
-    """Angemeldeter Benutzer „DOMÄNE\\name“ → name – nur Domänenkonten. Lokale Konten (DOMÄNE = Rechnername) und
-    Konten anderer Domänen zählen nicht: sonst gälte „PC-B\\max“ oder „FREMD\\max“ als der Kiosk-Nutzer „max“."""
+    """Logged-on user "DOMAIN\\name" → name – domain accounts only. Local accounts (DOMAIN = computer name) and
+    accounts of other domains do not count: otherwise "PC-B\\max" or "FREMD\\max" would count as the kiosk user "max"."""
     e = (entry or "").strip()
     if "\\" in e:
         dom = e.split("\\", 1)[0].strip().lower()
@@ -55,9 +55,9 @@ def _domain_sam(entry, computer_name):
     return _sam(e) or None
 
 
-# --- Welcher Computer gehört zum Nutzer? -------------------------------------------------------
+# --- Which computer belongs to the user? -------------------------------------------------------
 def _logged_on(c, fresh=False):
-    """Live angemeldete Benutzer (sAMAccountNames, klein) – oder None, wenn nicht prüfbar (offline, Fehler)."""
+    """Live logged-on users (sAMAccountNames, lowercase) – or None if not checkable (offline, error)."""
     now = time.time()
     with _live_lock:
         hit = _live.get(c["id"])
@@ -67,7 +67,7 @@ def _logged_on(c, fresh=False):
     try:
         host = presence.direct_host(c)
     except ValueError:
-        return None  # 2.36.3: Adresse gehört (vermutlich) zu einem anderen Gerät
+        return None  # 2.36.3: the address (probably) belongs to a different device
     if guard.paused() or not remote.is_online(host)[1]:
         return None
     try:
@@ -84,7 +84,7 @@ def _logged_on(c, fresh=False):
 
 
 def _reverse_name(ip):
-    """Rechnername zur Adresse des Browsers (DNS-Rückwärtssuche, höchstens 2 Sekunden)."""
+    """Computer name for the browser's address (reverse DNS lookup, at most 2 seconds)."""
     if not ip or ip in ("127.0.0.1", "::1", "?"):
         return ""
     ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
@@ -97,10 +97,10 @@ def _reverse_name(ip):
 
 
 def candidates(username, ip):
-    """Mögliche Rechner des Nutzers: zuletzt dort angemeldet (Inventar) oder Adresse/Name des Browsers passt."""
+    """Possible computers of the user: last logged on there (inventory) or the browser's address/name matches."""
     sam = _sam(username)
     found = {}
-    # Zuerst Adresse und Name des Browsers – der Rechner, vor dem der Nutzer sitzt, darf nie wegen der Höchstzahl wegfallen
+    # Browser address and name first – the computer the user is sitting at must never be dropped because of the maximum count
     if ip and ip not in ("?",):
         for c in db.q("SELECT * FROM computers WHERE ip_addresses LIKE ? ESCAPE '\\'", (util.like_pattern(ip),)):
             if ip in re.split(r"[\s,;]+", c["ip_addresses"] or ""):
@@ -117,7 +117,7 @@ def candidates(username, ip):
 
 
 def computers_for(username, ip, fresh=False):
-    """Rechner, an denen der Nutzer gerade angemeldet ist (live geprüft). (liste, hinweis)"""
+    """Computers the user is currently logged on to (checked live). (list, hint)"""
     sam = _sam(username)
     out, unknown = [], 0
     for c in candidates(username, ip):
@@ -140,21 +140,21 @@ def computers_for(username, ip, fresh=False):
 
 
 def check_computer(username, ip, cid):
-    """Der Nutzer muss an genau diesem Computer angemeldet sein – sonst kein Auftrag."""
+    """The user must be logged on to exactly this computer – otherwise no request."""
     if not any(c["id"] == cid for c in computers_for(username, ip)[0]):
-        # Einmal frisch prüfen (Anmeldung kann sich in den letzten 90 Sekunden geändert haben)
+        # Check once afresh (the login may have changed in the last 90 seconds)
         if not any(c["id"] == cid for c in computers_for(username, ip, fresh=True)[0]):
             raise KioskError("Sie sind an diesem Computer nicht (mehr) angemeldet.")
 
 
-# --- Katalog ------------------------------------------------------------------------------------
+# --- Catalog ------------------------------------------------------------------------------------
 def _item(pid):
     return db.q1("""SELECT k.*, p.name, p.version, p.description AS pkg_description FROM kiosk_items k
                     JOIN packages p ON p.id = k.package_id WHERE k.package_id=?""", (pid,))
 
 
 def _detect(row):
-    """(winget_id, anzeigename-muster) des ersten Installationsschritts – zum Erkennen, ob installiert."""
+    """(winget_id, display name pattern) of the first installation step – to detect whether it is installed."""
     p = steps.normalize(deploy.row_to_package(row))
     for _k, s in steps.iter_steps(p):
         if s.get("type") == "install":
@@ -166,8 +166,8 @@ def _detect(row):
 
 
 def _needs_winget(row):
-    """Braucht das Paket winget (Installieren oder Deinstallieren per winget)? Auf Windows vor 1809 / Server 2019
-    ginge das nicht."""
+    """Does the package need winget (install or uninstall via winget)? On Windows before 1809 / Server 2019
+    that would not work."""
     if not row:
         return False
     p = steps.normalize(deploy.row_to_package(row))
@@ -176,7 +176,7 @@ def _needs_winget(row):
 
 
 def _cache_covers(row, cid):
-    """2.35.1: Alle winget-Installationsschritte des Pakets liegen für diesen Computer im winget-Cache bereit?"""
+    """2.35.1: Are all winget installation steps of the package available in the winget cache for this computer?"""
     from . import wingetcache
     c = db.q1("SELECT * FROM computers WHERE id=?", (cid,)) or {}
     p = steps.normalize(deploy.row_to_package(row))
@@ -205,7 +205,7 @@ def item_groups(item):
 
 
 def _group_ok(username, groups):
-    """Darf der Nutzer diese Software sehen? Ohne Gruppen: ja. Ist das AD gerade nicht prüfbar: nein (sicherer Weg)."""
+    """May the user see this software? Without groups: yes. If AD cannot be checked right now: no (safe way)."""
     if not groups:
         return True
     key = (_sam(username), tuple(sorted(g.lower() for g in groups)))
@@ -216,7 +216,7 @@ def _group_ok(username, groups):
         return hit[1]
     ok = ad.member_of_any(key[0], groups)
     if ok is None:
-        return False  # nicht zwischenspeichern – beim nächsten Aufruf erneut versuchen
+        return False  # do not cache – try again on the next call
     with _grp_lock:
         if len(_grp_cache) > 5000:
             _grp_cache.clear()
@@ -225,7 +225,7 @@ def _group_ok(username, groups):
 
 
 def _available(item, cid, username=None):
-    """Software für diesen Computer (Sammlung) und – falls Gruppen hinterlegt sind – für diesen Nutzer freigegeben?"""
+    """Software approved for this computer (collection) and – if groups are configured – for this user?"""
     if item["collection_id"] and cid not in collections_.member_ids(item["collection_id"]):
         return False
     return username is None or _group_ok(username, item_groups(item))
@@ -237,7 +237,7 @@ def catalog(cid, username=None):
     wok = deploy.winget_ok(db.val("SELECT os_build FROM computers WHERE id=?", (cid,)))
     reqs = {}
     for r in db.q("SELECT * FROM kiosk_requests WHERE computer_id=? AND action IN ('install','uninstall') ORDER BY id", (cid,)):
-        reqs[r["package_id"]] = r  # jeweils die letzte Anfrage
+        reqs[r["package_id"]] = r  # always the latest request
     out = []
     for it in db.q("""SELECT p.*, k.package_id, k.enabled, k.approval, k.category, k.description AS k_description,
                              k.uninstall_package_id, k.collection_id, k.groups, k.icon_at FROM kiosk_items k JOIN packages p ON p.id = k.package_id
@@ -245,12 +245,12 @@ def catalog(cid, username=None):
         if not _available(it, cid, username):
             continue
         if not wok and _needs_winget(it) and not _cache_covers(it, cid):
-            continue  # 2.34: winget gibt es auf diesem Windows nicht – nicht anbieten (2.35.1: außer aus dem winget-Cache)
+            continue  # 2.34: winget does not exist on this Windows – do not offer it (2.35.1: except from the winget cache)
         inst = _installed(it, software)
         r = reqs.get(it["package_id"])
         rs = status(r) if r else None
-        # Ergebnis der letzten Kiosk-Anfrage nur, solange kein neuerer Scan vorliegt – sonst gilt das Inventar
-        # (sonst stünde nach einer Deinstallation über die Verwaltung im Kiosk weiter „Neu installieren“)
+        # Result of the last kiosk request only as long as no newer scan exists – otherwise the inventory applies
+        # (otherwise "Neu installieren" would keep showing in the kiosk after an uninstall via the administration)
         if rs and rs["status"] == "success" and rs.get("finished_at") and rs["finished_at"] > last_scan:
             inst = (inst or True) if rs["action"] == "install" else None
         out.append({"package_id": it["package_id"], "name": it["name"], "version": it["version"] or "",
@@ -263,7 +263,7 @@ def catalog(cid, username=None):
     return out
 
 
-# --- Status einer Anfrage ----------------------------------------------------------------------
+# --- Status of a request ----------------------------------------------------------------------
 STATUS_TEXT = {"pending": "Wartet auf Freigabe", "rejected": "Abgelehnt", "withdrawn": "Zurückgezogen",
                "failed_start": "Konnte nicht gestartet werden", "queued": "In Warteschlange", "running": "Wird ausgeführt",
                "success": "Fertig", "failed": "Fehlgeschlagen", "skipped": "Übersprungen", "cancelled": "Abgebrochen",
@@ -285,7 +285,7 @@ def status(r):
     elif st == "started":
         st = "cancelled"
     if st == "starting":
-        st = "queued"  # wird gerade gestartet (Freigabe/Start läuft)
+        st = "queued"  # is being started right now (approval/start in progress)
     open_ = st in ("pending", "queued", "running", "scheduled")
     return {"id": r["id"], "action": r["action"], "status": st, "text": STATUS_TEXT.get(st, st), "message": msg[:300],
             "open": open_, "created_at": r["created_at"], "scheduled_at": r["scheduled_at"], "package_name": r["package_name"],
@@ -301,7 +301,7 @@ def my_requests(username, limit=50):
                                     (username.lower(), limit))]
 
 
-# --- Anfragen ----------------------------------------------------------------------------------
+# --- Requests ----------------------------------------------------------------------------------
 def _limit_check(username):
     mx = db.setting("kiosk_max_per_day") or 10
     n = db.val("SELECT COUNT(*) FROM kiosk_requests WHERE lower(username)=? AND created_at >= ?",
@@ -318,7 +318,7 @@ def _open_for(cid, pid=None, action=None):
 
 
 def request(user, ip, cid, pid, action):
-    """Neue Anfrage (Installieren/Deinstallieren). Startet sofort oder wartet auf Freigabe."""
+    """New request (install/uninstall). Starts immediately or waits for approval."""
     if not enabled():
         raise KioskError("Der Software-Kiosk ist ausgeschaltet.")
     if action not in ("install", "uninstall"):
@@ -341,7 +341,7 @@ def request(user, ip, cid, pid, action):
     if action == "uninstall" and not it["uninstall_package_id"]:
         raise KioskError("Diese Software lässt sich im Kiosk nicht deinstallieren.")
     check_computer(user["username"], ip, cid)
-    with _req_lock:  # Doppelklick/zweiter Tab: Prüfen und Anlegen dürfen sich nicht überholen
+    with _req_lock:  # double click/second tab: checking and creating must not overtake each other
         if _open_for(cid, pid):
             raise KioskError("Für diese Software läuft auf Ihrem Computer bereits eine Anfrage.")
         _limit_check(user["username"])
@@ -373,13 +373,13 @@ def _start(rid, decided_by):
                             target_label=r["computer_name"])
     except Exception as e:
         from . import integrity
-        # Kiosk-Nutzer sehen die Notiz: bei einem Bruch im Repository keine Pfade, nur „derzeit nicht verfügbar“
+        # Kiosk users see the note: on a break in the repository no paths, only "derzeit nicht verfügbar"
         note = ("Die Software ist derzeit nicht verfügbar – die IT ist informiert." if isinstance(e, integrity.IntegrityError)
                 else str(e))
         db.ex("UPDATE kiosk_requests SET status='failed_start', note=?, decided_by=COALESCE(?, decided_by), "
               "decided_at=COALESCE(decided_at, ?) WHERE id=?", (note[:300], decided_by, util.now() if decided_by else None, rid))
         if isinstance(e, integrity.IntegrityError):
-            # Details (Pfade) nur ohne Computerbezug – das Protokoll eines Computers sehen auch OU-Admins
+            # Details (paths) only without a computer reference – OU admins can also see a computer's log
             pklog.warn("kiosk", f"{what} von „{r['package_name']}“: {e}", user=r["username"])
             e = integrity.NEUTRAL
         pklog.warn("kiosk", f"{what} von „{r['package_name']}“ auf {r['computer_name']} konnte nicht gestartet werden: {e}",
@@ -402,7 +402,7 @@ def withdraw(user, rid):
         return True
     if r["status"] == "started" and r["deployment_id"] and \
             db.val("SELECT status FROM deployments WHERE id=?", (r["deployment_id"],)) == "scheduled":
-        deploy.cancel(r["deployment_id"], f"Kiosk: {user['username']}")  # z. B. geplanter Neustart
+        deploy.cancel(r["deployment_id"], f"Kiosk: {user['username']}")  # e.g. scheduled restart
         return True
     raise KioskError("Diese Anfrage läuft bereits und lässt sich nicht mehr zurückziehen.")
 
@@ -412,7 +412,7 @@ def decide(rid, approve, admin, note=""):
     if not r or r["status"] != "pending":
         raise KioskError("Anfrage nicht gefunden oder bereits entschieden.")
     if approve:
-        # Atomar übernehmen: zwei gleichzeitige Freigaben oder Zurückziehen während der Freigabe starten nichts doppelt
+        # Take over atomically: two simultaneous approvals or a withdrawal during approval start nothing twice
         if db.ex_count("UPDATE kiosk_requests SET status='starting' WHERE id=? AND status='pending'", (rid,)) != 1:
             raise KioskError("Anfrage nicht gefunden oder bereits entschieden.")
         if _start(rid, admin) is None:
@@ -447,11 +447,11 @@ def _notify(rid):
     threading.Thread(target=go, daemon=True, name="kiosk-mail").start()
 
 
-# --- Neustart ----------------------------------------------------------------------------------
+# --- Restart ----------------------------------------------------------------------------------
 def reboot_info(cid):
     c = db.q1("SELECT extra, last_boot, last_scan FROM computers WHERE id=?", (cid,)) or {}
-    # Ein erfolgreicher Neustart aus dem Kiosk erledigt den Bedarf – auch bevor der nächste Scan last_boot/pending_reboot
-    # aktualisiert (sonst fragte der Kiosk nach dem Neustart gleich wieder danach)
+    # A successful restart from the kiosk satisfies the need – even before the next scan updates last_boot/pending_reboot
+    # (otherwise the kiosk would ask for a restart again right after the restart)
     done = db.val("""SELECT MAX(t.finished_at) FROM kiosk_requests r JOIN deployment_targets t ON t.deployment_id = r.deployment_id
                      WHERE r.computer_id=? AND r.action='reboot' AND t.status='success'""", (cid,)) or ""
     pending = False
@@ -496,10 +496,10 @@ def plan_reboot(user, ip, cid, when):
     if not c:
         raise KioskError("Computer nicht gefunden.")
     check_computer(user["username"], ip, cid)
-    # Audit 2.29: nie Server/Terminalserver neu starten und nie, wenn noch jemand anderes angemeldet ist
+    # Audit 2.29: never restart servers/terminal servers and never if someone else is still logged on
     if "server" in str(c.get("os_name") or "").lower():
         raise KioskError("Server lassen sich über den Kiosk nicht neu starten – bitte an die IT wenden.")
-    # alle Anmeldungen zählen – auch lokale Konten und solche anderer Domänen (die der Kiosk sonst nicht beachtet)
+    # count all logins – also local accounts and those of other domains (which the kiosk otherwise ignores)
     raw = db.val("SELECT current_user FROM computers WHERE id=?", (cid,)) or ""
     me = _sam(user["username"])
     others = {x.strip().lower() for x in raw.split(",") if x.strip() and _domain_sam(x, c["name"]) != me}
@@ -523,7 +523,7 @@ def plan_reboot(user, ip, cid, when):
         did = deploy.create(pkg, [cid], f"Kiosk: {user['username']}", scheduled_at=util.fmt(at) if at else None, source="kiosk",
                             name=f"Kiosk: Neustart ({user['username']})", target_label=c["name"])
     except Exception as e:
-        # Sonst bliebe eine offene Anfrage stehen, die jeden weiteren Neustart blockiert
+        # Otherwise an open request would remain that blocks every further restart
         db.ex("UPDATE kiosk_requests SET status='failed_start', note=? WHERE id=?", (str(e)[:300], rid))
         pklog.warn("kiosk", f"Neustart von {c['name']} konnte nicht geplant werden: {e}", user=user["username"], computer_id=cid)
         raise KioskError(f"Neustart konnte nicht geplant werden: {e}")
@@ -533,12 +533,12 @@ def plan_reboot(user, ip, cid, when):
     return status(db.q1("SELECT * FROM kiosk_requests WHERE id=?", (rid,)))
 
 
-# --- Symbole (Icons) ---------------------------------------------------------------------------
+# --- Icons ---------------------------------------------------------------------------
 ICON_MAX = 512 * 1024
 
 
 def icon_type(data):
-    """Bildformat am Dateiinhalt erkennen – nur echte Rasterbilder (kein SVG: könnte Skripte enthalten)."""
+    """Detect the image format from the file content – only real raster images (no SVG: could contain scripts)."""
     b = bytes(data[:16])
     if b.startswith(b"\x89PNG\r\n\x1a\n"):
         return "image/png"
@@ -583,7 +583,7 @@ def icon_url(pid, icon_at):
     return f"/api/kiosk/icon/{pid}?v={re.sub(r'[^0-9]', '', icon_at or '')}" if icon_at else None
 
 
-# --- Verwaltung --------------------------------------------------------------------------------
+# --- Administration --------------------------------------------------------------------------------
 def admin_items():
     rows = db.q("""SELECT k.package_id, k.enabled, k.approval, k.category, k.description, k.uninstall_package_id,
                           k.collection_id, k.groups, k.updated_at, k.icon_at, p.name, p.version, u.name AS uninstall_name, c.name AS collection_name
@@ -623,11 +623,11 @@ def save_item(pid, data):
            (data.get("category") or "").strip()[:60] or None, (data.get("description") or "").strip()[:1000] or None,
            un, col, groups, util.now()))
     with _grp_lock:
-        _grp_cache.clear()  # geänderte Gruppen sofort wirksam
+        _grp_cache.clear()  # changed groups take effect immediately
 
 
 def clean_groups(value):
-    """Gruppen je Zeile (Name oder DN), ohne Doppelte; None = alle Kiosk-Nutzer."""
+    """Groups per line (name or DN), without duplicates; None = all kiosk users."""
     if isinstance(value, (list, tuple)):
         value = "\n".join(str(x) for x in value)
     out, seen = [], set()
@@ -648,7 +648,7 @@ def admin_requests(limit=300):
 
 
 def check_settings(key, value):
-    """Prüfung der Kiosk-Einstellungen (Einstellungen speichern)."""
+    """Validation of the kiosk settings (saving settings)."""
     if key == "kiosk_ous":
         for ln in [x.strip() for x in str(value or "").splitlines() if x.strip()]:
             if "=" not in ln or not re.search(r"(?i)\b(ou|dc|cn)=", ln):

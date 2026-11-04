@@ -1,4 +1,4 @@
-"""Sitzungen und Anmeldung."""
+"""Sessions and login."""
 import datetime
 import hashlib
 import hmac
@@ -21,11 +21,11 @@ def _h(token):
     return hashlib.sha256(token.encode()).hexdigest()
 
 
-IP_LIMIT = 30  # Fehlversuche je IP in 15 Minuten (alle Benutzernamen zusammen)
+IP_LIMIT = 30  # failed attempts per IP in 15 minutes (all user names together)
 
 
 def _norm_user(username):
-    """sAMAccountName wie bei der AD-Anmeldung – „a\\admin“, „b\\admin“, „admin@x“ zählen gemeinsam."""
+    """sAMAccountName as in the AD login - "a\\admin", "b\\admin", "admin@x" count together."""
     u = str(username or "").strip().lower()
     if "\\" in u:
         u = u.split("\\", 1)[1]
@@ -33,12 +33,12 @@ def _norm_user(username):
 
 
 def _throttle(keys):
-    """Prüfen UND den Versuch sofort vormerken (atomar) – gleichzeitige Anfragen können die Grenze nicht umgehen.
-    Gibt den Zeitstempel zurück; bei Erfolg nimmt _ok() den Versuch wieder heraus."""
+    """Check AND note the attempt immediately (atomic) - concurrent requests cannot bypass the limit.
+    Returns the timestamp; on success _ok() takes the attempt out again."""
     with _flock:
         now = time.time()
         for k in [k for k, v in _fails.items() if not v or now - v[-1] >= 900]:
-            _fails.pop(k, None)  # alte Einträge entfernen, damit der Speicher nicht wächst
+            _fails.pop(k, None)  # remove old entries so the memory does not grow
         for key, limit in keys:
             lst = [t for t in _fails.get(key, []) if now - t < 900]
             if lst:
@@ -51,7 +51,7 @@ def _throttle(keys):
 
 
 def _ok(keys, stamp):
-    """Erfolgreiche Anmeldung: den vorgemerkten Versuch wieder entfernen."""
+    """Successful login: remove the noted attempt again."""
     with _flock:
         for key, _limit in keys:
             lst = _fails.get(key)
@@ -65,7 +65,7 @@ _NAME_OK = re.compile(r"^[\w.\-@\\ ]{1,64}$")
 
 
 def _log_name(username):
-    """Für das Protokoll: ein versehentlich ins Namensfeld getipptes Kennwort soll dort nicht im Klartext stehen."""
+    """For the log: a password mistakenly typed into the name field must not appear there in clear text."""
     u = str(username or "")
     if _NAME_OK.match(u) and not re.search(r"[^\w.\-@\\ ]", u):
         return f"'{u}'"
@@ -73,13 +73,13 @@ def _log_name(username):
 
 
 def _eq(a, b):
-    """Zeitkonstanter Vergleich – auch für Umlaute (compare_digest auf str erlaubt nur ASCII)."""
+    """Constant-time comparison - also for umlauts (compare_digest on str allows only ASCII)."""
     return hmac.compare_digest(str(a or "").encode("utf-8"), str(b or "").encode("utf-8"))
 
 
-# Meldungen, die nur nach richtigem Kennwort möglich sind bzw. das Konto bestätigen: dem Client nicht verraten
+# Messages that are only possible after a correct password or that confirm the account: do not reveal to the client
 _PRIVATE = ("Kein Zugriff", "abgelaufen", "deaktiviert", "gesperrt", "Benutzerobjekt", "Benutzername oder Passwort falsch",
-            "Zugriffsgruppe", "LDAP-Suche", "Notfallzugang")  # die letzten drei erst nach richtigem Kennwort möglich
+            "Zugriffsgruppe", "LDAP-Suche", "Notfallzugang")  # the last three only possible after a correct password
 GENERIC_FAIL = "Anmeldung fehlgeschlagen: Benutzername oder Passwort falsch, oder kein Zugriff auf POCKET KNIFE."
 
 
@@ -87,10 +87,10 @@ def login(username, password, ip, kiosk=False):
     if not isinstance(username, str) or not isinstance(password, str):
         raise HTTPException(400, "Benutzername und Passwort angeben.")
     if config.BREAKGLASS_USER and _eq(username, config.BREAKGLASS_USER):
-        # Eigener Zähler: Fehlversuche anderer Konten hinter derselben Adresse (NAT, Terminalserver) sperren den
-        # Notfallzugang nicht aus – und er selbst ist weiter auf 8 Versuche in 15 Minuten begrenzt
-        # Keine Grenze über alle Adressen: sonst könnte jeder den Notfallzugang dauerhaft aussperren – gerade dann, wenn
-        # das AD ausfällt. Stattdessen meldet die Benachrichtigung „Notfallzugang benutzt“ jeden Fehlversuch (Audit 2.29).
+        # Own counter: failed attempts of other accounts behind the same address (NAT, terminal server) do not lock out
+        # the emergency access - and it is itself still limited to 8 attempts in 15 minutes
+        # No limit across all addresses: otherwise anyone could lock out the emergency access permanently - precisely when
+        # the AD is down. Instead the notification "Notfallzugang benutzt" reports every failed attempt (Audit 2.29).
         key = [(f"bg|{ip}", 8)]
     else:
         key = [(f"{ip}|{_norm_user(username)}", 8), (f"ip|{ip}", IP_LIMIT)]
@@ -104,15 +104,15 @@ def login(username, password, ip, kiosk=False):
             info = ad.authenticate(username, password, allow_kiosk=kiosk)
             info["_domain_login"] = True
             if _norm_user(info["username"]) == _norm_user(config.BREAKGLASS_USER or "\0"):
-                # Ein AD-Konto mit dem Namen des Notfallzugangs darf dessen Sonderrechte (keine AD-Nachprüfung) nicht erben
+                # An AD account named like the emergency access must not inherit its special rights (no AD re-check)
                 raise ad.ADError("Dieses Konto hat denselben Namen wie der Notfallzugang (PK_BREAKGLASS_USER) – bitte dort einen anderen Namen wählen.")
     except ad.ADError as e:
         msg = str(e)
         if config.BREAKGLASS_USER and _eq(username, config.BREAKGLASS_USER):
             pklog.warn("auth", f"Notfallzugang: Fehlversuch von {ip}")
         pklog.warn("auth", f"Anmeldung fehlgeschlagen für {_log_name(username)} von {ip}: {msg}")
-        # Details (Kennwort richtig, aber kein Zugriff / abgelaufen …) nur ins Protokoll – sonst prüfbar, ob ein Kennwort stimmt.
-        # Audit 2.29: Verbindungsfehler ebenso allgemein (verrieten sonst Namen/Ports der Domänencontroller)
+        # Details (password correct, but no access / expired ...) only in the log - otherwise one could verify whether a password is right.
+        # Audit 2.29: connection errors equally generic (otherwise they would reveal names/ports of the domain controllers)
         if any(x in msg for x in _PRIVATE):
             raise HTTPException(401, GENERIC_FAIL)
         if any(x in msg for x in _INFRA):
@@ -123,7 +123,7 @@ def login(username, password, ip, kiosk=False):
     token = _new_session(info, ip, breakglass=info.pop("_breakglass", False))
     if domain_login and info["role"] == "admin":
         from . import remote_desktop
-        remote_desktop.remember(_h(token), username, password)  # nur im RAM, für Fernsitzungen
+        remote_desktop.remember(_h(token), username, password)  # in RAM only, for remote sessions
     extra = " (Kiosk)" if info["role"] == "kiosk" else ""
     if info.get("scope"):
         names = [r["name"] for r in db.q(f"SELECT name FROM tenants WHERE id IN ({','.join('?' * len(info['scope']))})",
@@ -138,9 +138,9 @@ def _new_session(info, ip, breakglass=False):
     exp = datetime.datetime.now() + datetime.timedelta(hours=config.SESSION_HOURS)
     role = info.get("role") or "admin"
     info["role"] = role
-    # OU-Admin: Liste seiner Mandanten; Hauptadmin, Notfallzugang und Kiosk: NULL
+    # OU admin: list of their tenants; main admin, emergency access and kiosk: NULL
     scope = info.get("scope") if role == "admin" and not breakglass else None
-    scope = json.dumps(sorted({int(t) for t in scope})) if scope is not None else None  # [] bleibt eingeschränkt
+    scope = json.dumps(sorted({int(t) for t in scope})) if scope is not None else None  # [] stays restricted
     db.ex("INSERT INTO sessions(token_hash, username, display_name, created, expires, ip, last_active, role, scope, confirmed_at) "
           "VALUES(?,?,?,?,?,?,?,?,?,?)",
           (_h(token), info["username"], info["display_name"], util.now(), util.fmt(exp), ip, util.now(), role, scope, time.time()))
@@ -152,8 +152,8 @@ def _new_session(info, ip, breakglass=False):
 
 
 def login_sso(header, ip):
-    """Software-Kiosk: Anmeldung mit Windows (Kerberos). Ergibt immer eine Kiosk-Sitzung.
-    Gibt (token, info, Antwort-Token für „WWW-Authenticate: Negotiate …“ oder None) zurück; Fehler als sso.SSOError."""
+    """Software kiosk: login with Windows (Kerberos). Always yields a kiosk session.
+    Returns (token, info, response token for "WWW-Authenticate: Negotiate ..." or None); errors as sso.SSOError."""
     from . import sso
     key = [(f"sso|{ip}", IP_LIMIT)]
     stamp = _throttle(key)
@@ -162,13 +162,13 @@ def login_sso(header, ip):
             user, realm, out = sso.accept(header)
         except sso.SSOError:
             raise
-        except Exception as e:  # z. B. /tmp nicht beschreibbar – nie als 500
+        except Exception as e:  # e.g. /tmp not writable - never as a 500
             pklog.warn("auth", f"Windows-Anmeldung am Kiosk von {ip}: {e}")
             raise sso.SSOError("Windows-Anmeldung gerade nicht möglich – bitte mit Benutzername und Kennwort anmelden.")
         try:
             info = ad.sso_user(user)
         except Exception as e:
-            # Ticket war gültig – fehlende Berechtigung oder AD-Störung zählt nicht als Fehlversuch dieser Adresse
+            # Ticket was valid - missing permission or an AD fault does not count as a failed attempt of this address
             _ok(key, stamp)
             pklog.warn("auth", f"Windows-Anmeldung am Kiosk von {ip}: {e}")
             raise sso.SSOError(INFRA_FAIL if any(x in str(e) for x in _INFRA) else str(e))
@@ -196,14 +196,14 @@ def logout(token):
         db.ex("DELETE FROM sessions WHERE token_hash=?", (_h(token),))
 
 
-# --- Abmeldung bei Inaktivität -----------------------------------------------------------------
-# Als Aktivität zählen nur Eingaben im Browser (Maus, Tastatur – auch in einer Fernsitzung), die die Oberfläche
-# höchstens einmal pro Minute meldet (POST /api/session/active). Automatische Aktualisierungen offener Seiten
-# zählen nicht – sonst bliebe ein vergessenes Browserfenster für immer angemeldet.
+# --- Logout on inactivity -----------------------------------------------------------------
+# Only input in the browser counts as activity (mouse, keyboard - also in a remote session), which the UI reports
+# at most once per minute (POST /api/session/active). Automatic refreshes of open pages
+# do not count - otherwise a forgotten browser window would stay logged in forever.
 IDLE_DEFAULT = 30
 IDLE_MIN, IDLE_MAX = 5, 720
-_active = {}  # token_hash → Zeitpunkt der letzten Aktivität (Sekunden); Datenbank als Rückfall nach Neustart
-_TOUCH_WRITE = 30  # höchstens alle 30 s in die Datenbank schreiben
+_active = {}  # token_hash → time of the last activity (seconds); database as fallback after a restart
+_TOUCH_WRITE = 30  # write to the database at most every 30 s
 _written = {}
 IDLE_MSG = "Wegen Inaktivität abgemeldet – bitte erneut anmelden."
 
@@ -213,7 +213,7 @@ def idle_minutes():
         m = int(db.setting("session_idle_minutes") or IDLE_DEFAULT)
     except (TypeError, ValueError):
         m = IDLE_DEFAULT
-    return max(IDLE_MIN, min(IDLE_MAX, m))  # immer aktiv – abschalten lässt es sich nicht
+    return max(IDLE_MIN, min(IDLE_MAX, m))  # always active - it cannot be switched off
 
 
 def _last_active(token_hash, row):
@@ -226,7 +226,7 @@ def _last_active(token_hash, row):
 
 
 def idle_remaining(token_hash, row=None):
-    """Sekunden bis zur Abmeldung wegen Inaktivität (≤ 0 = abgelaufen)."""
+    """Seconds until logout due to inactivity (≤ 0 = expired)."""
     if row is None:
         row = db.q1("SELECT created, last_active FROM sessions WHERE token_hash=?", (token_hash,))
         if not row:
@@ -235,7 +235,7 @@ def idle_remaining(token_hash, row=None):
 
 
 def touch(token_hash):
-    """Benutzer ist aktiv: Zeitpunkt merken (und gelegentlich speichern, damit er einen Neustart übersteht)."""
+    """User is active: remember the time (and occasionally save it so it survives a restart)."""
     now = time.time()
     _active[token_hash] = now
     if now - _written.get(token_hash, 0) >= _TOUCH_WRITE:
@@ -244,8 +244,8 @@ def touch(token_hash):
 
 
 def end_session(token_hash, reason="beendet"):
-    """Sitzung serverseitig beenden (z. B. Mandant eines OU-Admins geändert) – inkl. Fernsitzungen. Gibt zurück, ob es
-    die Sitzung noch gab. Der Grund wird dem Benutzer bei der nächsten Anfrage genannt."""
+    """End a session on the server (e.g. tenant of an OU admin changed) - incl. remote sessions. Returns whether
+    the session still existed. The reason is given to the user on the next request."""
     from . import remote_desktop
     if len(_ended) > 5000:
         _ended.clear()
@@ -258,7 +258,7 @@ def end_session(token_hash, reason="beendet"):
     return bool(db.ex_count("DELETE FROM sessions WHERE token_hash=?", (token_hash,)))
 
 
-_ended = {}  # token_hash → Grund (für die Meldung an den Benutzer)
+_ended = {}  # token_hash → reason (for the message to the user)
 
 
 def _end_idle(token_hash, username):
@@ -273,7 +273,7 @@ def _end_idle(token_hash, username):
 
 
 def expire_idle():
-    """Vom Scheduler jede Minute: inaktive Sitzungen beenden (auch offene Fernsitzungen ohne Browser-Aktivität)."""
+    """From the scheduler every minute: end inactive sessions (also open remote sessions without browser activity)."""
     for r in db.q("SELECT token_hash, username, created, last_active FROM sessions"):
         if idle_remaining(r["token_hash"], r) <= 0:
             _end_idle(r["token_hash"], r["username"])
@@ -285,7 +285,7 @@ def session_valid(token_hash):
 
 
 def _lookup(token):
-    """(Sitzung, Grund) zu einem Cookie-Wert; Sitzung None, wenn ungültig."""
+    """(session, reason) for a cookie value; session None if invalid."""
     if not token:
         return None, "Nicht angemeldet"
     th = _h(token)
@@ -301,41 +301,41 @@ def _lookup(token):
         try:
             scope = [int(t) for t in json.loads(s["scope"])]
         except (TypeError, ValueError):
-            scope = []  # unlesbar → keine Computer (nie „alles“)
+            scope = []  # unreadable → no computers (never "everything")
     return {"username": s["username"], "display_name": s["display_name"], "token_hash": th, "role": s.get("role") or "admin",
             "scope": scope, "confirmed_at": s.get("confirmed_at")}, ""
 
 
 def session_for(token):
-    """Sitzung zu einem Cookie-Wert (auch für WebSockets) oder None."""
+    """Session for a cookie value (also for WebSockets) or None."""
     return _lookup(token)[0]
 
 
 _breakglass_tokens = set()
-RECHECK_SECONDS = 120   # Konto und Gruppen laufender Sitzungen alle 2 Minuten im Hintergrund prüfen
-RETRY_SECONDS = 60      # AD gerade nicht erreichbar: nach 1 Minute erneut
-MAX_UNCONFIRMED = 1800  # OU-Admins: höchstens 30 Minuten ohne Bestätigung durch das AD (Ausfall, Störung, Schutz aktiv)
+RECHECK_SECONDS = 120   # check account and groups of running sessions every 2 minutes in the background
+RETRY_SECONDS = 60      # AD currently not reachable: retry after 1 minute
+MAX_UNCONFIRMED = 1800  # OU admins: at most 30 minutes without confirmation by the AD (outage, fault, protection active)
 _checked = {}
 _bg_lock = threading.Lock()
 _unreach = {"warned": 0}
 
 
 def _skip_check(s):
-    """Notfallzugang und Betrieb ohne LDAP werden nicht gegen das AD geprüft."""
+    """Emergency access and operation without LDAP are not checked against the AD."""
     if s["token_hash"] in _breakglass_tokens or not config.ldap_configured():
         return True
     return bool(config.BREAKGLASS_USER and s["username"] == config.BREAKGLASS_USER and s.get("display_name") == "Notfallzugang")
 
 
 def _apply(s, ok):
-    """Ergebnis der AD-Prüfung auf eine Sitzung anwenden (siehe ad.check_sessions)."""
+    """Apply the result of the AD check to a session (see ad.check_sessions)."""
     th = s["token_hash"]
     now = time.time()
     if ok is None:
         _checked[th] = now - RECHECK_SECONDS + RETRY_SECONDS
         conf = s.get("confirmed_at") or 0
         if s.get("scope") is not None and conf and now - conf > MAX_UNCONFIRMED:
-            # OU-Admin seit 30 Minuten unbestätigt: lieber neu anmelden lassen, als Entzüge beliebig lange aufzuhalten
+            # OU admin unconfirmed for 30 minutes: better have them log in again than delay revocations indefinitely
             if end_session(th, "Abgemeldet – die Berechtigung ließ sich 30 Minuten lang nicht im AD bestätigen."):
                 pklog.warn("auth", "Sitzung beendet: Berechtigung seit 30 Minuten nicht im AD bestätigt (AD nicht erreichbar?).",
                            user=s["username"])
@@ -351,8 +351,8 @@ def _apply(s, ok):
         if new != old:
             widened = new is None or (old is not None and set(new) >= set(old))
             if not widened:
-                # Weniger Rechte (Mandant weg, Hauptadmin → OU-Admin): ganz neu anmelden – beendet auch Fernsitzungen
-                # auf Computern, die jetzt fremd sind
+                # Fewer rights (tenant gone, main admin → OU admin): log in completely anew - also ends remote sessions
+                # on computers that are now foreign
                 if end_session(th, "Ihre Berechtigung wurde geändert – bitte erneut anmelden."):
                     pklog.info("auth", "Sitzung beendet: Berechtigung im AD verringert.", user=s["username"])
                 return
@@ -364,8 +364,8 @@ def _apply(s, ok):
 
 
 def recheck_all(force=False):
-    """Vom Scheduler jede Minute: fällige Sitzungen gegen das AD prüfen – in EINEM Durchlauf mit einer Verbindung.
-    So wirken Änderungen an Gruppen von selbst, auch für Benutzer, die gerade nichts klicken (offene Fernsitzung)."""
+    """From the scheduler every minute: check due sessions against the AD - in ONE pass with one connection.
+    This way group changes take effect on their own, even for users who are not clicking anything right now (open remote session)."""
     if not config.ldap_configured() or not _bg_lock.acquire(blocking=False):
         return
     try:
@@ -395,7 +395,7 @@ def recheck_all(force=False):
         for s in due:
             try:
                 _apply(s, res.get(s["token_hash"]))
-            except Exception as e:  # noqa: BLE001 – eine Sitzung darf die Prüfung der anderen nie stoppen
+            except Exception as e:  # noqa: BLE001 – one session must never stop the check of the others
                 pklog.warn("auth", f"Prüfung der Sitzung fehlgeschlagen: {e}", user=s["username"])
     finally:
         _bg_lock.release()
@@ -406,9 +406,9 @@ def _session(request):
     s, why = _lookup(token)
     if not s:
         raise HTTPException(401, why)
-    # Keine AD-Abfrage in der Anfrage selbst (ein langsames AD bremste sonst die Oberfläche) – das erledigt
-    # recheck_all im Hintergrund. Sicherheitsnetz, falls der Hintergrund nicht läuft: OU-Admins höchstens 30 Minuten
-    # ohne Bestätigung.
+    # No AD query in the request itself (a slow AD would otherwise slow down the UI) - recheck_all does that
+    # in the background. Safety net in case the background does not run: OU admins at most 30 minutes
+    # without confirmation.
     if s.get("scope") is not None and not _skip_check(s) and s.get("confirmed_at") \
             and time.time() - float(s["confirmed_at"]) > MAX_UNCONFIRMED + 120:
         end_session(s["token_hash"], "Abgemeldet – die Berechtigung ließ sich nicht im AD bestätigen.")
@@ -417,8 +417,8 @@ def _session(request):
 
 
 def current(request: Request):
-    """Verwaltung: Hauptadmins (Zugriffsgruppe) und OU-Admins (Mandanten-Gruppe, nur freigegebene Schnittstellen und nur
-    ihre Computer – app/access.py). Kiosk-Sitzungen erhalten hier nie Zugriff."""
+    """Administration: main admins (access group) and OU admins (tenant group, only allowed endpoints and only
+    their computers - app/access.py). Kiosk sessions never get access here."""
     s = _session(request)
     if s.get("role") != "admin":
         raise HTTPException(403, "Kein Zugriff auf die Verwaltung – diese Anmeldung gilt nur für den Software-Kiosk.")
@@ -428,13 +428,13 @@ def current(request: Request):
 
 
 def any_session(request: Request):
-    """Irgendeine gültige Sitzung (Verwaltung, OU-Admin oder Kiosk) – nur für Sitzungsdinge wie die Inaktivitäts-Uhr."""
+    """Any valid session (administration, OU admin or kiosk) - only for session matters such as the inactivity clock."""
     return _session(request)
 
 
 def current_kiosk(request: Request):
-    """Software-Kiosk: Kiosk-Benutzer und Hauptadmins. OU-Admins nicht über ihre Verwaltungs-Sitzung (sie dürften sonst
-    ohne Kiosk-Gruppe an jedem Rechner, auch fremden, den Kiosk nutzen) – als Kiosk-Benutzer anmelden geht weiterhin."""
+    """Software kiosk: kiosk users and main admins. OU admins not via their administration session (otherwise they could
+    use the kiosk on any machine, even foreign ones, without the kiosk group) - logging in as a kiosk user still works."""
     s = _session(request)
     if s.get("role") == "admin" and s.get("scope") is not None:
         raise HTTPException(403, "Mit einer OU-Admin-Anmeldung ist der Kiosk nicht verfügbar – bitte im Kiosk als Kiosk-Benutzer anmelden.")

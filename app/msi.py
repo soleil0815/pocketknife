@@ -1,15 +1,15 @@
-"""MSI-Eigenschaften lesen – ohne Windows und ohne Fremdbibliothek.
+"""Read MSI properties - without Windows and without a third-party library.
 
-Eine MSI-Datei ist ein OLE-Verbunddokument (Compound File Binary). Daraus werden die Tabelle
-„Property“ (ProductName, ProductVersion, Manufacturer, ProductCode, UpgradeCode …) und die
-SummaryInformation (Plattform, Sprache) gelesen. Für das Paket-Formular reicht das aus.
+An MSI file is an OLE compound document (Compound File Binary). The table
+"Property" (ProductName, ProductVersion, Manufacturer, ProductCode, UpgradeCode ...) and the
+SummaryInformation (platform, language) are read from it. That is enough for the package form.
 """
 import struct
 
 SIG = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
 FREE, END = 0xFFFFFFFF, 0xFFFFFFFE
 MAX_STREAM = 64 * 1024 * 1024
-# Namen der Tabellen-Streams sind in MSI-Dateien kodiert (6 Bit je Zeichen, zwei Zeichen pro UTF-16-Zeichen)
+# The names of the table streams are encoded in MSI files (6 bits per character, two characters per UTF-16 character)
 _MIME = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz._"
 
 
@@ -28,7 +28,7 @@ def _decode_name(name):
         elif 0x4800 <= c < 0x4840:
             out.append(_MIME[c - 0x4800])
         elif c == 0x4840:
-            out.append("!")  # Kennzeichen für Tabellen
+            out.append("!")  # marker for tables
         else:
             out.append(ch)
     return "".join(out)
@@ -132,7 +132,7 @@ def _strings(cfb):
             strings.append("")
             i += 2
             continue
-        if ln == 0:  # lange Zeichenkette: Länge steht im nächsten Eintrag
+        if ln == 0:  # long string: the length is in the next entry
             if i + 3 >= len(w):
                 break
             ln = (w[i + 3] << 16) | w[i + 2]
@@ -196,7 +196,7 @@ def _summary(cfb):
 
 
 def read(fh):
-    """Liest Eigenschaften aus einer geöffneten MSI-Datei (Dateiobjekt mit seek/read)."""
+    """Reads properties from an opened MSI file (file object with seek/read)."""
     cfb = _CFB(fh)
     props = _property_table(cfb)
     summ = _summary(cfb)

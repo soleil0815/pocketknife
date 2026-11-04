@@ -1,10 +1,10 @@
-"""Speicherplatz-Analyse: Ordnergrößen eines Laufwerks/Ordners auf dem Client ermitteln (wie WinDirStat/TreeSize).
+"""Disk space analysis: determine folder sizes of a drive/folder on the client (like WinDirStat/TreeSize).
 
-Der Client durchläuft das Dateisystem mit einem kleinen C#-Helfer (Add-Type, schnell auch bei 100 000+ Ordnern),
-folgt keinen Verknüpfungen (Junctions/Symlinks) und liefert einen beschnittenen Baum als JSON:
-- bis zur gewählten Tiefe; tiefere Ebenen nur als Summe (Klick → genauer scannen)
-- je Ordner die größten Unterordner und Dateien; Kleinkram unter 0,1 % des Gesamtvolumens zusammengefasst
-Das Ergebnis wird je Computer und Pfad gespeichert (die letzten Läufe bleiben abrufbar).
+The client walks the file system with a small C# helper (Add-Type, fast even with 100,000+ folders),
+does not follow links (junctions/symlinks) and returns a pruned tree as JSON:
+- down to the chosen depth; deeper levels only as a sum (click → scan more precisely)
+- per folder the largest subfolders and files; small items below 0.1 % of the total volume combined
+The result is stored per computer and path (the last runs remain retrievable).
 """
 import json
 import re
@@ -88,7 +88,7 @@ CLM_MSG = ("Die Speicherplatz-Analyse braucht volle PowerShell – auf diesem Co
 
 
 def _script(path, depth):
-    # 2.38: im Constrained Language Mode gibt es kein Add-Type – klar sagen statt mit einem Fehler abbrechen
+    # 2.38: Add-Type does not exist in Constrained Language Mode - say so clearly instead of aborting with an error
     return f"""$ErrorActionPreference = 'Stop'
 if ($ExecutionContext.SessionState.LanguageMode -ne 'FullLanguage') {{ 'PKERR:' + {util.psq(CLM_MSG)}; return }}
 if (-not ('PKDu' -as [type])) {{ Add-Type -TypeDefinition @'
@@ -152,7 +152,7 @@ def _run(jid, cid, path, depth, user):
         j["finished"] = time.time()
 
 
-# --- Als Scanner („Speicherplatz“): alle festen lokalen Laufwerke in einem Durchlauf -------
+# --- As a scanner ("Speicherplatz"): all fixed local drives in one pass -------
 def _fixed_script(depth):
     return f"""$ErrorActionPreference = 'Stop'
 if ($ExecutionContext.SessionState.LanguageMode -ne 'FullLanguage') {{ 'PKDRIVEERR:' + {util.psq(CLM_MSG)}; return }}
@@ -177,7 +177,7 @@ foreach ($d in $drives) {{
 
 
 def scan_fixed(cid, depth=None, user="Zeitplan", host=None):
-    """Alle festen lokalen Laufwerke des Clients analysieren (Scanner „Speicherplatz“). Gibt Warnhinweise zurück."""
+    """Analyze all fixed local drives of the client (scanner "Speicherplatz"). Returns warnings."""
     depth = max(1, min(int(depth if depth is not None else (db.setting("du_scan_depth") or DEPTH_DEFAULT)), 8))
     c = db.q1("SELECT * FROM computers WHERE id=?", (cid,))
     if not c:
@@ -188,7 +188,7 @@ def scan_fixed(cid, depth=None, user="Zeitplan", host=None):
     for line in out.splitlines():
         if line.startswith("PKDRIVEERR:"):
             warns.append("Speicherplatz " + line[len("PKDRIVEERR:"):].strip())
-    # Blöcke PKDRIVE:…\nPKTREE:… paarweise lesen
+    # Read blocks PKDRIVE:...\nPKTREE:... in pairs
     parts = out.split("PKDRIVE:")
     for block in parts[1:]:
         try:
@@ -218,7 +218,7 @@ def start(cid, path, depth, user):
     if not c:
         raise ValueError("Computer nicht gefunden")
     from . import presence
-    presence.direct_host(c)  # 2.36.3: nie unter einer fremden Adresse analysieren
+    presence.direct_host(c)  # 2.36.3: never analyze under a foreign address
     jid = secrets.token_hex(6)
     with _lock:
         for k in [k for k, v in _jobs.items() if v.get("finished") and time.time() - v["finished"] > 3600]:

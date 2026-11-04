@@ -1,23 +1,23 @@
-"""Brüche in Paketen erkennen (2.26).
+"""Detect integrity breaks in packages (2.26).
 
-POCKET KNIFE merkt sich für jede Repository-Datei, die ein Paket benutzt, den bestätigten Stand: Größe, Änderungsdatum
-und SHA-256 (Tabelle repo_baseline, Schlüssel = Pfad im Repository, klein geschrieben – eine Datei, die mehrere Pakete
-benutzen, hat einen gemeinsamen Stand). Für ganze Paketordner wird zusätzlich die Dateiliste bestätigt
-(repo_baseline_dirs), damit hinzugekommene Dateien auffallen.
+For every repository file a package uses, POCKET KNIFE remembers the confirmed state: size, modification date
+and SHA-256 (table repo_baseline, key = path in the repository, lowercase – a file used by several packages
+has one shared state). For whole package folders the file list is confirmed as well
+(repo_baseline_dirs), so that added files stand out.
 
-Prüfungen:
-- Schnellprüfung alle 5 Minuten aus dem Repository-Index im Arbeitsspeicher (nur Name, Größe, Datum – kein Dateiinhalt);
-  ohne gültigen Index höchstens alle 30 Minuten direkt auf der Freigabe.
-- Hat sich nur das Änderungsdatum geändert, wird der Fingerabdruck neu berechnet (im Hintergrund, gedrosselt): gleich →
-  nur „angefasst“, der Stand wird still nachgeführt; anders → Bruch.
-- Vor jeder Bereitstellung (auch Zeitplan, Kiosk, Wiederholen) direkt auf der Freigabe. Bruch → der Lauf startet nicht
-  (IntegrityError) – „unterbrechen + Warnung“ (Entscheidung des Betreibers, 24.10.2026).
-- Vollprüfung: jede Datei einmal pro Woche, nachts im Zeitfenster, gedrosselt (Einstellungen → Repository & winget).
+Checks:
+- Quick check every 5 minutes from the repository index in memory (only name, size, date – no file content);
+  without a valid index at most every 30 minutes directly on the share.
+- If only the modification date changed, the hash is recomputed (in the background, throttled): same →
+  merely "touched", the state is silently updated; different → break.
+- Before every deployment (also schedule, kiosk, repeat) directly on the share. Break → the run does not start
+  (IntegrityError) – "interrupt + warning" (operator's decision, 24.10.2026).
+- Full check: every file once per week, at night within the time window, throttled (Settings → Repository & winget).
 
-Stufen: broken (rot: Datei/Ordner fehlt, Installationsdatei bzw. Quelle einer Dateikopie geändert) – Lauf wird
-unterbrochen; warn (gelb: andere Dateien im Paketordner geändert oder hinzugekommen, Prüfung läuft noch) – Lauf geht
-weiter, Hinweis im Protokoll; unknown (grau: Repository nicht erreichbar) – kein Bruch; ok; "" (Paket ohne
-Repository-Dateien, z. B. winget).
+Levels: broken (red: file/folder missing, installation file or source of a file copy changed) – the run is
+interrupted; warn (yellow: other files in the package folder changed or added, check still running) – the run continues,
+note in the log; unknown (grey: repository not reachable) – no break; ok; "" (package without
+repository files, e.g. winget).
 """
 import bisect
 import datetime
@@ -27,29 +27,29 @@ import time
 
 from . import db, pklog, remote, util
 
-TOL = 2                # Sekunden Abweichung beim Änderungsdatum (Zeitauflösung der Dateisysteme)
-MAX_ISSUES = 60        # je Paket gespeicherte Abweichungen
-LIVE_EVERY = 30 * 60   # ohne Index: so oft direkt auf der Freigabe prüfen (Sekunden)
-PRECHECK_HASH_SECONDS = 120  # vor einem Lauf höchstens so lange Fingerabdrücke berechnen
-FULL_DAYS = 7          # Vollprüfung: jede Datei spätestens nach so vielen Tagen
+TOL = 2                # seconds of deviation in the modification date (time resolution of file systems)
+MAX_ISSUES = 60        # deviations stored per package
+LIVE_EVERY = 30 * 60   # without index: how often to check directly on the share (seconds)
+PRECHECK_HASH_SECONDS = 120  # before a run, compute hashes for at most this long
+FULL_DAYS = 7          # full check: every file after this many days at the latest
 
 _q_lock = threading.Lock()
-_hash_queue = {}       # Schlüssel → None (dict = Menge mit Reihenfolge): Fingerabdruck berechnen, sobald der Worker Zeit hat
+_hash_queue = {}       # key → None (dict = ordered set): compute the hash as soon as the worker has time
 _state = {"live_at": 0.0, "worker": False, "night_live": "", "moves": 0}
 
 
 def moved():
-    """Repository wird gerade umgebaut (repofiles: Verschieben/Umbenennen/Reparatur) – laufende Gesamtprüfungen
-    verwerfen ihren Stand (sie haben die Pakete evtl. noch mit den alten Pfaden gelesen)."""
+    """Repository is being reorganized (repofiles: move/rename/repair) – running full checks
+    discard their state (they may have read the packages with the old paths)."""
     with _q_lock:
         _state["moves"] += 1
 _locks_lock = threading.Lock()
-_pkg_locks = {}        # je Paket eine Sperre (Prüfen/Übernehmen) – nie eine globale, die alle Starts aufhält
-_check_times = {}      # (benutzer, paket) → letzte „Jetzt prüfen“-Anfrage (Drossel)
+_pkg_locks = {}        # one lock per package (check/adopt) – never a global one that holds up all starts
+_check_times = {}      # (user, package) → last "Jetzt prüfen" request (throttle)
 
 
 class IntegrityError(ValueError):
-    """Bruch – der Lauf wird unterbrochen. issues: Liste der Abweichungen (für die Anzeige je Benutzer)."""
+    """Break – the run is interrupted. issues: list of deviations (for display per user)."""
 
     def __init__(self, msg, name="", issues=None):
         super().__init__(msg)
@@ -65,11 +65,11 @@ def key(rel):
     return norm(rel).lower()
 
 
-# --- Welche Repository-Pfade benutzt ein Paket? ---------------------------------------------------------
+# --- Which repository paths does a package use? ---------------------------------------------------------
 def refs(p, _depth=0):
-    """[(pfad, art, haupt)] – art „dir“ (ganzer Ordner mit Unterordnern), „file“ oder „auto“ (Dateikopie: Ordner oder
-    Datei). haupt = Installationsdatei bzw. Quelle einer Dateikopie (eine Änderung daran ist ein Bruch).
-    Ausgeschaltete Schritte zählen nicht; verschachtelte Pakete werden mit geprüft."""
+    """[(path, kind, main)] – kind "dir" (whole folder with subfolders), "file" or "auto" (file copy: folder or
+    file). main = installation file or source of a file copy (a change to it is a break).
+    Disabled steps do not count; nested packages are checked too."""
     from . import deploy, steps
     out = {}
     if _depth > steps.MAX_DEPTH + 1 or not p:
@@ -111,9 +111,9 @@ def refs(p, _depth=0):
     return list(out.values())
 
 
-# --- Aktueller Stand im Repository ------------------------------------------------------------------------
+# --- Current state in the repository ------------------------------------------------------------------------
 class _Snap:
-    """Dateien im Repository: aus dem Index im Arbeitsspeicher (schnell) oder direkt auf der Freigabe (live)."""
+    """Files in the repository: from the index in memory (fast) or directly on the share (live)."""
 
     def __init__(self, live):
         self.live = live
@@ -138,7 +138,7 @@ class _Snap:
         return self.files.get(key(rel))
 
     def tree(self, rel):
-        """{schlüssel: (pfad, größe, mtime)} aller Dateien unter dem Ordner – None, wenn es ihn nicht gibt."""
+        """{key: (path, size, mtime)} of all files under the folder – None if it does not exist."""
         if self.live:
             lst = remote.repo_tree(rel)
             return None if lst is None else {key(x[0]): (norm(x[0]), x[1], x[2]) for x in lst}
@@ -165,7 +165,7 @@ def _rows(keys):
 
 
 def _rows_under(dkey):
-    # Bereich statt LIKE: alle Schlüssel, die mit „ordner\“ beginnen (']' folgt in ASCII direkt auf '\')
+    # Range instead of LIKE: all keys that start with "folder\" (']' follows '\' directly in ASCII)
     return {r["path"]: r for r in db.q("SELECT * FROM repo_baseline WHERE path >= ? AND path < ?", (dkey + "\\", dkey + "]"))}
 
 
@@ -175,8 +175,8 @@ def _pkg_lock(pid):
 
 
 def _adopt(k, cur, who, queue=False):
-    """Stand einer Datei erstmals festhalten. Den Fingerabdruck dazu rechnet die nächtliche Vollprüfung (full_at leer
-    → zuerst) – nur beim Speichern eines Pakets (queue=True) sofort, gedrosselt im Hintergrund."""
+    """Record the state of a file for the first time. The nightly full check computes the hash for it (full_at empty
+    → first) – only when saving a package (queue=True) immediately, throttled in the background."""
     db.ex("""INSERT OR IGNORE INTO repo_baseline(path, disp, size, mtime, sha256, confirmed_at, confirmed_by, cur_size, cur_mtime)
              VALUES(?,?,?,?,NULL,?,?,?,?)""", (k, cur[0], cur[1], cur[2], util.now(), who, cur[1], cur[2]))
     if queue:
@@ -190,7 +190,7 @@ def enqueue(k):
 
 
 def _ensure_worker():
-    """Genau EIN Thread berechnet Fingerabdrücke (eine Datei nach der anderen, gemeinsame Drossel)."""
+    """Exactly ONE thread computes hashes (one file after another, shared throttle)."""
     with _q_lock:
         if _state["worker"] or not _hash_queue:
             return
@@ -211,13 +211,13 @@ def _ensure_worker():
     threading.Thread(target=run, name="pk-integrity-hash", daemon=True).start()
 
 
-# --- Prüfen -----------------------------------------------------------------------------------------------
+# --- Checking -----------------------------------------------------------------------------------------------
 def _issue(kind, path, main, level, old=None, new=None, note=""):
     return {"kind": kind, "path": path, "main": bool(main), "level": level, "old": old or {}, "new": new or {}, "note": note}
 
 
 def _foreign_folder(path, tenant_id):
-    """Liegt path im Repository-Ordner eines Mandanten, dem das Paket nicht gehört?"""
+    """Is path in the repository folder of a tenant that the package does not belong to?"""
     k = key(path)
     own = int(tenant_id or 0)
     for t in db.q("SELECT id, repo_folder FROM tenants WHERE COALESCE(repo_folder, '') != ''"):
@@ -232,7 +232,7 @@ def _sig(size, mtime, sha=None):
 
 
 def _repo_errors():
-    """Fehlerarten beim Zugriff auf das Repository (smbprotocol-Fehler sind keine OSError)."""
+    """Error types when accessing the repository (smbprotocol errors are not OSError)."""
     try:
         from .clientfiles import _smb_errors
         return (remote.RemoteError,) + tuple(_smb_errors())
@@ -241,11 +241,11 @@ def _repo_errors():
 
 
 def evaluate(p, live=False, adopt=True, hash_now=False, deadline=None, who="automatisch", snap=None, queue_new=False):
-    """Prüft ein Paket gegen den bestätigten Stand. Ergebnis: {state, issues, at, live, keys, total}.
-    adopt: Dateien ohne bestätigten Stand erstmals festhalten (neue Pakete, Pakete von vor 2.26).
-    hash_now: geänderte Änderungsdaten sofort per Fingerabdruck klären (vor einem Lauf), sonst im Hintergrund.
-    keys: alle Pfade, deren Stand dieses Paket braucht (auch fehlende) – fürs Aufräumen.
-    Ein Fehler beim Zugriff betrifft nur den einen Pfad („nicht prüfbar“); ein sicher erkannter Bruch bleibt ein Bruch."""
+    """Check a package against the confirmed state. Result: {state, issues, at, live, keys, total}.
+    adopt: record files without a confirmed state for the first time (new packages, packages from before 2.26).
+    hash_now: resolve changed modification dates immediately via hash (before a run), otherwise in the background.
+    keys: all paths whose state this package needs (also missing ones) – for cleanup.
+    An error while accessing affects only that one path ("nicht prüfbar"); a reliably detected break remains a break."""
     rs = refs(p)
     res = {"state": "", "issues": [], "at": util.now(), "live": live, "keys": [], "total": 0}
     if not rs:
@@ -256,7 +256,7 @@ def evaluate(p, live=False, adopt=True, hash_now=False, deadline=None, who="auto
         return res
     errs = _repo_errors()
     issues, keep = [], set()
-    expected = {}  # schlüssel → (pfad, haupt)
+    expected = {}  # key → (path, main)
     current = {}
     for rel, kind, main in rs:
         k = key(rel)
@@ -271,7 +271,7 @@ def evaluate(p, live=False, adopt=True, hash_now=False, deadline=None, who="auto
             if kind == "dir":
                 cur = snap.tree(rel)
                 if cur is None:
-                    keep.update(_rows_under(k))  # Stand behalten – kommt der Ordner geändert zurück, ist das ein Bruch
+                    keep.update(_rows_under(k))  # keep the state – if the folder comes back changed, that is a break
                     issues.append(_issue("missing", rel, main, "broken", note="Ordner fehlt"))
                     continue
                 current.update(cur)
@@ -285,13 +285,13 @@ def evaluate(p, live=False, adopt=True, hash_now=False, deadline=None, who="auto
                     base, confirmed = _rows_under(k), 1
                 for bk, b in base.items():
                     prev = expected.get(bk)
-                    # Quelle einer Dateikopie: jede Datei im Ordner zählt wie die Installationsdatei
+                    # source of a file copy: every file in the folder counts like the installation file
                     expected[bk] = (b["disp"] or bk, main or (prev[1] if prev else False))
                 if confirmed:
                     for ck, c in cur.items():
                         if ck not in base:
-                            # In einem Mandantenordner von jemand anderem abgelegt (2.27): Bruch – sonst könnte ein
-                            # Mandant z. B. eine DLL neben die Installationsdatei eines zentralen Pakets legen
+                            # Placed by someone else in a tenant folder (2.27): break – otherwise a
+                            # tenant could e.g. put a DLL next to the installation file of a central package
                             foreign = _foreign_folder(c[0], p.get("tenant_id"))
                             issues.append(_issue("added", c[0], foreign, "broken" if foreign else "warn", new=_sig(c[1], c[2]),
                                                  note="neu im Paketordner – liegt im Ordner eines anderen Mandanten" if foreign
@@ -322,7 +322,7 @@ def evaluate(p, live=False, adopt=True, hash_now=False, deadline=None, who="auto
             continue
         same = c[1] == b["size"] and abs((c[2] or 0) - (b["mtime"] or 0)) <= TOL
         if same:
-            # Vollprüfung hat bei gleicher Größe/gleichem Datum einen anderen Fingerabdruck gefunden?
+            # did the full check find a different hash with the same size/date?
             if (b["cur_sha256"] and b["sha256"] and b["cur_sha256"] != b["sha256"] and b["cur_size"] == c[1]
                     and abs((b["cur_mtime"] or 0) - (c[2] or 0)) <= TOL):
                 issues.append(_issue("changed", c[0], main, lvl, old=_sig(b["size"], b["mtime"], b["sha256"]),
@@ -332,7 +332,7 @@ def evaluate(p, live=False, adopt=True, hash_now=False, deadline=None, who="auto
             issues.append(_issue("changed", c[0], main, lvl, old=_sig(b["size"], b["mtime"], b["sha256"]),
                                  new=_sig(c[1], c[2]), note="Größe geändert"))
             continue
-        # Nur das Datum ist anders: der Fingerabdruck entscheidet
+        # Only the date is different: the hash decides
         sha = None
         if b["cur_sha256"] and b["cur_size"] == c[1] and abs((b["cur_mtime"] or 0) - (c[2] or 0)) <= TOL:
             sha = b["cur_sha256"]
@@ -345,13 +345,13 @@ def evaluate(p, live=False, adopt=True, hash_now=False, deadline=None, who="auto
                 db.ex("UPDATE repo_baseline SET cur_size=?, cur_mtime=?, cur_sha256=?, cur_at=? WHERE path=?",
                       (c[1], c[2], sha, util.now(), k))
         if not b["sha256"]:
-            # Noch kein Fingerabdruck zum Vergleich (z. B. kurz nach der ersten Übernahme): gleiche Größe, nur das Datum
-            # anders – kein sicherer Bruch; die Vollprüfung bzw. der Hintergrund holt den Vergleich nach
+            # No hash to compare yet (e.g. shortly after the first adoption): same size, only the date
+            # differs – not a certain break; the full check or the background job catches up on the comparison
             issues.append(_issue("unverified", c[0], main, "warn", old=_sig(b["size"], b["mtime"]), new=_sig(c[1], c[2], sha),
                                  note="Änderungsdatum anders – kein früherer Fingerabdruck zum Vergleich (bitte prüfen und übernehmen)"))
             continue
         if sha and sha == b["sha256"]:
-            # nur angefasst (z. B. kopiert mit neuem Datum) – Stand still nachführen
+            # merely touched (e.g. copied with a new date) – silently update the state
             db.ex("UPDATE repo_baseline SET size=?, mtime=? WHERE path=?", (c[1], c[2], k))
             continue
         if sha is None:
@@ -370,21 +370,21 @@ def evaluate(p, live=False, adopt=True, hash_now=False, deadline=None, who="auto
 
 
 def summary(res, limit=4):
-    """Kurztext der Abweichungen („7zip\\7z.msi: Inhalt geändert; …“)."""
+    """Short text of the deviations ("7zip\\7z.msi: Inhalt geändert; …")."""
     parts = [f"{x['path'] or 'Repository'}: {x['note'] or x['kind']}" for x in res.get("issues") or [] if x["level"] != "unknown"]
     more = (res.get("total") or len(parts)) - min(len(parts), limit)
     return "; ".join(parts[:limit]) + (f" (+{more} weitere)" if more > 0 else "")
 
 
 def public(res):
-    """Nur die Felder für die Oberfläche (nie die Liste aller Pfade eines Pakets)."""
+    """Only the fields for the UI (never the list of all paths of a package)."""
     if not res:
         return res
     return {k: res.get(k) for k in ("state", "issues", "at", "total")}
 
 
 def store(pid, res):
-    """Ergebnis beim Paket ablegen; neue Brüche einmal im Protokoll melden."""
+    """Store the result on the package; report new breaks once in the log."""
     row = db.q1("SELECT name, integrity FROM packages WHERE id=?", (pid,))
     if not row:
         return
@@ -413,7 +413,7 @@ def check_package(pid, live=True, who="automatisch", queue_new=False):
 
 
 def throttle_check(user, pid, seconds=10):
-    """„Jetzt prüfen“ höchstens alle 10 Sekunden je Benutzer und Paket (liest auf der Freigabe)."""
+    """"Jetzt prüfen" at most every 10 seconds per user and package (reads on the share)."""
     k = (str(user), int(pid))
     now = time.time()
     if now - _check_times.get(k, 0) < seconds:
@@ -425,8 +425,8 @@ def throttle_check(user, pid, seconds=10):
 
 
 def check_all(live=None):
-    """Alle Pakete prüfen (Hintergrund). Mit Index: Brüche und Abweichungen werden vor dem Speichern direkt auf der
-    Freigabe bestätigt (ein veralteter Index meldet sonst Fehlalarme). Aufgeräumt wird nur bei direkter Prüfung."""
+    """Check all packages (background). With index: breaks and deviations are confirmed directly on the
+    share before saving (a stale index would otherwise cause false alarms). Cleanup only happens on a direct check."""
     from . import deploy
     if not (db.setting("repo_path") or "").strip():
         return
@@ -451,7 +451,7 @@ def check_all(live=None):
             if not live and res["state"] in ("broken", "warn"):
                 res = evaluate(pkg, live=True, adopt=True)
             if _state["moves"] != m0:
-                return  # inzwischen umgebaut: nichts Veraltetes speichern, nichts aufräumen (nächster Lauf prüft neu)
+                return  # reorganized in the meantime: store nothing stale, clean up nothing (the next run checks again)
             used.update(res.get("keys") or [])
             store(row["id"], res)
     if live and _state["moves"] == m0:
@@ -459,10 +459,10 @@ def check_all(live=None):
 
 
 def _prune(used, before):
-    """Stände von Dateien, die kein Paket mehr braucht, entfernen (Tabelle bleibt klein). Nur ältere als der Beginn des
-    Durchlaufs – ein gerade gespeichertes Paket hat seinen Stand vielleicht erst währenddessen festgehalten."""
-    # Audit 2.29: auch Dateien behalten, die nur noch gespeicherte Bereitstellungen brauchen (geplant, „Erneut verteilen“,
-    # „Schritt wiederholen“) – sonst würde eine danach ausgetauschte Datei beim nächsten Lauf als neuer Stand übernommen
+    """Remove states of files that no package needs any more (table stays small). Only those older than the start of the
+    pass – a package that was just saved may only have recorded its state in the meantime."""
+    # Audit 2.29: also keep files that only stored deployments still need (scheduled, "Erneut verteilen",
+    # "Schritt wiederholen") – otherwise a file replaced afterwards would be adopted as the new state on the next run
     snap_files, snap_dirs = _snapshot_refs()
     for r in db.q("SELECT path FROM repo_baseline WHERE confirmed_at < ?", (before,)):
         p = r["path"]
@@ -480,7 +480,7 @@ def _prune(used, before):
 
 
 def _snapshot_refs():
-    """Repository-Dateien und -Ordner aus den Paket-Ständen gespeicherter Bereitstellungen."""
+    """Repository files and folders from the package states of stored deployments."""
     files, dirs = set(), set()
     for d in db.q("SELECT DISTINCT package_json FROM deployments WHERE package_json IS NOT NULL"):
         try:
@@ -492,14 +492,14 @@ def _snapshot_refs():
                         dirs.add(k)
                     if kind != "dir":
                         files.add(k)
-        except Exception:  # noqa: BLE001 – ein kaputter alter Stand darf das Aufräumen nicht verhindern
+        except Exception:  # noqa: BLE001 – a broken old state must not prevent the cleanup
             continue
     return files, dirs
 
 
 def process_queue(seconds=240):
-    """Fingerabdrücke aus der Warteschlange berechnen (gedrosselt, eine Datei nach der anderen). Eine begonnene Datei
-    wird zu Ende gerechnet – auch große Dateien bekommen so ihren Fingerabdruck. seconds=None: bis die Schlange leer ist."""
+    """Compute hashes from the queue (throttled, one file after another). A file that has been started
+    is computed to the end – so even large files get their hash. seconds=None: until the queue is empty."""
     mbps = max(5, int(db.setting("integrity_full_mbps") or 50))
     t_end = time.time() + seconds if seconds else None
     errs = _repo_errors()
@@ -531,9 +531,9 @@ def _record_hash(b, st, sha):
     db.ex("UPDATE repo_baseline SET cur_size=?, cur_mtime=?, cur_sha256=?, cur_at=?, full_at=? WHERE path=?",
           (st[0], st[1], sha, now, now, b["path"]))
     if not b["sha256"] and st[0] == b["size"] and abs((st[1] or 0) - (b["mtime"] or 0)) <= TOL:
-        db.ex("UPDATE repo_baseline SET sha256=? WHERE path=? AND sha256 IS NULL", (sha, b["path"]))  # erster Fingerabdruck
+        db.ex("UPDATE repo_baseline SET sha256=? WHERE path=? AND sha256 IS NULL", (sha, b["path"]))  # first hash
     elif b["sha256"] and sha == b["sha256"] and st[0] == b["size"]:
-        db.ex("UPDATE repo_baseline SET mtime=? WHERE path=?", (st[1], b["path"]))  # nur angefasst
+        db.ex("UPDATE repo_baseline SET mtime=? WHERE path=?", (st[1], b["path"]))  # merely touched
 
 
 def _hours():
@@ -547,7 +547,7 @@ def _hours():
 
 
 def in_window(now=None):
-    """Zeitfenster der Vollprüfung (Stunden, Ende ausschließlich; über Mitternacht möglich, z. B. 22–5)."""
+    """Time window of the full check (hours, end exclusive; across midnight possible, e.g. 22–5)."""
     now = now or datetime.datetime.now()
     s, e = _hours()
     h = now.hour
@@ -566,9 +566,9 @@ def _window_end(now=None):
 
 
 def full_check():
-    """Vollprüfung: Fingerabdruck jeder Datei, deren letzte Prüfung über eine Woche zurückliegt (neue zuerst) – nachts im
-    Zeitfenster, gedrosselt, eine Datei nach der anderen. Endet das Zeitfenster, geht es in der nächsten Nacht weiter.
-    Einmal je Nacht zusätzlich eine direkte Prüfung aller Pakete (räumt auch nicht mehr benutzte Stände auf)."""
+    """Full check: hash of every file whose last check was more than a week ago (new ones first) – at night within the
+    time window, throttled, one file after another. If the time window ends, it continues the next night.
+    Once per night additionally a direct check of all packages (also cleans up states no longer used)."""
     if not db.setting("integrity_full_enabled") or not in_window():
         return 0
     night = datetime.date.today().isoformat()
@@ -583,7 +583,7 @@ def full_check():
         if time.time() >= t_end or not in_window():
             break
         try:
-            st = remote.repo_fstat(b["disp"])   # Fehler des ganzen Repositorys → RemoteError → nächste Nacht weiter
+            st = remote.repo_fstat(b["disp"])   # error of the whole repository → RemoteError → continue next night
         except remote.RemoteError:
             break
         if st is None:
@@ -594,7 +594,7 @@ def full_check():
         except remote.RemoteError:
             break
         except Exception:
-            # einzelne Datei nicht lesbar (gesperrt, Rechte) – nicht jede Nacht daran hängen bleiben
+            # single file not readable (locked, permissions) – do not get stuck on it every night
             db.ex("UPDATE repo_baseline SET full_at=? WHERE path=?", (util.now(), b["path"]))
             continue
         if sha is None:
@@ -608,25 +608,25 @@ def full_check():
 
 
 def background():
-    """Alle 5 Minuten (Scheduler): Index auffrischen (für die Schnellprüfung), dann alle Pakete prüfen."""
+    """Every 5 minutes (scheduler): refresh the index (for the quick check), then check all packages."""
     remote.repo_cache_refresh()
     check_all()
 
 
-# --- Vor einem Lauf -----------------------------------------------------------------------------------------
+# --- Before a run -----------------------------------------------------------------------------------------
 NEUTRAL = "Unterbrochen – Dateien des Pakets im Repository haben sich geändert (Details im Paket, Spalte „Zustand“)."
 
 
 def guard(pkg, package_id=None, name=None):
-    """Vor einer Bereitstellung: direkt auf der Freigabe prüfen. Bruch → IntegrityError (der Lauf startet nicht).
-    Gibt das Ergebnis zurück (Abweichungen der Stufe „warn“ lassen den Lauf zu). Das Ergebnis wird NICHT beim Paket
-    gespeichert – pkg kann ein Ausschnitt (Wiederholen einzelner Schritte) oder ein alter Stand sein."""
+    """Before a deployment: check directly on the share. Break → IntegrityError (the run does not start).
+    Returns the result (deviations of level "warn" allow the run). The result is NOT stored on the
+    package – pkg may be a subset (repeating individual steps) or an old state."""
     res = evaluate(pkg, live=True, adopt=True, hash_now=True)
     nm = name or pkg.get("name") or "?"
-    # Audit 2.29: Hauptdatei mit anderem Änderungsdatum, deren Fingerabdruck vor dem Start nicht fertig wurde → nicht
-    # einfach laufen lassen (gleich große, ausgetauschte Datei); der Fingerabdruck wird im Hintergrund fertig gerechnet
-    # Nur die Installationsdatei selbst (nicht jede Datei eines kopierten Ordners – ein neu kopierter Ordner hätte sonst
-    # jeden Lauf blockiert)
+    # Audit 2.29: main file with a different modification date whose hash was not finished before the start → do not
+    # simply let it run (same-size, swapped file); the hash is finished in the background
+    # Only the installation file itself (not every file of a copied folder – a freshly copied folder would otherwise have
+    # blocked every run)
     inst = {key(r) for r, kd, m in refs(pkg) if kd == "file" and m}
     for x in res.get("issues") or []:
         if x["kind"] == "pending" and x["main"] and key(x["path"]) in inst:
@@ -635,7 +635,7 @@ def guard(pkg, package_id=None, name=None):
                          "berechnet); danach erneut starten")
             res["state"] = "broken"
         elif x["kind"] == "unreachable" and x["main"] and key(x["path"]) in inst:
-            # 2.37: Installationsdatei nicht lesbar → nicht ungeprüft laufen lassen (vorher „unbekannt“ = Lauf erlaubt)
+            # 2.37: installation file not readable → do not let it run unchecked (previously "unbekannt" = run allowed)
             x["level"] = "broken"
             x["note"] = "Installationsdatei nicht lesbar – nicht geprüft; " + (x.get("note") or "")
             res["state"] = "broken"
@@ -647,7 +647,7 @@ def guard(pkg, package_id=None, name=None):
 
 
 def public_message(err, prefixes):
-    """Meldung für einen OU-Admin: Details nur zu Dateien in seinen Mandanten-Ordnern, sonst allgemein."""
+    """Message for an OU admin: details only for files in their tenant folders, otherwise generic."""
     own = [x for x in err.issues if x["level"] == "broken" and _inside(x["path"], prefixes)]
     other = [x for x in err.issues if x["level"] == "broken" and not _inside(x["path"], prefixes)]
     if other or not own:
@@ -662,8 +662,8 @@ def _inside(path, prefixes):
 
 
 def scope_view(res, prefixes):
-    """Ergebnis für die Oberfläche; für einen OU-Admin (prefixes = seine Mandanten-Ordner) ohne Pfade und Details
-    außerhalb dieser Ordner."""
+    """Result for the UI; for an OU admin (prefixes = their tenant folders) without paths and details
+    outside those folders."""
     res = public(res)
     if prefixes is None or not res:
         return res
@@ -682,11 +682,11 @@ def scope_view(res, prefixes):
     return out
 
 
-# --- Neuen Stand übernehmen ---------------------------------------------------------------------------------
+# --- Adopting a new state ---------------------------------------------------------------------------------
 def accept(p, user, prefixes=None, pid=None):
-    """Den aktuellen Inhalt der Repository-Dateien eines Pakets als bestätigten Stand übernehmen (bewusste Änderung).
-    prefixes: OU-Admin – nur Dateien in seinen Mandanten-Ordnern. Der Fingerabdruck wird danach neu berechnet (nie ein
-    älterer übernommen). Gibt {count, msi} zurück."""
+    """Adopt the current content of a package's repository files as the confirmed state (deliberate change).
+    prefixes: OU admin – only files in their tenant folders. The hash is recomputed afterwards (an
+    older one is never adopted). Returns {count, msi}."""
     rs = refs(p)
     snap = _Snap(True)
     now = util.now()
@@ -734,7 +734,7 @@ def _confirm(k, c, user, now):
     if b and b["size"] == c[1] and abs((b["mtime"] or 0) - (c[2] or 0)) <= TOL and not (
             b["cur_sha256"] and b["sha256"] and b["cur_sha256"] != b["sha256"]):
         return 0
-    # Fingerabdruck immer neu rechnen lassen – ein gespeicherter könnte zu einem inzwischen wieder getauschten Inhalt gehören
+    # Always have the hash recomputed – a stored one could belong to content that has since been swapped again
     db.ex("""INSERT INTO repo_baseline(path, disp, size, mtime, sha256, confirmed_at, confirmed_by, cur_size, cur_mtime, cur_sha256, full_at)
              VALUES(?,?,?,?,NULL,?,?,?,?,NULL,NULL) ON CONFLICT(path) DO UPDATE SET disp=excluded.disp, size=excluded.size,
              mtime=excluded.mtime, sha256=NULL, confirmed_at=excluded.confirmed_at, confirmed_by=excluded.confirmed_by,
@@ -745,8 +745,8 @@ def _confirm(k, c, user, now):
 
 
 def after_save(pid):
-    """Nach dem Speichern eines Pakets: Stand neuer Dateien festhalten und prüfen (im Hintergrund); die Fingerabdrücke
-    der neu festgehaltenen Dateien rechnet der eine Hintergrund-Worker gedrosselt."""
+    """After saving a package: record the state of new files and check them (in the background); the hashes
+    of the newly recorded files are computed by the single background worker, throttled."""
     def run():
         try:
             check_package(pid, live=True, queue_new=True)

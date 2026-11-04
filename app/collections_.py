@@ -1,19 +1,19 @@
-"""Sammlungen (statisch / dynamisch) mit Filtern.
+"""Collections (static / dynamic) with filters.
 
-Ein dynamischer Filter ist ein Baum aus Gruppen und Bedingungen:
+A dynamic filter is a tree of groups and conditions:
 
     {"type": "group", "match": "all|any|not_all|none", "items": [
         {"type": "cond", "table": "software", "column": "name", "op": "contains", "value": "Firefox"},
         {"type": "group", ...}
     ]}
 
-- all      = Alle Bedingungen treffen zu (UND)
-- any      = Mindestens eine trifft zu (ODER)
-- not_all  = Nicht alle treffen zu (NICHT UND)
-- none     = Keine trifft zu (NICHT ODER)   -> z. B. „Computer ohne Firefox“
+- all      = all conditions match (AND)
+- any      = at least one matches (OR)
+- not_all  = not all match (NOT AND)
+- none     = none matches (NOT OR)   -> e.g. "computers without Firefox"
 
-Es gilt: Bedingungen derselben Tabelle in einer UND-Gruppe beziehen sich auf
-dieselbe Zeile (Anwendung „Firefox“ UND Version < 130 = dieselbe Anwendung).
+Conditions on the same table within an AND group refer to the same row
+(application "Firefox" AND version < 130 = the same application).
 """
 import json
 import re
@@ -22,7 +22,7 @@ import time
 from . import db, util
 
 # ---------------------------------------------------------------------------
-# Operatoren je Datentyp
+# Operators per data type
 # ---------------------------------------------------------------------------
 OPS = {
     "text": ["contains", "not_contains", "equals", "not_equals", "starts", "ends", "wildcard", "regex", "empty", "not_empty"],
@@ -58,7 +58,7 @@ def _jb(expr):
 
 
 # ---------------------------------------------------------------------------
-# Tabellen und Spalten
+# Tables and columns
 # ---------------------------------------------------------------------------
 COMPUTER_COLS = [
     ("name", "Name", "text", "c.name"),
@@ -76,7 +76,7 @@ COMPUTER_COLS = [
     ("model", "Modell", "text", "c.model"),
     ("serial", "Seriennummer", "text", "c.serial"),
     ("chassis", "Gehäuse", "text", _x("chassis_name")),
-    # 2.34: Rolle aus dem Scan (Win32_OperatingSystem.ProductType) und Virtualisierung (Hyper-V, VMware, KVM/QEMU …)
+    # 2.34: role from the scan (Win32_OperatingSystem.ProductType) and virtualization (Hyper-V, VMware, KVM/QEMU …)
     ("role", "Rolle (Arbeitsplatz/Server/Domänencontroller)", "text",
      f"CASE CAST({_x('product_type')} AS INTEGER) WHEN 1 THEN 'Arbeitsplatz' WHEN 2 THEN 'Domänencontroller' WHEN 3 THEN 'Server' ELSE NULL END"),
     ("virtual", "Virtualisierung", "text", _x("virtual")),
@@ -105,7 +105,7 @@ COMPUTER_COLS = [
     ("last_wu_install", "Letztes Windows-Update", "date", _x("last_wu_install")),
     ("pending_reboot", "Neustart erforderlich", "bool", f"COALESCE({_x('pending_reboot')}, 0)"),
     ("fast_startup", "Windows-Schnellstart aktiv", "bool", _x("fast_startup")),
-    # 2.31: mindestens eine kabelgebundene Karte mit Magic Packet „an“, die den Computer wecken darf, und kein Schnellstart
+    # 2.31: at least one wired adapter with Magic Packet "on" that may wake the computer, and no fast startup
     ("wol_ready", "Wake-on-LAN bereit", "bool",
      "(SELECT CASE WHEN COUNT(json_extract(j.value, '$.wol_magic')) = 0 THEN NULL WHEN SUM(CASE WHEN json_extract(j.value, '$.wol_magic') = 'an' "
      "AND COALESCE(json_extract(j.value, '$.wake_armed'), 1) = 1 AND COALESCE(json_extract(j.value, '$.wired'), 1) = 1 THEN 1 ELSE 0 END) > 0 "
@@ -125,7 +125,7 @@ COMPUTER_COLS = [
     ("last_boot", "Letzter Start", "date", "c.last_boot"),
     ("last_scan", "Letzter erfolgreicher Scan", "date", "c.last_scan"),
     ("scan_status", "Scanstatus (OK/Fehler)", "text", "c.scan_status"),
-    # ältere Namen (für bestehende Sammlungen)
+    # older names (for existing collections)
     ("days_since_scan", "Tage seit letztem Scan", "number",
      "CAST(julianday('now','localtime') - julianday(c.last_scan) AS INTEGER)"),
     ("days_since_boot", "Tage seit Neustart", "number",
@@ -135,7 +135,7 @@ COMPUTER_COLS = [
     ("collection", "Sammlung", "collection", None),
 ]
 
-# Zeilen-Tabellen: (Schlüssel, Bezeichnung, FROM, Verknüpfung, Spalten)
+# Row tables: (key, label, FROM, join, columns)
 ROW_TABLES = {
     "software": ("Anwendungen", "software s", "s.computer_id = c.id", [
         ("name", "Name", "text", "s.name"), ("version", "Version", "version", "s.version"),
@@ -175,7 +175,7 @@ ROW_TABLES = {
         ("new_version", "Neue Version", "version", "x.new_version"), ("ts", "Zeitpunkt", "date", "x.ts")]),
 }
 
-# JSON-Tabellen aus den Scans: (Bezeichnung, [(spalte, label, typ, ausdruck_oder_None)])
+# JSON tables from the scans: (label, [(column, label, type, expression_or_None)])
 J = "j.value"
 JSON_TABLES = {
     "ad_groups": ("Active-Directory-Gruppen", [("name", "Gruppe", "text"), ("dn", "Distinguished Name", "text")]),
@@ -202,7 +202,7 @@ JSON_TABLES = {
                                 ("ip", "IP-Adresse", "text"), ("mac", "MAC", "text"), ("dhcp", "DHCP", "bool"),
                                 ("dns", "DNS-Server", "text"), ("gateway", "Gateway", "text"),
                                 ("speed_mbit", "Geschwindigkeit (Mbit/s)", "number", f"ROUND(CAST(json_extract({J}, '$.speed') AS REAL) / 1000000)"),
-                                # 2.31: Wake-on-LAN-Bereitschaft
+                                # 2.31: Wake-on-LAN readiness
                                 ("wired", "Kabelgebunden", "bool"), ("wol_magic", "Wake-on-LAN: Magic Packet (an/aus)", "text"),
                                 ("wake_armed", "Darf den Computer aufwecken", "bool"), ("wol_driver", "WoL-Einstellungen des Treibers", "text")]),
     "printers": ("Drucker (lokal)", [("name", "Drucker", "text"), ("driver", "Treiber", "text"), ("port", "Anschluss", "text"),
@@ -220,14 +220,14 @@ JSON_TABLES = {
                                     ("last_run", "Letzte Ausführung", "date"), ("last_result", "Ergebnis", "number"),
                                     ("microsoft", "Microsoft-Aufgabe", "bool")]),
 }
-JSON_CATEGORY = {"disks_physical": "physical_disks"}  # Tabellenname -> Kategorie in inventory_data
+JSON_CATEGORY = {"disks_physical": "physical_disks"}  # table name -> category in inventory_data
 
-# Reihenfolge wie die Liste in der Computeransicht
+# order as in the list in the computer view
 TABLE_ORDER = ["computer", "ad_groups", "software", "cpus", "custom_fields", "deployments", "disks", "disks_physical",
                "displays", "environment", "devices", "hotfixes", "local_groups", "local_users", "admins", "memory", "nics",
                "printers", "processes", "product_keys", "services", "shares", "changes", "features", "tasks"]
 
-MAX_SQL = 200_000  # Zeichen – verschachtelte Sammlungsverweise werden vollständig eingesetzt
+MAX_SQL = 200_000  # characters – nested collection references are inlined completely
 COL_RE = re.compile(r"^[A-Za-z0-9_ .\-]{1,80}$")
 
 
@@ -240,8 +240,8 @@ def _custom_fields():
 SCANNER_LABELS = {"registry": "Registry", "files": "Dateien & Ordner", "wmi": "WMI", "powershell": "PowerShell"}
 
 
-# Spalten eigener Scanner mit Byte-Werten – dieselbe Regel wie in der Oberfläche (app.js: bytesColumns):
-# Name deutet auf eine Größe hin, alle Werte sind Zahlen und mindestens einer ist ≥ 1024; oder fest eingestellt.
+# Columns of custom scanners with byte values – same rule as in the UI (app.js: bytesColumns):
+# the name suggests a size, all values are numbers and at least one is ≥ 1024; or set explicitly.
 BYTES_NAME = re.compile(r"(size|bytes|length|capacity|größe|groesse|kapazit|speicher|space|^used|^free|frei$|belegt|volumen)", re.I)
 BYTES_NOT = re.compile(r"(count|anzahl|percent|prozent|pct|%|ratio|quote|anteil|index|nummer|^id$|_id$|mhz|rpm|time|dauer|(kb|mb|gb|tb)$)", re.I)
 _NUMERIC = re.compile(r"^\d+(\.\d+)?$")
@@ -250,7 +250,7 @@ BYTES_TTL = 60
 
 
 def _scanner_columns(sid):
-    """[(spalte, typ)] eines eigenen Scanners; typ „bytes“ für Größenangaben, sonst „any“."""
+    """[(column, type)] of a custom scanner; type "bytes" for sizes, otherwise "any"."""
     now = time.time()
     hit = _bytes_cache.get(sid)
     if hit and now - hit[0] < BYTES_TTL:
@@ -299,7 +299,7 @@ def _scanner_tables():
 
 
 def _table(table):
-    """Liefert (art, label, from, link, {spalte: (label, typ, ausdruck, extra_params)}, kategorie)."""
+    """Returns (kind, label, from, link, {column: (label, type, expression, extra_params)}, category)."""
     if table == "computer":
         cols = {k: (l, t, e, []) for k, l, t, e in COMPUTER_COLS}
         cols.update({k: (l, t, e, []) for k, l, t, e in _custom_fields()})
@@ -313,7 +313,7 @@ def _table(table):
                 raise ValueError("Ungültige Tabelle")
             sc = db.q1("SELECT name, type FROM custom_scanners WHERE id=?", (int(table.split(":")[1]),))
             label = (f"{SCANNER_LABELS.get(sc['type'], sc['type'])}: {sc['name']}" if sc else table)
-            # Bekannte Spalten mit ihrem Typ (Größenangaben als „bytes“), weitere frei eingebbar
+            # Known columns with their type (sizes as "bytes"), others can be entered freely
             cols = {c: (c, t, None, []) for c, t in (_scanner_columns(int(table.split(":")[1])) if sc else [])}
             is_custom = True
         else:
@@ -335,7 +335,7 @@ def _col(table, tdef, column):
     kind, _label, _f, _l, cols, _cat = tdef
     if column in cols:
         label, typ, expr, params = cols[column]
-        if expr is None:  # einfache JSON-Spalte
+        if expr is None:  # simple JSON column
             return typ, f"json_extract({J}, ?)", [f'$."{column}"']
         return typ, expr, list(params)
     if kind == "json" and table.startswith("custom:") and COL_RE.match(column or ""):
@@ -344,14 +344,14 @@ def _col(table, tdef, column):
 
 
 # ---------------------------------------------------------------------------
-# SQL-Bedingungen
+# SQL conditions
 # ---------------------------------------------------------------------------
 _UNITS = {"b": 1, "kb": 1024, "kib": 1024, "mb": 1024 ** 2, "mib": 1024 ** 2, "gb": 1024 ** 3, "gib": 1024 ** 3,
           "tb": 1024 ** 4, "tib": 1024 ** 4}
 
 
 def _num(v):
-    """Zahl; Größenangaben wie „20 GB“ oder „1,5 TB“ werden in Bytes umgerechnet (1 GB = 1024³ Bytes)."""
+    """Number; sizes such as "20 GB" or "1,5 TB" are converted to bytes (1 GB = 1024³ bytes)."""
     s = str(v if v is not None else "").strip().replace(" ", "")
     m = re.match(r"^(-?[\d.,]+)([kmgt]i?b|b)$", s, re.I)
     try:
@@ -363,22 +363,22 @@ def _num(v):
 
 
 def _cond(typ, op, expr, eparams, value):
-    """(sql, params) für einen Ausdruck; eparams gehören zu jedem Vorkommen von expr."""
+    """(sql, params) for an expression; eparams belong to every occurrence of expr."""
     if typ == "bytes" and op not in OPS["bytes"] and op in OPS["any"]:
-        typ = "any"  # vor 2.12.1 gespeicherte Bedingung (z. B. „enthält“) – unverändert weiter auswerten
+        typ = "any"  # condition saved before 2.12.1 (e.g. "enthält") – keep evaluating unchanged
     if op not in OPS.get(typ, []):
         raise ValueError(f"Operator „{OP_LABELS.get(op, op)}“ passt nicht zum Datentyp")
     E = f"({expr})"
 
     def out(sql, *vals):
-        # Jeder Platzhalter {e} bekommt die Ausdrucks-Parameter, danach folgen die Werte
+        # Each placeholder {e} gets the expression parameters, followed by the values
         n = sql.count("{e}")
         params = []
         parts = sql.split("{e}")
         res = parts[0]
         for i in range(n):
             res += E + parts[i + 1]
-        # Parameter in Reihenfolge des Auftretens zusammensetzen
+        # assemble parameters in order of occurrence
         seq = []
         idx = 0
         for piece in re.split(r"(\{e\}|\?)", sql):
@@ -419,9 +419,9 @@ def _cond(typ, op, expr, eparams, value):
         return out("({e} IS NOT NULL AND {e} <> '' AND pk_vcmp({e}, ?) " + sym + ")", v)
     if op in ("eq", "ne", "gt", "gte", "lt", "lte"):
         sym = {"eq": "=", "ne": "<>", "gt": ">", "gte": ">=", "lt": "<", "lte": "<="}[op]
-        # Zahlenspalten (z. B. „Arbeitsspeicher (GB)“): „16 GB“ heißt 16 – Einheiten nur bei Größen-/freien Spalten umrechnen
+        # Numeric columns (e.g. "Arbeitsspeicher (GB)"): "16 GB" means 16 – convert units only for size/free-form columns
         num = _num(re.sub(r"\s*[kmgt]i?b\s*$|\s*b\s*$", "", str(v), flags=re.I)) if typ == "number" else _num(v)
-        # Leere und nicht numerische Werte sind keine 0; Dezimalkomma („2,5“) wie auf der Filterseite behandeln
+        # Empty and non-numeric values are not 0; treat a decimal comma ("2,5") as on the filter page
         return out("({e} IS NOT NULL AND CAST({e} AS TEXT) GLOB '*[0-9]*' AND "
                    "CAST(REPLACE(CAST({e} AS TEXT), ',', '.') AS REAL) " + sym + " ?)", num)
     if op == "within_days":
@@ -457,10 +457,10 @@ def _exists(table, items):
     return f"EXISTS({sql})", params
 
 
-# Zwei getrennte Grenzen (bis 2.18 ein gemeinsamer Zähler – lange Verweisketten mit Untergruppen am Ende scheiterten):
-GROUP_DEPTH_MAX = 10  # Untergruppen innerhalb EINER Sammlung
-HOPS_MAX = 12         # Verweise „ist Mitglied von“ bzw. übergeordnete Sammlungen hintereinander
-# (Zirkelbezüge lehnt check_cycle beim Speichern ab – die Grenzen sind nur die Sicherung dahinter)
+# Two separate limits (up to 2.18 a shared counter – long reference chains with subgroups at the end failed):
+GROUP_DEPTH_MAX = 10  # subgroups within ONE collection
+HOPS_MAX = 12         # chained "ist Mitglied von" references or parent collections
+# (check_cycle rejects circular references on save – the limits are only the safeguard behind it)
 
 
 def _item(it, depth, hops=0):
@@ -519,9 +519,9 @@ def build_tree(node, depth=0, hops=0):
 
 
 # ---------------------------------------------------------------------------
-# Übernahme alter Filter (Versionen 1.0–1.5)
+# Migration of old filters (versions 1.0–1.5)
 # ---------------------------------------------------------------------------
-_LEGACY_LIST = {  # altes Feld -> (Tabelle, Spalte, Zusatzbedingung)
+_LEGACY_LIST = {  # old field -> (table, column, extra condition)
     "software": ("software", "name", None), "software_publisher": ("software", "publisher", None),
     "hotfix": ("hotfixes", "hotfix_id", None), "local_admin": ("admins", "name", None),
     "service": ("services", "name", {"column": "state", "op": "equals", "value": "Running"}),
@@ -556,14 +556,14 @@ def _legacy_item(f):
         return cond if op == "is_true" else {"type": "group", "match": "none", "items": [cond]}
     if key == "collection":
         return {"type": "cond", "table": "computer", "column": "collection", "op": op, "value": val}
-    # Computer-Spalte
+    # computer column
     typ = next((t for k, _l, t, _e in COMPUTER_COLS if k == key), "text")
     if key.startswith("cf_"):
         typ = "text"
     if typ == "number":
         op = _LEGACY_OPS.get(op, op)
     if typ == "date" and op in ("contains", "equals", "not_equals", "starts", "ends", "not_contains"):
-        typ_op = op  # alte Textvergleiche auf Datumsfelder ignorieren
+        typ_op = op  # ignore old text comparisons on date fields
         op = "not_empty" if typ_op != "not_contains" else "empty"
     if typ == "version" and op in ("not_contains", "not_equals", "ends"):
         op = {"not_contains": "contains", "not_equals": "equals", "ends": "contains"}[op]
@@ -571,7 +571,7 @@ def _legacy_item(f):
 
 
 def normalize(filters, match="all"):
-    """Gibt immer einen Filterbaum zurück (alte flache Listen werden umgewandelt)."""
+    """Always returns a filter tree (old flat lists are converted)."""
     if isinstance(filters, str):
         try:
             filters = json.loads(filters or "[]")
@@ -603,9 +603,9 @@ def where_for(cid, hops=0):
         return _tenant_limit(col, "c.id IN (SELECT computer_id FROM collection_members WHERE collection_id = ?)", [cid], hops)
     if col["type"] == "folder":
         return "1=0", []
-    w, p = build(col["filters"], col["match"], 0, hops)  # Untergruppen zählen je Sammlung neu
-    # Eine dynamische Sammlung unter einer anderen Sammlung (nicht unter einem Ordner)
-    # enthält nur Computer der übergeordneten Sammlung.
+    w, p = build(col["filters"], col["match"], 0, hops)  # subgroups are counted anew per collection
+    # A dynamic collection under another collection (not under a folder)
+    # contains only computers of the parent collection.
     par = db.q1("SELECT id, type, ad_kind FROM collections WHERE id=?", (col["parent_id"],)) if col.get("parent_id") else None
     if par and par["type"] in ("dynamic", "static") and not col.get("ad_kind"):
         pw, pp = where_for(par["id"], hops + 1)
@@ -614,7 +614,7 @@ def where_for(cid, hops=0):
 
 
 def _tenant_limit(col, w, p, hops):
-    """2.30: Sammlung eines OU-Admins enthält nie mehr als die Computer seines Mandanten – egal, was der Filter sagt."""
+    """2.30: an OU admin's collection never contains more than the computers of their tenant – whatever the filter says."""
     if not col.get("tenant_id"):
         return w, p
     from . import access
@@ -631,7 +631,7 @@ def _tenant_limit(col, w, p, hops):
 
 
 _member_cache = {}
-MEMBER_TTL = 15  # Sekunden – ein Heartbeat/Minutenlauf fragt dieselbe Sammlung sonst viele Male ab
+MEMBER_TTL = 15  # seconds – otherwise a heartbeat/minute run queries the same collection many times
 
 
 def invalidate():
@@ -658,7 +658,7 @@ def count(cid):
 
 
 # ---------------------------------------------------------------------------
-# Für die Oberfläche
+# For the UI
 # ---------------------------------------------------------------------------
 def schema():
     tables = []
@@ -683,7 +683,7 @@ def schema():
 
 
 def fmt_bytes(n, digits=1):
-    """1536 → „1,5 KB“ (1 KB = 1024 Bytes) – Schreibweise, die die Zahlenvergleiche wieder verstehen (_num)."""
+    """1536 → "1,5 KB" (1 KB = 1024 bytes) – notation that the numeric comparisons understand again (_num)."""
     try:
         v = float(n)
     except (TypeError, ValueError):
@@ -698,7 +698,7 @@ def fmt_bytes(n, digits=1):
 
 
 def _bytes_values(tdef, expr, eparams):
-    """Vorschläge für Größen-Spalten: typische Schwellen aus den vorhandenen Werten, lesbar (z. B. „10 GB“)."""
+    """Suggestions for size columns: typical thresholds from the existing values, readable (e.g. "10 GB")."""
     kind, _l, frm, link, _c, cat = tdef
     sql = (f"SELECT MIN(CAST(({expr}) AS REAL)) lo, MAX(CAST(({expr}) AS REAL)) hi FROM {frm} JOIN computers c ON {link} "
            f"WHERE ({expr}) IS NOT NULL AND ({expr}) <> ''")
@@ -717,7 +717,7 @@ def _bytes_values(tdef, expr, eparams):
 
 
 def values(table, column, q="", limit=40, scope=("1=1", [])):
-    """Vorhandene Werte einer Spalte (Vorschläge im Editor). scope: (SQL, Parameter) auf c.id – OU-Admin nur eigene."""
+    """Existing values of a column (suggestions in the editor). scope: (SQL, parameters) on c.id – OU admin only their own."""
     sw, sp = scope
     tdef = _table(table)
     typ, expr, eparams = _col(table, tdef, column)
@@ -737,10 +737,10 @@ def values(table, column, q="", limit=40, scope=("1=1", [])):
 
 
 # ---------------------------------------------------------------------------
-# Verwendung (vor dem Löschen prüfen – sonst laufen Berichte, Benachrichtigungen, Zeitpläne still ins Leere)
+# Usage (check before deleting – otherwise reports, notifications and schedules silently end up empty)
 # ---------------------------------------------------------------------------
 def _tree_refs(node, out):
-    """Sammlungs-IDs, auf die ein Filterbaum mit „ist Mitglied von“ verweist."""
+    """Collection IDs that a filter tree references with "ist Mitglied von"."""
     if isinstance(node, dict):
         if node.get("type") == "group":
             for it in node.get("items") or []:
@@ -761,7 +761,7 @@ def _jl(v, default):
 
 
 def _cond_refs(conditions, steps):
-    """Sammlungs-IDs aus Paket- und Schritt-Bedingungen (JSON-Texte oder bereits gelesen)."""
+    """Collection IDs from package and step conditions (JSON texts or already parsed)."""
     refs = set()
 
     def add(c):
@@ -779,7 +779,7 @@ def _cond_refs(conditions, steps):
 
 
 def usages():
-    """[(sammlungs_id, „Art: Name“)] aller Verweise auf Sammlungen."""
+    """[(collection_id, "Art: Name")] of all references to collections."""
     out = []
     for c in db.q("SELECT id, name, filters, match FROM collections"):
         for ref in _tree_refs(normalize(c["filters"], c["match"]), set()):
@@ -812,7 +812,7 @@ def usages():
     for r in db.q("SELECT name, collection_id, collection_ids FROM tenants"):
         for col in access.tenant_cols(r):
             out.append((int(col), f"Mandant „{r['name']}“"))
-    # Audit 2.29: Bedingungen in Paketen (Paket und einzelne Schritte) – sonst ließe sich eine Ausnahme-Sammlung löschen
+    # Audit 2.29: conditions in packages (package and individual steps) – otherwise an exception collection could be deleted
     for r in db.q("SELECT name, conditions, steps FROM packages"):
         for x in _cond_refs(r["conditions"], r["steps"]):
             out.append((x, f"Paket „{r['name']}“ (Bedingung)"))
@@ -821,7 +821,7 @@ def usages():
                          WHERE k.collection_id IS NOT NULL"""):
             out.append((int(r["collection_id"]), f"Kiosk „{r['name'] or '?'}“"))
     except Exception:
-        pass  # Tabelle (noch) nicht vorhanden
+        pass  # table does not (yet) exist
     return out
 
 
@@ -830,15 +830,15 @@ def referenced_ids():
 
 
 def used_by(ids, exclude_self=False):
-    """Bezeichnungen aller Verwendungen. exclude_self: Verweise aus Sammlungen, die selbst in ids liegen (werden
-    mitgelöscht), nicht zählen – nach ID, nicht nach Name (gleichnamige Kopien zählen weiter)."""
+    """Labels of all usages. exclude_self: do not count references from collections that are themselves in ids (they are
+    deleted too) – by ID, not by name (copies with the same name still count)."""
     ids = set(ids)
     return sorted({u[1] for u in usages() if u[0] in ids and not (exclude_self and len(u) > 2 and u[2] in ids)})
 
 
 def dependents(cid):
-    """Diese Sammlung und alle, die (auch über mehrere Stufen) auf ihr aufbauen: per „ist Mitglied von“ oder als
-    untergeordnete Sammlung (eine dynamische Sammlung unter einer Sammlung enthält nur deren Computer)."""
+    """This collection and all that build on it (also across several levels): via "ist Mitglied von" or as a
+    child collection (a dynamic collection under a collection contains only its computers)."""
     rev = {}
     for c in db.q("SELECT id, filters, match, parent_id FROM collections"):
         for ref in _tree_refs(normalize(c["filters"], c["match"]), set()):
@@ -856,7 +856,7 @@ def dependents(cid):
 
 
 def broken(ids):
-    """{id: Fehlermeldung} der dynamischen Sammlungen unter ids, deren Filter sich nicht (mehr) auswerten lässt."""
+    """{id: error message} of the dynamic collections among ids whose filter can no longer be evaluated."""
     out = {}
     for c in db.q(f"SELECT id, type FROM collections WHERE id IN ({','.join('?' * len(ids))})", tuple(ids)) if ids else []:
         if c["type"] != "dynamic":
@@ -871,8 +871,8 @@ def broken(ids):
 
 
 def check_dependents(cid, before):
-    """Nach einer Änderung (innerhalb der Transaktion aufrufen): Sammlungen, die dadurch unbrauchbar würden – vorher
-    schon kaputte zählen nicht. Wirft ValueError mit dem Namen der betroffenen Sammlung."""
+    """After a change (call within the transaction): collections that would become unusable as a result – ones that were
+    already broken before do not count. Raises ValueError with the name of the affected collection."""
     new = {k: v for k, v in broken(dependents(cid)).items() if k not in before}
     if not new:
         return
@@ -887,7 +887,7 @@ def check_dependents(cid, before):
 
 
 def check_cycle(cid, tree, parent_id=None):
-    """Verweise A → B → … → A (auch über übergeordnete Sammlungen) beim Speichern ablehnen."""
+    """Reject references A → B → … → A (also via parent collections) on save."""
     graph = {}
     for c in db.q("SELECT id, filters, match, parent_id FROM collections"):
         refs = _tree_refs(normalize(c["filters"], c["match"]), set())

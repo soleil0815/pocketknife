@@ -1,13 +1,13 @@
-"""Software deinstallieren (Silent-Befehl ermitteln und als Bereitstellung ausführen).
+"""Uninstall software (determine the silent command and run it as a deployment).
 
-Reihenfolge der Erkennung:
-  1. eigener, gespeicherter Deinstallationsbefehl für diese Software (uninstall_overrides)
-  2. MSI-Produktcode            → msiexec /x {GUID} /qn /norestart
-  3. QuietUninstallString       → vom Hersteller hinterlegt
-  4. bekannte Installer-Typen   → Inno Setup, NSIS, Mozilla/Zotero (helper.exe), Office C2R, sdbinst …
-  5. winget uninstall           → nur, wenn die winget-Zuordnung sicher ist
-  6. UninstallString unverändert (zur Prüfung markiert)
-Software aus HKEY_USERS (Benutzer-Installation) wird im Kontext des jeweiligen Benutzers deinstalliert.
+Order of detection:
+  1. own, stored uninstall command for this software (uninstall_overrides)
+  2. MSI product code            → msiexec /x {GUID} /qn /norestart
+  3. QuietUninstallString       → stored by the vendor
+  4. known installer types   → Inno Setup, NSIS, Mozilla/Zotero (helper.exe), Office C2R, sdbinst ...
+  5. winget uninstall           → only if the winget assignment is safe
+  6. UninstallString unchanged (marked for review)
+Software from HKEY_USERS (per-user installation) is uninstalled in the context of the respective user.
 """
 import fnmatch
 import re
@@ -43,7 +43,7 @@ def _override(sw):
 
 
 def user_sid(sw):
-    """SID des Benutzers bei Installationen aus HKEY_USERS, sonst None."""
+    """SID of the user for installations from HKEY_USERS, otherwise None."""
     if (sw.get("hive") or "").upper() != "HKEY_USERS":
         return None
     m = SID_IN_PATH.match(sw.get("reg_path") or "")
@@ -51,7 +51,7 @@ def user_sid(sw):
 
 
 def _expand(cmd, sw):
-    """{GUID} usw. im gespeicherten Befehl ersetzen."""
+    """Replace {GUID} etc. in the stored command."""
     return (cmd.replace("{UninstallString}", sw.get("uninstall_string") or "")
                .replace("{QuietUninstallString}", sw.get("quiet_uninstall") or "")
                .replace("{ProductCode}", sw.get("product_code") or "")
@@ -59,7 +59,7 @@ def _expand(cmd, sw):
 
 
 def _known(un):
-    """Bekannte Uninstaller → (Methode, Befehl, prüfen?) oder None."""
+    """Known uninstallers → (method, command, review?) or None."""
     low = un.lower()
     if re.search(r"unins\d{3}\.exe", low):
         cmd = un if _has_switch(un, "/verysilent") else un + " /VERYSILENT /SUPPRESSMSGBOXES /NORESTART"
@@ -69,10 +69,10 @@ def _known(un):
     if "sdbinst.exe" in low:
         return "Kompatibilitätsdatenbank (sdbinst)", (un if _has_switch(un, "-q") else re.sub(r"(?i)sdbinst\.exe", "sdbinst.exe -q", un, count=1)), False
     if re.search(r"\\uninstall\\helper\.exe", low):
-        # Firefox, Thunderbird, Zotero und andere Mozilla-basierte Programme (NSIS)
+        # Firefox, Thunderbird, Zotero and other Mozilla-based programs (NSIS)
         return "Mozilla-Uninstaller (helper.exe)", (un if _has_switch(un, "/s") else un + " /S"), False
     if re.search(r"\\installer\\setup\.exe.*--uninstall", low):
-        # Chromium-basierte Browser (Chrome, Edge, Brave, Vivaldi)
+        # Chromium-based browsers (Chrome, Edge, Brave, Vivaldi)
         cmd = un
         for sw in ("--force-uninstall",):
             if sw not in low:
@@ -81,19 +81,19 @@ def _known(un):
     if re.search(r"(uninst(all)?|uninstaller|uninst-?\w*|au_)\.exe", low):
         return "NSIS / Standard-Uninstaller", (un if _has_switch(un, "/s") else un + " /S"), not _has_switch(un, "/s")
     if re.search(r"\.exe\"?\s+.*(/uninstall|/x\b|-uninstall)", low) and not _has_switch(un, "/quiet", "/q", "/s", "/silent"):
-        # z. B. WiX-Bundles und viele Bootstrapper: „/uninstall /quiet“
+        # e.g. WiX bundles and many bootstrappers: "/uninstall /quiet"
         return "Bootstrapper (/uninstall)", un + " /quiet /norestart", True
     return None
 
 
 def command_for(sw):
-    """Ermittelt die stille Deinstallation. Rückgabe: dict(method, command, review, run_as, override_id)."""
+    """Determines the silent uninstall. Returns: dict(method, command, review, run_as, override_id)."""
     un = (sw.get("uninstall_string") or "").strip()
     quiet = (sw.get("quiet_uninstall") or "").strip()
     code = (sw.get("product_code") or "").strip()
     sid = user_sid(sw)
     base = {"run_as": "user" if sid else "system", "user_sid": sid}
-    # 1) eigener Befehl
+    # 1) own command
     o = _override(sw)
     if o:
         r = {**base, "method": f"eigener Befehl („{o['pattern']}“)", "command": _expand(o["command"], sw), "review": False,
@@ -108,14 +108,14 @@ def command_for(sw):
     if m:
         return {**base, "method": "MSI (aus Deinstallationsbefehl)", "command": f"msiexec.exe /x {m.group(2)} /qn /norestart",
                 "review": False}
-    # 3) Hersteller
+    # 3) vendor
     if quiet:
         return {**base, "method": "QuietUninstallString (Hersteller)", "command": quiet, "review": False}
-    # 4) bekannte Installer
+    # 4) known installers
     k = _known(un) if un else None
     if k and not k[2]:
         return {**base, "method": k[0], "command": k[1], "review": False}
-    # 5) winget (nur bei sicherer Zuordnung)
+    # 5) winget (only with a safe assignment)
     wid = sw.get("winget_id")
     if wid and sw.get("winget_sure", 1):
         return {**base, "method": "winget uninstall", "command": f"winget uninstall --id {wid} --exact --silent",
@@ -141,7 +141,7 @@ if ($cmd) {{
 }}
 $ok = ($code -eq 0 -or $code -eq 3010 -or $code -eq 1641 -or $code -eq 1605 -or $code -eq 1614)
 if ($key -and $ok -and $cmd) {{
-  # Manche Uninstaller (z. B. NSIS) starten sich als Kopie neu und kehren sofort zurück – auf das Entfernen warten
+  # Some uninstallers (e.g. NSIS) restart themselves as a copy and return immediately – wait for the removal
   for ($i = 0; $i -lt 60 -and (Test-Path -LiteralPath $key); $i++) {{ Start-Sleep -Seconds 3 }}
 }}
 if ($key -and (Test-Path -LiteralPath $key)) {{
@@ -165,21 +165,21 @@ def package_for(sw, command=None, run_as=None, cleanup=False):
     name = f"Deinstallation: {sw['name']}"
     run_as = run_as if run_as in ("system", "user", "deploy") else info["run_as"]
     if run_as == "deploy" and not command:
-        # Befehl aus der Registry des Clients (UninstallString) – nie als das domänenweite Dienstkonto
+        # Command from the client's registry (UninstallString) - never as the domain-wide service account
         run_as = "system"
     forced = False
     from_registry = command is None or (command or "").strip() == (info.get("command") or "").strip()
     if info.get("user_sid") and (from_registry or "{" in (command or "") or info.get("override_id")):
-        # Eintrag aus dem Profil eines Benutzers (HKEY_USERS\SID): den darf jeder Benutzer selbst schreiben.
-        # Seinen Deinstallationsbefehl/Produktcode NIE als SYSTEM oder Dienstkonto ausführen – sonst könnte ein
-        # Standardbenutzer über einen gefälschten Eintrag Code mit vollen Rechten starten lassen.
+        # Entry from a user's profile (HKEY_USERS\SID): any user may write it themselves.
+        # NEVER run its uninstall command/product code as SYSTEM or the service account - otherwise a
+        # standard user could have code started with full rights via a forged entry.
         run_as, forced = "user", True
     m = re.match(r"^winget uninstall --id ([A-Za-z0-9.\-_+]+)", cmd)
     if m and not cleanup:
         pkg = deploy.adhoc_winget(m.group(1), "uninstall")
         pkg.update({"name": name, "run_as": run_as, "run_user_sid": info.get("user_sid"), "run_as_forced": forced})
         return pkg
-    # Registry-Eintrag im Benutzerkontext: HKEY_USERS\SID\… ist als Benutzer unter HKCU erreichbar
+    # Registry entry in the user context: HKEY_USERS\SID\... is reachable as the user under HKCU
     hive, path = sw.get("hive"), sw.get("reg_path")
     if run_as == "user" and (hive or "").upper() == "HKEY_USERS":
         hive, path = "HKEY_CURRENT_USER", SID_IN_PATH.sub("", path or "")
@@ -200,7 +200,7 @@ def remember(pattern, command, run_as, user):
 
 
 def run(items, user):
-    """items: [{software_id, command?, run_as?, cleanup?, remember?}] -> Bereitstellungen."""
+    """items: [{software_id, command?, run_as?, cleanup?, remember?}] -> deployments."""
     groups = {}
     for it in items:
         sw = db.q1("SELECT * FROM software WHERE id=?", (int(it["software_id"]),))

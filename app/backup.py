@@ -1,7 +1,7 @@
-"""Automatische Sicherung: Datenbank (konsistente Online-Kopie), Schlüssel und Zertifikat als ZIP.
+"""Automatic backup: database (consistent online copy), keys and certificate as a ZIP.
 
-Ablage: /backup (in der docker-compose.yml als PK_BACKUP_PATH eingebunden), sonst /data/backup.
-Es bleiben die neuesten N Sicherungen erhalten (Einstellung „backup_keep“, Standard 10).
+Location: /backup (mounted in docker-compose.yml as PK_BACKUP_PATH), otherwise /data/backup.
+The newest N backups are kept (setting "backup_keep", default 10).
 """
 import datetime
 import os
@@ -19,7 +19,7 @@ _lock = threading.Lock()
 
 
 def directory():
-    """Sicherungsordner: /backup, wenn eingebunden und beschreibbar, sonst im Datenverzeichnis."""
+    """Backup folder: /backup if mounted and writable, otherwise in the data directory."""
     for d in (os.environ.get("PK_BACKUP_DIR", "/backup"), os.path.join(config.DATA_DIR, "backup")):
         try:
             os.makedirs(d, exist_ok=True)
@@ -34,7 +34,7 @@ def directory():
 
 
 def on_data_disk(d):
-    """True, wenn der Sicherungsordner auf demselben Datenträger wie die Datenbank liegt."""
+    """True if the backup folder is on the same disk as the database."""
     try:
         return os.stat(d).st_dev == os.stat(config.DATA_DIR).st_dev
     except OSError:
@@ -69,8 +69,8 @@ def path_of(name):
 def _rotate(keep):
     items = listing()
     removed = []
-    # Die jüngste Sicherung „vor Update“ bleibt immer erhalten (Rückweg nach einem Update);
-    # ältere zählen mit, damit der Ordner nicht unbegrenzt wächst
+    # The most recent "vor Update" backup is always kept (way back after an update);
+    # older ones count too so that the folder does not grow without limit
     newest_pre = next((x["name"] for x in items if "-vor-" in x["name"]), None)
     for x in [x for x in items if x["name"] != newest_pre][max(1, keep - (1 if newest_pre else 0)):]:
         try:
@@ -82,7 +82,7 @@ def _rotate(keep):
 
 
 def create(label="", user=None):
-    """Sicherung anlegen. Gibt {name, size, seconds, removed} zurück."""
+    """Create a backup. Returns {name, size, seconds, removed}."""
     with _lock:
         t0 = datetime.datetime.now()
         d = directory()
@@ -94,12 +94,12 @@ def create(label="", user=None):
         name = f"pocketknife-backup-{t0.strftime('%Y%m%d-%H%M%S')}" + (f"-{label}" if label else "") + ".zip"
         tmpdir = tempfile.mkdtemp(prefix="pk-backup-", dir=d)
         try:
-            # Konsistente Kopie im laufenden Betrieb (SQLite-Online-Backup, auch mit WAL)
+            # Consistent copy during operation (SQLite online backup, also with WAL)
             snap = os.path.join(tmpdir, "pocketknife.db")
             src = sqlite3.connect(config.DB_PATH, timeout=60)
             dst = sqlite3.connect(snap)
             with dst:
-                src.backup(dst)  # in einem Schritt – schrittweise würde bei laufenden Schreibzugriffen immer neu beginnen
+                src.backup(dst)  # in one step - stepwise would restart again and again under running writes
             dst.close()
             src.close()
             target = os.path.join(d, name)
@@ -120,7 +120,7 @@ def create(label="", user=None):
             os.replace(part, target)
         except BaseException:
             try:
-                os.remove(target + ".part")  # unvollständiges Archiv nicht liegen lassen
+                os.remove(target + ".part")  # do not leave an incomplete archive behind
             except OSError:
                 pass
             raise
@@ -139,7 +139,7 @@ SECRET_MEMBERS = {"pocketknife.key", "tls/server.key"}
 
 
 def download_copy(path):
-    """Kopie einer Sicherung ohne pocketknife.key und TLS-Schlüssel (für den Download über die Oberfläche)."""
+    """Copy of a backup without pocketknife.key and TLS key (for download via the UI)."""
     fd, tmp = tempfile.mkstemp(prefix="pk-dl-", suffix=".zip")
     os.close(fd)
     with zipfile.ZipFile(path) as src, zipfile.ZipFile(tmp, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as dst:
@@ -163,29 +163,29 @@ def delete(name, user=None):
 
 
 def due(now=None):
-    """Tägliche Sicherung zur eingestellten Stunde (einmal pro Tag)."""
+    """Daily backup at the configured hour (once a day)."""
     if not db.setting("backup_enabled"):
         return False
     now = now or datetime.datetime.now()
-    # „ab der eingestellten Stunde, einmal am Tag“ statt „genau in dieser Stunde“ – sonst fällt die Sicherung
-    # bei der Zeitumstellung (02:00 gibt es im Frühjahr nicht) oder nach einem Neustart in dieser Stunde aus
+    # "from the configured hour, once a day" instead of "exactly in this hour" - otherwise the backup is skipped
+    # at the clock change (02:00 does not exist in spring) or after a restart in this hour
     if now.hour < int(db.setting("backup_hour")):
         return False
     return (db.setting_raw("backup_last_auto") or "")[:10] != now.strftime("%Y-%m-%d")
 
 
-# 2.33: Die Datenbank stammt von einer neueren Version (zurück auf eine ältere ohne die Sicherung „vor-…“) – Hinweis
+# 2.33: The database comes from a newer version (back to an older one without the "vor-..." backup) - notice
 NEWER_DB = None
 
 
 def _base(v):
-    """2.32.12-s3 → 2.32.12 (ein Sicherheitsupdate ändert die Datenbank nicht)."""
+    """2.32.12-s3 → 2.32.12 (a security update does not change the database)."""
     return str(v or "").split("-s")[0]
 
 
 def before_update():
-    """Beim Start nach einem Versionswechsel einmal sichern – vor den Datenbank-Migrationen,
-    also wirklich der Stand vor dem Update."""
+    """At startup after a version change, back up once - before the database migrations,
+    i.e. really the state before the update."""
     global NEWER_DB
     if not os.path.exists(config.DB_PATH):
         return
@@ -214,4 +214,4 @@ def mark_version():
     db.set_setting("last_version", config.VERSION)
     top = db.setting_raw("db_version_max")
     if not top or util.vcmp(config.VERSION, top) > 0:
-        db.set_setting("db_version_max", config.VERSION)  # höchste Version, die diese Datenbank benutzt hat
+        db.set_setting("db_version_max", config.VERSION)  # highest version this database has used

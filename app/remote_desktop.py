@@ -1,11 +1,11 @@
-"""Fernsitzungen (RDP und VNC) im Browser über Apache Guacamole.
+"""Remote sessions (RDP and VNC) in the browser via Apache Guacamole.
 
-Ablauf:
-  1. Browser: POST /api/remote/connect  →  Parameter werden hier geprüft und mit Zugangsdaten
-     (aus dem RAM-Tresor oder der Eingabe) zu einem Einmal-Token (60 s) verbunden.
-  2. Browser: WebSocket /api/remote/tunnel?token=…  →  POCKET KNIFE verbindet sich mit guacd,
-     führt den Guacamole-Handshake mit den Parametern aus und leitet danach nur noch weiter.
-Zugangsdaten verlassen den Server nicht Richtung Browser und werden nie in der Datenbank gespeichert.
+Flow:
+  1. Browser: POST /api/remote/connect  →  parameters are checked here and combined with credentials
+     (from the RAM vault or the input) into a one-time token (60 s).
+  2. Browser: WebSocket /api/remote/tunnel?token=…  →  POCKET KNIFE connects to guacd,
+     runs the Guacamole handshake with the parameters and afterwards only forwards.
+Credentials never leave the server towards the browser and are never stored in the database.
 """
 import asyncio
 import codecs
@@ -31,20 +31,20 @@ COLOR_DEPTHS = {"": "Automatisch", "8": "256 Farben", "16": "16 Bit", "24": "24 
 TOKEN_TTL = 60
 GUAC_VERSION = "VERSION_1_5_0"
 
-# Guacamole-Statuscodes (für Fehler, die vor guacd auftreten)
+# Guacamole status codes (for errors that occur before guacd)
 UPSTREAM_NOT_FOUND = 519   # 0x0207
 SERVER_ERROR = 512         # 0x0200
 CLIENT_UNAUTHORIZED = 769  # 0x0301
 
 
-# --- Tresor für die Anmeldedaten der Bediener (nur im Arbeitsspeicher) ---------------
-_fernet = Fernet(Fernet.generate_key())  # Schlüssel existiert nur in diesem Prozess
-_vault = {}  # sha256(sitzungscookie) -> (benutzer, domäne, verschlüsseltes kennwort, ablauf)
+# --- Vault for the operators' credentials (in memory only) ---------------
+_fernet = Fernet(Fernet.generate_key())  # the key exists only in this process
+_vault = {}  # sha256(session cookie) -> (user, domain, encrypted password, expiry)
 _vlock = threading.Lock()
 
 
 def split_login(name):
-    """Anmeldename → (benutzer, domäne) für RDP."""
+    """Login name → (user, domain) for RDP."""
     name = (name or "").strip()
     if "\\" in name:
         dom, user = name.split("\\", 1)
@@ -53,7 +53,7 @@ def split_login(name):
         user, suffix = name.split("@", 1)
         if config.DOMAIN and suffix.lower() == config.DOMAIN.lower():
             return user, config.NETBIOS or config.DOMAIN
-        return name, ""  # fremdes UPN-Suffix: als UPN ohne Domäne übergeben
+        return name, ""  # foreign UPN suffix: pass as UPN without a domain
     return name, config.NETBIOS or config.DOMAIN
 
 
@@ -95,7 +95,7 @@ def own_login(token_hash):
     return f"{v[1]}\\{v[0]}" if v[1] else v[0]
 
 
-# --- Einmal-Token --------------------------------------------------------------
+# --- One-time token --------------------------------------------------------------
 _tokens = {}
 _tlock = threading.Lock()
 
@@ -108,7 +108,7 @@ def _clean(v, n=256):
 
 
 def vnc_password():
-    """Zentrales VNC-Kennwort (verschlüsselt in der Datenbank, leer = nicht gesetzt)."""
+    """Central VNC password (encrypted in the database, empty = not set)."""
     from . import vault
     raw = db.setting_raw("vnc_password")
     if not raw:
@@ -125,12 +125,12 @@ def set_vnc_password(pw):
 
 
 def tenant_names(cid):
-    """2.37: Mandanten, zu deren Bereich der Computer gehört (Hinweis vor „eigener Anmeldung“ eines Hauptadmins)."""
+    """2.37: Tenants whose scope the computer belongs to (notice before a main admin's "own login")."""
     from . import access, collections_
     out = []
     for t in db.q("SELECT * FROM tenants ORDER BY name COLLATE NOCASE"):
         if not (t.get("admin_group") or "").strip():
-            continue  # ohne OU-Admins verwaltet niemand sonst den Computer
+            continue  # without OU admins nobody else manages the computer
         for col in access.tenant_cols(t):
             try:
                 if int(cid) in collections_.member_ids(col):
@@ -142,12 +142,12 @@ def tenant_names(cid):
 
 
 def prepare(computer, user, token_hash, data):
-    """Prüft die Anfrage und erzeugt ein Einmal-Token mit allen Verbindungsparametern."""
+    """Checks the request and creates a one-time token with all connection parameters."""
     proto = data.get("protocol") or "rdp"
     if proto not in PROTOCOLS:
         raise ValueError("Unbekanntes Protokoll.")
     from . import presence
-    host = presence.direct_host(computer)  # 2.36.3: Anmeldedaten nie an ein Gerät unter einer fremden Adresse
+    host = presence.direct_host(computer)  # 2.36.3: never send credentials to a device under a foreign address
     if not re.match(r"^[A-Za-z0-9._-]{1,253}$", host):
         raise ValueError("Ungültiger Hostname.")
     try:
@@ -179,8 +179,8 @@ def prepare(computer, user, token_hash, data):
         login_label = f"{p.get('domain')}\\{p.get('username')}" if p.get("domain") else p.get("username", "")
         layout = data.get("keyboard") or db.setting("remote_keyboard")
         depth = str(data.get("color_depth") or "")
-        # 2.37: wird ein Kennwort mitgegeben, nur mit NLA – dann prüft Windows die Anmeldung, bevor ein Desktop
-        # entsteht, und das Kennwort geht nicht an einen Anmeldebildschirm, den ein anderes Gerät nachbauen könnte
+        # 2.37: if a password is supplied, only with NLA - then Windows checks the login before a desktop
+        # is created, and the password does not go to a login screen that another device could imitate
         p.update({
             "security": "nla" if mode in ("own", "manual") else "any", "ignore-cert": "true", "server-layout": layout if layout in LAYOUTS else "de-de-qwertz",
             "resize-method": "display-update", "enable-font-smoothing": "true",
@@ -239,13 +239,13 @@ def take(token, token_hash):
     return t
 
 
-# --- Guacamole-Protokoll -------------------------------------------------------
+# --- Guacamole protocol -------------------------------------------------------
 def encode(*elements):
     return ",".join(f"{len(str(e))}.{e}" for e in elements) + ";"
 
 
 class Parser:
-    """Zerlegt einen Guacamole-Datenstrom in vollständige Anweisungen (Längen in Unicode-Zeichen)."""
+    """Splits a Guacamole data stream into complete instructions (lengths in Unicode characters)."""
 
     def __init__(self):
         self.buf = ""
@@ -288,7 +288,7 @@ def elements(instr):
     return out
 
 
-# --- Aktive Sitzungen ----------------------------------------------------------
+# --- Active sessions ----------------------------------------------------------
 _sessions = {}
 _slock = threading.Lock()
 
@@ -337,7 +337,7 @@ def kill(sid, by):
 
 
 def kill_for_session(token_hash, by="Abmeldung"):
-    """Alle Fernsitzungen einer Anmeldung beenden (Abmelden, Sitzung abgelaufen)."""
+    """End all remote sessions of a login (logout, session expired)."""
     with _slock:
         mine = [s for s in _sessions.values() if s.t.get("session") == token_hash]
     for s in mine:
@@ -370,7 +370,7 @@ async def _read_instruction(reader, parser, dec, pending, timeout=15):
 
 
 async def tunnel(ws, token_hash):
-    """WebSocket-Endpunkt: Handshake mit guacd und Weiterleitung in beide Richtungen."""
+    """WebSocket endpoint: handshake with guacd and forwarding in both directions."""
     q = ws.query_params
     t = take(q.get("token"), token_hash)
     if not t:
@@ -379,7 +379,7 @@ async def tunnel(ws, token_hash):
     await ws.accept(subprotocol="guacamole")
     sess = Session(t, asyncio.get_running_loop())
     sess.ws = ws
-    await ws.send_text(encode("", sess.id))  # Tunnel-UUID (erste Anweisung, erwartet von guacamole-common-js)
+    await ws.send_text(encode("", sess.id))  # tunnel UUID (first instruction, expected by guacamole-common-js)
 
     async def fail(msg, code):
         try:
@@ -459,7 +459,7 @@ async def tunnel(ws, token_hash):
                 continue
             fwd = []
             for ins in bp.feed(text):
-                if ins.startswith("0.,"):  # interne Tunnel-Anweisung (ping)
+                if ins.startswith("0.,"):  # internal tunnel instruction (ping)
                     el = elements(ins)
                     if len(el) >= 2 and el[1] == "ping":
                         await ws.send_text(ins)
@@ -472,7 +472,7 @@ async def tunnel(ws, token_hash):
                 await writer.drain()
 
     async def watchdog():
-        # Abmelden oder abgelaufene Anmeldung beendet auch die Fernsitzung
+        # Logout or an expired login also ends the remote session
         from . import auth
         while True:
             await asyncio.sleep(60)

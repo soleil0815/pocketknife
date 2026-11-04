@@ -1,4 +1,4 @@
-"""Protokollierung in Datei (/data/logs) und Datenbank."""
+"""Logging to file (/data/logs) and to the database."""
 import logging
 import logging.handlers
 import os
@@ -22,7 +22,7 @@ def setup():
     sh.setFormatter(fmt)
     logger.addHandler(fh)
     logger.addHandler(sh)
-    # Bibliotheken leiser stellen
+    # quieten the libraries
     for name in ("smbprotocol", "spnego", "pypsrp", "urllib3", "ldap3"):
         logging.getLogger(name).setLevel(logging.WARNING)
 

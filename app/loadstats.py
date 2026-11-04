@@ -1,8 +1,8 @@
-"""2.31: Woher kommt die Rechenlast? – CPU je Hintergrundaufgabe und Lastspitzen mit dem, was gerade lief.
+"""2.31: Where does the CPU load come from? - CPU per background task and load peaks with whatever was running.
 
-Bewusst einfach und ohne Fremdpakete: die Rechenzeit des ganzen Prozesses (alle Threads) vor und nach einer Aufgabe bzw.
-zwischen zwei Takten des Schedulers. Laufen mehrere Aufgaben gleichzeitig, zählt die Zeit bei jeder – die Werte sind
-ein Wegweiser („was lief, als es heiß wurde“), keine Messung je Thread.
+Deliberately simple and without third-party packages: the CPU time of the whole process (all threads) before and after
+a task, or between two scheduler ticks. If several tasks run at the same time, the time counts for each of them - the
+values are a pointer ("what was running when it got hot"), not a per-thread measurement.
 """
 import collections
 import re
@@ -12,9 +12,9 @@ import time
 
 from . import util
 
-PEAK_PCT = 40          # ab dieser Last (% eines Kerns, gemittelt über einen Takt) wird eine Spitze festgehalten
+PEAK_PCT = 40          # from this load (% of one core, averaged over one tick) a peak is recorded
 _lock = threading.Lock()
-_tasks = {}            # Aufgabe → {"runs", "wall", "cpu", "last_cpu", "last_at"}
+_tasks = {}            # task -> {"runs", "wall", "cpu", "last_cpu", "last_at"}
 _peaks = collections.deque(maxlen=30)
 _req = collections.Counter()
 _t0 = time.time()
@@ -50,13 +50,13 @@ class task:
 
 
 def request(path):
-    """Je Anfrage an die Oberfläche/API: Pfad ohne IDs zählen (z. B. /api/computers/{id})."""
+    """Per request to the UI/API: count the path without IDs (e.g. /api/computers/{id})."""
     with _lock:
         _req[_NUM.sub("/{id}", path or "")] += 1
 
 
 def sample(running, scans=0, deployments=0):
-    """Vom Scheduler je Takt aufgerufen: Last seit dem letzten Takt; ab PEAK_PCT mit Kontext merken."""
+    """Called by the scheduler on every tick: load since the previous tick; from PEAK_PCT on, record it with context."""
     global _last
     now, c = time.time(), cpu()
     with _lock:

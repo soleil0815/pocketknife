@@ -1,10 +1,9 @@
-"""Schutz des Dienstkontos vor einer Kontosperre.
+"""Protection of the service account against an account lockout.
 
-Sobald eine Anmeldung des Dienstkontos eindeutig an Passwort/Konto scheitert (LDAP, SMB oder
-WinRM), werden alle automatischen Zugriffe pausiert, statt weiter falsche Anmeldungen zu
-erzeugen. Bei mehrdeutigen WinRM-Fehlern (401 kann auch „kein lokaler Admin“ heißen) wird
-das Konto einmal per LDAP geprüft, um zu unterscheiden, ob das Konto oder nur der Computer
-das Problem ist.
+As soon as a logon of the service account clearly fails because of the password/account (LDAP, SMB or
+WinRM), all automatic accesses are paused instead of producing further wrong logons. For ambiguous
+WinRM errors (401 can also mean "not a local admin") the account is checked once via LDAP to tell
+whether the account or just the computer is the problem.
 """
 import threading
 import time
@@ -13,7 +12,7 @@ from . import util
 
 PAUSE_MINUTES = 15
 
-# NTSTATUS / LDAP-Datencodes -> (Erklärung, betrifft das Konto selbst?)
+# NTSTATUS / LDAP data codes -> (explanation, concerns the account itself?)
 CODES = {
     "0xc0000234": ("Das Dienstkonto ist im AD gesperrt (zu viele Fehlanmeldungen).", True),
     "0xc000006d": ("Anmeldung abgelehnt: Benutzername oder Passwort des Dienstkontos falsch.", True),
@@ -29,7 +28,7 @@ CODES = {
                    "(„Zugriff vom Netzwerk auf diesen Computer verweigern“).", False),
     "0xc0000022": ("Zugriff verweigert – fehlende Berechtigung auf Freigabe oder Ordner.", False),
     "0xc00000cc": ("Freigabe nicht gefunden – Name im Repository-Pfad prüfen.", False),
-    # LDAP (AD liefert „data XXX“ im Fehlertext)
+    # LDAP (AD returns "data XXX" in the error text)
     "data 775": ("Das Dienstkonto ist im AD gesperrt (zu viele Fehlanmeldungen).", True),
     "data 52e": ("Anmeldung abgelehnt: Benutzername oder Passwort des Dienstkontos falsch.", True),
     "data 533": ("Das Dienstkonto ist deaktiviert.", True),
@@ -47,7 +46,7 @@ _verify = {"at": 0.0, "ok": None}
 
 
 def explain(msg):
-    """(Erklärung, betrifft_konto) für einen Fehlertext, sonst (None, False)."""
+    """(explanation, concerns_account) for an error text, otherwise (None, False)."""
     low = str(msg or "").lower()
     for code, (text, account) in CODES.items():
         if code in low:
@@ -70,7 +69,7 @@ def status():
 
 
 def check():
-    """Vor jedem Zugriff mit dem Dienstkonto aufrufen."""
+    """Call before every access with the service account."""
     with _lock:
         if _state["until"] > time.time():
             raise PermissionError("Zugriffe mit dem Dienstkonto sind pausiert: " + (_state["reason"] or "")
@@ -97,7 +96,7 @@ def reset(user=None):
 
 
 def report(msg, source):
-    """Wertet einen Anmeldefehler aus. Gibt eine verständliche Meldung zurück."""
+    """Evaluates a logon error. Returns a readable message."""
     text, account = explain(msg)
     if text and account:
         trip(text, source)
@@ -112,19 +111,19 @@ HOST_REJECT = ("Dieses Gerät lehnt die Anmeldung des Dienstkontos ab – das Ko
                "Domäne gehört.")
 
 
-# 2.32.5: nur diese Fehler sind mehrdeutig (ein fremdes Gerät antwortet genauso) – „gesperrt“, „deaktiviert“,
-# „abgelaufen“ usw. betreffen immer das Konto und lösen den Schutz sofort aus
+# 2.32.5: only these errors are ambiguous (a foreign device answers the same way) - "locked", "disabled",
+# "expired" etc. always concern the account and trigger the protection immediately
 AMBIGUOUS = ("0xc000006d", "0xc000006a", "logon_failure", "wrong_password")
-VERIFY_SECONDS = 60  # „Konto in Ordnung“ höchstens so lange merken – ein im AD geändertes Kennwort fällt schnell auf
+VERIFY_SECONDS = 60  # remember "account OK" at most this long - a password changed in AD is noticed quickly
 
 
 def report_remote(msg, source):
-    """2.31: Anmeldefehler bei einem einzelnen Computer (WinRM, SMB). Ein Gerät, das nicht zur Domäne gehört – z. B. weil
-    der DNS-Eintrag auf ein anderes Gerät zeigt –, antwortet auf jede Anmeldung mit „Benutzername oder Kennwort falsch“.
-    Das sagt nichts über das Dienstkonto: erst per LDAP prüfen und den Schutz nur auslösen, wenn das Konto wirklich nicht
-    geht. Sonst lähmte ein einziger falscher DNS-Eintrag alle Scans und Bereitstellungen.
-    2.32.5: Eindeutige Kontofehler (gesperrt, deaktiviert, abgelaufen …) lösen sofort aus; ist das AD gerade nicht
-    erreichbar, bleibt es offen (kein „Kennwort falsch“, kein Schutz wegen eines einzelnen Geräts)."""
+    """2.31: Logon error on a single computer (WinRM, SMB). A device that does not belong to the domain - e.g. because
+    the DNS entry points to another device - answers every logon with "wrong user name or password".
+    That says nothing about the service account: check via LDAP first and trigger the protection only if the account
+    really does not work. Otherwise a single wrong DNS entry would paralyse all scans and deployments.
+    2.32.5: Unambiguous account errors (locked, disabled, expired ...) trigger immediately; if AD is currently not
+    reachable, the outcome stays open (no "wrong password", no protection because of a single device)."""
     text, account = explain(msg)
     if not text or not account:
         return text
@@ -138,13 +137,13 @@ def report_remote(msg, source):
     if ok is None:
         return ("Dieses Gerät lehnt die Anmeldung des Dienstkontos ab; das Konto ließ sich gerade nicht per LDAP prüfen "
                 f"(Domänencontroller nicht erreichbar). ({text})")
-    trip(text, source)  # verify_account hat den Schutz meist schon ausgelöst – trip ist dann ohne Wirkung
+    trip(text, source)  # verify_account has usually triggered the protection already - trip then has no effect
     return text
 
 
 def verify_account():
-    """Prüft das Dienstkonto per LDAP – höchstens alle VERIFY_SECONDS. True = Konto in Ordnung, False = abgelehnt
-    (Schutz ausgelöst), None = nicht prüfbar (Domänencontroller nicht erreichbar, Zertifikat …)."""
+    """Checks the service account via LDAP - at most every VERIFY_SECONDS. True = account OK, False = rejected
+    (protection triggered), None = cannot be checked (domain controller unreachable, certificate ...)."""
     now = time.time()
     with _lock:
         if now - _verify["at"] < VERIFY_SECONDS and _verify["ok"] is not None:
@@ -156,9 +155,9 @@ def verify_account():
         c.unbind()
         ok = True
     except Exception:
-        # abgelehnt → service_conn hat den Schutz ausgelöst; sonst (Netzwerk, Zertifikat) bleibt es offen
+        # rejected -> service_conn has triggered the protection; otherwise (network, certificate) it stays open
         ok = False if paused() else None
     _verify["ok"] = ok
     if ok is None:
-        _verify["at"] = 0.0  # nicht merken – beim nächsten Fehler erneut prüfen
+        _verify["at"] = 0.0  # do not remember - check again on the next error
     return ok

@@ -1,8 +1,8 @@
-"""Dateizugriff auf einen Client über die administrativen Freigaben (\\host\\C$ …).
+"""File access to a client via the administrative shares (\\host\\C$ ...).
 
-Das Dienstkonto ist lokaler Administrator, also sind die Laufwerke über SMB als C$, D$ … erreichbar –
-ohne Skript auf dem Client. Damit lässt sich im Browser durchsuchen, umbenennen, kopieren, verschieben,
-löschen sowie herunter- und hochladen. Alle Pfade werden streng geprüft (kein Ausbruch, nur Laufwerksfreigaben).
+The service account is a local administrator, so the drives are reachable over SMB as C$, D$ ...
+without any script on the client. This allows browsing, renaming, copying, moving, deleting as well as
+downloading and uploading in the browser. All paths are strictly validated (no escaping, drive shares only).
 """
 import datetime
 import ntpath
@@ -11,9 +11,9 @@ import stat as _stat
 
 from . import config, kerberos, remote, util
 
-# Ein einzelner Pfadbestandteil: keine Sonderzeichen, nicht „.“/„..“, nicht mit Punkt/Leerzeichen am Ende (Windows)
+# A single path component: no special characters, not "." / "..", no trailing dot or space (Windows)
 NAME_RE = re.compile(r'^(?!\.{1,2}$)[^<>:"/\\|?*\x00-\x1f]{0,254}[^<>:"/\\|?*\x00-\x1f. ]$')
-MAX_DOWNLOAD = 2 * 1024 ** 3  # 2 GB Schutzgrenze für Downloads über den Browser
+MAX_DOWNLOAD = 2 * 1024 ** 3  # 2 GB safety limit for downloads through the browser
 
 
 class FileError(Exception):
@@ -33,7 +33,7 @@ def _host(cid):
 
 
 def _parse(path):
-    """'C:\\Users\\x' → ('C', 'Users\\x'); nur Laufwerksbuchstaben, kein .. , kein UNC."""
+    """'C:\\Users\\x' → ('C', 'Users\\x'); drive letters only, no .. , no UNC."""
     p = (path or "").strip().replace("/", "\\")
     m = re.match(r"^([A-Za-z]):\\?(.*)$", p)
     if not m:
@@ -61,7 +61,7 @@ def _session(cid):
 
 
 def _smb_errors():
-    """OSError und die Fehler von smbprotocol (z. B. SMBLinkRedirectionError ist KEIN OSError)."""
+    """OSError and the errors of smbprotocol (e.g. SMBLinkRedirectionError is NOT an OSError)."""
     try:
         from smbprotocol.exceptions import SMBException
         return (OSError, SMBException)
@@ -70,7 +70,7 @@ def _smb_errors():
 
 
 def _link_target(e):
-    """Ziel eines Windows-Links aus SMBLinkRedirectionError (z. B. „C:\\ProgramData“) als lokaler Pfad oder None."""
+    """Target of a Windows link from SMBLinkRedirectionError (e.g. "C:\\ProgramData") as a local path or None."""
     t = str(getattr(e, "target", "") or "")
     if t.startswith("\\??\\"):
         t = t[4:]
@@ -82,7 +82,7 @@ def _is_link_error(e):
 
 
 def drives(cid):
-    """Laufwerksbuchstaben des Computers aus dem letzten Scan (für die Startauswahl)."""
+    """Drive letters of the computer from the last scan (for the start selection)."""
     from . import db
     rows = db.q("SELECT drive, label, size, free FROM disks WHERE computer_id=? AND drive LIKE '_:' ORDER BY drive", (cid,))
     return [{"drive": r["drive"], "label": r["label"], "size": r["size"], "free": r["free"]} for r in rows]
@@ -96,12 +96,12 @@ def listing(cid, path):
     try:
         for e in smbclient.scandir(unc):
             try:
-                # Links (Symlinks, Junctions wie „All Users“ → C:\ProgramData) NICHT verfolgen: der SMB-Server
-                # leitet nicht auf lokale Ziele weiter. Art und Größe stehen schon im Verzeichniseintrag.
+                # Do NOT follow links (symlinks, junctions like "All Users" → C:\ProgramData): the SMB server
+                # does not redirect to local targets. Type and size are already in the directory entry.
                 st = e.stat(follow_symlinks=False)
                 attr = getattr(st, "st_file_attributes", 0) or 0
                 isdir = bool(attr & 0x10)
-                reparse = _is_link(st, attr)  # nur Junctions/Symlinks – OneDrive-Platzhalter u. Ä. sind normale Einträge
+                reparse = _is_link(st, attr)  # junctions/symlinks only - OneDrive placeholders etc. are normal entries
                 out.append({"name": e.name, "dir": isdir,
                             "size": 0 if isdir or reparse else st.st_size,
                             "modified": util.fmt(datetime.datetime.fromtimestamp(st.st_mtime)) if st.st_mtime else None,
@@ -112,7 +112,7 @@ def listing(cid, path):
     except _smb_errors() as e:
         target = _link_target(e) if _is_link_error(e) else None
         if target:
-            # Der Ordner selbst ist eine Verknüpfung – dorthin weiterleiten (z. B. C:\Users\All Users → C:\ProgramData)
+            # The folder itself is a link - redirect there (e.g. C:\Users\All Users → C:\ProgramData)
             return {"redirect": target, "path": f"{drive}:\\{rel}" if rel else f"{drive}:\\"}
         raise FileError(_explain(e, host))
     out.sort(key=lambda x: (not x["dir"], x["name"].lower()))
@@ -121,18 +121,18 @@ def listing(cid, path):
 
 import threading as _threading
 
-_search_sem = _threading.BoundedSemaphore(4)  # höchstens 4 Dateisuchen gleichzeitig (alle Clients)
+_search_sem = _threading.BoundedSemaphore(4)  # at most 4 file searches at the same time (all clients)
 _search_lock = _threading.Lock()
-_search_busy = {"users": set(), "cids": set()}  # je Benutzer und je Computer höchstens eine Suche
+_search_busy = {"users": set(), "cids": set()}  # at most one search per user and per computer
 
-# Suche AUF dem Client (per WinRM): der Computer durchsucht seine Platte selbst, zurück kommen nur die Treffer.
-# Ein einziger Get-ChildItem -Recurse -Filter: Windows filtert die Namen selbst (FindFirstFile), PowerShell erzeugt
-# nur für Treffer Objekte – um ein Vielfaches schneller als Ordner für Ordner (2.25.6; vorher reichte die Zeit oft nur
-# für die obersten Ebenen). -like prüft danach genau nach (Windows-Filter sind großzügiger, z. B. Kurznamen 8.3).
-# Constrained Language Mode: nur Cmdlets, -like, Hashtabellen, Funktionen, ConvertTo-Json, DateTime.ToString.
-# Windows PowerShell 5.1 folgt bei -Recurse Verknüpfungen: Treffer unterhalb einer Junction/eines Symlinks
-# (z. B. C:\Users\All Users → C:\ProgramData) werden verworfen, damit nichts doppelt erscheint; Fehlermeldungen
-# für Verknüpfungen (die „Zugriff verweigert“-Junctions wie „Anwendungsdaten“) zählen nicht als nicht lesbar.
+# Search ON the client (via WinRM): the computer searches its own disk, only the hits come back.
+# A single Get-ChildItem -Recurse -Filter: Windows filters the names itself (FindFirstFile), PowerShell creates
+# objects only for hits - many times faster than folder by folder (2.25.6; before, the time often only sufficed
+# for the top levels). -like then checks exactly (Windows filters are more generous, e.g. short 8.3 names).
+# Constrained Language Mode: only cmdlets, -like, hashtables, functions, ConvertTo-Json, DateTime.ToString.
+# With -Recurse, Windows PowerShell 5.1 follows links: hits below a junction/symlink
+# (e.g. C:\Users\All Users → C:\ProgramData) are discarded so nothing appears twice; error messages
+# for links (the "access denied" junctions like "Anwendungsdaten") do not count as unreadable.
 SEARCH_PS = r"""$ErrorActionPreference = 'Stop'
 $start = __START__; $flt = __FLT__; $pat = __PAT__; $limit = __LIMIT__
 if (-not (Test-Path -LiteralPath $start -PathType Container)) { 'PKJSON:{"error":"notfound"}'; return }
@@ -183,24 +183,24 @@ foreach ($e in @($ev)) {
 
 
 def filter_pattern(q):
-    """Suchbegriff → Filter für Get-ChildItem -Filter (Windows-Platzhalter * und ?; [ ] gelten dort wörtlich).
-    Ohne Platzhalter „Teil des Namens“. Großzügig – like_pattern prüft danach genau."""
+    """Search term → filter for Get-ChildItem -Filter (Windows wildcards * and ?; [ ] are literal there).
+    Without wildcards "part of the name". Generous - like_pattern then checks exactly."""
     remote.name_pattern(q, FileError)
     q = re.sub(r"\*{2,}", "*", str(q).strip())
     return q if any(ch in q for ch in "*?") else f"*{q}*"
 
 
 def like_pattern(q):
-    """Suchbegriff → Muster für PowerShell -like (gleiche Regeln wie remote.name_pattern): * und ? als Platzhalter,
-    [ ] und ` wörtlich (mit ` maskiert); ohne Platzhalter „Teil des Namens“. Der Wert geht über util.psq ins Skript."""
-    remote.name_pattern(q, FileError)  # gleiche Prüfung (Länge, mindestens 2 Zeichen, höchstens 8 *)
+    """Search term → pattern for PowerShell -like (same rules as remote.name_pattern): * and ? as wildcards,
+    [ ] and ` literal (escaped with `); without wildcards "part of the name". The value goes into the script via util.psq."""
+    remote.name_pattern(q, FileError)  # same check (length, at least 2 characters, at most 8 *)
     q = re.sub(r"\*{2,}", "*", str(q).strip())
     esc = "".join("`" + ch if ch in "[]`" else ch for ch in q)
     return esc if any(ch in q for ch in "*?") else f"*{esc}*"
 
 
 def search_script(start, q, limit, follow=False):
-    """follow=True nur für den Test unter PowerShell 7 (verhält sich dann wie 5.1 und folgt Verknüpfungen)."""
+    """follow=True only for the test under PowerShell 7 (which then behaves like 5.1 and follows links)."""
     return (SEARCH_PS.replace("__START__", util.psq(start)).replace("__FLT__", util.psq(filter_pattern(q)))
             .replace("__PAT__", util.psq(like_pattern(q))).replace("__LIMIT__", str(int(limit)))
             .replace("__FOLLOW__", "-FollowSymlink " if follow else ""))
@@ -212,20 +212,20 @@ def _fmt_folder(d):
 
 
 def _is_link(st, attr):
-    """Echte Verknüpfung (Junction/Symlink)? Mit Reparse-Tag genau, sonst am Attribut 0x400."""
+    """Real link (junction/symlink)? Exact with the reparse tag, otherwise by attribute 0x400."""
     if not attr or not attr & 0x400:
         return False
     tag = getattr(st, "st_reparse_tag", None)
-    if not tag:  # Tag unbekannt → vorsichtshalber als Verknüpfung behandeln (wie bisher)
+    if not tag:  # tag unknown → treat as a link to be safe (as before)
         return True
     return tag in (0xA0000003, 0xA000000C)  # IO_REPARSE_TAG_MOUNT_POINT, IO_REPARSE_TAG_SYMLINK
 
 
 def search(cid, path, q, limit=300, seconds=300, user_key=None):
-    """Dateien und Ordner ab „path“ (mit allen Unterordnern) finden – wie die Suche im Windows-Explorer.
-    Läuft auf dem Client selbst (WinRM). Ist WinRM gar nicht erreichbar (Verbindung), wird über die Freigabe C$
-    gesucht (langsamer, deshalb enger begrenzt) – „via“ sagt, welcher Weg benutzt wurde.
-    Je Benutzer und je Computer läuft höchstens eine Suche, insgesamt höchstens vier."""
+    """Find files and folders below "path" (including all subfolders) - like the search in Windows Explorer.
+    Runs on the client itself (WinRM). If WinRM is not reachable at all (connection), the search goes through the C$ share
+    (slower, therefore more tightly limited) - "via" says which way was used.
+    At most one search runs per user and per computer, at most four in total."""
     pat = like_pattern(q)
     drive, rel = _parse(path)
     c, host = _host(cid)
@@ -291,8 +291,8 @@ def search(cid, path, q, limit=300, seconds=300, user_key=None):
 
 
 def _search_smb(cid, drive, rel, q, limit=300, max_dirs=5000, seconds=20):
-    """Ersatzweg über die Freigabe C$ (jeder Ordner einzeln übers Netz – deshalb enger begrenzt).
-    Nicht lesbare Unterordner werden übersprungen (gezählt in „skipped“)."""
+    """Fallback via the C$ share (each folder individually over the network - therefore more tightly limited).
+    Unreadable subfolders are skipped (counted in "skipped")."""
     import time as _time
     rx = remote.name_pattern(q, FileError)
     smbclient, _c, host = _session(cid)
@@ -358,7 +358,7 @@ def _explain(e, host):
 
 
 def _info(smbclient, unc):
-    """(ist_ordner, ist_verknüpfung) ohne einem Link zu folgen; (None, False) wenn nicht vorhanden."""
+    """(is_dir, is_link) without following a link; (None, False) if it does not exist."""
     try:
         st = smbclient.stat(unc, follow_symlinks=False)
     except _smb_errors():
@@ -401,7 +401,7 @@ def rename(cid, path, name, new):
 
 
 def delete(cid, items):
-    """items: [{path, name, dir}] – Dateien und (rekursiv) Ordner löschen. Gibt (gelöscht, [fehler]) zurück."""
+    """items: [{path, name, dir}] - delete files and (recursively) folders. Returns (deleted, [errors])."""
     smbclient, _c, host = _session(cid)
     ok, errs = 0, []
     for it in items or []:
@@ -415,10 +415,10 @@ def delete(cid, items):
             if isdir is None:
                 raise FileError("Nicht gefunden.")
             if link:
-                # Nur die Verknüpfung entfernen – niemals ihr Ziel (z. B. C:\ProgramData) rekursiv löschen
+                # Remove only the link - never recursively delete its target (e.g. C:\ProgramData)
                 (smbclient.rmdir if isdir else smbclient.remove)(unc)
             elif isdir:
-                rmtree_nofollow(smbclient, unc)  # Audit 2.29: nie in Junctions hinein (smbclient.shutil.rmtree täte das)
+                rmtree_nofollow(smbclient, unc)  # Audit 2.29: never into junctions (smbclient.shutil.rmtree would do that)
             else:
                 smbclient.remove(unc)
             ok += 1
@@ -430,7 +430,7 @@ def delete(cid, items):
 
 
 REPARSE, DIRECTORY = 0x400, 0x10
-TREE_MAX = 200000  # Einträge je Löschen/Kopieren (Schutz vor endlosen Strukturen)
+TREE_MAX = 200000  # entries per delete/copy (protection against endless structures)
 
 
 def _attr(smbclient, path):
@@ -438,9 +438,9 @@ def _attr(smbclient, path):
 
 
 def rmtree_nofollow(smbclient, path, _n=None):
-    """Ordner löschen, OHNE Verknüpfungen (Junctions, Symlinks) zu folgen: eine Verknüpfung darin wird nur selbst
-    entfernt. smbclient.shutil.rmtree ginge hinein – der Server löst sie auf SEINER Seite auf, gelöscht würde dann
-    deren Ziel (mit Administratorrechten), z. B. von einem Benutzer gesetzt."""
+    """Delete a folder WITHOUT following links (junctions, symlinks): a link inside is only removed itself.
+    smbclient.shutil.rmtree would go into it - the server resolves it on ITS side, and its target would then be
+    deleted (with administrator rights), e.g. one set by a user."""
     n = _n if _n is not None else [0]
     attr = _attr(smbclient, path)
     if attr & REPARSE:
@@ -451,7 +451,7 @@ def rmtree_nofollow(smbclient, path, _n=None):
         if n[0] > TREE_MAX:
             raise FileError("Zu viele Einträge – bitte in kleineren Teilen löschen.")
         sub = ntpath.join(path, e.name)
-        a = _attr(smbclient, sub)  # direkt vor dem Löschen erneut nachsehen (nicht dem Verzeichnislisting trauen)
+        a = _attr(smbclient, sub)  # look again right before deleting (do not trust the directory listing)
         if a & REPARSE:
             smbclient.rmdir(sub) if a & DIRECTORY else smbclient.remove(sub)
         elif a & DIRECTORY:
@@ -462,8 +462,8 @@ def rmtree_nofollow(smbclient, path, _n=None):
 
 
 def copytree_nofollow(smbclient, smbshutil, src, dst, _n=None):
-    """Ordner kopieren; Verknüpfungen darin werden ausgelassen (nicht verfolgt) – sonst ließen sich über eine
-    gesetzte Junction geschützte Dateien an einen lesbaren Ort kopieren."""
+    """Copy a folder; links inside are skipped (not followed) - otherwise protected files could be copied to a
+    readable place via a planted junction."""
     n = _n if _n is not None else [0]
     if _attr(smbclient, src) & REPARSE:
         raise FileError("Verknüpfungen lassen sich nicht kopieren.")
@@ -483,7 +483,7 @@ def copytree_nofollow(smbclient, smbshutil, src, dst, _n=None):
 
 
 def transfer(cid, action, src_dir, items, dst_dir):
-    """Kopieren/Verschieben innerhalb desselben Computers. action: 'copy' | 'move'."""
+    """Copy/move within the same computer. action: 'copy' | 'move'."""
     import smbclient
     import smbclient.shutil as smbshutil
     smbclient, _c, host = _session(cid)
@@ -535,7 +535,7 @@ def open_read(cid, path, name, _hops=0):
     except _smb_errors() as e:
         target = _link_target(e) if _is_link_error(e) else None
         if target and _hops < 5 and ntpath.basename(target):
-            # Verknüpfung auf eine Datei: wie im Explorer das Ziel herunterladen
+            # Link to a file: download the target as in Explorer
             return open_read(cid, ntpath.dirname(target) or target[:3], ntpath.basename(target), _hops + 1)
         raise FileError(_explain(e, host))
     if size > MAX_DOWNLOAD:

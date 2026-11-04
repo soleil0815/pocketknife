@@ -1,4 +1,4 @@
-"""winget-Katalog: lädt den offiziellen Index (source2.msix) und gleicht installierte Software ab."""
+"""winget catalog: loads the official index (source2.msix) and matches installed software."""
 import os
 import re
 import shutil
@@ -48,7 +48,7 @@ def status():
             "file": os.path.exists(p)}
 
 
-# --- Laden ---------------------------------------------------------------------
+# --- Loading -------------------------------------------------------------------
 def _cols(con, t):
     return [r[1] for r in con.execute(f"PRAGMA table_info({t})")]
 
@@ -113,7 +113,7 @@ def load():
                          "updated": util.fmt(__import__("datetime").datetime.fromtimestamp(os.path.getmtime(p)))})
         try:
             from . import wingetrelease
-            wingetrelease.sync()  # 2.36: erste Sichtung neuer Versionen (Zurückstellung)
+            wingetrelease.sync()  # 2.36: first sighting of new versions (deferral)
         except Exception as e:  # noqa: BLE001
             pklog.warn("winget", f"Freigabe neuer Versionen: Abgleich fehlgeschlagen: {e}")
         return True
@@ -124,7 +124,7 @@ def load():
 
 
 def install_msix(path):
-    """Entpackt Public/index.db aus einer source*.msix und aktiviert sie."""
+    """Unpacks Public/index.db from a source*.msix and activates it."""
     with zipfile.ZipFile(path) as z:
         member = next((m for m in z.namelist() if m.lower().endswith("public/index.db")), None)
         if not member:
@@ -143,12 +143,12 @@ def install_msix(path):
     rematch_all()
 
 
-MAX_MSIX = 1024 ** 3  # 2.36.3 (Audit): Schutzgrenze – die Quelle ist üblicherweise nur einige MB groß
+MAX_MSIX = 1024 ** 3  # 2.36.3 (Audit): safety limit - the source is usually only a few MB
 
 
 def _copy_limited(src, dst, limit=None):
-    """Download nach /data (gleicher Datenträger wie die Datenbank) nur bis zur Schutzgrenze – ein fehlerhafter oder
-    abfangender Proxy darf den Datenträger nicht volllaufen lassen."""
+    """Download to /data (same disk as the database) only up to the safety limit - a faulty or
+    intercepting proxy must not fill up the disk."""
     limit = MAX_MSIX if limit is None else limit
     n = 0
     while True:
@@ -190,16 +190,16 @@ def refresh(user=None):
         _refreshing["on"] = False
 
 
-# --- Ausnahmen der Aktualitätsprüfung (eigene Liste) ---------------------------------------
-# Programme, die nie als „veraltet“ gelten sollen – z. B. Laufzeitbibliotheken, Fachanwendungen mit fester Version.
-# Muster mit * und ?, ohne Beachtung der Groß-/Kleinschreibung; Feld: name, publisher oder winget_id.
+# --- Exceptions of the up-to-date check (own list) ---------------------------------------
+# Programs that should never count as "outdated" - e.g. runtime libraries, specialist applications with a fixed version.
+# Patterns with * and ?, case-insensitive; field: name, publisher or winget_id.
 EXCL_FIELDS = {"name": "Name", "publisher": "Hersteller", "winget_id": "winget-ID"}
 _excl = {"data": None}
 
 
 def wildcard(pattern):
-    """Nur * und ? als Platzhalter (eckige Klammern wie in „Tool [x64]“ zählen wörtlich), ohne Groß/Klein."""
-    pat = re.sub(r"\*{2,}", "*", pattern or "")  # ** → * (sonst unnötiges Backtracking)
+    """Only * and ? as wildcards (square brackets as in "Tool [x64]" are literal), case-insensitive."""
+    pat = re.sub(r"\*{2,}", "*", pattern or "")  # ** → * (otherwise needless backtracking)
     rx = "".join(".*" if ch == "*" else "." if ch == "?" else re.escape(ch) for ch in pat)
     return re.compile(f"^{rx}$", re.I | re.S)
 
@@ -211,7 +211,7 @@ def exclusions(reload=False):
 
 
 def excluded_by(name, publisher, wid, rules=None):
-    """Erste passende Ausnahme oder None."""
+    """First matching exception or None."""
     vals = {"name": name or "", "publisher": publisher or "", "winget_id": wid or ""}
     for r in (exclusions() if rules is None else rules):
         v = vals.get(r["field"], "")
@@ -220,7 +220,7 @@ def excluded_by(name, publisher, wid, rules=None):
     return None
 
 
-# --- Abgleich -------------------------------------------------------------------
+# --- Matching -------------------------------------------------------------------
 def overrides(reload=False):
     if reload or _overrides["data"] is None:
         _overrides["data"] = {r["name"].lower(): r for r in db.q("SELECT * FROM winget_overrides")}
@@ -242,7 +242,7 @@ def _variants(text):
 
 
 def _locale_of(display):
-    """Sprache aus dem Anzeigenamen, z. B. „Mozilla Firefox ESR (x64 de)“ → „de“."""
+    """Language from the display name, e.g. "Mozilla Firefox ESR (x64 de)" → "de"."""
     for grp in re.findall(r"\(([^)]*)\)", display or ""):
         for t in re.split(r"[\s,]+", grp.lower()):
             if t and _LOCALE.match(t) and t not in ("x64", "x86") and not _ARCH.match(t):
@@ -269,7 +269,7 @@ def _score(p, name, pub, via_pc):
 
 
 def match(name, publisher, key):
-    """Gibt (winget_id, latest, vergleichsversion, sicher) oder None zurück."""
+    """Returns (winget_id, latest, comparison version, safe) or None."""
     ov = overrides().get((name or "").lower())
     if ov:
         if ov["ignore"]:
@@ -288,7 +288,7 @@ def match(name, publisher, key):
     best = pkgs[ranked[0]]
     s0 = _score(best, name, pub, ranked[0] in by_pc)
     s1 = _score(pkgs[ranked[1]], name, pub, ranked[1] in by_pc) if len(ranked) > 1 else -99
-    # „sicher“: Produktcode-Treffer, einziger Kandidat oder klarer Abstand – und keine Variantenabweichung (ESR, Beta …)
+    # "safe": product code match, single candidate or clear gap - and no variant deviation (ESR, Beta ...)
     sure = s0 > -5 and (ranked[0] in by_pc or len(ranked) == 1 or s0 - s1 >= 2)
     return (best["id"], best["latest"], best["arp"] or best["latest"], sure)
 
@@ -304,7 +304,7 @@ def _apply(rows):
             memo[k] = (m, ex)
         m, ex = memo[k]
         if m:
-            # Ausgenommen: winget-Zuordnung bleibt sichtbar, gilt aber nie als veraltet
+            # Excluded: winget assignment stays visible, but never counts as outdated
             out = 0 if ex else (1 if util.is_outdated(r["version"], m[2]) else 0)
             upd.append((m[0], m[1], out, 1 if m[3] else 0, ex, r["id"]))
         else:
