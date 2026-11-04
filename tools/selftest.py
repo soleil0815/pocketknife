@@ -1,9 +1,9 @@
-"""Regressionstests für bereits behobene Fehler – vor jeder neuen Version ausführen.
+"""Regression tests for bugs that have already been fixed - run before every new version.
 
-Aufruf (im Container oder mit installierten Abhängigkeiten):
+Usage (in the container or with the dependencies installed):
     python3 tools/selftest.py
-Läuft mit einer leeren, temporären Datenbank, braucht kein Netzwerk und keine Windows-Clients.
-Jeder Test nennt die Version, in der der Fehler behoben wurde – so wird er nicht wieder eingebaut.
+Runs with an empty temporary database and needs no network and no Windows clients.
+Each test names the version in which the bug was fixed - so it does not get reintroduced.
 """
 import base64
 import datetime
@@ -18,9 +18,9 @@ import tempfile
 import threading
 import traceback
 
-# 2.32: Die Einstellungen der Instanz (.env im Container: PK_NETBIOS, PK_DOMAIN, Dienstkonto …) gelten hier nicht – sonst
-# hinge ein Ergebnis von der Umgebung ab (z. B. Kiosk-Test mit „FIRMA\nutzer“ bei anderem NetBIOS-Namen), und echte
-# Anmeldedaten hätten im Test nichts verloren. Nur die Schalter des Selbsttests selbst bleiben.
+# 2.32: The instance settings (.env in the container: PK_NETBIOS, PK_DOMAIN, service account ...) do not apply here - otherwise
+# a result would depend on the environment (e.g. kiosk test with "FIRMA\nutzer" under a different NetBIOS name), and real
+# credentials have no business in the test. Only the self-test's own switches remain.
 for _k in [k for k in os.environ if k.startswith("PK_") and k != "PK_PWSH" and not k.startswith("PK_SELFTEST")]:
     del os.environ[_k]
 TMP = tempfile.mkdtemp(prefix="pk-selftest-")
@@ -29,7 +29,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 
 from app import collections_, customreports, db, diskusage, mailer, notify, reports, winget  # noqa: E402
 import logging  # noqa: E402
-# Testmeldungen (erfundene Namen wie „BUCHH-MUELLER7“) nicht auf der Konsole ausgeben – nur die Ergebnisse zählen
+# Do not print test messages (made-up names like "BUCHH-MUELLER7") to the console - only count the results
 logging.getLogger("pocketknife").addHandler(logging.NullHandler())
 logging.getLogger("pocketknife").propagate = False
 from app import auth, clientfiles, util  # noqa: E402
@@ -49,12 +49,12 @@ def must_fail(fn, *a, contains=""):
     try:
         fn(*a)
     except Exception as e:  # noqa: BLE001
-        assert contains.lower() in str(e).lower(), f"falsche Meldung: {e}"
+        assert contains.lower() in str(e).lower(), f"wrong message: {e}"
         return
-    raise AssertionError("kein Fehler, obwohl erwartet")
+    raise AssertionError("no error although one was expected")
 
 
-# --- Testdaten ----------------------------------------------------------------------------------
+# --- Test data ----------------------------------------------------------------------------------
 def seed():
     import json
     for i in range(1, 4):
@@ -72,32 +72,32 @@ seed()
 
 
 # --- Tests --------------------------------------------------------------------------------------
-@test("2.7 Ausnahmen: eckige Klammern in Mustern zählen wörtlich („Tool [x64]“)")
+@test("2.7 Exceptions: square brackets in patterns are taken literally (\"Tool [x64]\")")
 def _():
     assert winget.wildcard("Tool [x64]").match("tool [x64]")
     assert winget.wildcard("Tool*").match("Tool [x64]")
     assert not winget.wildcard("Tool [x64]").match("Tool x")
 
 
-@test("2.6.3 Anmeldesperre: a\\admin, b\\admin, admin@x zählen als derselbe Benutzer")
+@test("2.6.3 Login lockout: a\\admin, b\\admin, admin@x count as the same user")
 def _():
     assert auth._norm_user("X\\Admin") == auth._norm_user("admin@firma") == "admin"
 
 
-@test("CSV-Export: Formel-Injektion wird entschärft, Zahlen bleiben Zahlen")
+@test("CSV export: formula injection is defused, numbers stay numbers")
 def _():
     out = reports.to_csv([{"key": "a", "label": "A"}], [{"a": "=HYPERLINK(1)"}, {"a": "-5"}, {"a": "+49 30"}])
     assert "'=HYPERLINK" in out and "\n-5" in out.replace("\r", "") and "'+49 30" in out
 
 
-@test("2.6.2 Sammlungen: Zahlen mit Einheit (20 GB, 1,5 TB)")
+@test("2.6.2 Collections: numbers with a unit (20 GB, 1,5 TB)")
 def _():
     assert collections_._num("20 GB") == 20 * 1024 ** 3
     assert collections_._num("1,5 TB") == 1.5 * 1024 ** 4
     must_fail(collections_._num, "zwanzig", contains="keine Zahl")
 
 
-@test("2.12.1 Größenspalten eigener Scanner: als „bytes“ erkannt, ≥/≤ mit Einheit, lesbare Vorschläge")
+@test("2.12.1 Size columns of custom scanners: recognised as \"bytes\", >=/<= with unit, readable suggestions")
 def _():
     cols = dict(collections_._scanner_columns(1))
     assert cols["Size"] == "bytes" and cols["User"] == "any" and cols["Files"] == "any", cols
@@ -107,13 +107,13 @@ def _():
             {"type": "cond", "table": "custom:1", "column": "Size", "op": op, "value": v}]})
         return db.val(f"SELECT COUNT(*) FROM computers c WHERE {w}", p)
     assert count("gte", "10 GB") == 1 and count("lt", "1 GB") == 1 and count("gte", "500 MB") == 2
-    assert count("contains", "1610") == 1  # alte Bedingung mit Text-Operator funktioniert weiter
+    assert count("contains", "1610") == 1  # old condition with a text operator keeps working
     vals = collections_.values("custom:1", "Size")
     assert vals and all(v.endswith(("MB", "GB")) for v in vals), vals
     assert collections_.fmt_bytes(15 * 1024 ** 3) == "15 GB" and collections_.fmt_bytes(1536) == "1,5 KB"
 
 
-@test("2.12 Eigene Berichte: nur bekannte Spalten, kein SQL aus Eingaben, Zusammenfassen zählt")
+@test("2.12 Custom reports: only known columns, no SQL from inputs, summarising counts")
 def _():
     must_fail(customreports.clean, {"name": "x", "definition": {"source": "computer", "columns": [{"t": "computer", "c": "name; DROP TABLE computers"}]}},
               contains="Unbekannte Spalte")
@@ -124,7 +124,7 @@ def _():
     assert res["rows"][0]["cnt"] == 3, res
 
 
-@test("2.12.1 Eigene Berichte: Größen numerisch sortiert und als „bytes“ gekennzeichnet")
+@test("2.12.1 Custom reports: sizes sorted numerically and marked as \"bytes\"")
 def _():
     c = customreports.clean({"name": "x", "definition": {"source": "custom:1", "columns": [{"t": "custom:1", "c": "User"}, {"t": "custom:1", "c": "Size"}],
                                                           "sort": {"i": 1, "dir": "desc"}}})
@@ -134,13 +134,13 @@ def _():
     assert "15 GB" in text and "700 MB" in text, text
 
 
-@test("Alle vorgegebenen Berichte laufen ohne Fehler")
+@test("All predefined reports run without errors")
 def _():
     for d in reports.REPORTS:
         reports.run(d["key"], {p["name"]: p.get("default", "") for p in d["params"]})
 
 
-@test("2.9 Dateien: nur lokale Laufwerkspfade, kein „..“, kein UNC")
+@test("2.9 Files: local drive paths only, no \"..\", no UNC")
 def _():
     assert clientfiles._parse("c:/Users/x") == ("C", "Users\\x")
     for bad in ("..\\x", "C:\\Users\\..\\Windows", "\\\\srv\\share", "Users"):
@@ -148,11 +148,11 @@ def _():
     must_fail(diskusage.clean_path, "C:\\..\\x")
 
 
-@test("2.12.3 Dateien: Verknüpfungen („All Users“ → C:\\ProgramData) brechen die Liste nicht ab, Öffnen springt zum Ziel")
+@test("2.12.3 Files: links (\"All Users\" -> C:\\ProgramData) do not break the list, opening jumps to the target")
 def _():
     from smbprotocol.exceptions import SMBException
 
-    class SMBLinkRedirectionError(SMBException):  # wie smbprotocol: kein OSError!
+    class SMBLinkRedirectionError(SMBException):  # like smbprotocol: not an OSError!
         def __init__(self, path, target):
             super().__init__("Cannot resolve link targets that point to a local path")
             self.path, self.target = path, target
@@ -196,7 +196,7 @@ def _():
 
     orig = clientfiles._session
     clientfiles._session = lambda cid: (Fake, {}, "pc")
-    import smbclient.shutil as real_shutil  # noqa: F401  – rmtree darf für Links nie aufgerufen werden
+    import smbclient.shutil as real_shutil  # noqa: F401  – rmtree must never be called for links
     try:
         res = clientfiles.listing(1, "C:\\Users")
         names = {x["name"]: x for x in res["items"]}
@@ -210,23 +210,23 @@ def _():
         clientfiles._session = orig
 
 
-@test("2.11 Benachrichtigungen: ein Fall wird nur einmal gemeldet; Speicherplatz mit Hysterese")
+@test("2.11 Notifications: a case is reported only once; disk space with hysteresis")
 def _():
     cfg = {"params": {"gb": "20", "pct": "0", "drives": "", "collection": ""}, "since": None}
     cur = notify._check_low_disk(cfg["params"], cfg)
-    assert set(cur) == {"1:C:", "2:C:"}, cur  # 9 GB und 18 GB frei
+    assert set(cur) == {"1:C:", "2:C:"}, cur  # 9 GB and 18 GB free
     assert not notify._resolved_low_disk(cfg["params"], "2:C:")
 
 
-@test("2.12.2 Oberfläche: keine <datalist> mehr (zeigte nur zum Wert passende Einträge) – Auswahllisten über combo()")
+@test("2.12.2 UI: no more <datalist> (showed only entries matching the value) – selection lists via combo()")
 def _():
     js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
-    assert "h('datalist'" not in js and "datalist#" not in js, "datalist wieder eingebaut"
-    assert "let selKey = 'props'" in js, "2.12.2 Paket-Editor soll mit den Eigenschaften (Name) beginnen"
+    assert "h('datalist'" not in js and "datalist#" not in js, "datalist built in again"
+    assert "let selKey = 'props'" in js, "2.12.2 package editor should start with the properties (name)"
 
 
-# --- 2.13 Durchsicht: Sicherheit und Logik ------------------------------------------------------
-@test("2.13 Anmeldung: Umlaute bei gesetztem Notfallzugang, keine Kennwort-Bestätigung nach außen, atomare Sperre")
+# --- 2.13 Review: security and logic ------------------------------------------------------------
+@test("2.13 Login: umlauts with emergency access set, no password confirmation to the outside, atomic lockout")
 def _():
     from fastapi import HTTPException
     from app import config as cfg
@@ -242,7 +242,7 @@ def _():
         except HTTPException as e:
             assert e.status_code == 401 and e.detail == auth.GENERIC_FAIL, e.detail
         else:
-            raise AssertionError("Anmeldung hätte scheitern müssen")
+            raise AssertionError("login should have failed")
         for _i in range(7):
             try:
                 auth.login("jürgen", "x", "10.0.0.1")
@@ -259,7 +259,7 @@ def _():
         cfg.BREAKGLASS_USER, cfg.BREAKGLASS_PASSWORD = old
 
 
-@test("2.13 Dateien: Namen „.“, „..“ und mit Punkt/Leerzeichen am Ende werden abgelehnt")
+@test("2.13 Files: names \".\", \"..\" and those ending in a dot/space are rejected")
 def _():
     for bad in (".", "..", "a.", "a "):
         assert not clientfiles.NAME_RE.match(bad), bad
@@ -267,7 +267,7 @@ def _():
         assert clientfiles.NAME_RE.match(ok), ok
 
 
-@test("2.13 Inventar: fehlgeschlagener Software-Teil löscht die Softwareliste nicht")
+@test("2.13 Inventory: a failed software part does not delete the software list")
 def _():
     from app import inventory
     before = db.val("SELECT COUNT(*) FROM software WHERE computer_id=1")
@@ -276,7 +276,7 @@ def _():
     assert not db.val("SELECT COUNT(*) FROM software_changes WHERE computer_id=1 AND change='entfernt'")
 
 
-@test("2.13 AD-Abgleich: nichts löschen, wenn alles fehlt, kein Container eingeschlossen ist – Löschen erst nach Karenzzeit")
+@test("2.13 AD sync: delete nothing if everything is missing or no container is included – deleting only after a grace period")
 def _():
     from app import ad
     db.ex("UPDATE computers SET ad_guid='g'||id, ad_present=1, ad_missing_since=NULL")
@@ -290,7 +290,7 @@ def _():
         ad.container_rules = lambda: []
         must_fail(ad.sync_computers, contains="Kein AD-Container")
         ad.container_rules = lambda: [{"dn": "DC=firma,DC=local", "include": True, "path": ""}]
-        ad._search = lambda c, base, flt, attrs: []  # z. B. fehlende Leserechte: AD liefert „nichts“
+        ad._search = lambda c, base, flt, attrs: []  # e.g. missing read permissions: AD returns "nothing"
         ad.sync_computers()
         assert db.val("SELECT COUNT(*) FROM computers") == 3 and db.val("SELECT COUNT(*) FROM computers WHERE ad_present=0") == 0
     finally:
@@ -299,14 +299,14 @@ def _():
         db.ex("UPDATE computers SET ad_guid=NULL")
 
 
-@test("2.13 Versionen: Zusätze wie „(x64)“ oder „+build“ machen eine Version nicht älter")
+@test("2.13 Versions: suffixes like \"(x64)\" or \"+build\" do not make a version older")
 def _():
     from app import util
     assert util.vcmp("1.2.3 (x64)", "1.2.3") == 0 and util.vcmp("1.0+build5", "1.0") == 0
     assert util.vcmp("1.10", "1.9") == 1 and util.vcmp("130.0.1", "131.0") == -1
 
 
-@test("2.13 Auslöser: wöchentlich alle N Wochen nicht vor dem Startdatum; Berechnung schnell")
+@test("2.13 Triggers: weekly every N weeks not before the start date; calculation is fast")
 def _():
     import time as _t
     from app import profiles, schedules
@@ -317,15 +317,15 @@ def _():
     assert n == datetime.datetime(2027, 1, 1, 7, 0) and _t.time() - t0 < 0.5
 
 
-@test("2.13 RegEx aus Filtern: katastrophales Backtracking wird abgelehnt")
+@test("2.13 RegEx from filters: catastrophic backtracking is rejected")
 def _():
     from app import util
     assert util.regex_problem("(a+)+$") and util.regex_problem("(a|aa)*b") and util.regex_problem("x" * 300)
     assert util.regex_problem("^Win(dows)? 1[01]") is None
-    assert db._pk_regex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!", "(a+)+$") == 0  # gespeichertes Altmuster wird nicht ausgeführt
+    assert db._pk_regex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!", "(a+)+$") == 0  # a stored legacy pattern is not executed
 
 
-@test("2.13 Sammlungen: Löschen verweigert, solange verwendet; Zirkelbezüge werden abgelehnt")
+@test("2.13 Collections: deletion refused while in use; circular references are rejected")
 def _():
     a = db.ex("INSERT INTO collections(name, type, match, filters) VALUES('A','dynamic','all','{\"type\":\"group\",\"match\":\"all\",\"items\":[]}')")
     b = db.ex("INSERT INTO collections(name, type, match, filters) VALUES('B','dynamic','all',?)",
@@ -336,17 +336,17 @@ def _():
     db.ex("DELETE FROM collections WHERE id IN (?,?)", (a, b))
 
 
-@test("2.13 Benachrichtigung „eigener Bericht“: gleiche Zeilen werden nicht verschluckt, Zeilengrenze führt nicht zu „behoben“")
+@test("2.13 Notification \"custom report\": identical rows are not swallowed, a row boundary does not lead to \"resolved\"")
 def _():
     r = customreports.save(None, {"name": "Doppelt", "definition": {"source": "software", "columns": [{"t": "computer", "c": "cores"}], "limit": 1}})
     key = f"report:{r['id']}"
     a = notify.alert_def(key)
     cur, cols, trunc = notify._check_report(a, {})
-    assert len(cur) == 3 and not trunc, (len(cur), trunc)  # 3 Zeilen ohne Text-Spalte, trotz limit=1
+    assert len(cur) == 3 and not trunc, (len(cur), trunc)  # 3 rows without text column, despite limit=1
     customreports.delete(r["id"])
 
 
-@test("2.13 E-Mail: gespeichertes Kennwort nie an einen geänderten Server; keine Anmeldung ohne Verschlüsselung")
+@test("2.13 Email: stored password never sent to a changed server; no login without encryption")
 def _():
     mailer.save({"enabled": True, "host": "mail.firma.local", "port": 587, "security": "starttls", "user": "pk@firma.local",
                  "password": "geheim", "from": "pk@firma.local", "to": "it@firma.local"})
@@ -357,23 +357,23 @@ def _():
     assert mailer.parse_recipients('Max Muster <max@x.de>; "A, B" <a@b.de>') == ["max@x.de", "a@b.de"]
 
 
-@test("2.13 CSV: auch Spaltenüberschriften und „ =…“ mit führendem Leerzeichen werden entschärft")
+@test("2.13 CSV: column headers and \" =...\" with a leading space are also defused")
 def _():
     out = reports.to_csv([{"key": "a", "label": "=cmd"}], [{"a": " =1+1"}])
     assert "'=cmd" in out and "' =1+1" in out
 
 
-@test("2.13 Eigene PowerShell-Scanner: ein Syntaxfehler betrifft nur diesen Scanner (2.38: Text-Literal + Invoke-Expression)")
+@test("2.13 Custom PowerShell scanners: a syntax error affects only that scanner (2.38: text literal + Invoke-Expression)")
 def _():
     from app import scanners
     body = scanners._body({"type": "powershell", "target": "if ($true) { 'kaputt' ", "extra": "{}"})
-    # 2.38: kein [ScriptBlock]::Create/Base64 (Constrained Language Mode) – der Code steht als Text-Literal, übersetzt wird
-    # erst zur Laufzeit in try/catch
+    # 2.38: no [ScriptBlock]::Create/Base64 (Constrained Language Mode) – the code is a text literal, compiled
+    # only at runtime inside try/catch
     assert "[ScriptBlock]::Create" not in body and "FromBase64String" not in body
     assert "$pkCode = 'if ($true) { ''kaputt'' '" in body and "try { Invoke-Expression $pkCode" in body
 
 
-@test("2.13 Tools: javascript:-URLs und unkodierte Werte in URL-Tools werden verhindert")
+@test("2.13 Tools: javascript: URLs and unencoded values in URL tools are prevented")
 def _():
     from app import tools
     must_fail(tools.validate, {"name": "x", "type": "url", "run_as": "service", "script": "javascript:alert(1)"}, contains="nicht erlaubt")
@@ -382,7 +382,7 @@ def _():
     assert "$PK_User = 'FIRMA\\\\o''brien & co'" in tools.ps_variables(c)
 
 
-@test("2.13 Deinstallation: Einträge aus Benutzerprofilen laufen nie als SYSTEM")
+@test("2.13 Uninstall: entries from user profiles never run as SYSTEM")
 def _():
     from app import uninstall
     db.conn().executescript(uninstall.SCHEMA) if hasattr(uninstall, "SCHEMA") else None
@@ -392,13 +392,13 @@ def _():
     assert p["run_as"] == "user" and p["run_as_forced"], p["run_as"]
 
 
-@test("2.13 Web: zu große Anfragen werden vor dem Einlesen abgelehnt (auch /api/login)")
+@test("2.13 Web: oversized requests are rejected before being read (also /api/login)")
 def _():
     import asyncio
     try:
         from app.main import BodyLimit
-    except Exception as e:  # pragma: no cover – ohne FastAPI (lokale Prüfung) überspringen
-        print(f"      (übersprungen: {e})")
+    except Exception as e:  # pragma: no cover – skip without FastAPI (local check)
+        print(f"      (skipped: {e})")
         return
     sent = []
 
@@ -420,11 +420,11 @@ def _():
     asyncio.run(run(b"999999999", []))
     assert sent[0]["status"] == 413
     sent.clear()
-    asyncio.run(run(b"x", [b"a" * 1024 * 1024] * 3))  # ohne gültige Länge, gestreamt
+    asyncio.run(run(b"x", [b"a" * 1024 * 1024] * 3))  # without a valid length, streamed
     assert sent[0]["status"] == 413
 
 
-@test("2.14 Dienstkonto-Schritte: ohne geplante Aufgabe und ohne Kennwort auf dem Client")
+@test("2.14 Service account steps: without a scheduled task and without a password on the client")
 def _():
     from app import remote
     sent, polls = [], []
@@ -443,25 +443,25 @@ def _():
         code, out = remote.run_as_system("pc1.firma.local", "Write-Output 1", "1_2_3_ab", run_as="deploy")
         assert code == 0 and out == "fertig"
         start = sent[0]
-        assert "Register-ScheduledTask" not in start and "PKPass" not in start and "Password" not in start, "Aufgabe/Kennwort"
-        assert any("taskkill" in s for s in sent[-1:]), "Aufräumen beendet den Prozess bei Abbruch"
+        assert "Register-ScheduledTask" not in start and "PKPass" not in start and "Password" not in start, "task/password"
+        assert any("taskkill" in s for s in sent[-1:]), "cleanup ends the process on abort"
         sent.clear()
         polls[:] = ["PK_PROC:gone", "PK_PROC:gone"]
         must_fail(remote.run_as_system, "pc1.firma.local", "x", "1_2_4_ab", 3600, None, "", "deploy", contains="ohne Ergebnis")
-        # SYSTEM/Benutzer: geplante Aufgabe, aber nie mit Kennwort
+        # SYSTEM/user: scheduled task, but never with a password
         assert "-Password" not in remote.REGISTER and "PKPass" not in remote.REGISTER
     finally:
         remote.ps, remote.secure_workdir, remote.time.sleep = old
     from app import inventory
-    assert "LogonType)\" -eq 'Password'" in inventory.SCAN_END, "alte Aufgaben mit Kennwort werden beim Scan entfernt"
+    assert "LogonType)\" -eq 'Password'" in inventory.SCAN_END, "old tasks with a password are removed during the scan"
 
 
-@test("2.14 Repository: neuer Server/neue Freigabe nur mit Kennwort des Zugriffskontos")
+@test("2.14 Repository: new server/new share only with the password of the access account")
 def _():
     try:
         from app import main
     except Exception as e:  # pragma: no cover
-        print(f"      (übersprungen: {e})")
+        print(f"      (skipped: {e})")
         return
     from app import config, vault
     db.set_setting("repo_path", "\\\\fs1\\software$")
@@ -471,15 +471,15 @@ def _():
         must_fail(main._check_repo_change, {"repo_path": "\\\\evil\\share"}, contains="Kennwort")
         must_fail(main._check_repo_change, {"repo_path": "//fs1/anders", "repo_password_confirm": "falsch"}, contains="passt nicht")
         main._check_repo_change({"repo_path": "\\\\evil\\share", "repo_password_confirm": "Geheim-1"})
-        main._check_repo_change({"repo_path": "\\\\FS1\\Software$\\Unterordner"})  # gleicher Server/gleiche Freigabe
-        main._check_repo_change({"repo_path": "/repo/pakete"})  # eingebundener Ordner: keine Anmeldung
+        main._check_repo_change({"repo_path": "\\\\FS1\\Software$\\Unterordner"})  # same server/same share
+        main._check_repo_change({"repo_path": "/repo/pakete"})  # mounted folder: no login
         assert config.repo_password() == "Geheim-1"
     finally:
         db.ex("DELETE FROM settings WHERE key IN ('repo_user', 'repo_password')")
         db.set_setting("repo_path", "")
 
 
-@test("2.14 Sitzungen: Abmeldung bei Inaktivität; automatische Aktualisierungen zählen nicht")
+@test("2.14 Sessions: logout on inactivity; automatic refreshes do not count")
 def _():
     import time as _t
     from app import util
@@ -489,19 +489,19 @@ def _():
           (th, "u1", "U", util.now(), util.fmt(datetime.datetime.now() + datetime.timedelta(hours=8)), "1.2.3.4", util.now()))
     auth._active.pop(th, None)
     assert auth.session_valid(th) and auth.idle_remaining(th) > 29 * 60
-    auth._active[th] = _t.time() - 31 * 60  # 31 Minuten nichts getan (nur Hintergrundabfragen)
-    assert not auth.session_valid(th), "inaktive Sitzung muss ungültig sein"
-    auth.touch(th)  # Eingabe im Browser
+    auth._active[th] = _t.time() - 31 * 60  # 31 minutes of nothing done (background queries only)
+    assert not auth.session_valid(th), "inactive session must be invalid"
+    auth.touch(th)  # input in the browser
     assert auth.session_valid(th)
     auth._active[th] = _t.time() - 31 * 60
     auth.expire_idle()
-    assert not db.q1("SELECT 1 FROM sessions WHERE token_hash=?", (th,)), "Sitzung nicht beendet"
+    assert not db.q1("SELECT 1 FROM sessions WHERE token_hash=?", (th,)), "session not ended"
     db.set_setting("session_idle_minutes", 0)
-    assert auth.idle_minutes() >= auth.IDLE_MIN, "lässt sich nicht abschalten"
+    assert auth.idle_minutes() >= auth.IDLE_MIN, "cannot be switched off"
     db.set_setting("session_idle_minutes", 30)
 
 
-@test("2.14 Zeitpläne: nicht gestartete Läufe und fehlgeschlagene Ziele werden nachgeholt")
+@test("2.14 Schedules: runs that did not start and failed targets are caught up")
 def _():
     from app import schedules, util
     db.ex("INSERT INTO computers(id, name, online, winrm) VALUES(50, 'PC-50', 1, 1)")
@@ -519,17 +519,17 @@ def _():
     try:
         assert schedules._fire_safe(s) is False
         assert db.val("SELECT 1 FROM schedule_trigger_state WHERE schedule_id=? AND trigger_id=?", (sid, schedules.RETRY)), \
-            "Lauf vergessen"
+            "run forgotten"
         now = datetime.datetime.now()
         st = {(sid, schedules.RETRY): util.fmt(now - datetime.timedelta(minutes=5))}
         schedules._evaluate_one(s, now, util.fmt(now), st)
-        assert len(calls) == 1, "zu früh wiederholt"
+        assert len(calls) == 1, "repeated too early"
         st = {(sid, schedules.RETRY): util.fmt(now - datetime.timedelta(minutes=16))}
         schedules.fire = lambda s_, cids=None, reason="", **k: calls.append((cids, reason)) or {"count": 0}
         schedules._evaluate_one(s, now, util.fmt(now), st)
         assert calls[-1][0] is None and not db.val("SELECT 1 FROM schedule_trigger_state WHERE schedule_id=? AND trigger_id=?",
-                                                   (sid, schedules.RETRY)), "Wiederholung"
-        # Fehlgeschlagenes Ziel: nach 1 Stunde nachholen, höchstens 3 Versuche
+                                                   (sid, schedules.RETRY)), "retry"
+        # Failed target: catch up after 1 hour, at most 3 attempts
         db.ex("INSERT INTO schedule_targets(schedule_id, computer_id, status, last_run, attempts, pending) VALUES(?,?,?,?,?,0)",
               (sid, 50, "failed", util.ago(minutes=30), 1))
         assert schedules.retry_candidates(s) == []
@@ -538,7 +538,7 @@ def _():
         calls.clear()
         schedules._evaluate_one(s, now, util.fmt(now), {})
         assert calls and calls[-1][0] == [50], calls
-        assert schedules.retry_candidates(s) == [], "nichts gestartet → nicht jede Minute erneut"
+        assert schedules.retry_candidates(s) == [], "nothing started -> do not retry every minute"
         db.ex("UPDATE schedule_targets SET attempts=1 WHERE schedule_id=?", (sid,))
         s2 = {**s, "options": {**s["options"], "retry_failed": False}}
         assert schedules.retry_candidates(s2) == []
@@ -546,11 +546,11 @@ def _():
         schedules.fire = real_fire
 
 
-@test("2.14 Container: Rechte werden abgegeben, Datenordner gehören danach dem Dienstbenutzer")
+@test("2.14 Container: privileges are dropped, data folders belong to the service user afterwards")
 def _():
     import subprocess
     if os.name != "posix" or os.geteuid() != 0:
-        print("      (übersprungen: nicht als root gestartet)")
+        print("      (skipped: not started as root)")
         return
     d = tempfile.mkdtemp(prefix="pk-priv-", dir=TMP)
     os.makedirs(os.path.join(d, "logs"))
@@ -569,55 +569,55 @@ def _():
                          env={**os.environ, "PK_UID": "10001", "PK_GID": "10001"}).stdout
     assert "10001 10001" in out and "GESPERRT" in out, out
     assert os.stat(os.path.join(d, "logs", "a.log")).st_uid == 10001
-    assert os.stat("/etc/passwd").st_uid == 0, "Verknüpfung darf nicht verfolgt werden"
+    assert os.stat("/etc/passwd").st_uid == 0, "link must not be followed"
 
 
-@test("2.14.1 docker-compose.yml: keine sysctls, die den Start verhindern (ping_group_range)")
+@test("2.14.1 docker-compose.yml: no sysctls that prevent startup (ping_group_range)")
 def _():
     f = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "docker-compose.yml")
     if not os.path.exists(f):
-        print("      (übersprungen: docker-compose.yml nicht im Image)")
+        print("      (skipped: docker-compose.yml not in the image)")
         return
     lines = [ln.split("#", 1)[0] for ln in open(f, encoding="utf-8")]
     assert not any("sysctls:" in ln or "ping_group_range" in ln for ln in lines), "sysctls in docker-compose.yml"
 
 
-@test("2.14.2 Build: Basis-Image mit Digest, Debian-Snapshot und alle Python-Pakete exakt festgeschrieben")
+@test("2.14.2 Build: base image with digest, Debian snapshot and all Python packages pinned exactly")
 def _():
     root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
     df = os.path.join(root, "Dockerfile")
     if not os.path.exists(df):
-        print("      (übersprungen: Build-Dateien nicht im Image)")
+        print("      (skipped: build files not in the image)")
         return
     import re
     d = open(df, encoding="utf-8").read()
-    assert re.search(r"^ARG PYTHON_IMAGE=python:3\.12\.\d+-slim-\w+@sha256:[0-9a-f]{64}$", d, re.M), "Basis-Image ohne Version/Digest"
-    assert re.search(r"^ARG DEBIAN_SNAPSHOT=\d{8}T\d{6}Z$", d, re.M), "kein Debian-Snapshot"
+    assert re.search(r"^ARG PYTHON_IMAGE=python:3\.12\.\d+-slim-\w+@sha256:[0-9a-f]{64}$", d, re.M), "base image without version/digest"
+    assert re.search(r"^ARG DEBIAN_SNAPSHOT=\d{8}T\d{6}Z$", d, re.M), "no Debian snapshot"
     lock = [ln for ln in open(os.path.join(root, "requirements.lock"), encoding="utf-8") if ln.strip() and not ln.startswith("#")]
-    assert lock and all(re.match(r"^[A-Za-z0-9_.-]+==[^=\s]+$", ln.strip()) for ln in lock), "requirements.lock unvollständig"
+    assert lock and all(re.match(r"^[A-Za-z0-9_.-]+==[^=\s]+$", ln.strip()) for ln in lock), "requirements.lock incomplete"
     names = {ln.split("==")[0].lower().replace("_", "-") for ln in lock}
     for need in ("fastapi", "uvicorn", "ldap3", "pypsrp", "smbprotocol", "pyspnego", "cryptography", "websockets", "gssapi", "krb5"):
-        assert need in names, f"{need} fehlt in requirements.lock"
+        assert need in names, f"{need} missing in requirements.lock"
     rt = [ln for ln in open(os.path.join(root, "docker", "apt-runtime.txt"), encoding="utf-8") if ln.strip() and not ln.startswith("#")]
-    assert rt and all("=" in ln for ln in rt), "Debian-Pakete ohne Version"
-    # 2.33: guacd fest in docker/guacd.txt (Version + Digest) – veröffentlicht als …/pocketknife-guacd, die
-    # docker-compose.yml nennt nur noch diesen Namen (ändert sich für ein guacd-Update nicht)
+    assert rt and all("=" in ln for ln in rt), "Debian packages without version"
+    # 2.33: guacd pinned in docker/guacd.txt (version + digest) – published as .../pocketknife-guacd, the
+    # docker-compose.yml only names this one (does not change for a guacd update)
     g = open(os.path.join(root, "docker", "guacd.txt"), encoding="utf-8").read()
-    assert re.fullmatch(r"guacamole/guacd:[\w.]+@sha256:[0-9a-f]{64}\n", g), "guacd ohne Digest"
+    assert re.fullmatch(r"guacamole/guacd:[\w.]+@sha256:[0-9a-f]{64}\n", g), "guacd without digest"
     dc = open(os.path.join(root, "docker-compose.yml"), encoding="utf-8").read()
     assert "image: ${PK_GUACD_IMAGE:-ghcr.io/soleil0815/pocketknife-guacd:latest}" in dc and "guacamole/guacd" not in dc
 
 
-@test("2.14.3 Tabellen: Spaltenbreite, Reihenfolge (auch ans Ende) und Sichtbarkeit werden gemerkt")
+@test("2.14.3 Tables: column width, order (also to the end) and visibility are remembered")
 def _():
     js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
-    assert "widths: st.widths" in js and "th-rs" in js, "Spaltenbreite"
-    assert "dropto-r" in js and "moveCol(k, c.key, right)" in js, "Spalte hinter die letzte ziehen"
-    assert "cc-row" in js, "Spalten-Fenster mit Reihenfolge"
-    assert "splitter(tree, 'collections')" in js and "themeToggle()" in js, "2.14.4 Sammlungsbaum-Breite, Hell/Dunkel-Knopf"
+    assert "widths: st.widths" in js and "th-rs" in js, "column width"
+    assert "dropto-r" in js and "moveCol(k, c.key, right)" in js, "drag column behind the last one"
+    assert "cc-row" in js, "column window with order"
+    assert "splitter(tree, 'collections')" in js and "themeToggle()" in js, "2.14.4 collection tree width, light/dark button"
 
 
-@test("2.15 Kiosk: Kiosk-Sitzungen kommen nie an die Verwaltung; jede Verwaltungs-API verlangt die Rolle „admin“")
+@test("2.15 Kiosk: kiosk sessions never reach the administration; every admin API requires the role \"admin\"")
 def _():
     import ast
     from fastapi import HTTPException
@@ -625,7 +625,7 @@ def _():
     public = {"/api/login", "/api/logout", "/", "/remote", "/kiosk", "/favicon.ico", "/api/kiosk/info", "/api/kiosk/sso", "/api/remote/tunnel"}
     kiosk_ok = {"/api/kiosk/me", "/api/kiosk/catalog", "/api/kiosk/request", "/api/kiosk/requests/{rid}/withdraw",
                 "/api/kiosk/requests", "/api/kiosk/reboot", "/api/kiosk/icon/{pid}"}
-    session_only = {"/api/session/active", "/api/session/idle"}  # 2.25: jede Sitzung (A) – nur die Inaktivitäts-Uhr
+    session_only = {"/api/session/active", "/api/session/idle"}  # 2.25: every session (A) – only the inactivity clock
     for node in ast.walk(ast.parse(src)):
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
@@ -638,7 +638,7 @@ def _():
                 deps = {a.arg: getattr(dv, "id", None) for a, dv in zip(node.args.args[-len(node.args.defaults):], node.args.defaults)} \
                     if node.args.defaults else {}
                 want = "K" if path in kiosk_ok else ("A" if path in session_only else "U")
-                assert deps.get("user") == want, f"{path}: user={deps.get('user')} statt {want}"
+                assert deps.get("user") == want, f"{path}: user={deps.get('user')} instead of {want}"
 
     class Req:
         def __init__(self, tok):
@@ -651,14 +651,14 @@ def _():
     assert auth.current_kiosk(Req(tok))["role"] == "kiosk"
     try:
         auth.current(Req(tok))
-        raise AssertionError("Kiosk-Sitzung hat Zugriff auf die Verwaltung")
+        raise AssertionError("kiosk session has access to the administration")
     except HTTPException as e:
         assert e.status_code == 403
-    assert auth.session_for(tok)["role"] == "kiosk"  # Fernsitzungen prüfen die Rolle (main.py, Tunnel)
-    assert 's.get("role") != "admin"' in src, "Fernsitzungs-Tunnel ohne Rollenprüfung"
+    assert auth.session_for(tok)["role"] == "kiosk"  # remote sessions check the role (main.py, tunnel)
+    assert 's.get("role") != "admin"' in src, "remote session tunnel without role check"
 
 
-@test("2.15 Kiosk: Zugang über OU oder Gruppe; ohne Kiosk-Anmeldung keine Kiosk-Rolle")
+@test("2.15 Kiosk: access via OU or group; without kiosk login no kiosk role")
 def _():
     from app import ad
     db.set_setting("kiosk_enabled", 1)
@@ -672,13 +672,13 @@ def _():
         assert not ad.kiosk_match(None, {"dn": "CN=Max,OU=Extern,DC=firma,DC=local"})
         assert ad.kiosk_match(None, {"dn": "CN=GruppenMitglied,OU=Extern,DC=firma,DC=local"})
         db.set_setting("kiosk_enabled", 0)
-        assert not ad.kiosk_match(None, {"dn": "CN=Max,OU=Mitarbeiter,DC=firma,DC=local"}), "ausgeschalteter Kiosk"
+        assert not ad.kiosk_match(None, {"dn": "CN=Max,OU=Mitarbeiter,DC=firma,DC=local"}), "kiosk switched off"
     finally:
         ad._resolve_group, ad.is_member = old
         db.set_setting("kiosk_enabled", 0)
     src = open(ad.__file__, encoding="utf-8").read()
     assert "if allow_kiosk and kiosk_match(uc, e)" in src
-    # 2.15.2 AD-Baum: nur innerhalb der eigenen Domäne durchsuchen
+    # 2.15.2 AD tree: search only within the own domain
     from app import config as _cfg
     old_base = _cfg.BASE_DN
     _cfg.BASE_DN = "DC=firma,DC=local"
@@ -686,7 +686,7 @@ def _():
         assert ad._under_base("OU=X,DC=firma,DC=local") and ad._under_base("dc=firma, dc=local")
         assert not ad._under_base("DC=fremd,DC=local") and not ad._under_base("OU=X,DC=firma,DC=local,DC=evil")
         must_fail(ad.browse, "DC=fremd,DC=local", contains="eigenen Domäne")
-        # 2.15.4 ldap3 ohne Schema liefert jedes Attribut als Liste („'list' object has no attribute 'lower'“)
+        # 2.15.4 ldap3 without schema returns every attribute as a list ("'list' object has no attribute 'lower'")
         class FakeConn:
             def __init__(self):
                 self.response = [
@@ -718,7 +718,7 @@ def _():
         _cfg.BASE_DN = old_base
 
 
-@test("2.15 Kiosk: nur am eigenen Rechner, Freigabe je Paket, keine Doppelaufträge, Tageslimit, Neustart planen")
+@test("2.15 Kiosk: only on the own machine, approval per package, no duplicate jobs, daily limit, schedule restart")
 def _():
     from app import kiosk, deploy, steps as stp, util
     db.set_setting("kiosk_enabled", 1)
@@ -752,20 +752,20 @@ def _():
         must_fail(kiosk.request, u, "?", 70, pk["Tool A"], "install", contains="bereits")
         must_fail(kiosk.request, u, "?", 70, pk["Tool A"], "uninstall", contains="deinstallieren")
         r2 = kiosk.request(u, "?", 70, pk["Tool B"], "install")
-        assert r2["status"] == "pending" and len(created) == 1, "Freigabe nötig – darf nicht starten"
+        assert r2["status"] == "pending" and len(created) == 1, "approval required – must not start"
         kiosk.decide(r2["id"], True, "admin")
         assert len(created) == 2
         must_fail(kiosk.decide, r2["id"], False, "admin", contains="bereits entschieden")
-        # Audit 2.29: kein Neustart, wenn noch andere angemeldet sind, und nie bei Servern
+        # Audit 2.29: no restart while other users are still logged in, and never on servers
         db.ex("UPDATE computers SET current_user='FIRMA\\nutzer,FIRMA\\kollege' WHERE id=70")
         must_fail(kiosk.plan_reboot, u, "?", 70, "1h", contains="andere Benutzer")
         db.ex("UPDATE computers SET current_user='FIRMA\\nutzer,PC-70\\Administrator' WHERE id=70")
-        must_fail(kiosk.plan_reboot, u, "?", 70, "1h", contains="andere Benutzer")  # auch lokale Konten zählen
+        must_fail(kiosk.plan_reboot, u, "?", 70, "1h", contains="andere Benutzer")  # local accounts count too
         db.ex("UPDATE computers SET current_user='FIRMA\\nutzer', os_name='Microsoft Windows Server 2022 Standard' WHERE id=70")
         must_fail(kiosk.plan_reboot, u, "?", 70, "1h", contains="Server")
         db.ex("UPDATE computers SET os_name='Microsoft Windows 11 Pro' WHERE id=70")
         p = kiosk.plan_reboot(u, "?", 70, "1h")
-        assert created[-1][0] == "Neustart (Kiosk)" and created[-1][2], "Neustart nicht geplant"
+        assert created[-1][0] == "Neustart (Kiosk)" and created[-1][2], "restart not scheduled"
         must_fail(kiosk.plan_reboot, u, "?", 70, "1h", contains="bereits")
         db.ex("UPDATE deployment_targets SET status='success' WHERE computer_id=70")
         db.ex("UPDATE deployments SET status='success' WHERE status='running'")
@@ -778,7 +778,7 @@ def _():
         db.set_setting("kiosk_enabled", 0)
 
 
-@test("2.15.1 Kiosk-Symbole: nur echte Rasterbilder, kein SVG (Skripte), Größe begrenzt")
+@test("2.15.1 Kiosk icons: only real raster images, no SVG (scripts), size limited")
 def _():
     from app import kiosk
     assert kiosk.icon_type(b"\x89PNG\r\n\x1a\n" + b"0" * 20) == "image/png"
@@ -790,12 +790,12 @@ def _():
     kiosk.set_icon(pid, b"\x89PNG\r\n\x1a\n" + b"0" * 100)
     data, typ = kiosk.get_icon(pid)
     assert typ == "image/png" and data
-    assert any(i["icon"] for i in kiosk.admin_items()), "Symbol fehlt in der Verwaltung"
+    assert any(i["icon"] for i in kiosk.admin_items()), "icon missing in the administration"
     kiosk.clear_icon(pid)
     assert kiosk.get_icon(pid) == (None, None)
 
 
-@test("2.15.3 Mehrere Pakete: eine Bereitstellung, Reihenfolge wie gewählt, keine Doppelten, keine gemischten Mandanten")
+@test("2.15.3 Multiple packages: one deployment, order as selected, no duplicates, no mixed tenants")
 def _():
     from app import deploy, steps as stp
     ids = []
@@ -815,7 +815,7 @@ def _():
     must_fail(deploy.composite, [], contains="Keine Pakete")
 
 
-# --- E-Mail: Test-SMTP-Server mit STARTTLS/SSL und echter Zertifikatsprüfung -------------------
+# --- Email: test SMTP server with STARTTLS/SSL and real certificate verification ----------------
 def _cert(tag="ok"):
     from cryptography import x509
     from cryptography.hazmat.primitives import hashes, serialization
@@ -897,7 +897,7 @@ def _smtp_server(cert, key, implicit):
         daemon_threads = True
 
         def handle_error(self, request, client_address):
-            pass  # abgebrochene TLS-Handshakes (Test „falsches Zertifikat“) sind gewollt
+            pass  # aborted TLS handshakes (test "wrong certificate") are intended
 
         def get_request(self):
             s, a = super().get_request()
@@ -908,7 +908,7 @@ def _smtp_server(cert, key, implicit):
     return srv.server_address[1]
 
 
-@test("2.11.3 E-Mail: STARTTLS und SSL/TLS mit Zertifikatsprüfung („check_hostname requires server_hostname“)")
+@test("2.11.3 Email: STARTTLS and SSL/TLS with certificate verification (\"check_hostname requires server_hostname\")")
 def _():
     cert, key = _cert()
     os.environ["SSL_CERT_FILE"] = cert
@@ -920,28 +920,28 @@ def _():
         assert r["reply"].endswith("TEST123") and r["refused"] == ["unbekannt@firma.local"], r
         assert not r["warnings"], r["warnings"]
     m = MAILS[-1]
-    assert m["tls"], "Mail nicht verschlüsselt übertragen"
+    assert m["tls"], "mail not transmitted encrypted"
     assert m["helo"] == "pocketknife.firma.local", f"2.11.2 HELO-Name: {m['helo']}"
-    assert b"quoted-printable" in m["data"] and b"8bit" not in m["data"].lower(), "2.11.2 Kodierung"
+    assert b"quoted-printable" in m["data"] and b"8bit" not in m["data"].lower(), "2.11.2 encoding"
 
 
-@test("2.11.3 E-Mail: falsches Zertifikat wird erkannt und verständlich gemeldet")
+@test("2.11.3 Email: wrong certificate is detected and reported in an understandable way")
 def _():
     cert, key = _cert("fremd")
-    port = _smtp_server(cert, key, False)  # dieses Zertifikat ist NICHT in SSL_CERT_FILE
+    port = _smtp_server(cert, key, False)  # this certificate is NOT in SSL_CERT_FILE
     mailer.save({"enabled": True, "host": "localhost", "port": port, "security": "starttls", "verify": True, "user": "",
                  "from": "pk@firma.local", "to": "it@firma.local"})
     must_fail(mailer.test, "", contains="Zertifikat")
 
 
-@test("2.11.3 E-Mail: Hinweis, wenn Absender und Anmeldekonto abweichen")
+@test("2.11.3 Email: hint when sender and login account differ")
 def _():
     s = {**mailer.settings(), "user": "konto@firma.local", "from": "anders@firma.local", "security": "starttls", "verify": True}
     assert any("weicht" in w for w in mailer.warnings(s))
 
 
 def _keytab(entries):
-    """Kleine Keytab im MIT-Format 0x0502 (wie von ktpass) für Tests."""
+    """Small keytab in MIT format 0x0502 (as produced by ktpass) for tests."""
     import struct
     out = b"\x05\x02"
     for princ, realm, kvno, etype in entries:
@@ -955,12 +955,12 @@ def _keytab(entries):
     return out
 
 
-@test("2.16 Kiosk-SSO: Standard aus; Keytab geprüft und verschlüsselt; Windows-Anmeldung gibt nur die Kiosk-Rolle")
+@test("2.16 Kiosk SSO: off by default; keytab checked and encrypted; Windows login yields only the kiosk role")
 def _():
     import types
     from app import ad, kiosk, sso, vault, main as M
-    assert db.setting("kiosk_sso") == 0, "Windows-Anmeldung muss standardmäßig aus sein"
-    assert "kiosk_sso" not in M.INTERNAL_SETTINGS and "sso_keytab" not in db.all_settings(), "Keytab nie über /api/settings"
+    assert db.setting("kiosk_sso") == 0, "Windows login must be off by default"
+    assert "kiosk_sso" not in M.INTERNAL_SETTINGS and "sso_keytab" not in db.all_settings(), "keytab never via /api/settings"
     must_fail(sso.save_keytab, b"kein keytab", contains="Keytab")
     must_fail(sso.save_keytab, _keytab([("host/pc01.firma.local", "FIRMA.LOCAL", 2, 18)]), contains="HTTP")
     must_fail(sso.save_keytab, _keytab([("HTTP/pk.fremd.local", "FREMD.LOCAL", 2, 18)]), contains="Realm")
@@ -969,8 +969,8 @@ def _():
     assert info["present"] and info["hosts"] == ["pocketknife.firma.local"], info
     assert {e["enctype_name"] for e in info["entries"]} == {"aes256-cts-hmac-sha1-96", "rc4-hmac"} and info["entries"][0]["kvno"] == 3
     raw = db.setting_raw("sso_keytab")
-    assert raw and b"pocketknife" not in raw.encode() and base64.b64decode(vault.decrypt(raw)) == kt, "Keytab nicht verschlüsselt gespeichert"
-    assert not sso.enabled(), "ohne Kiosk und ohne Schalter nicht aktiv"
+    assert raw and b"pocketknife" not in raw.encode() and base64.b64decode(vault.decrypt(raw)) == kt, "keytab not stored encrypted"
+    assert not sso.enabled(), "not active without kiosk and without switch"
 
     class Req:
         def __init__(self, hdr=None):
@@ -978,7 +978,7 @@ def _():
             self.client = types.SimpleNamespace(host="10.0.0.5")
             self.cookies = {}
     r = M.api_kiosk_sso(Req())
-    assert r.status_code == 404, "ausgeschaltet → keine Kerberos-Aufforderung"
+    assert r.status_code == 404, "switched off -> no Kerberos challenge"
     db.set_setting("kiosk_enabled", 1)
     db.set_setting("kiosk_sso", 1)
     seen = {}
@@ -1005,33 +1005,33 @@ def _():
     try:
         assert sso.enabled()
         r = M.api_kiosk_sso(Req())
-        assert r.status_code == 401 and r.headers.get("www-authenticate") == "Negotiate", "ohne Ticket: 401 + Negotiate"
+        assert r.status_code == 401 and r.headers.get("www-authenticate") == "Negotiate", "without ticket: 401 + Negotiate"
         r = M.api_kiosk_sso(Req("Negotiate " + base64.b64encode(b"NTLMSSP\x00\x01\x00").decode()))
-        assert r.status_code == 403 and "www-authenticate" not in r.headers and "NTLM" in r.body.decode(), "NTLM: 403 ohne neue Aufforderung"
-        assert "tok" not in seen, "NTLM-Token darf nicht an GSSAPI gehen"
+        assert r.status_code == 403 and "www-authenticate" not in r.headers and "NTLM" in r.body.decode(), "NTLM: 403 without a new challenge"
+        assert "tok" not in seen, "NTLM token must not go to GSSAPI"
         r = M.api_kiosk_sso(Req("Negotiate " + base64.b64encode(b"krb-ticket").decode()))
         assert r.status_code == 200, r.body
         assert r.headers.get("www-authenticate") == "Negotiate " + base64.b64encode(b"mutual").decode()
-        assert seen["tok"] == b"krb-ticket" and seen["store"]["keytab"].startswith("/tmp/"), "Keytab nur im Arbeitsspeicher (tmpfs)"
+        assert seen["tok"] == b"krb-ticket" and seen["store"]["keytab"].startswith("/tmp/"), "keytab only in memory (tmpfs)"
         cookie = r.headers.get("set-cookie", "")
         assert "httponly" in cookie.lower() and "samesite=strict" in cookie.lower()
         tok = cookie.split("=", 1)[1].split(";", 1)[0]
         sess = auth.session_for(tok)
-        assert sess and sess["role"] == "kiosk" and sess["username"] == "max", "SSO ergibt immer die Kiosk-Rolle (auch für Admins)"
+        assert sess and sess["role"] == "kiosk" and sess["username"] == "max", "SSO always yields the kiosk role (also for admins)"
         from fastapi import HTTPException
 
         class R2:
             cookies = {auth.COOKIE: tok}
         try:
             auth.current(R2())
-            raise AssertionError("SSO-Sitzung kommt an die Verwaltung")
+            raise AssertionError("SSO session reaches the administration")
         except HTTPException as e:
             assert e.status_code == 403
         seen["who"] = "max@FREMD.LOCAL"
         r = M.api_kiosk_sso(Req("Negotiate " + base64.b64encode(b"krb-ticket2").decode()))
-        assert r.status_code == 403 and "Domäne" in r.body.decode(), "Ticket aus fremdem Realm"
+        assert r.status_code == 403 and "Domäne" in r.body.decode(), "ticket from a foreign realm"
         seen["who"] = "HTTP/x.firma.local@FIRMA.LOCAL"
-        assert M.api_kiosk_sso(Req("Negotiate " + base64.b64encode(b"t3").decode())).status_code == 403, "Dienst-Ticket"
+        assert M.api_kiosk_sso(Req("Negotiate " + base64.b64encode(b"t3").decode())).status_code == 403, "service ticket"
         seen["who"] = "max@FIRMA.LOCAL"
         ad.sso_user = lambda sam: (_ for _ in ()).throw(ad.ADError("Kein Zugriff: Sie gehören keiner Kiosk-Gruppe oder -OU an."))
         r = M.api_kiosk_sso(Req("Negotiate " + base64.b64encode(b"t4").decode()))
@@ -1048,41 +1048,41 @@ def _():
         db.set_setting("kiosk_enabled", 0)
         db.set_setting("kiosk_sso", 0)
     sso.clear_keytab()
-    assert not sso.present() and not os.path.exists("/tmp/pocketknife-http.keytab"), "Keytab nach Entfernen weg"
-    # Laufende Kiosk-Sitzungen von Admins (Windows-Anmeldung) dürfen bei der Nachprüfung nicht verloren gehen
+    assert not sso.present() and not os.path.exists("/tmp/pocketknife-http.keytab"), "keytab gone after removal"
+    # Running kiosk sessions of admins (Windows login) must not be lost during re-verification
     src = open(ad.__file__, encoding="utf-8").read()
-    assert "out[key] = bool(is_acc or kiosk_match(c, e, strict=True, cache=kcache))" in src  # 2.25.1: Prüfung in check_sessions
+    assert "out[key] = bool(is_acc or kiosk_match(c, e, strict=True, cache=kcache))" in src  # 2.25.1: check in check_sessions
     js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "kiosk.js"), encoding="utf-8").read()
-    assert "ssoOff(); // nach dem Abmelden" in js, "nach Abmelden nicht sofort wieder automatisch anmelden"
+    assert "ssoOff(); // nach dem Abmelden" in js, "after logout do not log in automatically again immediately"
 
 
-@test("2.16 Berichte: kein „null“ in der Werkzeugleiste; Hilfe zeigt Codeblöcke und Unterpunkte in Listen")
+@test("2.16 Reports: no \"null\" in the toolbar; help shows code blocks and sub-items in lists")
 def _():
     js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
     i = js.index("btn('Per E-Mail …', () => mailSubDlg(null, defs, cols")
     seg = js[i:js.index("const res = await GET(`/api/reports/", i)]
-    assert ": null);" not in seg, "form.append(..., null) schreibt „null“ in die Seite"
-    # Hilfe: eingerückte Codeblöcke und Unterpunkte in Listen (Anleitung Windows-Anmeldung)
+    assert ": null);" not in seg, "form.append(..., null) writes \"null\" into the page"
+    # Help: indented code blocks and sub-items in lists (Windows login guide)
     assert "li.appendChild(rawEl('pre', 'help-code'" in js and "if (!sub) { sub = rawEl(" in js
 
 
-@test("2.16.1 Kiosk: nur Domänenkonten zählen, Doppelklick/zweite Freigabe starten nichts doppelt, Neustart erledigt den Bedarf")
+@test("2.16.1 Kiosk: only domain accounts count, double click/second approval start nothing twice, restart fulfils the need")
 def _():
     from app import kiosk, deploy, config as cfg
     old_nb = cfg.NETBIOS
     cfg.NETBIOS = "FIRMA"
     try:
         assert kiosk._domain_sam("FIRMA\\Max", "PC-1") == "max"
-        assert kiosk._domain_sam("PC-1\\max", "PC-1") is None, "lokales Konto gleichen Namens"
-        assert kiosk._domain_sam("FREMD\\max", "PC-1") is None, "Konto einer anderen Domäne"
+        assert kiosk._domain_sam("PC-1\\max", "PC-1") is None, "local account with the same name"
+        assert kiosk._domain_sam("FREMD\\max", "PC-1") is None, "account of another domain"
     finally:
         cfg.NETBIOS = old_nb
-    # Adresse des Browsers zuerst – der eigene Rechner fällt nie wegen der Höchstzahl weg
+    # Browser's address first – the own machine is never dropped because of the maximum count
     for i in range(8):
         db.ex("INSERT INTO computers(id, name, current_user, last_scan) VALUES(?,?,?,?)", (300 + i, f"ALT-{i}", "FIRMA\\wand", "2026-01-01"))
     db.ex("INSERT INTO computers(id, name, ip_addresses) VALUES(310, 'MEIN-PC', '10.9.9.9')")
     assert kiosk.candidates("wand", "10.9.9.9")[0]["id"] == 310
-    # Freigabe atomar
+    # Release atomically
     db.set_setting("kiosk_enabled", 1)
     rid = db.ex("INSERT INTO kiosk_requests(created_at, username, computer_id, computer_name, package_id, package_name, action, status) "
                 "VALUES('2026-10-21 10:00:00','u',310,'MEIN-PC',99999,'X','install','pending')")
@@ -1094,11 +1094,11 @@ def _():
         must_fail(kiosk.decide, rid, True, "admin2", contains="bereits entschieden")
         assert started == [rid]
         must_fail(kiosk.withdraw, {"username": "u"}, rid, contains="läuft bereits")
-        assert kiosk.status(db.q1("SELECT * FROM kiosk_requests WHERE id=?", (rid,)))["open"], "„starting“ zählt als offen"
+        assert kiosk.status(db.q1("SELECT * FROM kiosk_requests WHERE id=?", (rid,)))["open"], "\"starting\" counts as open"
     finally:
         kiosk._start = old_start
         db.set_setting("kiosk_enabled", 0)
-    # Nach erfolgreichem Kiosk-Neustart kein erneutes „Neustart erforderlich“ (bis zum nächsten Scan)
+    # After a successful kiosk restart no further "restart required" (until the next scan)
     db.ex("UPDATE computers SET extra=?, last_boot='2026-10-20 08:00:00', last_scan='2026-10-21 09:00:00' WHERE id=310",
           (json.dumps({"pending_reboot": True}),))
     assert kiosk.reboot_info(310)["needed"]
@@ -1106,12 +1106,12 @@ def _():
     db.ex("INSERT INTO deployment_targets(deployment_id, computer_id, status, finished_at) VALUES(?,310,'success','2026-10-21 10:05:00')", (did,))
     db.ex("INSERT INTO kiosk_requests(created_at, username, computer_id, computer_name, package_name, action, status, deployment_id) "
           "VALUES('2026-10-21 10:00:00','u',310,'MEIN-PC','Neustart','reboot','started',?)", (did,))
-    assert not kiosk.reboot_info(310)["needed"], "Neustart-Hinweis nach erfolgreichem Neustart"
+    assert not kiosk.reboot_info(310)["needed"], "restart notice after successful restart"
     js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "kiosk.js"), encoding="utf-8").read()
     assert "if (!ok || S.busy) return;" in js and "mine(r)" in js and "catch (e) { ssoOff(); renderLogin(" in js
 
 
-@test("2.16.1 Anmeldung: Sitzung gehört dem gebundenen Konto; Fehlermeldungen nach richtigem Kennwort bleiben allgemein")
+@test("2.16.1 Login: session belongs to the bound account; error messages after a correct password stay generic")
 def _():
     from app import ad, config as cfg
 
@@ -1137,17 +1137,17 @@ def _():
     ad._search, ad.is_member, ad._group_dn, cfg.BASE_DN = fsearch, (lambda c, e, g: (True, "x")), (lambda c: "CN=G"), "DC=f"
     try:
         info = ad.authenticate("alice", "pw-von-bob")
-        assert info["username"] == "bob", f"Sitzung für {info['username']} statt für das gebundene Konto bob"
-        ad.bind = lambda u, p, r=None: Conn(None)  # Server ohne „Who am I?“: genauer Abgleich über den UPN
+        assert info["username"] == "bob", f"session for {info['username']} instead of the bound account bob"
+        ad.bind = lambda u, p, r=None: Conn(None)  # Server without "Who am I?": exact match via the UPN
         assert ad.authenticate("alice", "x")["username"] == "bob"
     finally:
         ad.bind, ad._search, ad.is_member, ad._group_dn, cfg.BASE_DN = old
     assert all(x in auth._PRIVATE for x in ("Zugriffsgruppe", "LDAP-Suche", "Notfallzugang"))
     src = open(auth.__file__, encoding="utf-8").read()
-    assert 'key = [(f"bg|{ip}", 8)]' in src, "Notfallzugang mit eigenem Zähler"
+    assert 'key = [(f"bg|{ip}", 8)]' in src, "emergency access with its own counter"
 
 
-@test("2.16.1 Kiosk-SSO: nur Tickets für den HTTP-Namen des Kiosks")
+@test("2.16.1 Kiosk SSO: only tickets for the HTTP name of the kiosk")
 def _():
     import types
     from app import sso
@@ -1181,7 +1181,7 @@ def _():
         sso.clear_keytab()
 
 
-@test("2.16.1 Verteilung: fehlgeschlagenes Paket in Mehrfach-/Zeitplan-Lauf = fehlgeschlagen; Neustart-Einstellung bleibt; Löschen stoppt")
+@test("2.16.1 Distribution: failed package in multi/schedule run = failed; restart setting stays; deleting stops")
 def _():
     from app import deploy, steps as stp
     r = stp.Runner.__new__(stp.Runner)
@@ -1194,13 +1194,13 @@ def _():
     res, msg = r.run_package(pkg)
     assert res == "failed" and "1603" in msg, (res, msg)
     pkg.pop("composite")
-    assert r.run_package(pkg)[0] == "success", "einzelnes Paket mit „weiter nach Fehler“ bleibt wie bisher"
+    assert r.run_package(pkg)[0] == "success", "single package with \"continue after error\" stays as before"
     assert deploy.strongest_reboot(["never", "if_required", None]) == "if_required"
     assert deploy.strongest_reboot(["never", "always"]) == "always" and deploy.strongest_reboot([None]) == "never"
-    assert deploy._cancelled(987654), "gelöschte Bereitstellung gilt als abgebrochen"
+    assert deploy._cancelled(987654), "deleted deployment counts as aborted"
     did = db.ex("INSERT INTO deployments(name, status) VALUES('X', 'cancelled')")
     deploy.start(did)
-    assert db.val("SELECT status FROM deployments WHERE id=?", (did,)) == "cancelled", "start() nach Abbruch"
+    assert db.val("SELECT status FROM deployments WHERE id=?", (did,)) == "cancelled", "start() after abort"
     src = open(deploy.__file__, encoding="utf-8").read()
     assert "Test-Path -LiteralPath $f" in src and "_computer_lock(cid)" in src
     from app import schedules
@@ -1208,7 +1208,7 @@ def _():
     assert "WHEN excluded.status='failed' THEN COALESCE(attempts, 0) + 1" in ssrc and "except ValueError as e:" in ssrc
 
 
-@test("2.16.1 Daten: RegEx ohne verschachtelte Wiederholungen, Zahlenfilter ohne leere Werte, Benachrichtigungen ohne Dauerschleife")
+@test("2.16.1 Data: RegEx without nested repetitions, number filters without empty values, notifications without endless loop")
 def _():
     from app import util
     for bad in ("((a+))+$", "(?:(a+))+$", "(.*a){12}$", "(a|b)*"):
@@ -1226,7 +1226,7 @@ def _():
     db.set_setting("backup_last", "2026-10-21 10:00:00 · FEHLGESCHLAGEN: voll")
     a = notify._check_backup_failed({}, {"since": ""})
     db.set_setting("backup_last", "2026-10-21 10:10:00 · FEHLGESCHLAGEN: voll")
-    assert set(a) == set(notify._check_backup_failed({}, {"since": ""})) == {"2026-10-21"}, "eine Meldung je Tag"
+    assert set(a) == set(notify._check_backup_failed({}, {"since": ""})) == {"2026-10-21"}, "one message per day"
     alert = next(x for x in notify.ALERTS if x["key"] == "offline") if hasattr(notify, "ALERTS") else None
     if alert:
         must_fail(notify._clean_alert_params, alert, {"params": {"days": "nan"}}, contains="ungültig")
@@ -1234,7 +1234,7 @@ def _():
     assert "exclude_self" in collections_.used_by.__code__.co_varnames
 
 
-@test("2.16.1 Tools und Oberfläche: Werte vom Client nie als Code; Fernsitzung zählt als Aktivität; Daten nicht übersetzt")
+@test("2.16.1 Tools and UI: values from the client never as code; remote session counts as activity; data not translated")
 def _():
     from app import tools
     c = {"name": "PC1", "dns_name": "", "ip_addresses": "", "mac_addresses": "", "current_user": "x&calc", "extra": "{}"}
@@ -1250,7 +1250,7 @@ def _():
     assert "${b.percent ?? '?'}%" in js and "curNames.has(f.name.toLowerCase())" in js
 
 
-@test("2.17 Kiosk: Software nur für bestimmte AD-Gruppen – im Katalog und beim Bestellen geprüft, AD nicht erreichbar = nicht sichtbar")
+@test("2.17 Kiosk: software only for certain AD groups – checked in the catalog and when ordering, AD unreachable = not visible")
 def _():
     from app import ad, kiosk, deploy, steps as stp
     db.set_setting("kiosk_enabled", 1)
@@ -1261,7 +1261,7 @@ def _():
     pid = db.ex(f"INSERT INTO packages({', '.join(deploy.PKG_FIELDS)}) VALUES({', '.join('?' * len(deploy.PKG_FIELDS))})",
                 tuple(p[k] for k in deploy.PKG_FIELDS))
     kiosk.save_item(pid, {"enabled": True, "groups": "Grafik-Team\ngrafik-team\n CN=Design,OU=G,DC=firma,DC=local "})
-    assert db.val("SELECT groups FROM kiosk_items WHERE package_id=?", (pid,)) == "Grafik-Team\nCN=Design,OU=G,DC=firma,DC=local", "ohne Doppelte"
+    assert db.val("SELECT groups FROM kiosk_items WHERE package_id=?", (pid,)) == "Grafik-Team\nCN=Design,OU=G,DC=firma,DC=local", "without duplicates"
     must_fail(kiosk.save_item, pid, {"groups": "\n".join(f"G{i}" for i in range(60))}, contains="50")
     calls = []
     members = {"grafik": True, "buchhaltung": False}
@@ -1273,18 +1273,18 @@ def _():
         kiosk._grp_cache.clear()
         names = lambda u: [i["name"] for i in kiosk.catalog(400, u)]
         assert "Grafikprogramm" in names("grafik")
-        assert "Grafikprogramm" not in names("buchhaltung"), "Nicht-Mitglied sieht die Software"
-        assert "Grafikprogramm" not in names("unbekannt"), "AD nicht prüfbar → nicht sichtbar"
+        assert "Grafikprogramm" not in names("buchhaltung"), "non-member sees the software"
+        assert "Grafikprogramm" not in names("unbekannt"), "AD not checkable -> not visible"
         n = len(calls)
         names("grafik")
-        assert len(calls) == n, "Ergebnis wird zwischengespeichert"
+        assert len(calls) == n, "result is cached"
         db.ex("UPDATE computers SET current_user='FIRMA\\buchhaltung' WHERE id=400")
         must_fail(kiosk.request, {"username": "buchhaltung"}, "?", 400, pid, "install", contains="für Sie nicht freigegeben")
         db.ex("UPDATE computers SET current_user='FIRMA\\grafik' WHERE id=400")
         r = kiosk.request({"username": "grafik", "display_name": "G"}, "?", 400, pid, "install")
         assert r["status"] != "rejected"
         kiosk.save_item(pid, {"enabled": True, "groups": ""})
-        assert "Grafikprogramm" in names("buchhaltung"), "ohne Gruppen: alle Kiosk-Nutzer"
+        assert "Grafikprogramm" in names("buchhaltung"), "without groups: all kiosk users"
         assert any(i["package_id"] == pid and i["groups"] is None for i in kiosk.admin_items())
     finally:
         ad.member_of_any, kiosk._logged_on, deploy.create = old
@@ -1292,7 +1292,7 @@ def _():
     assert ad.member_of_any("x", []) is True
 
 
-@test("2.18 Neustart des Containers: unterbrochene Läufe werden auf dem Client aufgeräumt, laufende Installer abgewartet")
+@test("2.18 Container restart: interrupted runs are cleaned up on the client, running installers awaited")
 def _():
     from app import deploy, remote
     db.ex("INSERT INTO computers(id, name, dns_name, online, winrm) VALUES(500, 'PC-500', 'pc-500.firma.local', 1, 1)")
@@ -1311,10 +1311,10 @@ def _():
     deploy.time.sleep = lambda s: None
     try:
         deploy.process_cleanups()
-        assert len(calls) == 1 and db.q1("SELECT * FROM client_cleanup WHERE id=?", (row["id"],)), "Installer läuft noch → Eintrag bleibt"
+        assert len(calls) == 1 and db.q1("SELECT * FROM client_cleanup WHERE id=?", (row["id"],)), "installer still running -> entry stays"
         deploy.process_cleanups()
-        assert len(calls) == 1, "erst nach der Wartezeit erneut fragen"
-        # Neue Bereitstellung auf denselben Computer: wartet, bis der alte Installer fertig ist, dann aufräumen
+        assert len(calls) == 1, "ask again only after the waiting time"
+        # New deployment to the same computer: waits until the old installer is finished, then cleans up
         answers[:] = [{"busy": 1}, {"busy": 0, "dirs": 2, "tasks": 1, "killed": 0, "codes": ["0"]}]
         c = db.q1("SELECT * FROM computers WHERE id=500")
         did2 = db.ex("INSERT INTO deployments(name, status) VALUES('Neu', 'running')")
@@ -1323,7 +1323,7 @@ def _():
         assert len(calls) == 3 and not db.q1("SELECT * FROM client_cleanup WHERE id=?", (row["id"],))
         msg = db.val("SELECT message FROM deployment_targets WHERE id=?", (tid,))
         assert "aufgeräumt" in msg and "Exitcode 0" in msg, msg
-        # Lange nicht erreichbar: nach 14 Tagen aufgeben (der Scan räumt Reste > 2 Tage selbst auf)
+        # Unreachable for a long time: give up after 14 days (the scan cleans up leftovers > 2 days by itself)
         db.ex("INSERT INTO client_cleanup(computer_id, host, prefix, max_minutes, created) VALUES(500, 'pc-500', '1_2_', 60, ?)",
               (util.ago(days=20),))
         deploy.process_cleanups()
@@ -1334,7 +1334,7 @@ def _():
     assert "_wait_for_orphans(c, host, did, tid)" in open(deploy.__file__, encoding="utf-8").read()
 
 
-@test("2.19 Sammlungen: Untergruppen und Verweisketten getrennt begrenzt; Speichern bricht keine abhängige Sammlung still")
+@test("2.19 Collections: subgroups and reference chains limited separately; saving does not silently break a dependent collection")
 def _():
     from app import collections_, main as M
     from fastapi import HTTPException
@@ -1345,40 +1345,40 @@ def _():
         return db.ex("INSERT INTO collections(name, type, match, filters) VALUES(?, 'dynamic', 'all', ?)",
                      (name, json.dumps({"type": "group", "match": "all", "items": items})))
     ref = lambda i: {"table": "computer", "column": "collection", "op": "in", "value": str(i)}  # noqa: E731
-    # Kette aus 5 Sammlungen, die unterste mit verschachtelter Untergruppe – bis 2.18 „zu tief verschachtelt“
+    # Chain of 5 collections, the lowest with a nested subgroup – until 2.18 "nested too deeply"
     base = mk("Kette-Basis", [{"type": "group", "match": "all", "items": [grp]}])
     top = base
     for i in range(4):
         top = mk(f"Kette-{i}", [ref(top)])
     collections_.where_for(top)
     assert collections_.count(top) >= 0 and not collections_.broken(collections_.dependents(base))
-    # 13 Sammlungen hintereinander gehen, mehr nicht
+    # going through 13 collections in a row, no more
     chain = [mk("Lang-0", [{"table": "computer", "column": "name", "op": "contains", "value": "PC"}])]
     for i in range(1, collections_.HOPS_MAX + 1):
         chain.append(mk(f"Lang-{i}", [ref(chain[-1])]))
     collections_.where_for(chain[-1])
     extra = mk("Noch eine", [{"table": "computer", "column": "name", "op": "contains", "value": "X"}])
-    # Die unterste Sammlung auf eine weitere verweisen lassen: die oberste wäre danach zu lang → ablehnen, Name nennen
+    # Let the lowest collection refer to another one: the top one would then be too long -> reject, name it
     try:
         M.api_collection_update(chain[0], {"name": "Lang-0", "type": "dynamic", "match": "all",
                                            "filters": {"type": "group", "match": "all", "items": [ref(extra)]}}, user={"username": "t"})
-        raise AssertionError("Änderung, die eine abhängige Sammlung kaputtmacht, wurde gespeichert")
+        raise AssertionError("a change that breaks a dependent collection was saved")
     except HTTPException as e:
         assert e.status_code == 400 and f"Lang-{collections_.HOPS_MAX}" in str(e.detail), e.detail
     assert "Lang-0" == db.val("SELECT name FROM collections WHERE id=?", (chain[0],))
-    assert '"PC"' in db.val("SELECT filters FROM collections WHERE id=?", (chain[0],)), "Änderung wurde nicht zurückgerollt"
-    # harmlose Änderung geht durch
+    assert '"PC"' in db.val("SELECT filters FROM collections WHERE id=?", (chain[0],)), "change was not rolled back"
+    # harmless change goes through
     M.api_collection_update(chain[0], {"name": "Lang-0", "type": "dynamic", "match": "all",
                                        "filters": {"type": "group", "match": "all", "items": [{"table": "computer", "column": "name", "op": "contains", "value": "Q"}]}},
                             user={"username": "t"})
     assert '"Q"' in db.val("SELECT filters FROM collections WHERE id=?", (chain[0],))
 
 
-@test("2.20 Erreichbarkeit: „online“ nur, wenn wirklich dieser Computer antwortet; DNS-Cache mit einstellbarer Zeit")
+@test("2.20 Reachability: \"online\" only if this very computer answers; DNS cache with configurable time")
 def _():
     import struct as _st
     from app import dnsres, presence, remote, collections_
-    # DNS-Antwort zerlegen (A-Eintrag hinter einem CNAME)
+    # Parse DNS response (A record behind a CNAME)
     q = b"\x12\x34\x81\x80\x00\x01\x00\x02\x00\x00\x00\x00" + b"\x02pc\x05firma\x05local\x00" + _st.pack(">HH", 1, 1)
     ans = b"\xc0\x0c" + _st.pack(">HHIH", 5, 1, 60, 2) + b"\xc0\x0c" + b"\xc0\x0c" + _st.pack(">HHIH", 1, 1, 60, 4) + bytes([10, 1, 2, 3])
     assert dnsres._parse(q + ans, 0x1234) == "10.1.2.3"
@@ -1391,18 +1391,18 @@ def _():
         dnsres.flush()
         db.set_setting("dns_cache_minutes", 5)
         dnsres.resolve("pc-a"); dnsres.resolve("pc-a")
-        assert calls["sys"] == 1, "Zwischenspeicher"
+        assert calls["sys"] == 1, "cache"
         assert dnsres.flush() == 1
         dnsres.resolve("pc-a")
-        assert calls["sys"] == 2, "nach dem Leeren neu gefragt"
+        assert calls["sys"] == 2, "asked again after clearing"
         db.set_setting("dns_cache_minutes", 0)
         dnsres.resolve("pc-a"); dnsres.resolve("pc-a")
-        assert calls["sys"] == 4, "0 = jedes Mal neu"
+        assert calls["sys"] == 4, "0 = ask every time"
     finally:
         dnsres._resolve_system = old_sys
         db.set_setting("dns_cache_minutes", 5)
         dnsres.flush()
-    # Identität
+    # Identity
     db.ex("INSERT INTO computers(id, name, dns_name) VALUES(600, 'PC-600', 'pc-600.firma.local')")
     st = {"ip": "10.0.0.60", "ports": (True, True), "who": {"name": "PC-600", "domain": "firma.local", "joined": True}, "n": 0}
     old = (dnsres.resolve, remote.is_online, remote.identify)
@@ -1413,33 +1413,33 @@ def _():
     try:
         db.set_setting("identity_check", 1)
         assert presence.probe(row()) == (True, True) and st["n"] == 1 and row()["verified_ip"] == "10.0.0.60"
-        assert presence.probe(row()) == (True, True) and st["n"] == 1, "gleiche Adresse, kürzlich bestätigt: nicht erneut fragen"
-        # Adresse geändert → nachfragen; ein anderer PC antwortet → offline mit Hinweis
+        assert presence.probe(row()) == (True, True) and st["n"] == 1, "same address, recently confirmed: do not ask again"
+        # Address changed -> ask again; another PC answers -> offline with a note
         st["ip"], st["who"] = "10.0.0.99", {"name": "LAPTOP-FREMD", "domain": "firma.local", "joined": True}
         assert presence.probe(row()) == (False, False) and st["n"] == 2
         r = row()
         assert r["addr_problem"] == "other" and "LAPTOP-FREMD" in r["addr_detail"] and r["resolved_ip"] == "10.0.0.99"
         cid_fa = db.val("SELECT id FROM collections WHERE builtin=1 AND name='Falsche Adresse'")
-        assert cid_fa and 600 in collections_.member_ids(cid_fa, fresh=True), "Standardsammlung „Falsche Adresse“"
-        assert presence.probe(row()) == (False, False) and st["n"] == 2, "Problemfall höchstens stündlich erneut fragen"
-        assert presence.probe(row(), force=True) == (False, False) and st["n"] == 3, "„Jetzt prüfen“ fragt sofort"
+        assert cid_fa and 600 in collections_.member_ids(cid_fa, fresh=True), "default collection \"Falsche Adresse\""
+        assert presence.probe(row()) == (False, False) and st["n"] == 2, "problem case: ask again at most hourly"
+        assert presence.probe(row(), force=True) == (False, False) and st["n"] == 3, "\"Jetzt prüfen\" asks immediately"
         st["who"] = {"name": "PC-600", "domain": "WORKGROUP", "joined": False}
         presence.probe(row(), force=True)
         assert row()["addr_problem"] == "nodomain"
         st["who"] = {"error": "auth", "detail": "401"}
         assert presence.probe(row(), force=True) == (True, False) and row()["addr_problem"] == "unverified"
-        # Richtiger Computer wieder unter der neuen Adresse → Hinweis weg
+        # Correct computer again at the new address -> note gone
         st["who"] = {"name": "pc-600", "domain": "FIRMA.LOCAL", "joined": True}
         assert presence.probe(row(), force=True) == (True, True) and not row()["addr_problem"] and row()["verified_ip"] == "10.0.0.99"
-        # Nur SMB unter einer anderen Adresse als der bestätigten (z. B. NAS): offline
+        # Only SMB at an address other than the confirmed one (e.g. NAS): offline
         st["ip"], st["ports"] = "10.0.0.7", (True, False)
         assert presence.probe(row()) == (False, False) and row()["addr_problem"] == "unconfirmed"
         db.set_setting("identity_check", 0)
-        assert presence.probe(row()) == (True, False), "abgeschaltet: wie bisher"
+        assert presence.probe(row()) == (True, False), "switched off: as before"
     finally:
         dnsres.resolve, remote.is_online, remote.identify = old
         db.set_setting("identity_check", 1)
-    # Neue Standardsammlung kommt auch in bestehende Datenbanken
+    # New default collection also arrives in existing databases
     db.ex("DELETE FROM collections WHERE builtin=1 AND name='Falsche Adresse'")
     db.init()
     assert db.val("SELECT COUNT(*) FROM collections WHERE builtin=1 AND name='Falsche Adresse'") == 1
@@ -1447,10 +1447,10 @@ def _():
     assert "presence.probe(c)" in src and "presence.probe(c, now)" in open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "inventory.py"), encoding="utf-8").read()
     js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
     assert "draggable: locked(c) ? 'false' : 'true'" in js and "if (!locked(c)) it.addEventListener('dragstart'" in js \
-        and "const locked = (c) => !!(c && (c.builtin || c.editable === false));" in js, "Standard- und AD-Baum nicht verschiebbar"
+        and "const locked = (c) => !!(c && (c.builtin || c.editable === false));" in js, "default and AD tree not movable"
 
 
-@test("2.20.1 Kiosk: nach einer Deinstallation wieder „Installieren“; englische Oberfläche vollständig übersetzt")
+@test("2.20.1 Kiosk: after an uninstall \"Installieren\" again; English UI fully translated")
 def _():
     from app import kiosk, deploy, steps as stp
     db.ex("INSERT INTO computers(id, name, last_scan) VALUES(700, 'PC-700', '2026-10-21 10:00:00')")
@@ -1467,28 +1467,28 @@ def _():
         db.ex("INSERT INTO kiosk_requests(created_at, username, computer_id, computer_name, package_id, package_name, action, status, deployment_id) "
               "VALUES(?,?,?,?,?,?,?,?,?)", (finished, "u", 700, "PC-700", pid, "Editor X", action, "started", did))
     item = lambda: next(i for i in kiosk.catalog(700) if i["package_id"] == pid)  # noqa: E731
-    req("install", "2026-10-21 09:00:00")  # vor dem letzten Scan, Scan kennt die Software nicht → nicht installiert
-    assert not item()["installed"], "Scan ist neuer: Inventar zählt (z. B. über die Verwaltung deinstalliert)"
+    req("install", "2026-10-21 09:00:00")  # before the last scan, scan does not know the software -> not installed
+    assert not item()["installed"], "scan is newer: inventory counts (e.g. uninstalled via the administration)"
     req("install", "2026-10-21 11:00:00")
-    assert item()["installed"], "Installation nach dem letzten Scan"
+    assert item()["installed"], "installation after the last scan"
     db.ex("INSERT INTO software(computer_id, name, version, winget_id) VALUES(700, 'Editor X', '1.0', 'Vendor.EditorX')")
     req("uninstall", "2026-10-21 12:00:00")
-    assert not item()["installed"], "Deinstallation nach dem letzten Scan → wieder „Installieren“"
+    assert not item()["installed"], "uninstall after the last scan -> \"Installieren\" again"
     db.ex("UPDATE computers SET last_scan='2026-10-21 13:00:00' WHERE id=700")
-    assert item()["installed"], "neuerer Scan findet die Software noch → Inventar zählt"
-    # Englisch: erzeugte Texte in Tabellen werden übersetzt, Wörterbuch vollständig (auch Einzelwörter und „– …“-Texte)
+    assert item()["installed"], "newer scan still finds the software -> inventory counts"
+    # English: generated texts in tables are translated, dictionary complete (also single words and "– ..." texts)
     root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
     js = open(os.path.join(root, "app", "static", "app.js"), encoding="utf-8").read()
     assert "function rawCol(c)" in js and "'data-notr': rawCol(c) || undefined" in js
     en = json.load(open(os.path.join(root, "app", "i18n", "en.json"), encoding="utf-8"))
     for k in ("nie", "Dienstkonto (Deploy-Benutzer)", "neueste", "{0} von „{1}“ auf {2} gestartet (Bereitstellung #{3})"):
-        assert en.get(k), f"Übersetzung fehlt: {k}"
-    if os.path.exists(os.path.join(root, "tools", "build_i18n.py")):  # Entwicklungswerkzeuge liegen nicht im Image
+        assert en.get(k), f"translation missing: {k}"
+    if os.path.exists(os.path.join(root, "tools", "build_i18n.py")):  # development tools are not part of the image
         assert 'PREFIX.sub("", de)' in open(os.path.join(root, "tools", "build_i18n.py"), encoding="utf-8").read()
         assert "GERMAN_WORDS" in open(os.path.join(root, "tools", "i18n_extract.py"), encoding="utf-8").read()
 
 
-@test("2.21 Diagnosepaket: anonymisiert ohne echte Namen, Platzhalter bleiben gleich, nie Kennwörter")
+@test("2.21 Diagnostic package: anonymised without real names, placeholders stay the same, never passwords")
 def _():
     import io as _io
     import zipfile as _zf
@@ -1505,25 +1505,25 @@ def _():
     assert {"LIESMICH.txt", "umgebung.json", "einstellungen.json", "statistik.json", "protokoll.csv"} <= set(z.namelist())
     blob = "\n".join(z.read(n).decode("utf-8", "replace") for n in z.namelist()).lower()
     for leak in ("mueller", "192.168.77", "aa:bb:cc:dd:ee:77", "aa-bb-cc", "beispiel.de", "buchhaltung", "mail.firma.local"):
-        assert leak not in blob, f"echter Name im Paket: {leak}"
-    assert "admin$" in blob, "allgemeine Wörter bleiben (ADMIN$ nicht ersetzt)"
-    assert "kiosk: user-" in blob, "Auslöser-Vorsatz bleibt, Benutzer als Platzhalter"
+        assert leak not in blob, f"real name in the package: {leak}"
+    assert "admin$" in blob, "general words stay (ADMIN$ not replaced)"
+    assert "kiosk: user-" in blob, "trigger prefix stays, user as placeholder"
     pc = db.val("SELECT alias FROM diag_alias WHERE kind='computer' AND real='BUCHH-MUELLER7'")
     assert pc and pc.lower() in blob
-    assert db.val("SELECT COUNT(*) FROM diag_alias WHERE real LIKE 'Kiosk:%'") == 0, "kein Platzhalter für „Kiosk: …“"
+    assert db.val("SELECT COUNT(*) FROM diag_alias WHERE real LIKE 'Kiosk:%'") == 0, "no placeholder for \"Kiosk: ...\""
     diagnostics.build(3, True)
-    assert db.val("SELECT alias FROM diag_alias WHERE kind='computer' AND real='BUCHH-MUELLER7'") == pc, "Platzhalter bleibt gleich"
-    assert any(x["real"] == "BUCHH-MUELLER7" for x in diagnostics.lookup(pc)), "Nachschlagen"
+    assert db.val("SELECT alias FROM diag_alias WHERE kind='computer' AND real='BUCHH-MUELLER7'") == pc, "placeholder stays the same"
+    assert any(x["real"] == "BUCHH-MUELLER7" for x in diagnostics.lookup(pc)), "lookup"
     assert "BUCHH-MUELLER7" in diagnostics.mapping_csv()
     sett = json.loads(z.read("einstellungen.json"))
-    assert not [k for k in sett if diagnostics.NEVER_SETTINGS.search(k)], "keine geheimen Einstellungen"
-    # ohne Anonymisierung: echte Namen, aber weiterhin keine Geheimnisse
+    assert not [k for k in sett if diagnostics.NEVER_SETTINGS.search(k)], "no secret settings"
+    # without anonymisation: real names, but still no secrets
     raw = _zf.ZipFile(_io.BytesIO(diagnostics.build(7, False)[0]))
     assert "BUCHH-MUELLER7" in raw.read("protokoll.csv").decode()
     assert not [k for k in json.loads(raw.read("einstellungen.json")) if diagnostics.NEVER_SETTINGS.search(k)]
 
 
-@test("2.22 Diagnosepaket: jede Zeile mit Version, Statistik seit dem Update getrennt, Änderungen und behobene Fehler beigelegt")
+@test("2.22 Diagnostic package: every line with version, statistics since the update separate, changes and fixed bugs attached")
 def _():
     import csv as _csv
     import io as _io
@@ -1532,7 +1532,7 @@ def _():
     db.ex("DELETE FROM version_history")
     db.ex("DELETE FROM logs")
     db.ex("DELETE FROM deployment_targets")
-    # Startmeldungen älterer Versionen im Protokoll → werden beim ersten Mal nachgetragen (doppelte Starts zusammengefasst)
+    # Startup messages of older versions in the log -> are added on first run (duplicate starts merged)
     for ts, msg, lvl in (("2026-10-15 08:00:00", "POCKET KNIFE 2.19 gestartet.", "INFO"),
                          ("2026-10-16 09:00:00", "Alter Fehler XYZ", "ERROR"),
                          ("2026-10-17 08:00:00", "POCKET KNIFE 2.19 gestartet.", "INFO"),
@@ -1544,7 +1544,7 @@ def _():
     h = [(x["version"]) for x in diagnostics.history()]
     assert h[:2] == ["2.19", "2.20"] and h[-1] == config.VERSION and len(h) == 3, h
     diagnostics.record_start()
-    assert len(diagnostics.history()) == 3, "erneuter Start derselben Version zählt nicht doppelt"
+    assert len(diagnostics.history()) == 3, "restart of the same version does not count twice"
     vat = diagnostics._VersionAt(diagnostics.history())
     assert vat("2026-10-16 09:00:00") == "2.19" and vat("2026-10-18 10:00:00") == "2.20" and vat("2026-10-10 00:00:00") == "vor 2.19"
     did = db.ex("INSERT INTO deployments(name, status, created_at) VALUES('Alt', 'failed', '2026-10-16 09:00:00')")
@@ -1558,28 +1558,28 @@ def _():
     assert "[2.19] ERROR" in z.read("fehler.txt").decode()
     st = json.loads(z.read("statistik.json"))
     assert st["aktuelle_version"]["version"] == config.VERSION and st["aktuelle_version"]["update_im_zeitraum"]
-    assert not st["aktuelle_version"]["deployment_targets"], "Fehlschlag aus 2.19 zählt nicht zur aktuellen Version"
+    assert not st["aktuelle_version"]["deployment_targets"], "failure from 2.19 does not count towards the current version"
     assert st["zeitraum"]["deployment_targets"].get("failed") == 1
     assert st["je_version"]["2.19"]["targets_failed"] == 1 and st["je_version"]["2.19"]["log_error"] == 1
     assert json.loads(z.read("fehlgeschlagen.json"))[0]["version"] == "2.19"
     v = json.loads(z.read("versionen.json"))
     assert v["aktuell"] == config.VERSION and v["im_zeitraum"][:3] == ["vor 2.19", "2.19", "2.20"], v["im_zeitraum"]
     ch = z.read("aenderungen.md").decode()
-    assert f"## pocketknife-{config.VERSION}" in ch and "## pocketknife-2.19 " in ch and "## pocketknife-2.18 " not in ch, "nur bis zur ältesten Version im Zeitraum"
+    assert f"## pocketknife-{config.VERSION}" in ch and "## pocketknife-2.19 " in ch and "## pocketknife-2.18 " not in ch, "only up to the oldest version in the period"
     fx = z.read("behobene_fehler.txt").decode()
-    assert "- 2.20.1 Kiosk: nach einer Deinstallation" in fx
+    assert "- 2.20.1 Kiosk: after an uninstall" in fx
     dfile = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "Dockerfile")
-    if os.path.exists(dfile):  # im Image gibt es kein Dockerfile – dort beweist aenderungen.md oben, dass es klappt
+    if os.path.exists(dfile):  # there is no Dockerfile in the image – there aenderungen.md above proves that it works
         assert "CHANGELOG.md" in open(dfile, encoding="utf-8").read()
-    # Zeitraum „seit dem letzten Update“: nur Einträge der laufenden Version
+    # Period "since the last update": only entries of the running version
     data, name = diagnostics.build(0, True)
     z0 = _zf.ZipFile(_io.BytesIO(data))
     assert "seit-update" in name and "seit dem Update" in z0.read("LIESMICH.txt").decode()
     rows0 = list(_csv.DictReader(_io.StringIO(z0.read("protokoll.csv").decode("utf-8-sig")), delimiter=";"))
-    assert rows0 and all(r["version"] == config.VERSION for r in rows0), "nur die laufende Version"
+    assert rows0 and all(r["version"] == config.VERSION for r in rows0), "only the running version"
 
 
-@test("2.22.1 Probelauf: Platzhalter nicht für Programmwörter/Datumsangaben, Kiosk-Gruppen anonym; winget-Archive und Kerberos-Fehler erklärt")
+@test("2.22.1 Dry run: placeholders not for program words/dates, kiosk groups anonymous; winget archives and Kerberos errors explained")
 def _():
     import io as _io
     import zipfile as _zf
@@ -1590,28 +1590,28 @@ def _():
                "Freigabe für GEHEIMGRUPPE")
     z = _zf.ZipFile(_io.BytesIO(diagnostics.build(1, True)[0]))
     blob = "\n".join(z.read(n).decode("utf-8", "replace") for n in z.namelist())
-    assert "Anmeldung fehlgeschlagen" in blob, "Programmwort nicht durch Platzhalter ersetzt"
-    assert "anmeldung" in diagnostics._vocabulary() and "mueller" not in diagnostics._vocabulary(), "Namen aus Beispielen zählen nicht"
-    assert "2025-10-20-12-55-07" in blob, "Datum in Dateinamen ist keine MAC-Adresse"
-    assert "00-15-5D-01-02-03" not in blob and "00:15:5D" not in blob.upper(), "echte MAC weiterhin ersetzt"
-    assert "GEHEIMGRUPPE" not in blob and "Team Nord" not in blob, "Kiosk-Gruppen anonymisiert"
-    # winget: Archiv-Fehler als Lokales System einmal mit tar.exe wiederholen; nur bei Installation/Aktualisierung
+    assert "Anmeldung fehlgeschlagen" in blob, "program word not replaced by placeholder"
+    assert "anmeldung" in diagnostics._vocabulary() and "mueller" not in diagnostics._vocabulary(), "names from examples do not count"
+    assert "2025-10-20-12-55-07" in blob, "date in file names is not a MAC address"
+    assert "00-15-5D-01-02-03" not in blob and "00:15:5D" not in blob.upper(), "real MAC still replaced"
+    assert "GEHEIMGRUPPE" not in blob and "Team Nord" not in blob, "kiosk groups anonymised"
+    # winget: retry archive errors once with tar.exe as Local System; only for install/upgrade
     body = deploy._winget_body({"winget_action": "install", "winget_id": "TeamViewer.TeamViewer", "winget_scope": "machine"})
-    assert "-1978335140" in body and "archiveExtractionMethod" in body and "$pkSys" in body and ".IsSystem" not in body[len(deploy._winget_find()):], "CLM: ohne .NET-Methode"
-    assert body.count("PK-Run $wg") == 3, "Aufruf, Wiederholung mit tar.exe, Wiederholung ohne --scope (2.30.1)"
-    assert "\\WinGet\\Settings\\defaultState" in body, "Einstellungsdatei, die winget als Lokales System wirklich liest"
+    assert "-1978335140" in body and "archiveExtractionMethod" in body and "$pkSys" in body and ".IsSystem" not in body[len(deploy._winget_find()):], "CLM: without .NET method"
+    assert body.count("PK-Run $wg") == 3, "call, retry with tar.exe, retry without --scope (2.30.1)"
+    assert "\\WinGet\\Settings\\defaultState" in body, "settings file that winget actually reads as Local System"
     assert "archiveExtractionMethod" not in deploy._winget_body({"winget_action": "uninstall", "winget_id": "X.Y"})
     for code in (-1978335140, -1978335215, -1978334974):
         assert deploy.WINGET_MESSAGES.get(code), code
     src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "steps.py"), encoding="utf-8").read()
-    assert 'f"Fehlgeschlagen – {msg} (Exitcode {code})"' in src, "Klartext und Exitcode"
-    # Kerberos „Message stream modified“: verständlicher Hinweis, kein Dienstkonto-Schutz
+    assert 'f"Fehlgeschlagen – {msg} (Exitcode {code})"' in src, "plain text and exit code"
+    # Kerberos "Message stream modified": understandable hint, no service account protection
     e = "SpnegoError (4294967295): Major (851968): Unspecified GSS failure. Minor (2529638953): Message stream modified"
     assert "DNS-Eintrag" in (kerberos.explain(e) or "") and not kerberos._account_problem(e)
     assert '"krb_modified"' in open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "presence.py"), encoding="utf-8").read()
 
 
-@test("2.23 Proxyserver: Adresse geprüft, Kennwort im Tresor, Anmeldung nur vom Server, Clients ohne Anmeldedaten")
+@test("2.23 Proxy server: address checked, password in the vault, login only from the server, clients without credentials")
 def _():
     import base64 as _b64
     import io as _io
@@ -1640,36 +1640,36 @@ def _():
         url = f"http://127.0.0.1:{srv.server_address[1]}"
         r = proxy.save({"url": url, "user": "FIRMA\\px", "password": "Pr0xy:Geh@im", "clients": True})
         assert r["password_set"] and r["clients"] and r["user"] == "FIRMA\\px"
-        assert "Geh@im" not in db.setting_raw("proxy_password"), "Kennwort verschlüsselt"
+        assert "Geh@im" not in db.setting_raw("proxy_password"), "password encrypted"
         res = proxy.test("http://winget.example.invalid/source.msix")
         assert res["ok"], res
         req = seen[-1]
-        assert req[0].startswith("GET http://winget.example.invalid/source.msix"), "Anfrage ging über den Proxy"
+        assert req[0].startswith("GET http://winget.example.invalid/source.msix"), "request went through the proxy"
         auth = next(x for x in req if x.lower().startswith("proxy-authorization: basic "))
-        assert _b64.b64decode(auth.split()[-1]).decode() == "FIRMA\\px:Pr0xy:Geh@im", "Basic-Anmeldung am Proxy"
-        assert proxy.client_proxy() == url, "Clients: nur die Adresse, nie Anmeldedaten"
+        assert _b64.b64decode(auth.split()[-1]).decode() == "FIRMA\\px:Pr0xy:Geh@im", "Basic login at the proxy"
+        assert proxy.client_proxy() == url, "clients: only the address, never credentials"
         f = deploy._winget_find()
         assert f"$PKProxy = '{url}'" in f and "settings set DefaultProxy" in f and "Geh@im" not in f
-        # 2.37: der Client lädt nie selbst aus dem Internet (App-Installer kommt aus dem Repository)
+        # 2.37: the client never downloads from the internet by itself (App Installer comes from the repository)
         assert "Invoke-WebRequest" not in f and "Invoke-RestMethod" not in f and "api.github.com" not in f
-        assert "PK-WingetProxy" in f.split("9009; return }")[-1], "erst nach dem Finden von winget"
+        assert "PK-WingetProxy" in f.split("9009; return }")[-1], "only after finding winget"
         assert "***@" in proxy.safe_error(Exception("<urlopen error http://FIRMA%5Cpx:Pr0xy@127.0.0.1:1>"))
         z = _zf.ZipFile(_io.BytesIO(diagnostics.build(1, True)[0]))
         blob = "\n".join(z.read(n).decode("utf-8", "replace") for n in z.namelist())
         assert "Geh@im" not in blob and "proxy_password" not in blob
-        assert json.loads(z.read("einstellungen.json")).get("proxy_user") != "FIRMA\\px", "Proxy-Benutzer anonymisiert"
-        # ohne Haken: Clients bekommen keinen Proxy (und POCKET KNIFE entfernt einen selbst gesetzten wieder)
+        assert json.loads(z.read("einstellungen.json")).get("proxy_user") != "FIRMA\\px", "proxy user anonymised"
+        # without the checkmark: clients get no proxy (and POCKET KNIFE removes one it set itself)
         proxy.save({"url": url, "user": "", "clients": False})
         assert proxy.client_proxy() == "" and "$PKProxy = ''" in deploy._winget_find()
-        assert not db.setting_raw("proxy_password"), "ohne Benutzer kein gespeichertes Kennwort"
+        assert not db.setting_raw("proxy_password"), "without a user no stored password"
         from app import main as _m
-        assert {"proxy_url", "proxy_user", "proxy_clients"} <= _m.INTERNAL_SETTINGS, "nur über den geprüften Endpunkt"
+        assert {"proxy_url", "proxy_user", "proxy_clients"} <= _m.INTERNAL_SETTINGS, "only via the checked endpoint"
     finally:
         proxy.save({"url": "", "user": "", "clients": False})
         srv.shutdown()
 
 
-@test("2.23 Code-Review: Diagnosepaket ohne Kennwörter/Restnamen, schnell bei vielen Rechnern; Identitätsprüfung verdächtigt bei Kontoproblemen keine Geräte")
+@test("2.23 Code review: diagnostic package without passwords/leftover names, fast with many computers; identity check does not suspect devices on account problems")
 def _():
     import io as _io
     import time as _t
@@ -1683,23 +1683,23 @@ def _():
     for leak in ("Sommer2026!", "Geh31m", "xY9", "Klar123", "fs01", "hmueller"):
         assert leak.lower() not in t.lower(), (leak, t)
     assert "/user:FIRMA\\USER-" in t and "SERVICEPASSWORD=***" in t
-    assert "192.168.5.9" not in an("Verbindung zu 192.168.5.9. Danach"), "IP am Satzende"
+    assert "192.168.5.9" not in an("Verbindung zu 192.168.5.9. Danach"), "IP at the end of a sentence"
     assert "aa:bb:cc:dd:ee:01" not in an("MAC AA:BB:CC:DD:EE:01.").lower()
     assert "Sommer2026!" not in an("Anmeldung fehlgeschlagen für 'Sommer2026!' von 10.0.0.1: falsch")
     assert "fe80::1c2b:3d4e:5f60:7a8b" not in an("Anmeldung von fe80::1c2b:3d4e:5f60:7a8b%12").lower(), "IPv6"
-    assert "12:30:45" in an("um 12:30:45 Uhr"), "Uhrzeit ist keine IPv6-Adresse"
-    assert "DC=sub" not in an("CN=X,DC=sub,DC=firma,DC=local"), "Teil-Domäne"
+    assert "12:30:45" in an("um 12:30:45 Uhr"), "time of day is not an IPv6 address"
+    assert "DC=sub" not in an("CN=X,DC=sub,DC=firma,DC=local"), "partial domain"
     assert "jürgen" not in an("Mail an jürgen.müller@beispiel.de").lower()
-    assert "fs01" not in an("Log: FS01_install.log").lower(), "Name vor Unterstrich"
+    assert "fs01" not in an("Log: FS01_install.log").lower(), "name before underscore"
     mac_alias = an("AA:BB:CC:DD:EE:02")
-    assert an(mac_alias) == mac_alias, "Platzhalter einer MAC wird nicht noch einmal ersetzt"
+    assert an(mac_alias) == mac_alias, "placeholder of a MAC is not replaced again"
     raw = diagnostics.Anonymizer(False)
-    assert "Sommer2026!" not in raw("net use Z: \\\\srv\\x /user:a\\b Sommer2026!"), "Kennwörter auch ohne Anonymisierung maskiert"
+    assert "Sommer2026!" not in raw("net use Z: \\\\srv\\x /user:a\\b Sommer2026!"), "passwords masked even without anonymisation"
     db.set_setting("ldap_cert_pending", '{"host": "fs01.firma.local", "fingerprint": "ab"}')
     z = _zf.ZipFile(_io.BytesIO(diagnostics.build(1, True)[0]))
     assert "fs01" not in z.read("einstellungen.json").decode().lower()
     db.set_setting("ldap_cert_pending", "")
-    # Viele Rechner, jede Zeile eine neue Adresse: keine Neuübersetzung einer Riesen-Regex je Platzhalter
+    # Many computers, every line a new address: no recompiling of a giant regex per placeholder
     db.exmany("INSERT INTO computers(name, dns_name) VALUES(?, ?)", [(f"RV{i:04d}", f"rv{i:04d}.firma.local") for i in range(1500)])
     for i in range(1000):
         db.ex("INSERT INTO logs(ts, level, category, message) VALUES(?, 'WARN', 'system', ?)",
@@ -1707,17 +1707,17 @@ def _():
     t0 = _t.time()
     z = _zf.ZipFile(_io.BytesIO(diagnostics.build(1, True)[0]))
     took = _t.time() - t0
-    assert took < 30, f"Diagnosepaket zu langsam: {took:.1f} s"
+    assert took < 30, f"diagnostic package too slow: {took:.1f} s"
     assert "rv0999" not in z.read("protokoll.csv").decode().lower() and "172.20." not in z.read("protokoll.csv").decode()
     db.ex("DELETE FROM computers WHERE name LIKE 'RV%'")
-    # zwei Pakete gleichzeitig: jeder Platzhalter gehört genau einem Namen
+    # two packages at once: each placeholder belongs to exactly one name
     db.exmany("INSERT INTO computers(name) VALUES(?)", [(f"PAR{i}",) for i in range(40)])
     th = [threading.Thread(target=diagnostics.build, args=(1, True)) for _ in range(2)]
     [x.start() for x in th]
     [x.join() for x in th]
-    assert not db.q("SELECT kind, alias FROM diag_alias GROUP BY kind, alias HAVING COUNT(*) > 1"), "Platzhalter doppelt vergeben"
+    assert not db.q("SELECT kind, alias FROM diag_alias GROUP BY kind, alias HAVING COUNT(*) > 1"), "placeholder assigned twice"
     db.ex("DELETE FROM computers WHERE name LIKE 'PAR%'")
-    # Identitätsprüfung: falsches Kennwort / KDC weg ≠ „Gerät gehört nicht zur Domäne“
+    # Identity check: wrong password / KDC gone != "device does not belong to the domain"
     class C:
         err = None
         def __init__(self, *a, **k): pass
@@ -1733,39 +1733,39 @@ def _():
         C.err = "Kerberos: Cannot contact any KDC for realm 'FIRMA.LOCAL'"
         assert remote.identify("pc-x")["error"] == "other"
         C.err = "GSS failure: Preauthentication failed"
-        assert remote.identify("pc-x")["error"] == "paused" and trips, "Kontoproblem löst den Schutz aus"
+        assert remote.identify("pc-x")["error"] == "paused" and trips, "account problem triggers the protection"
         guard.verify_account = lambda: False
         C.err = "the specified credentials were rejected by the server (401)"
-        assert remote.identify("pc-x")["error"] == "paused", "Dienstkonto selbst defekt"
+        assert remote.identify("pc-x")["error"] == "paused", "service account itself broken"
         guard.verify_account = lambda: True
-        assert remote.identify("pc-x")["error"] == "auth", "nur dieses Gerät lehnt ab"
+        assert remote.identify("pc-x")["error"] == "auth", "only this device refuses"
     finally:
         remote.Client, guard.verify_account, guard.trip = old
     src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "steps.py"), encoding="utf-8").read()
     assert '"Neustart erforderlich" not in msg' in src
 
 
-@test("2.23.1 Sammlungsauswahl: nach Ordnern gegliedert und alphabetisch; Software-Sammlungen „installiert“/„nicht installiert“ ohne Präfix")
+@test("2.23.1 Collection selection: organised by folders and alphabetical; software collections \"installiert\"/\"nicht installiert\" without prefix")
 def _():
     from app import main as _m
     f = db.ex("INSERT INTO collections(name, type, builtin, sort) VALUES('Zz Apps', 'folder', 0, 1)")
     db.ex("INSERT INTO collections(name, parent_id, type, builtin, sort) VALUES('beta', ?, 'dynamic', 0, 5)", (f,))
     db.ex("INSERT INTO collections(name, parent_id, type, builtin, sort) VALUES('Alpha', ?, 'dynamic', 0, 9)", (f,))
     ch = _m._collection_choices()
-    assert ch[0]["id"] == 0, "„gesamter Bestand“ zuerst"
-    assert all(c.get("type") != "folder" for c in ch) and not any(c["name"] == "Zz Apps" for c in ch), "keine Ordner zur Auswahl"
+    assert ch[0]["id"] == 0, "\"entire inventory\" first"
+    assert all(c.get("type") != "folder" for c in ch) and not any(c["name"] == "Zz Apps" for c in ch), "no folders to choose from"
     mine = [c for c in ch if c["path"] == "Zz Apps"]
-    assert [c["name"] for c in mine] == ["Alpha", "beta"], "alphabetisch, unabhängig von Groß-/Kleinschreibung und Sortierfeld"
+    assert [c["name"] for c in mine] == ["Alpha", "beta"], "alphabetical, regardless of case and sort field"
     keys = [(c["path"].lower(), c["name"].lower()) for c in ch[1:]]
-    assert keys == sorted(keys), "nach Pfad und Name sortiert"
+    assert keys == sorted(keys), "sorted by path and name"
     js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
-    assert "async function collPicker(set" in js and js.count("await collPicker(") >= 2, "Zeitpläne und Scanprofile nutzen die gegliederte Auswahl"
-    assert "newDynColl(`${base} installiert`" in js and "newDynColl(`${base} nicht installiert`" in js, "Name ohne „Anwendungen:“"
-    assert "\\d+\\.\\d[\\d.]*" in js, "Versionsnummer nur mit Punkt – „Microsoft 365 Apps“ wird nicht zu „Microsoft*“"
-    assert "typeof x === 'object' && !Array.isArray(x)" in js, "kaputter Zustand im Browser-Speicher öffnet den Dialog trotzdem"
-    assert "'data-notr': '1', onchange" in js and "collChoiceLabel" in js, "Pfad und eigene Namen nicht übersetzt, eingebaute schon"
+    assert "async function collPicker(set" in js and js.count("await collPicker(") >= 2, "schedules and scan profiles use the structured selection"
+    assert "newDynColl(`${base} installiert`" in js and "newDynColl(`${base} nicht installiert`" in js, "name without \"Anwendungen:\""
+    assert "\\d+\\.\\d[\\d.]*" in js, "version number only with a dot – \"Microsoft 365 Apps\" does not become \"Microsoft*\""
+    assert "typeof x === 'object' && !Array.isArray(x)" in js, "broken state in browser storage opens the dialog anyway"
+    assert "'data-notr': '1', onchange" in js and "collChoiceLabel" in js, "path and custom names not translated, built-in ones are"
     assert all("pparts" in c for c in ch[1:])
-    # Anonymisierung: Namen mit Akzenten/Sonderzeichen werden auch im Freitext ersetzt (Regression 2.23)
+    # Anonymisation: names with accents/special characters are also replaced in free text (regression 2.23)
     from app import diagnostics
     db.ex("INSERT INTO computers(name, current_user) VALUES('PC-ZOË', 'FIRMA\\josé'), ('SRV&DB', 'o''brien')")
     an = diagnostics.Anonymizer(True)
@@ -1777,13 +1777,13 @@ def _():
     db.ex("DELETE FROM computers WHERE name IN ('PC-ZOË', 'SRV&DB')")
 
 
-@test("2.23.2 Nach einem Update lädt der Browser die neue Oberfläche (app.js/i18n.js nicht aus dem Zwischenspeicher)")
+@test("2.23.2 After an update the browser loads the new UI (app.js/i18n.js not from the cache)")
 def _():
     src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "main.py"), encoding="utf-8").read()
     assert 'request.url.path.startswith("/static/")' in src and 'resp.headers["Cache-Control"] = "no-cache"' in src
 
 
-@test("2.23.4 Oberfläche nach dem Update garantiert neu: Skripte und Stylesheets tragen die Version (app.js?v=…)")
+@test("2.23.4 UI is guaranteed to be fresh after the update: scripts and stylesheets carry the version (app.js?v=...)")
 def _():
     from app import config
     from app import main as _m
@@ -1795,7 +1795,7 @@ def _():
         assert 'src="/static/i18n.js"' not in html
 
 
-@test("2.24 Windows-Benachrichtigung nach Installation/Aktualisierung: nur wenn sich etwas geändert hat, nie bei Deinstallation, Texte nie als Code")
+@test("2.24 Windows notification after install/upgrade: only if something changed, never on uninstall, texts never as code")
 def _():
     import base64 as _b
     from app import deploy, toast
@@ -1809,22 +1809,22 @@ def _():
     assert toast.classify(W("install"), [R()], log) == [("installed", "7-Zip", "26.00")]
     assert toast.classify(W("upgrade"), [R()], log)[0][0] == "updated"
     de = ["=== 1. Schritte: winget install 7zip.7zip ===\nGefunden 7-Zip [7zip.7zip] Version 26.00\n"]
-    assert toast.classify(W("install"), [R()], de) == [("installed", "7-Zip", "26.00")], "deutsche winget-Ausgabe"
+    assert toast.classify(W("install"), [R()], de) == [("installed", "7-Zip", "26.00")], "German winget output"
     db.ex("INSERT INTO computers(id, name) VALUES(960, 'PC-TOAST')")
     db.ex("INSERT INTO software(computer_id, name, version, winget_id) VALUES(960, '7-Zip 24.08', '24.08', '7zip.7zip')")
-    assert toast.classify(W("install"), [R()], log, 960)[0][0] == "updated", "war in älterer Version schon da"
-    assert toast.classify(W("install"), [R(msg="Paket ist bereits installiert", ex=-1978335135)], log) == [], "nichts geändert"
-    assert toast.classify(W("uninstall"), [R()], log) == [], "Deinstallation meldet sich nicht"
+    assert toast.classify(W("install"), [R()], log, 960)[0][0] == "updated", "was already present in an older version"
+    assert toast.classify(W("install"), [R(msg="Paket ist bereits installiert", ex=-1978335135)], log) == [], "nothing changed"
+    assert toast.classify(W("uninstall"), [R()], log) == [], "uninstall does not notify"
     assert toast.classify(W("install", name="Deinstallation: 7-Zip"), [R()], log) == []
-    assert toast.classify(W("install"), [R(st="failed")], log) == [], "fehlgeschlagen → keine Meldung"
+    assert toast.classify(W("install"), [R(st="failed")], log) == [], "failed -> no notification"
     scr = {"name": "Registry setzen", "steps": {"main": [{"id": "r1", "type": "registry", "entries": []}]}}
-    assert toast.classify(scr, [R(sid="r1", typ="registry")], []) == [], "reine Registry-Pakete nicht"
-    assert toast.classify({**scr, "notify_user": "on"}, [R(sid="r1", typ="registry")], [])[0][0] == "installed", "„immer“"
+    assert toast.classify(scr, [R(sid="r1", typ="registry")], []) == [], "pure registry packages do not"
+    assert toast.classify({**scr, "notify_user": "on"}, [R(sid="r1", typ="registry")], [])[0][0] == "installed", "\"always\""
     assert toast.classify(W("install", notify_user="off"), [R()], log) == []
-    assert toast.classify(W("install"), [R()], log, global_on=False) == [], "global aus"
+    assert toast.classify(W("install"), [R()], log, global_on=False) == [], "globally off"
     msi = {"name": "Office 2024 LTSC", "version": "16.0", "steps": {"main": [{"id": "m1", "type": "install", "source": "file", "install_type": "msi", "install_file": "x.msi"}]}}
     assert toast.classify(msi, [R(sid="m1")], ["=== 1. Schritte: x.msi ===\n"]) == [("installed", "Office 2024 LTSC", "16.0")]
-    # Mehrere Pakete (Zeitplan/Mehrfachauswahl): nur das, was sich geändert hat, mit eigenem Namen; „nie“ des inneren Pakets gilt
+    # Multiple packages (schedule/multi-selection): only what has changed, with its own name; the "never" of the inner package applies
     combo = {"name": "Zeitplan Büro", "steps": {"main": [
         {"id": "n1", "type": "nested", "package_id": 1, "package": W("install", sid="a1")},
         {"id": "n2", "type": "nested", "package_id": 2, "package": {**msi, "steps": {"main": [{**msi["steps"]["main"][0], "id": "b1"}]}}},
@@ -1836,16 +1836,16 @@ def _():
     assert toast.classify(combo, res, lg) == [("installed", "Office 2024 LTSC", "16.0")], toast.classify(combo, res, lg)
     two = toast.build_send_script([("installed", "A", "1"), ("updated", "B", "2")])[1]
     assert two["title"] == "2 Programme wurden installiert." and two["body"] == "A 1, B 2"
-    # Namen/Versionen nur als Daten; Benutzerskript steht kodiert in der Aufgabe – keine Datei unter ProgramData
+    # Names/versions only as data; user script is encoded in the task – no file under ProgramData
     evil = "X'); Remove-Item C:\\ -Recurse; ('"
     script, data = toast.build_send_script([("installed", evil, "1")])
     assert evil not in script and "Remove-Item C:" not in script and "ProgramData" not in script
-    assert "Join-Path $env:ProgramFiles 'PocketKnife'" in script, "Anzeigeskript nur dort, wo Benutzer nichts ändern können"
+    assert "Join-Path $env:ProgramFiles 'PocketKnife'" in script, "display script only where users cannot change anything"
     from app import util as _u
-    assert _u.psq(toast.USER_PS) in script, "2.38: Anzeigeskript als Text-Literal (Set-Content statt .NET)"
+    assert _u.psq(toast.USER_PS) in script, "2.38: display script as text literal (Set-Content instead of .NET)"
     inner = toast.USER_PS
     assert evil not in inner and "ConvertFrom-Json" in inner and "SecurityElement]::Escape" in inner and "param([string]$Data, [string]$Rid)" in inner
-    assert "GetHistory" in inner and "Done 10" in inner, "prüft, ob Windows die Meldung angenommen hat; sonst Absender Windows PowerShell"
+    assert "GetHistory" in inner and "Done 10" in inner, "checks whether Windows accepted the notification; otherwise sender Windows PowerShell"
     assert "PK_TOAST:res:" in script and toast.results("PK_TOAST:res:FIRMA\\max:2\n")[0][1] is False
     assert "ProgramFiles" in data["icon"] and "Join-Path $env:ProgramFiles 'PocketKnife\\pk-ok.png'" in inner
     db.set_setting("toast_language", "en")
@@ -1856,7 +1856,7 @@ def _():
     db.ex("DELETE FROM computers WHERE id=960")
 
 
-@test("2.24.3 PowerShell immer mit vollem Pfad und festen Schaltern (-NoLogo -NonInteractive -NoProfile -ExecutionPolicy Bypass)")
+@test("2.24.3 PowerShell always with full path and fixed switches (-NoLogo -NonInteractive -NoProfile -ExecutionPolicy Bypass)")
 def _():
     import glob as _g
     from app import remote, steps, util
@@ -1865,27 +1865,27 @@ def _():
     for f in _g.glob(os.path.join(root, "*.py")):
         src = open(f, encoding="utf-8").read()
         for bad in ("'powershell.exe'", "powershell.exe -No", "--headless powershell.exe"):
-            assert bad not in src, f"{os.path.basename(f)}: PowerShell ohne vollen Pfad ({bad})"
+            assert bad not in src, f"{os.path.basename(f)}: PowerShell without full path ({bad})"
     b = steps.body_for({"type": "powershell", "script": "Write-Output 1", "id": "x"}, {})
     assert b.rstrip().endswith("PK-RunPs1 $pkF ''")
     w = remote.WRAPPER
     assert 'PK-Run "$env:SystemRoot\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" ((\'-NoLogo -NonInteractive -NoProfile -ExecutionPolicy Bypass -File' in w
 
 
-@test("2.24.4 Benachrichtigung: vom Benutzer abgeschaltet wird respektiert, Start unabhängig von der Ausführungsrichtlinie, Rechte unter „Programme“ erzwungen")
+@test("2.24.4 Notification: switched off by the user is respected, start independent of the execution policy, permissions under \"Programme\" enforced")
 def _():
     import base64 as _b
     from app import toast
     u = toast.USER_PS
     assert "Done 12" in u and "$st.Enabled -eq 0" in u and "ShowInActionCenter -eq 0) { Done 11 }" in u
-    assert u.index("Done 12") < u.index("Rückfall"), "Abschaltung prüfen, BEVOR auf „Windows PowerShell“ ausgewichen wird"
+    assert u.index("Done 12") < u.index("Rückfall"), "check the switch-off BEFORE falling back to \"Windows PowerShell\""
     assert toast.RESULT_TEXT[12][0] is False
     script, _d = toast.build_send_script([("installed", "7-Zip", "26.00")])
-    assert "[ScriptBlock]::Create([IO.File]::ReadAllText(" in script and "$pol -eq 'AllSigned'" in script, "kodierter Starter nur bei GPO AllSigned/Restricted"
+    assert "[ScriptBlock]::Create([IO.File]::ReadAllText(" in script and "$pol -eq 'AllSigned'" in script, "encoded starter only with GPO AllSigned/Restricted"
     assert "/setowner '*S-1-5-32-544'" in script and "/reset" in script and "Unsichere Rechte" in script
 
 
-@test("2.24.5 Benachrichtigung bei Softwareeinschränkung (SRP/AppLocker, Constrained Language Mode): Start per -File aus „Programme“; Ergebnis kommt aus dem Skript selbst, nicht aus dem Exitcode von conhost")
+@test("2.24.5 Notification under software restriction (SRP/AppLocker, Constrained Language Mode): start via -File from \"Programme\"; result comes from the script itself, not from the exit code of conhost")
 def _():
     import re as _re
     from app import toast
@@ -1897,13 +1897,13 @@ def _():
     assert "EnableScripts" in script and "HKEY_USERS" in script
     u = toast.USER_PS
     assert u.startswith("param([string]$Data, [string]$Rid)") and "function Done([int]$c)" in u and "trap { Done 1 }" in u
-    assert not _re.search(r"^(?!\s*exit \$c)[^#\n]*\bexit [0-9]", u, _re.M), "jedes Ergebnis über Done (Registry), nie nur als Exitcode"
-    assert "CreateSubKey('Software\\PocketKnife\\Toast')" in u, "Ergebnis in HKCU\\Software\\PocketKnife\\Toast"
-    assert "Software\\PocketKnife\\Toast" in script and ":13'" in script, "keine Antwort vom Skript → 13, nie „gezeigt“"
+    assert not _re.search(r"^(?!\s*exit \$c)[^#\n]*\bexit [0-9]", u, _re.M), "every result via Done (registry), never only as exit code"
+    assert "CreateSubKey('Software\\PocketKnife\\Toast')" in u, "result in HKCU\\Software\\PocketKnife\\Toast"
+    assert "Software\\PocketKnife\\Toast" in script and ":13'" in script, "no answer from the script -> 13, never \"shown\""
     assert toast.RESULT_TEXT[13][0] is False and "Softwareeinschränkung" in toast.RESULT_TEXT[13][1]
 
 
-@test("2.24.6 Meldung bei Neustart/Herunterfahren einstellbar (Absender, Texte, Platzhalter) – sicher an shutdown.exe übergeben")
+@test("2.24.6 Message on restart/shutdown configurable (sender, texts, placeholders) – passed safely to shutdown.exe")
 def _():
     import glob as _g
     from app import main as _m, rebootmsg, steps, util
@@ -1912,7 +1912,7 @@ def _():
     db.set_setting("reboot_sender", "")
     for k in rebootmsg.KEYS.values():
         db.set_setting(k, "")
-    assert rebootmsg.text("restart", sekunden=60) == "POCKET KNIFE: Neustart in 60 Sekunden.", "Standard unverändert"
+    assert rebootmsg.text("restart", sekunden=60) == "POCKET KNIFE: Neustart in 60 Sekunden.", "default unchanged"
     assert rebootmsg.text("deploy", sekunden=120) == "POCKET KNIFE: Neustart nach Softwareverteilung in 2 Minuten."
     db.set_setting("reboot_sender", "Ihre IT-Abteilung")
     assert rebootmsg.text("shutdown", sekunden=60) == "Ihre IT-Abteilung: Herunterfahren in 60 Sekunden."
@@ -1920,20 +1920,20 @@ def _():
     db.set_setting("reboot_msg_step", 'Achtung "{absender}"\nNeustart in {minuten} Min. {unbekannt}')
     t = steps.reboot_text({"delay_sec": 90})
     assert t == "Achtung 'Ihre IT-Abteilung' Neustart in 1,5 Min. {unbekannt}", t
-    assert steps.reboot_text({"delay_sec": 60, "message": "Eigener Text: {absender}"}) == "Eigener Text: Ihre IT-Abteilung", "Schritttext hat Vorrang"
+    assert steps.reboot_text({"delay_sec": 60, "message": "Eigener Text: {absender}"}) == "Eigener Text: Ihre IT-Abteilung", "step text takes precedence"
     evil = "x'; Remove-Item C:\\ -Recurse; '"
     db.set_setting("reboot_sender", evil)
     q = util.psq(rebootmsg.text("restart", sekunden=60))
-    assert q.startswith("'x''; Remove-Item"), "Text immer als PowerShell-Literal (psq), nie als Code"
+    assert q.startswith("'x''; Remove-Item"), "text always as PowerShell literal (psq), never as code"
     root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app")
     for f in _g.glob(os.path.join(root, "*.py")):
         src = open(f, encoding="utf-8").read()
-        assert "POCKET KNIFE: Neustart" not in src.replace('"{absender}', "") or f.endswith("rebootmsg.py"), f"fester Text in {os.path.basename(f)}"
+        assert "POCKET KNIFE: Neustart" not in src.replace('"{absender}', "") or f.endswith("rebootmsg.py"), f"fixed text in {os.path.basename(f)}"
     db.set_setting("reboot_sender", "")
     db.set_setting("reboot_msg_step", "")
 
 
-@test("2.24.6 Geänderter Absender der Benachrichtigung erscheint wirklich (eigene Absender-ID je Name, Windows merkt sich alte Namen)")
+@test("2.24.6 A changed notification sender really appears (own sender ID per name, Windows remembers old names)")
 def _():
     from app import toast
     db.set_setting("toast_compat", 0)
@@ -1942,20 +1942,20 @@ def _():
     db.set_setting("toast_sender", "Softwareverteilung")
     b = toast.build_send_script([("installed", "A", "1")])[1]
     assert a["sender"] == "Ihre IT-Abteilung" and a["appid"] != b["appid"] and a["appid"].startswith(toast.APP_ID + ".")
-    assert a["appid"] == toast.app_id("Ihre IT-Abteilung"), "gleicher Name → gleiche ID (keine neue Registrierung bei jeder Meldung)"
+    assert a["appid"] == toast.app_id("Ihre IT-Abteilung"), "same name -> same ID (no new registration for every message)"
     u = toast.USER_PS
     assert "$_.PSChildName -like ($d.base + '*')" in u and "Remove-Item -Path $o.PSPath" in u and "if ($off" in u, \
-        "alte IDs aufräumen; vom Benutzer abgeschaltet bleibt abgeschaltet"
+        "clean up old IDs; switched off by the user stays switched off"
 
 
-@test("2.24.8 Benachrichtigung/Neustart-Meldung: Review-Funde (Rückmeldung ohne Leeren des Schlüssels, Aufräumen, Codes 13/14, 0 Sekunden, Backslash)")
+@test("2.24.8 Notification/restart message: review findings (feedback without emptying the key, cleanup, codes 13/14, 0 seconds, backslash)")
 def _():
     from app import rebootmsg, steps, toast
     u = toast.USER_PS
     assert "CreateSubKey('Software\\PocketKnife\\Toast')" in u and "New-Item -Path $rk" not in u
-    assert "if (-not (Test-Path $k)) { New-Item -Path $k -Force" in u, "Absender-Schlüssel nie neu anlegen (leeren)"
+    assert "if (-not (Test-Path $k)) { New-Item -Path $k -Force" in u, "never recreate (empty) the sender key"
     sc = toast.build_send_script([("installed", "7-Zip", "26.00")])[0]
-    # 2.38: Vergleich über SHA-256 der Datei (auch reine Groß-/Kleinschreibungs-Änderungen), ohne .NET
+    # 2.38: comparison via SHA-256 of the file (also pure upper/lower-case changes), without .NET
     import hashlib as _hl
     assert "$have -ne '" + _hl.sha256(b"\xef\xbb\xbf" + toast.USER_PS.encode("utf-8")).hexdigest().upper() + "'" in sc
     assert "$hv -ne '" in sc and "Get-FileHash" in sc and "[IO.File]" not in sc.split("function Action")[0]
@@ -1966,20 +1966,20 @@ def _():
     db.set_setting("reboot_msg_step", "")
     assert steps.reboot_text({"delay_sec": 0}) == "POCKET KNIFE: Neustart für die Softwareverteilung"
     db.set_setting("reboot_msg_step", "{absender}: Neustart in {sekunden} s")
-    assert steps.reboot_text({"delay_sec": 0}).endswith("in 0 s"), "0 Sekunden bleiben 0 (nicht 60)"
+    assert steps.reboot_text({"delay_sec": 0}).endswith("in 0 s"), "0 seconds stays 0 (not 60)"
     db.set_setting("reboot_msg_step", "")
-    assert rebootmsg.clean("Ihre IT \\\\", 60) == "Ihre IT", "kein Backslash am Ende (zerlegt das Argument von shutdown.exe)"
+    assert rebootmsg.clean("Ihre IT \\\\", 60) == "Ihre IT", "no backslash at the end (breaks the argument of shutdown.exe)"
 
 
 def _asgi(method, path, token=None, body=None, raw=None):
-    """Eine Anfrage direkt an die App (ohne Netzwerk) – (Status, JSON oder Text). raw: Bytes statt JSON."""
+    """A request directly to the app (without network) – (status, JSON or text). raw: bytes instead of JSON."""
     import asyncio
     from app import main as _m
     path, _, qs = path.partition("?")
     data = raw if raw is not None else (json.dumps(body if body is not None else {}).encode() if method in ("POST", "PUT", "DELETE") else b"")
     ctype = b"application/octet-stream" if raw is not None else b"application/json"
     hdr = [(b"host", b"testserver"), (b"content-type", ctype), (b"content-length", str(len(data)).encode()),
-           (b"x-pk-request", b"1")]  # wie die Oberfläche (CSRF-Schutz) – sonst prüfte der Test nur den CSRF-Schutz
+           (b"x-pk-request", b"1")]  # like the UI (CSRF protection) – otherwise the test would only test the CSRF protection
     if token:
         hdr.append((b"cookie", f"pk_session={token}".encode()))
     scope = {"type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1", "method": method, "scheme": "http",
@@ -2006,7 +2006,7 @@ def _asgi(method, path, token=None, body=None, raw=None):
         return out["status"], out["body"][:200]
 
 
-@test("2.25 OU-Admins: jede Schnittstelle ist für sie gesperrt, außer den freigegebenen – und die zeigen/steuern nur ihre Computer")
+@test("2.25 OU admins: every interface is blocked for them except the released ones – and those only show/control their computers")
 def _():
     import hashlib
     import re as _re
@@ -2014,8 +2014,8 @@ def _():
     import time as _t
     from app import access, auth, config, deploy, pklog, schedules, util
     from app import main as _m
-    # Aufbau: Mandant „Nord“ (Sammlung mit 2 Computern, OU-Admins, eigene Pakete erlaubt), Mandant „Süd“ mit eigenem Paket,
-    # ein fremder Computer, ein zentrales Paket
+    # Setup: tenant "Nord" (collection with 2 computers, OU admins, own packages allowed), tenant "Süd" with its own package,
+    # a foreign computer, a central package
     ids = [db.ex("INSERT INTO computers(name, dns_name, created_at) VALUES(?,?,?)", (n, n + ".firma.local", util.now()))
            for n in ("OU-IN1", "OU-IN2", "OU-OUT")]
     cin1, cin2, cout = ids
@@ -2023,7 +2023,7 @@ def _():
     for c in (cin1, cin2):
         db.ex("INSERT INTO collection_members VALUES(?,?)", (col, c))
     t_nord = db.ex("INSERT INTO tenants(name, collection_id, repo_folder, admin_group, allow_packages, allow_scripts, created_at) "
-                   "VALUES('Nord', ?, 'Kunden\\Nord', 'PK-OU-Nord', 1, 1, ?)", (col, util.now()))  # Skript-Schritte erlaubt (2.29.1)
+                   "VALUES('Nord', ?, 'Kunden\\Nord', 'PK-OU-Nord', 1, 1, ?)", (col, util.now()))  # script steps allowed (2.29.1)
     t_sued = db.ex("INSERT INTO tenants(name, created_at) VALUES('Süd', ?)", (util.now(),))
     p_central = db.ex("INSERT INTO packages(name, version, steps, conditions, run_as, created_at) VALUES('Zentral (Test)','1',?,'{}','deploy',?)",
                       (json.dumps({"main": [{"id": "z1", "type": "command", "command": "hostname"}]}), util.now()))
@@ -2040,21 +2040,21 @@ def _():
         db.ex("INSERT INTO sessions(token_hash, username, display_name, created, expires, ip, last_active, role, scope) VALUES(?,?,?,?,?,?,?,?,?)",
               (th, "ou-test" if scope else "haupt-test", "Test", util.now(), "2099-01-01 00:00:00", "127.0.0.1", util.now(), "admin",
                json.dumps(scope) if scope is not None else None))
-        auth._checked[th] = _t.time() + 10 ** 6  # keine AD-Nachprüfung im Test
+        auth._checked[th] = _t.time() + 10 ** 6  # no AD re-check in the test
         return tok
     ou, main_admin = session([t_nord]), session(None)
     st, me = _asgi("GET", "/api/me", ou)
     assert st == 200 and me["scoped"] is True and me["computers"] == 2 and me["may_build"], (st, me)
     assert _asgi("GET", "/api/me", main_admin)[1]["scoped"] is False
 
-    # 1) Freigabeliste: jeder Eintrag gibt es wirklich (kein Tippfehler), und kritische Routen sind NICHT freigegeben
+    # 1) Release list: every entry really exists (no typo), and critical routes are NOT released
     routes = set()
     for r in _m.app.routes:
         for mth in (getattr(r, "methods", None) or ()):
             if mth != "HEAD":
                 routes.add((mth, _re.sub(r"\{(\w+):[^}]+\}", r"{\1}", r.path)))
     missing = [k for k in access.ROUTES if k not in routes]
-    assert not missing, f"Freigabeliste nennt unbekannte Routen: {missing}"
+    assert not missing, f"release list names unknown routes: {missing}"
     for k in [("PUT", "/api/settings"), ("GET", "/api/settings"), ("POST", "/api/tenants"), ("PUT", "/api/tenants/{tid}"),
               ("DELETE", "/api/tenants/{tid}"), ("GET", "/api/system"), ("PUT", "/api/system/accounts"), ("GET", "/api/backups"),
               ("POST", "/api/tools"), ("PUT", "/api/tools/{tid}"), ("POST", "/api/customreports"), ("PUT", "/api/customreports/{rid}"),
@@ -2062,9 +2062,9 @@ def _():
               ("GET", "/api/ad/browse"), ("PUT", "/api/kiosk/admin/items/{pid}"), ("GET", "/api/mail/settings"),
               ("DELETE", "/api/computers/{cid}"), ("POST", "/api/computers"), ("GET", "/api/system/diagnostics"),
               ("PUT", "/api/remote/vnc_password"), ("POST", "/api/winget/refresh"), ("POST", "/api/software/exclusions")]:
-        assert k in routes and k not in access.ROUTES, f"darf für OU-Admins nicht freigegeben sein: {k}"
+        assert k in routes and k not in access.ROUTES, f"must not be released for OU admins: {k}"
 
-    # 2) Jede NICHT freigegebene Route antwortet einem OU-Admin mit 403 – der Handler läuft nie
+    # 2) Every NOT released route answers an OU admin with 403 – the handler never runs
     def fill(path, cid):
         return _re.sub(r"\{(\w+)\}", lambda m: str(cid) if m.group(1) == "cid" else "1", path)
     for mth, path in sorted(routes):
@@ -2072,28 +2072,28 @@ def _():
             continue
         if path in ("/api/login", "/api/logout", "/api/session/active", "/api/session/idle", "/api/remote/tunnel") \
                 or path.startswith("/api/kiosk/") and not path.startswith("/api/kiosk/admin") or path.startswith("/api/mail/view/"):
-            continue  # ohne Verwaltungsrechte (Kiosk, Sitzung, Mail-Link mit eigenem Token)
+            continue  # without administration rights (kiosk, session, mail link with own token)
         st, res = _asgi(mth, fill(path, cin1), ou)
-        assert st == 403 and "OU-Admins" in str(res), f"{mth} {path}: {st} {res} – muss für OU-Admins gesperrt sein"
+        assert st == 403 and "OU-Admins" in str(res), f"{mth} {path}: {st} {res} – must be blocked for OU admins"
 
-    # 3) Freigegebene Routen mit Computer im Pfad: fremder Computer → 404, eigener → nicht 403/404 (nur Lesezugriffe)
+    # 3) Released routes with a computer in the path: foreign computer -> 404, own -> not 403/404 (read access only)
     for (mth, path), chk in access.ROUTES.items():
         if "{cid}" not in path:
             continue
         st, _r = _asgi(mth, fill(path, cout), ou, {})
-        assert st == 404, f"{mth} {path} mit fremdem Computer: {st} (erwartet 404)"
+        assert st == 404, f"{mth} {path} with foreign computer: {st} (expected 404)"
     for path in ("/api/computers/{cid}", "/api/computers/{cid}/cat/software", "/api/computers/{cid}/cat/logs"):
         st, _r = _asgi("GET", fill(path, cin1), ou)
-        assert st == 200, f"GET {path} mit eigenem Computer: {st}"
+        assert st == 200, f"GET {path} with own computer: {st}"
 
-    # 4) Listen zeigen nur eigene Computer / Daten
+    # 4) Lists show only own computers / data
     names = {c["name"] for c in _asgi("GET", "/api/computers", ou)[1]}
     assert names == {"OU-IN1", "OU-IN2"}, names
-    assert "OU-OUT" in {c["name"] for c in _asgi("GET", "/api/computers", main_admin)[1]}, "Hauptadmin sieht weiter alles"
+    assert "OU-OUT" in {c["name"] for c in _asgi("GET", "/api/computers", main_admin)[1]}, "main admin still sees everything"
     sw = {r["name"] for r in _asgi("GET", "/api/software", ou)[1]}
     assert f"OU-Testprogramm-{cin1}" in sw and f"OU-Testprogramm-{cout}" not in sw
     st, det = _asgi("GET", f"/api/software/detail?name=OU-Testprogramm-{cout}", ou)
-    assert st == 200 and det["computers"] == [], "Softwaredetails fremder Computer"
+    assert st == 200 and det["computers"] == [], "software details of foreign computers"
     logs = [l["message"] for l in _asgi("GET", "/api/logs?q=OU-Testeintrag", ou)[1]]
     assert f"OU-Testeintrag {cin1}" in logs and f"OU-Testeintrag {cout}" not in logs, logs
     st, csv = _asgi("GET", "/api/logs/csv?q=OU-Testeintrag", ou)
@@ -2108,10 +2108,10 @@ def _():
     dash = _asgi("GET", "/api/dashboard", ou)[1]
     assert dash["computers"] == 2 and dash["guard"] is None, dash
 
-    # 5) Pakete: zentrale sichtbar (nicht änderbar), fremde Mandanten unsichtbar (2.37); eigene landen im eigenen Mandanten
+    # 5) Packages: central ones visible (not changeable), foreign tenants invisible (2.37); own ones land in the own tenant
     pk = {p["name"]: p for p in _asgi("GET", "/api/packages", ou)[1]}
     assert "Zentral (Test)" in pk and pk["Zentral (Test)"]["editable"] is False
-    assert "Süd-Paket" not in pk, "2.37: Pakete anderer Mandanten sind für OU-Admins unsichtbar"
+    assert "Süd-Paket" not in pk, "2.37: packages of other tenants are invisible to OU admins"
     assert _asgi("GET", f"/api/packages/{p_sued}", ou)[0] == 404
     assert "Süd-Paket" not in {p["name"] for p in _asgi("GET", "/api/packages/meta", ou)[1]["packages"]}
     assert _asgi("PUT", f"/api/packages/{p_sued}", ou, {"name": "x"})[0] in (403, 404)
@@ -2120,20 +2120,20 @@ def _():
     assert _asgi("DELETE", f"/api/packages/{p_central}", ou)[0] == 403
     st, r = _asgi("POST", "/api/packages", ou, {"name": "Nord-Paket (Test)", "tenant_id": t_sued,
                                                  "steps": {"main": [{"type": "command", "command": "hostname"}]}})
-    assert st == 403, "fremden Mandanten angeben → abgelehnt"
+    assert st == 403, "specify a foreign tenant -> rejected"
     st, r = _asgi("POST", "/api/packages", ou, {"name": "Nord-Paket (Test)", "steps": {"main": [{"type": "command", "command": "hostname"}]}})
     assert st == 200 and db.val("SELECT tenant_id FROM packages WHERE id=?", (r["id"],)) == t_nord, (st, r)
     p_nord = r["id"]
     st, r = _asgi("POST", "/api/packages", ou, {"name": "Verschachtelt (Test)", "steps": {"main": [{"type": "nested", "package_id": p_sued}]}})
-    assert st in (403, 404), ("verschachtelt nur zentrale/eigene Pakete", st, r)
+    assert st in (403, 404), ("nested only central/own packages", st, r)
     st, r = _asgi("POST", f"/api/packages/{p_central}/duplicate", ou)
-    assert st == 200 and db.val("SELECT tenant_id FROM packages WHERE id=?", (r["id"],)) == t_nord, ("Kopie eines zentralen Pakets gehört dem eigenen Mandanten", st, r)
-    assert _asgi("GET", "/api/repository?path=Kunden\\Sued", ou)[0] == 403, "Repository nur im eigenen Ordner"
-    # 6) Bereitstellen: nur eigene Computer, nur sichtbare Pakete
+    assert st == 200 and db.val("SELECT tenant_id FROM packages WHERE id=?", (r["id"],)) == t_nord, ("copy of a central package belongs to the own tenant", st, r)
+    assert _asgi("GET", "/api/repository?path=Kunden\\Sued", ou)[0] == 403, "repository only in the own folder"
+    # 6) Deploy: only own computers, only visible packages
     assert _asgi("POST", "/api/deployments", ou, {"package_id": p_central, "computer_ids": [cout], "scheduled_at": "2099-01-01 00:00"})[0] == 403
-    # 2.37: Pakete anderer Mandanten sind für OU-Admins unsichtbar – auch nicht verteilbar
+    # 2.37: packages of other tenants are invisible to OU admins – cannot be distributed either
     st, r = _asgi("POST", "/api/deployments", ou, {"package_id": p_sued, "computer_ids": [cin1], "scheduled_at": "2099-01-01 00:00"})
-    assert st == 404, ("fremdes Mandanten-Paket verteilen", st, r)
+    assert st == 404, ("distribute foreign tenant package", st, r)
     st, r = _asgi("POST", "/api/deployments", ou, {"package_id": p_nord, "computer_ids": [cin1], "scheduled_at": "2099-01-01 00:00"})
     assert st == 200, (st, r)
     d_mine = r["id"]
@@ -2144,102 +2144,102 @@ def _():
     deps = {d["id"]: d for d in _asgi("GET", "/api/deployments", ou)[1]}
     assert d_mine in deps and d_mixed in deps and d_foreign not in deps and deps[d_mixed]["total"] == 1
     st, d = _asgi("GET", f"/api/deployments/{d_mixed}", ou)
-    assert st == 200 and [t["computer_id"] for t in d["targets"]] == [cin1], "nur eigene Ziele"
+    assert st == 200 and [t["computer_id"] for t in d["targets"]] == [cin1], "own targets only"
     assert _asgi("GET", f"/api/deployments/{d_foreign}", ou)[0] == 404
-    assert _asgi("POST", f"/api/deployments/{d_mixed}/cancel", ou)[0] == 403, "gemischte Bereitstellung nicht abbrechen"
+    assert _asgi("POST", f"/api/deployments/{d_mixed}/cancel", ou)[0] == 403, "do not abort mixed deployment"
     assert _asgi("DELETE", f"/api/deployments/{d_mixed}", ou)[0] == 403
     assert _asgi("POST", f"/api/deployments/{d_mine}/cancel", ou)[0] == 200
-    # 7) Zeitpläne: nur eigener Mandant; neue landen dort
+    # 7) Schedules: own tenant only; new ones land there
     st, r = _asgi("POST", "/api/schedules", ou, {"name": "Nord-Zeitplan (Test)", "kind": "packages", "packages": [p_nord],
                                                   "targets": {"computers": [cin1], "collections": []}, "enabled": False})
     assert st == 200 and db.val("SELECT tenant_id FROM schedules WHERE id=?", (r["id"],)) == t_nord, (st, r)
     st, r2 = _asgi("POST", "/api/schedules", ou, {"name": "x", "kind": "packages", "packages": [p_central],
                                                    "targets": {"computers": [cout], "collections": []}, "enabled": False})
-    assert st == 403, "fremde Computer im Zeitplan"
+    assert st == 403, "foreign computers in the schedule"
     s_main = schedules.save(None, {"name": "Haupt-Zeitplan (Test)", "kind": "packages", "packages": [p_central],
                                    "targets": {"computers": [cout], "collections": []}, "enabled": False})
     assert s_main not in {x["id"] for x in _asgi("GET", "/api/schedules", ou)[1]}
     assert _asgi("GET", f"/api/schedules/{s_main}", ou)[0] == 404 and _asgi("POST", f"/api/schedules/{s_main}/run", ou)[0] == 404
-    # Zeitplan eines Mandanten erreicht nur dessen Computer (auch wenn fremde eingetragen wären)
+    # A tenant's schedule reaches only its computers (even if foreign ones were entered)
     sx = schedules.save(None, {"name": "Nord direkt (Test)", "kind": "packages", "packages": [p_nord], "tenant_id": t_nord,
                                "targets": {"computers": [cin1, cout], "collections": []}, "enabled": False})
     assert schedules.members(schedules.get(sx)) == {cin1}
-    # 8) Mandanten: nur der eigene, ohne Ändern; ohne Freigabe keine eigenen Pakete
+    # 8) Tenants: only the own one, without editing; without release no own packages
     assert [t["name"] for t in _asgi("GET", "/api/tenants", ou)[1]] == ["Nord"]
     db.ex("UPDATE tenants SET allow_packages=0 WHERE id=?", (t_nord,))
     assert _asgi("POST", "/api/packages", ou, {"name": "y", "steps": {"main": []}})[0] == 403
     assert _asgi("PUT", f"/api/packages/{p_nord}", ou, {"name": "y"})[0] == 403
     assert _asgi("POST", "/api/schedules", ou, {"name": "y", "kind": "packages"})[0] == 403
     db.ex("UPDATE tenants SET allow_packages=1 WHERE id=?", (t_nord,))
-    # 9) Kein Bereich = keine Computer (nie „alles“); Fehlerdetails nie an OU-Admins
+    # 9) No scope = no computers (never "all"); error details never to OU admins
     empty = session([])
     assert _asgi("GET", "/api/computers", empty)[1] == [] and _asgi("GET", "/api/me", empty)[1]["scoped"] is True
     src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "main.py"), encoding="utf-8").read()
     assert 'sess.get("scope") is not None:' in src
-    # Mandant mit OU-Admins braucht eine Sammlung; die Hauptadmin-Gruppe ist keine OU-Admin-Gruppe
+    # A tenant with OU admins needs a collection; the main admin group is not an OU admin group
     assert _asgi("POST", "/api/tenants", main_admin, {"name": "Ohne Sammlung", "admin_group": "PK-OU-X"})[0] == 400
     assert _asgi("POST", "/api/tenants", main_admin, {"name": "Haupt", "admin_group": config.ACCESS_GROUP or "POCKETKNIFE-Admins",
                                                       "collection_id": col})[0] == 400
-    # 10) Review 2.25: „für alle merken“ nur Hauptadmins; nie als Dienstkonto; Dateien nur mit eigenem Ordner; Zeitplan-Sammlungen
+    # 10) Review 2.25: "remember for all" only main admins; never as service account; files only with own folder; schedule collections
     sw_in = db.val("SELECT id FROM software WHERE computer_id=?", (cin1,))
     st, r = _asgi("POST", "/api/uninstall", ou, {"items": [{"software_id": sw_in, "command": "cmd /c echo x", "remember": "*"}]})
-    assert st == 403 and not db.val("SELECT COUNT(*) FROM uninstall_overrides WHERE pattern='*'"), "Befehl für alle Computer"
+    assert st == 403 and not db.val("SELECT COUNT(*) FROM uninstall_overrides WHERE pattern='*'"), "command for all computers"
     db.ex("UPDATE software SET uninstall_string=? WHERE id=?", ('"C:\\Program Files\\OU\\unins000.exe"', sw_in))
     st, r = _asgi("POST", "/api/uninstall", ou, {"items": [{"software_id": sw_in, "run_as": "deploy"}]})
     assert st == 200 and r["deployments"], (st, r)
     pj = json.loads(db.val("SELECT package_json FROM deployments WHERE id=?", (r["deployments"][0],)))
-    assert pj.get("run_as") != "deploy", "Deinstallation (UninstallString vom Client) nie als Dienstkonto"
+    assert pj.get("run_as") != "deploy", "uninstall (UninstallString from the client) never as service account"
     db.ex("DELETE FROM deployments WHERE id=?", (r["deployments"][0],))
     from app import uninstall as _un
     swrow = db.q1("SELECT * FROM software WHERE id=?", (sw_in,))
-    assert _un.package_for(swrow, None, "deploy")["run_as"] != "deploy", "auch für Hauptadmins: Registry-Befehl nie als Dienstkonto"
+    assert _un.package_for(swrow, None, "deploy")["run_as"] != "deploy", "also for main admins: registry command never as service account"
     stsrc = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "steps.py"), encoding="utf-8").read()
     assert 'if ra == "deploy" and not (st.get("command") or "").strip():' in stsrc
     st, r = _asgi("POST", "/api/packages", ou, {"name": "Als Dienstkonto (Test)", "run_as": "deploy",
                                                  "steps": {"main": [{"type": "command", "command": "whoami", "run_as": "deploy"}]}})
     assert st == 200, (st, r)
     row = db.q1("SELECT run_as, steps FROM packages WHERE id=?", (r["id"],))
-    assert row["run_as"] == "system" and '"deploy"' not in row["steps"], "Code eines OU-Admins nie als Dienstkonto"
+    assert row["run_as"] == "system" and '"deploy"' not in row["steps"], "code of an OU admin never as service account"
     st, r = _asgi("POST", "/api/packages", ou, {"name": "Ausbruch (Test)", "steps": {"main": [
         {"type": "install", "source": "file", "folder": "Kunden\\Nord\\..\\Sued", "install_file": "x.msi"}]}})
-    assert st == 400, ("„..“ im Paketordner", st, r)
+    assert st == 400, ("\"..\" in the package folder", st, r)
     db.ex("UPDATE tenants SET repo_folder='' WHERE id=?", (t_nord,))
     st, r = _asgi("POST", "/api/packages", ou, {"name": "Ohne Ordner (Test)", "steps": {"main": [
         {"type": "install", "source": "file", "folder": "Kunden\\Berlin", "install_file": "x.msi"}]}})
-    assert st == 403, ("ohne Repository-Ordner keine Repository-Dateien", st, r)
+    assert st == 403, ("without repository folder no repository files", st, r)
     db.ex("UPDATE tenants SET repo_folder='Kunden\\Nord' WHERE id=?", (t_nord,))
     for cols in ([0], [col + 999]):
         st, r = _asgi("POST", "/api/schedules", ou, {"name": "Alle (Test)", "kind": "packages", "packages": [p_nord],
                                                       "targets": {"computers": [], "collections": cols}, "enabled": False})
-        assert st == 403, ("Zeitplan auf fremde/alle Sammlungen", cols, st)
+        assert st == 403, ("schedule on foreign/all collections", cols, st)
     st, r = _asgi("POST", "/api/schedules", ou, {"name": "Eigene OU (Test)", "kind": "packages", "packages": [p_nord],
                                                   "targets": {"computers": [], "collections": [col]}, "enabled": False})
     assert st == 200, (st, r)
     st, r = _asgi("POST", "/api/remote/connect", ou, {"computer_id": cin1, "protocol": "vnc", "auth": "central"})
-    assert st == 403, "zentrales VNC-Kennwort nicht für OU-Admins"
-    assert _asgi("GET", "/api/kiosk/me", ou)[0] == 403, "Kiosk nicht über die OU-Admin-Sitzung"
-    assert _asgi("POST", "/api/session/active", ou)[0] == 200, "Inaktivitäts-Uhr funktioniert auch für OU-Admins"
+    assert st == 403, "central VNC password not for OU admins"
+    assert _asgi("GET", "/api/kiosk/me", ou)[0] == 403, "kiosk not via the OU admin session"
+    assert _asgi("POST", "/api/session/active", ou)[0] == 200, "inactivity clock also works for OU admins"
     st, d = _asgi("GET", f"/api/deployments/{d_mixed}", ou)
-    assert d["package"].get("steps") == {}, "Inhalt einer Bereitstellung mit fremden Zielen nicht zeigen"
+    assert d["package"].get("steps") == {}, "do not show content of a deployment with foreign targets"
     assert _asgi("GET", "/api/collections", ou)[1][0]["filters"] == []
-    # Mandant hatte OU-Admins: ohne Sammlung keine Computer (nie „alle“); gelöschter Mandant: keine Computer
+    # Tenant had OU admins: without collection no computers (never "all"); deleted tenant: no computers
     db.ex("UPDATE tenants SET ou_ever=1 WHERE id=?", (t_nord,))
     assert deploy.tenant_members(t_nord) == {cin1, cin2}
     db.ex("UPDATE tenants SET collection_id=NULL WHERE id=?", (t_nord,))
     assert deploy.tenant_members(t_nord) == set() and deploy.tenant_members(10 ** 6) == set()
-    assert schedules.members(schedules.get(sx)) == set(), "Zeitplan eines OU-Mandanten ohne Sammlung erreicht niemanden"
+    assert schedules.members(schedules.get(sx)) == set(), "schedule of an OU tenant without collection reaches nobody"
     db.ex("UPDATE tenants SET collection_id=? WHERE id=?", (col, t_nord))
-    assert deploy.tenant_members(t_sued) is None, "Mandant ohne OU-Admins und ohne Sammlung: wie bisher keine Einschränkung"
-    # Mandant löschen: nicht solange Zeitpläne dranhängen (würden sonst „zentral“); Änderung beendet OU-Sitzungen
+    assert deploy.tenant_members(t_sued) is None, "tenant without OU admins and without collection: no restriction as before"
+    # Delete tenant: not while schedules are attached (they would otherwise become "central"); change ends OU sessions
     assert _asgi("DELETE", f"/api/tenants/{t_nord}", main_admin)[0] == 400
     _m._tenants_changed(t_nord)
-    assert _asgi("GET", "/api/me", ou)[0] == 401, "Sitzung des OU-Admins nach Änderung am Mandanten beendet"
+    assert _asgi("GET", "/api/me", ou)[0] == 401, "OU admin session ended after a change to the tenant"
     adsrc = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "ad.py"), encoding="utf-8").read()
     assert "def resolve_group_strict" in adsrc and "group_dn_by_sid(c, t.get(\"admin_group_sid\"))" in adsrc and "mehrdeutig" in adsrc, \
-        "Gruppen eindeutig (SID beim Speichern), nie erneut nach Namen"
+        "groups unambiguous (SID when saving), never by name again"
     fg = adsrc[adsrc.index("def _find_groups"):adsrc.index("def _group_dn")]
-    assert fg.index("sAMAccountName=") < fg.index("(cn="), "erst sAMAccountName (eindeutig), dann cn – gleichnamige Gruppe sperrt niemanden aus"
-    # Aufräumen
+    assert fg.index("sAMAccountName=") < fg.index("(cn="), "first sAMAccountName (unique), then cn – a group of the same name locks nobody out"
+    # Clean up
     db.ex("DELETE FROM uninstall_overrides WHERE created_by='ou-test'")
     for sid in (sx, s_main):
         db.ex("DELETE FROM schedules WHERE id=?", (sid,))
@@ -2255,14 +2255,14 @@ def _():
     access.flush()
 
 
-@test("2.25.1 Änderungen im AD wirken von selbst: Sitzungen werden im Hintergrund alle 2 Minuten in einem Durchlauf geprüft (entfernt → abgemeldet, weniger Rechte → neu anmelden, mehr → erweitert, AD weg → bleibt, OU-Admins höchstens 30 Min. unbestätigt)")
+@test("2.25.1 Changes in AD take effect by themselves: sessions are checked in the background every 2 minutes in one pass (removed -> logged out, fewer rights -> log in again, more -> extended, AD gone -> stays, OU admins at most 30 min unconfirmed)")
 def _():
     import hashlib
     import secrets
     import time as _t
     from app import ad, auth, scheduler, util
     assert auth.RECHECK_SECONDS <= 120 and auth.MAX_UNCONFIRMED <= 1800
-    assert "_bg(\"sessions\", _auth.recheck_all)" in open(scheduler.__file__, encoding="utf-8").read(), "läuft im Minuten-Takt"
+    assert "_bg(\"sessions\", _auth.recheck_all)" in open(scheduler.__file__, encoding="utf-8").read(), "runs every minute"
 
     def sess(scope, name, confirmed=None, expires="2099-01-01 00:00:00"):
         tok = secrets.token_urlsafe(16)
@@ -2270,7 +2270,7 @@ def _():
         db.ex("INSERT INTO sessions(token_hash, username, display_name, created, expires, ip, last_active, role, scope, confirmed_at) "
               "VALUES(?,?,?,?,?,?,?,?,?,?)", (th, name, "Test", util.now(), expires, "127.0.0.1", util.now(), "admin",
                                             json.dumps(scope) if scope is not None else None, confirmed or _t.time()))
-        auth._checked[th] = 0  # fällig
+        auth._checked[th] = 0  # due
         return tok, th
     answers = {"weg-t": False, "leer-t": [], "haupt-t2": True, "mehr-t": [5, 8], "weniger-t": [8], "ad-aus-t": None,
                "ad-aus-alt-t": None, "abgel-t": True}
@@ -2283,43 +2283,43 @@ def _():
         items = list(items)
         calls.append(len(items))
         names = {th: sam for th, sam, _r in items}
-        return {th: answers.get(sam, True) for th, sam in names.items()}  # Sitzungen anderer Tests: unverändert
+        return {th: answers.get(sam, True) for th, sam in names.items()}  # sessions of other tests: unchanged
     ad.check_sessions = fake
     auth.config.ldap_configured = lambda: True
     try:
         auth.recheck_all()
     finally:
         ad.check_sessions, auth.config.ldap_configured = orig_cs, orig_lc
-    assert len(calls) == 1, ("ein Durchlauf für alle fälligen Sitzungen", calls)
-    assert "abgel-t" in {r["username"] for r in db.q("SELECT username FROM sessions")}, "abgelaufene nicht prüfen (räumt der Aufräumlauf weg)"
+    assert len(calls) == 1, ("one pass for all due sessions", calls)
+    assert "abgel-t" in {r["username"] for r in db.q("SELECT username FROM sessions")}, "do not check expired ones (the cleanup run removes them)"
     alive = {r["username"]: r["scope"] for r in db.q("SELECT username, scope FROM sessions WHERE username LIKE '%-t%'")}
-    assert "weg-t" not in alive and "leer-t" not in alive, "aus der Gruppe entfernt → abgemeldet"
-    assert alive["haupt-t2"] is None, "in POCKETKNIFE-Admins aufgenommen → Hauptadmin"
-    assert json.loads(alive["mehr-t"]) == [5, 8], "weitere Mandanten-Gruppe → Bereich erweitert"
-    assert "weniger-t" not in alive, "weniger Rechte → neu anmelden (beendet auch Fernsitzungen)"
-    assert json.loads(alive["ad-aus-t"]) == [5], "AD nicht erreichbar → Sitzung bleibt …"
+    assert "weg-t" not in alive and "leer-t" not in alive, "removed from the group -> logged out"
+    assert alive["haupt-t2"] is None, "added to POCKETKNIFE-Admins -> main admin"
+    assert json.loads(alive["mehr-t"]) == [5, 8], "additional tenant group -> scope extended"
+    assert "weniger-t" not in alive, "fewer rights -> log in again (also ends remote sessions)"
+    assert json.loads(alive["ad-aus-t"]) == [5], "AD unreachable -> session stays ..."
     left = auth.RECHECK_SECONDS - (_t.time() - auth._checked[toks["ad-aus-t"][1]])
-    assert left <= auth.RETRY_SECONDS + 1, "… und wird nach einer Minute erneut geprüft"
-    assert "ad-aus-alt-t" not in alive, "OU-Admin seit über 30 Minuten unbestätigt → abgemeldet"
+    assert left <= auth.RETRY_SECONDS + 1, "... and is checked again after a minute"
+    assert "ad-aus-alt-t" not in alive, "OU admin unconfirmed for over 30 minutes -> logged out"
     st, res = _asgi("GET", "/api/me", toks["weniger-t"][0])
     assert st == 401 and "Berechtigung wurde geändert" in str(res), (st, res)
-    # Die Anfrage selbst fragt nie das AD (langsames AD bremst die Oberfläche nicht)
+    # The request itself never asks AD (slow AD does not slow down the UI)
     asrc = open(auth.__file__, encoding="utf-8").read()
     sess_fn = asrc[asrc.index("def _session(request):"):asrc.index("def current(request")]
     assert "ad." not in sess_fn and "check_sessions" not in sess_fn
-    # ad.check_sessions: Störung ≠ „kein Mitglied“; fehlende Zugriffsgruppe = niemand Hauptadmin, Mandanten werden geprüft
+    # ad.check_sessions: failure != "not a member"; missing access group = nobody is main admin, tenants are checked
     adsrc = open(ad.__file__, encoding="utf-8").read()
     cs = adsrc[adsrc.index("def check_sessions"):adsrc.index("def still_allowed")]
     assert "except GroupConfigError" in cs and "strict=True" in cs and "out[key] = None" in cs
     assert "class GroupConfigError(ADError)" in adsrc and "def _strict_ok" in adsrc
     db.ex("DELETE FROM sessions WHERE username LIKE '%-t%'")
 
-@test("2.25.1 AD-Prüfung der Sitzungen: Störung ≠ „kein Mitglied“, fehlende Zugriffsgruppe sperrt Entzüge nicht, gelöschte Mandanten-Gruppe gibt keinen Zugang")
+@test("2.25.1 AD check of the sessions: failure != \"not a member\", missing access group does not block revocations, deleted tenant group gives no access")
 def _():
     from app import ad, util
     t_a = db.ex("INSERT INTO tenants(name, collection_id, admin_group, admin_group_sid, created_at) VALUES('SimA', 1, 'G-A', 'S-1-5-21-1-1-1-2001', ?)", (util.now(),))
     t_b = db.ex("INSERT INTO tenants(name, collection_id, admin_group, admin_group_sid, created_at) VALUES('SimB', 1, 'G-B', 'S-1-5-21-1-1-1-2002', ?)", (util.now(),))
-    sid_dn = {"S-1-5-21-1-1-1-2001": "CN=G-A,DC=x", "S-1-5-21-1-1-1-2002": None}  # G-B im AD gelöscht
+    sid_dn = {"S-1-5-21-1-1-1-2001": "CN=G-A,DC=x", "S-1-5-21-1-1-1-2002": None}  # G-B deleted in AD
     members = {("anna", "CN=PK,DC=x"): True, ("bert", "CN=G-A,DC=x"): True, ("carl", "CN=G-A,DC=x"): "stoerung"}
     state = {"acc": "CN=PK,DC=x"}
 
@@ -2351,23 +2351,23 @@ def _():
     try:
         r = ad.check_sessions([(1, "anna", "admin"), (2, "bert", "admin"), (3, "carl", "admin"), (4, "dora", "admin"),
                                (5, "emil", "admin")])
-        assert r[1] is True, "Hauptadmin"
-        assert r[2] == [t_a], "OU-Admin nur noch für Mandanten mit vorhandener Gruppe (G-B gelöscht)"
-        assert r[3] is None, "LDAP-Störung bei der Mitgliedschaft → nicht prüfbar, NICHT abmelden"
-        assert r[4] is False and r[5] is False, "deaktiviert bzw. nicht gefunden → abmelden"
-        state["acc"] = None  # Zugriffsgruppe gelöscht/mehrdeutig
+        assert r[1] is True, "main admin"
+        assert r[2] == [t_a], "OU admin only for tenants with an existing group (G-B deleted)"
+        assert r[3] is None, "LDAP failure during membership check -> not checkable, do NOT log out"
+        assert r[4] is False and r[5] is False, "disabled or not found -> log out"
+        state["acc"] = None  # access group deleted/ambiguous
         r = ad.check_sessions([(1, "anna", "admin"), (2, "bert", "admin")])
-        assert r[1] is False, "ohne Zugriffsgruppe ist niemand Hauptadmin (wie bei der Anmeldung)"
-        assert r[2] == [t_a], "… die Mandanten-Gruppen werden trotzdem geprüft (Entzug wirkt weiter)"
+        assert r[1] is False, "without an access group nobody is main admin (as at login)"
+        assert r[2] == [t_a], "... the tenant groups are still checked (revocation keeps working)"
         ad.service_conn = lambda: (_ for _ in ()).throw(ad.ADError("DC weg"))
-        assert ad.check_sessions([(1, "anna", "admin")]) == {1: None}, "AD weg → alle nicht prüfbar"
+        assert ad.check_sessions([(1, "anna", "admin")]) == {1: None}, "AD gone -> all not checkable"
     finally:
         ad.service_conn, ad._search, ad._group_dn, ad.group_dn_by_sid, ad.is_member = orig
         ad._attr = _attr0
         db.ex("DELETE FROM tenants WHERE id IN (?,?)", (t_a, t_b))
 
 
-@test("2.25.2 Computer: Notizen und eigene Felder lassen sich direkt beim Computer eintragen (auch ohne angelegte Felder), werden gespeichert und nie vom Computer überschrieben")
+@test("2.25.2 Computers: notes and custom fields can be entered directly on the computer (even without created fields), are saved and never overwritten by the computer")
 def _():
     import hashlib
     import secrets
@@ -2389,17 +2389,17 @@ def _():
     js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
     blk = js[js.index("if (cat === 'custom_fields') {"):js.index("if (cat === 'collections') {")]
     assert "field('Notizen'" in blk and "Feld anlegen" in blk and "Einstellungen → Benutzerdefinierte Felder" not in blk, \
-        "Notizen immer da, Feld direkt anlegen, kein falscher Verweis"
+        "notes always there, create field directly, no wrong reference"
     db.ex("DELETE FROM custom_fields WHERE id=?", (fid,))
     db.ex("DELETE FROM computers WHERE id=?", (cid,))
     db.ex("DELETE FROM sessions WHERE token_hash=?", (th,))
 
 
-@test("2.25.3 Repository durchsuchbar (Name/Muster, Unterordner, Grenzen) und Wiederholen mit frei gewählten Schritten (Reihenfolge, Ziele, OU-Bereich)")
+@test("2.25.3 Repository searchable (name/pattern, subfolders, limits) and repeating with freely chosen steps (order, targets, OU scope)")
 def _():
     import tempfile as _tf
     from app import deploy, remote, steps, util
-    # --- Repository-Suche
+    # --- Repository search
     root = _tf.mkdtemp(prefix="pk-repo-", dir=TMP)
     for f in ("7zip/24.08/7z2408-x64.msi", "7zip/26.00/7z2600-x64.msi", "Office/2024/setup.exe", "Kunden/Nord/Tools/7zPortable.zip",
               "Office/setup[1].exe"):
@@ -2411,33 +2411,33 @@ def _():
         r = remote.repo_search("", "7z")
         names = {(x["folder"], x["name"]) for x in r["items"]}
         assert ("7zip", "24.08") not in names and ("7zip\\24.08", "7z2408-x64.msi") in names and ("", "7zip") in names, names
-        assert ("Kunden\\Nord\\Tools", "7zPortable.zip") in names, "auch tief in Unterordnern"
-        assert {x["name"] for x in remote.repo_search("", "7z*.msi")["items"]} == {"7z2408-x64.msi", "7z2600-x64.msi"}, "Muster mit *"
-        assert [x["name"] for x in remote.repo_search("Kunden\\Nord", "7z")["items"]] == ["7zPortable.zip"], "nur ab dem Ordner (OU-Admins)"
+        assert ("Kunden\\Nord\\Tools", "7zPortable.zip") in names, "even deep in subfolders"
+        assert {x["name"] for x in remote.repo_search("", "7z*.msi")["items"]} == {"7z2408-x64.msi", "7z2600-x64.msi"}, "pattern with *"
+        assert [x["name"] for x in remote.repo_search("Kunden\\Nord", "7z")["items"]] == ["7zPortable.zip"], "only from the folder (OU admins)"
         r = remote.repo_search("", "7z", limit=2)
-        assert len(r["items"]) == 2 and r["truncated"], "Grenze greift und wird gemeldet"
+        assert len(r["items"]) == 2 and r["truncated"], "limit applies and is reported"
         assert remote.repo_search("7zip\\24.08", "x64", limit=1)["truncated"] is False
-        assert remote.repo_search("7zip", "7z2", limit=1)["truncated"], "auch wenn die Grenze mitten im Ordner erreicht wird"
-        assert [x["name"] for x in remote.repo_search("", "setup[1]")["items"]] == ["setup[1].exe"], "[ ] gelten wörtlich"
+        assert remote.repo_search("7zip", "7z2", limit=1)["truncated"], "even if the limit is reached in the middle of the folder"
+        assert [x["name"] for x in remote.repo_search("", "setup[1]")["items"]] == ["setup[1].exe"], "[ ] are taken literally"
         for bad in ("x" * 101, "a"):
             try:
                 remote.repo_search("", bad)
-                raise AssertionError(f"abzulehnen: {bad[:10]}")
+                raise AssertionError(f"to be rejected: {bad[:10]}")
             except remote.RemoteError:
                 pass
         try:
             remote.repo_search("gibtsnicht", "abc")
-            raise AssertionError("fehlender Startordner muss gemeldet werden (nicht „keine Treffer“)")
+            raise AssertionError("missing start folder must be reported (not \"no hits\")")
         except remote.RemoteError:
             pass
         try:
             remote.repo_search("", "a")
-            raise AssertionError("mindestens 2 Zeichen")
+            raise AssertionError("at least 2 characters")
         except remote.RemoteError:
             pass
     finally:
         db.set_setting("repo_path", old or "")
-    # --- Schritte wählen
+    # --- Choose steps
     pkg = steps.normalize({"name": "Rerun (Test)", "steps": {
         "pre": [{"id": "p1", "type": "command", "command": "echo pre"}],
         "main": [{"id": "m1", "type": "command", "command": "echo 1"}, {"id": "m2", "type": "command", "command": "echo 2", "enabled": False},
@@ -2455,43 +2455,43 @@ def _():
     by = {x["sid"]: x for x in ov["steps"]}
     assert [x["sid"] for x in ov["steps"]] == ["p1", "m1", "m2", "m3", "z1"] and by["m1"]["counts"] == {"success": 1, "failed": 1}
     assert by["m2"]["enabled"] is False and len(ov["targets"]) == 3
-    assert len(deploy.steps_overview(did, {cids[0]})["targets"]) == 1, "OU-Admin sieht nur eigene Ziele"
+    assert len(deploy.steps_overview(did, {cids[0]})["targets"]) == 1, "OU admin sees only own targets"
     got = {}
     orig = deploy.create
     deploy.create = lambda p, ids, user, **kw: got.update(pkg=p, ids=ids, kw=kw) or 4711
     try:
         assert deploy.rerun_steps(did, ["m3", "m2"], "failed", [], "t") == 4711
         p2 = got["pkg"]["steps"]
-        assert [s_["id"] for s_ in p2["main"]] == ["m2", "m3"] and p2["pre"] == [] and p2["post"] == [], "nur gewählte, Paket-Reihenfolge"
-        assert all(s_["enabled"] for s_ in p2["main"]), "gewählter, im Paket ausgeschalteter Schritt läuft"
-        assert sorted(got["ids"]) == sorted(cids[1:]), "nur fehlgeschlagene Ziele"
+        assert [s_["id"] for s_ in p2["main"]] == ["m2", "m3"] and p2["pre"] == [] and p2["post"] == [], "only chosen ones, package order"
+        assert all(s_["enabled"] for s_ in p2["main"]), "chosen step that is switched off in the package runs"
+        assert sorted(got["ids"]) == sorted(cids[1:]), "only failed targets"
         assert "2 Schritte wiederholt" in got["kw"]["name"]
         deploy.rerun_steps(did, ["z1"], "selected", [tids[cids[0]]], "t")
         assert got["ids"] == [cids[0]] and "„" in got["kw"]["name"]
         db.ex("UPDATE deployments SET package_json=? WHERE id=?", (json.dumps({**pkg, "reboot": "always"}), did))
         deploy.rerun_steps(did, ["m1"], "all", [], "t", reboot="never")
-        assert got["pkg"]["reboot"] == "never", "Neustart abwählbar"
+        assert got["pkg"]["reboot"] == "never", "restart can be deselected"
         deploy.rerun_steps(did, ["m1"], "all", [], "t")
-        assert got["pkg"]["reboot"] == "always", "sonst wie im Paket"
+        assert got["pkg"]["reboot"] == "always", "otherwise as in the package"
         assert deploy.RETRY_SUFFIX.sub("", "Pkg – 2 Schritte wiederholt – ab „A“ wiederholt") == "Pkg"
         deploy.rerun_steps(did, ["m1"], "all", [], "t", allowed={cids[1]})
-        assert got["ids"] == [cids[1]], "OU-Admin: nur Ziele im eigenen Bereich"
+        assert got["ids"] == [cids[1]], "OU admin: only targets in the own scope"
         for bad in ((did, [], "all"), (did, ["xx"], "all"), (did, ["m1"], "selected")):
             try:
                 deploy.rerun_steps(bad[0], bad[1], bad[2], [], "t")
-                raise AssertionError(f"muss abgelehnt werden: {bad}")
+                raise AssertionError(f"must be rejected: {bad}")
             except ValueError:
                 pass
         db.ex("UPDATE deployments SET status='running' WHERE id=?", (did,))
         try:
             deploy.rerun_steps(did, ["m1"], "all", [], "t")
-            raise AssertionError("läuft noch → ablehnen")
+            raise AssertionError("still running -> reject")
         except ValueError:
             pass
     finally:
         deploy.create = orig
         db.ex("DELETE FROM deployments WHERE id=?", (did,))
-    # Schritt-IDs: fehlende werden fest nach Position ergänzt, doppelte beim Speichern neu vergeben
+    # Step IDs: missing ones are filled in fixedly by position, duplicates are reassigned on saving
     n1 = steps.normalize({"steps": {"main": [{"type": "command", "command": "a"}, {"type": "command", "command": "b"}]}})
     n2 = steps.normalize({"steps": {"main": [{"type": "command", "command": "a"}, {"type": "command", "command": "b"}]}})
     ids1 = [x["id"] for x in n1["steps"]["main"]]
@@ -2500,13 +2500,13 @@ def _():
                                                                          {"id": "aa", "type": "command", "command": "b"}]}})
     assert len({x["id"] for x in cp["steps"]["main"]}) == 2
     from app import access
-    assert access.ROUTES[("GET", "/api/deployments/{did}/steps")] is access._p_dep_w, "Schritt-Titel nur bei ausschließlich eigenen Zielen"
+    assert access.ROUTES[("GET", "/api/deployments/{did}/steps")] is access._p_dep_w, "step title only with exclusively own targets"
     assert access.ROUTES[("GET", "/api/deployments/{did}/failed_steps")] is access._p_dep_w
     for c in cids:
         db.ex("DELETE FROM computers WHERE id=?", (c,))
 
 
-@test("2.25.4 Datei-Explorer: Ersatzweg über C$ (Muster, Verknüpfungen nicht verfolgt, gesperrte Ordner übersprungen, Grenzen, OU-Regel)")
+@test("2.25.4 File explorer: fallback via C$ (pattern, links not followed, locked folders skipped, limits, OU rule)")
 def _():
     from app import access, clientfiles
     from app.main import app as _app
@@ -2520,7 +2520,7 @@ def _():
             self.name, self._a, self._s = name, attr, size
 
         def stat(self, follow_symlinks=True):
-            assert follow_symlinks is False, "Links dürfen nicht verfolgt werden"
+            assert follow_symlinks is False, "links must not be followed"
             return St(self._a, self._s)
 
     D, F, J = 0x10, 0x20, 0x410
@@ -2552,35 +2552,35 @@ def _():
         r = sm("C:\\Logs", "app")
         got = {(x["folder"], x["name"]) for x in r["items"]}
         assert got == {("C:\\Logs", "app.log"), ("C:\\Logs\\alt", "app-2024.log"), ("C:\\Logs\\alt\\tief", "app.LOG")}, got
-        assert "C:\\Logs\\Link" not in seen, "Junction nicht verfolgt"
+        assert "C:\\Logs\\Link" not in seen, "junction not followed"
         assert r["skipped"] == 1 and r["truncated"] is False, r
-        assert [x["name"] for x in sm("C:\\Logs", "*.log")["items"]] == ["app-2024.log", "app.LOG", "app.log", "setup[1].log"], "sortiert nach Pfad"
-        assert [x["name"] for x in sm("C:\\Logs", "setup[1]")["items"]] == ["setup[1].log"], "[ ] wörtlich"
+        assert [x["name"] for x in sm("C:\\Logs", "*.log")["items"]] == ["app-2024.log", "app.LOG", "app.log", "setup[1].log"], "sorted by path"
+        assert [x["name"] for x in sm("C:\\Logs", "setup[1]")["items"]] == ["setup[1].log"], "[ ] literal"
         assert [x["name"] for x in sm("C:\\Logs", "alt")["items"]] == ["alt"] and sm("C:\\Logs", "alt")["items"][0]["dir"]
         assert sm("C:\\Logs", "app", limit=2)["truncated"]
         assert sm("C:\\Logs", "app", max_dirs=1)["truncated"]
         for bad_path in ("", "\\\\srv\\x", "C:\\Logs\\..\\Windows"):
             try:
                 clientfiles.search(1, bad_path, "app")
-                raise AssertionError(f"Pfad {bad_path!r} hätte abgelehnt werden müssen")
+                raise AssertionError(f"Pfad {bad_path!r} should have been rejected")
             except clientfiles.FileError:
                 pass
         for bad_q in ("a", "**", "x" * 101):
             try:
                 clientfiles.search(1, "C:\\Logs", bad_q)
-                raise AssertionError(f"Suchbegriff {bad_q!r} hätte abgelehnt werden müssen")
+                raise AssertionError(f"Suchbegriff {bad_q!r} should have been rejected")
             except clientfiles.FileError:
                 pass
         try:
             sm("C:\\Gibtsnicht", "app")
-            raise AssertionError("Fehler im Startordner muss gemeldet werden, nicht „keine Treffer“")
+            raise AssertionError("error in the start folder must be reported, not \"no hits\"")
         except clientfiles.FileError as e:
             assert "Nicht gefunden" in str(e), e
-        # gleichzeitige Suchen begrenzt
+        # concurrent searches limited
         held = [clientfiles._search_sem.acquire(blocking=False) for _ in range(4)]
         try:
             clientfiles.search(1, "C:\\Logs", "app")
-            raise AssertionError("fünfte gleichzeitige Suche hätte abgelehnt werden müssen")
+            raise AssertionError("fifth concurrent search should have been rejected")
         except clientfiles.FileError as e:
             assert "mehrere Suchen" in str(e)
         finally:
@@ -2594,41 +2594,41 @@ def _():
         def __init__(self, tag):
             self.st_reparse_tag = tag
     assert clientfiles._is_link(T(0xA0000003), 0x410) and clientfiles._is_link(T(0xA000000C), 0x420)
-    assert not clientfiles._is_link(T(0x9000001A), 0x410), "OneDrive-Ordner ist keine Verknüpfung"
-    assert not clientfiles._is_link(T(0x80000013), 0x420), "deduplizierte Datei ist keine Verknüpfung"
+    assert not clientfiles._is_link(T(0x9000001A), 0x410), "OneDrive folder is not a link"
+    assert not clientfiles._is_link(T(0x80000013), 0x420), "deduplicated file is not a link"
     assert clientfiles._is_link(T(0), 0x410) and not clientfiles._is_link(T(0xA0000003), 0x10)
-    assert access.ROUTES[("GET", "/api/computers/{cid}/files/search")] is access._p_cid, "OU-Admins nur auf eigenen Computern"
+    assert access.ROUTES[("GET", "/api/computers/{cid}/files/search")] is access._p_cid, "OU admins only on own computers"
     assert any(getattr(rt, "path", "").replace("{cid:int}", "{cid}") == "/api/computers/{cid}/files/search" for rt in _app.routes)
     js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
     assert "/files/search?path=" in js and "async function download(r, folder = cur)" in js
-    # 2.25.7: im Explorer EIN Feld – es sucht (Enter/„Suchen“) und filtert nicht beim Tippen
+    # 2.25.7: ONE field in the explorer – it searches (Enter/"Suchen") and does not filter while typing
     assert "liveFilter: false" in js and "if (opt.liveFilter === false) return;" in js and "onSearchEnter: (t) => doSearch(t)" in js
-    assert "In diesem Ordner suchen, z. B. *.log" not in js, "kein zweites Suchfeld rechts mehr"
+    assert "In diesem Ordner suchen, z. B. *.log" not in js, "no second search field on the right any more"
 
 
-@test("2.25.4 Datei-Explorer: Suche läuft auf dem Client (WinRM, Constrained Language Mode), sicher übergeben, Ersatzweg nur bei Verbindungsfehler")
+@test("2.25.4 File explorer: search runs on the client (WinRM, Constrained Language Mode), passed safely, fallback only on connection error")
 def _():
     import json as _json
     import subprocess as _sp
     from app import clientfiles, remote
-    # Suchbegriff → Muster für -like: [ ] ` wörtlich (mit ` maskiert), ohne Platzhalter „Teil des Namens“
+    # Search term -> pattern for -like: [ ] ` literal (escaped with `), without wildcards "part of the name"
     assert clientfiles.like_pattern("app") == "*app*"
     assert clientfiles.like_pattern("*.log") == "*.log"
     assert clientfiles.like_pattern("setup[1]") == "*setup`[1`]*"
-    assert clientfiles.like_pattern("a**b***c") == "a*b*c", "mehrere * zusammengefasst"
+    assert clientfiles.like_pattern("a**b***c") == "a*b*c", "several * merged"
     for bad in ("*a*b*c*d*e*f*g*h*i*", "x" * 101, "a", "ab\x01"):
         try:
             clientfiles.like_pattern(bad)
-            raise AssertionError(f"{bad!r} hätte abgelehnt werden müssen")
+            raise AssertionError(f"{bad!r} should have been rejected")
         except clientfiles.FileError:
             pass
-    # Nur echte Verbindungsfehler führen zum Ersatzweg über C$
+    # Only real connection errors lead to the fallback via C$
     import requests as _rq
     assert remote._is_connect_error(_rq.exceptions.ConnectionError("Max retries exceeded with url"))
     assert remote._is_connect_error(_rq.exceptions.ConnectTimeout("x"))
     assert not remote._is_connect_error(_rq.exceptions.ReadTimeout("read timed out"))
     assert not remote._is_connect_error(Exception("401 Unauthorized"))
-    assert issubclass(remote.RemoteConnectError, remote.RemoteError), "alte except RemoteError fangen ihn weiter"
+    assert issubclass(remote.RemoteConnectError, remote.RemoteError), "old except RemoteError still catch it"
     calls = []
     answer = {"v": 'PKJSON:{"items":[{"f":"C:\\\\Logs\\\\alt","n":"b.log","d":false,"r":false,"s":7,"m":"2026-01-01 10:00:00"},'
                    '{"f":"C:\\\\","n":"a","d":true,"r":false,"s":0,"m":null}],"dirs":12,"skipped":2,"truncated":false}'}
@@ -2650,34 +2650,34 @@ def _():
         assert host == "pc1.firma.local" and tmo >= 60
         assert "$start = 'C:\\Logs';" in script and "$pat = '*it''s*';" in script and "$flt = '*it''s*';" in script, script[:300]
         assert "LinkType" in script and "-Force" in script and "-like $pat" in script and "-match" not in script
-        # 2.25.6: EIN rekursiver Aufruf mit Windows-Filter statt Ordner für Ordner (sonst reichte die Zeit nur für oben)
+        # 2.25.6: ONE recursive call with Windows filter instead of folder by folder (otherwise the time only sufficed for the top)
         assert "-Filter $flt -Recurse" in script and "PK-UnderLink" in script and "-FollowSymlink" not in script
-        # ein einzelner Treffer kommt aus ConvertTo-Json als Objekt statt Liste
+        # a single hit comes out of ConvertTo-Json as an object instead of a list
         answer["v"] = 'PKJSON:{"items":{"f":"C:\\\\Logs","n":"x.log","d":false,"r":false,"s":1,"m":null},"dirs":1,"skipped":0,"truncated":true}'
         r = clientfiles.search(1, "C:\\Logs", "x.log")
         assert [x["name"] for x in r["items"]] == ["x.log"] and r["truncated"]
         answer["v"] = 'PKJSON:{"error":"notfound"}'
         try:
             clientfiles.search(1, "C:\\Gibtsnicht", "app")
-            raise AssertionError("nicht gefunden muss gemeldet werden")
+            raise AssertionError("not found must be reported")
         except clientfiles.FileError as e:
             assert "Nicht gefunden" in str(e)
         answer["v"] = 'PKJSON:{"error":"denied","message":"Der Zugriff auf den Pfad wurde verweigert."}'
         try:
             clientfiles.search(1, "C:\\System Volume Information", "app")
-            raise AssertionError("verweigert muss gemeldet werden")
+            raise AssertionError("denied must be reported")
         except clientfiles.FileError as e:
             assert "Zugriff verweigert" in str(e)
-        # Ersatzweg über C$ NUR, wenn WinRM gar nicht erreichbar ist – nicht bei Zeitüberschreitung o. Ä.
+        # Fallback via C$ ONLY if WinRM is not reachable at all – not on timeout or the like
         answer["v"] = remote.RemoteConnectError("WinRM: Max retries exceeded (Connection refused)")
         assert clientfiles.search(1, "C:\\Logs", "app")["via"] == "smb"
         answer["v"] = remote.RemoteError("WinRM-Verbindung fehlgeschlagen: das steht nur im Text")
         try:
             clientfiles.search(1, "C:\\Logs", "app")
-            raise AssertionError("nur die Fehlerart zählt, nicht der Text")
+            raise AssertionError("only the kind of error counts, not the text")
         except clientfiles.FileError:
             pass
-        # Ersatzweg: Fehler der Freigabe werden zur Meldung (kein interner Fehler 500)
+        # Fallback: errors of the share become the message (no internal error 500)
         answer["v"] = remote.RemoteConnectError("WinRM: Connection refused")
 
         def smb_fail(*a, **kw):
@@ -2685,16 +2685,16 @@ def _():
         clientfiles._search_smb = smb_fail
         try:
             clientfiles.search(1, "C:\\Logs", "app")
-            raise AssertionError("SMB-Fehler muss als FileError kommen")
+            raise AssertionError("SMB error must arrive as FileError")
         except clientfiles.FileError as e:
             assert "SMB-Anmeldung" in str(e)
         clientfiles._search_smb = lambda cid, drive, rel, q: {"items": [], "truncated": False, "dirs": 1, "skipped": 0}
-        # je Benutzer und je Computer eine Suche
+        # one search per user and per computer
         with clientfiles._search_lock:
             clientfiles._search_busy["users"].add("max")
         try:
             clientfiles.search(2, "C:\\Logs", "app", user_key="max")
-            raise AssertionError("zweite Suche desselben Benutzers")
+            raise AssertionError("second search by the same user")
         except clientfiles.FileError as e:
             assert "vorige Suche" in str(e)
         finally:
@@ -2704,7 +2704,7 @@ def _():
             clientfiles._search_busy["cids"].add(1)
         try:
             clientfiles.search(1, "C:\\Logs", "app", user_key="moritz")
-            raise AssertionError("zweite Suche auf demselben Computer")
+            raise AssertionError("second search on the same computer")
         except clientfiles.FileError as e:
             assert "diesem Computer" in str(e)
         finally:
@@ -2712,19 +2712,19 @@ def _():
                 clientfiles._search_busy["cids"].discard(1)
         answer["v"] = 'PKJSON:{"items":[],"dirs":1,"skipped":0,"errors":2,"truncated":false}'
         assert clientfiles.search(1, "C:\\Logs", "app", user_key="max")["errors"] == 2
-        assert not clientfiles._search_busy["users"] and not clientfiles._search_busy["cids"], "Sperren wieder frei"
+        assert not clientfiles._search_busy["users"] and not clientfiles._search_busy["cids"], "locks free again"
         answer["v"] = remote.RemoteError("WinRM: keine Antwort von pc1 nach 2 Minuten – Aufruf abgebrochen.")
         try:
             clientfiles.search(1, "C:\\Logs", "app")
-            raise AssertionError("Zeitüberschreitung darf nicht still auf C$ ausweichen")
+            raise AssertionError("timeout must not silently fall back to C$")
         except clientfiles.FileError as e:
             assert "nicht geendet" in str(e) and "Unterordner" in str(e), e
         assert clientfiles._search_sem.acquire(blocking=False)
-        clientfiles._search_sem.release()  # Sperre wird auch bei Fehlern freigegeben
+        clientfiles._search_sem.release()  # lock is released even on errors
     finally:
         remote.ps, clientfiles._host, clientfiles._search_smb = o_ps, o_host, o_smb
 
-    # Optional: das Skript in echter PowerShell im Constrained Language Mode ausführen (PK_PWSH=/pfad/pwsh)
+    # Optional: run the script in real PowerShell in Constrained Language Mode (PK_PWSH=/path/pwsh)
     pw = os.environ.get("PK_PWSH")
     if pw and os.path.exists(pw):
         base = os.path.join(TMP, "pstree")
@@ -2741,13 +2741,13 @@ def _():
             return _json.loads(out[out.index("PKJSON:") + 7:].strip().splitlines()[0])
         d = run("app")
         names = sorted(x["n"] for x in d["items"])
-        assert names == ["app-2024.log", "app.LOG", "app.log"], f"Link darf nicht verfolgt werden: {names}"
+        assert names == ["app-2024.log", "app.LOG", "app.log"], f"link must not be followed: {names}"
         assert [x["n"] for x in run("grüße é")["items"]] == ["Grüße é.txt"]
         assert [x["n"] for x in run("it's")["items"]] == ["it's.log"]
         assert run("app", limit=1)["truncated"]
-        # wie Windows PowerShell 5.1 (folgt Verknüpfungen): Treffer darunter werden verworfen
-        assert sorted(x["n"] for x in run("app", follow=True)["items"]) == ["app-2024.log", "app.LOG", "app.log"], "nichts doppelt über Links"
-        # tief verschachtelt und viele Ordner: wird gefunden (2.25.6 – vorher nur die obersten Ebenen)
+        # like Windows PowerShell 5.1 (follows links): hits below are discarded
+        assert sorted(x["n"] for x in run("app", follow=True)["items"]) == ["app-2024.log", "app.LOG", "app.log"], "nothing duplicated via links"
+        # deeply nested and many folders: is found (2.25.6 – before, only the top levels)
         deep = os.path.join(base, "Logs", *[f"e{i}" for i in range(12)])
         os.makedirs(deep)
         for i in range(300):
@@ -2758,18 +2758,18 @@ def _():
         assert __import__("time").time() - t0 < 20
         os.makedirs(os.path.join(base, "Logs", "x[1]y"))
         open(os.path.join(base, "Logs", "x[1]y", "klammer.txt"), "w").close()
-        assert [x["f"].endswith("x[1]y") for x in run("klammer")["items"]] == [True], "Ordner mit [ ] im Namen"
+        assert [x["f"].endswith("x[1]y") for x in run("klammer")["items"]] == [True], "folder with [ ] in the name"
         open(os.path.join(base, "Logs", "set[1]up.log"), "w").close()
-        assert [x["n"] for x in run("set[1]up")["items"]] == ["set[1]up.log"], "[ ] wörtlich mit -like"
+        assert [x["n"] for x in run("set[1]up")["items"]] == ["set[1]up.log"], "[ ] literal with -like"
         long = "a" * 200 + ".txt"
         open(os.path.join(base, "Logs", long), "w").close()
         import time as _t
         t0 = _t.time()
         d = run("*a*a*a*a*a*a*a*b")
-        assert d["items"] == [] and _t.time() - t0 < 20, "viele * dürfen nicht hängen"
+        assert d["items"] == [] and _t.time() - t0 < 20, "many * must not hang"
 
 
-@test("2.25.4 Repository-Index im Arbeitsspeicher: sofortige Treffer, Auffrischen, Neu einlesen, Obergrenze, Wechsel des Repositorys, OU-Ordner")
+@test("2.25.4 Repository index in memory: immediate hits, refresh, re-read, upper limit, switching the repository, OU folders")
 def _():
     import tempfile as _tf
     import time as _time
@@ -2780,12 +2780,12 @@ def _():
             if not remote.repo_cache_status()["building"]:
                 return
             _time.sleep(0.05)
-        raise AssertionError("Index wird nicht fertig")
+        raise AssertionError("index does not finish")
     def files(r):
         return {x["name"] for x in r["items"] if not x["dir"]}
     g = remote.name_pattern("*a*a*a*a*a*a*a*b")
     t0 = _time.time()
-    assert not any(g.search("a" * 250) for _ in range(200)) and _time.time() - t0 < 2, "kein Backtracking"
+    assert not any(g.search("a" * 250) for _ in range(200)) and _time.time() - t0 < 2, "no backtracking"
     assert remote.name_pattern("7Z*.MSI").search("7z2408-x64.msi") and not remote.name_pattern("7z*.msi").search("a7z.msi")
     assert remote.name_pattern("ab*ab").search("abab") and not remote.name_pattern("ab*ab").search("ab")
     assert remote.name_pattern("setup[1]").search("Office setup[1].exe") and remote.name_pattern("a?c?").search("ABCD")
@@ -2802,45 +2802,45 @@ def _():
     remote.repo_cache_clear()
     try:
         r = remote.repo_search("", "7z")
-        assert r["cached"] is False and len(files(r)) == 2, r  # erster Aufruf: direkt, Index wird eingelesen
+        assert r["cached"] is False and len(files(r)) == 2, r  # first call: direct, index is read in
         wait()
         r = remote.repo_search("", "7z")
         assert r["cached"] is True and files(r) == {"7z2408-x64.msi", "7zPortable.zip"} and "7zip" in {x["name"] for x in r["items"]}, r
-        assert [x["name"] for x in remote.repo_search("Kunden\\Nord", "7z")["items"]] == ["7zPortable.zip"], "nur ab dem Ordner (OU-Admins)"
-        assert [x["name"] for x in remote.repo_search("kunden", "7z")["items"]] == ["7zPortable.zip"], "Groß-/Kleinschreibung egal"
+        assert [x["name"] for x in remote.repo_search("Kunden\\Nord", "7z")["items"]] == ["7zPortable.zip"], "only from the folder (OU admins)"
+        assert [x["name"] for x in remote.repo_search("kunden", "7z")["items"]] == ["7zPortable.zip"], "case does not matter"
         try:
             remote.repo_search("Gibtsnicht", "7z")
-            raise AssertionError("unbekannter Ordner: direkt suchen und Fehler melden")
+            raise AssertionError("unknown folder: search directly and report the error")
         except Exception as e:
             assert "nicht gefunden" in str(e).lower(), e
         open(os.path.join(root, "7zip", "7zNeu.exe"), "wb").write(b"x")
-        assert "7zNeu.exe" not in {x["name"] for x in remote.repo_search("", "7z")["items"]}, "Index ist ein Stand"
+        assert "7zNeu.exe" not in {x["name"] for x in remote.repo_search("", "7z")["items"]}, "index is a snapshot"
         r = remote.repo_search("", "7z", refresh=True)
-        assert r["cached"] is False and "7zNeu.exe" in {x["name"] for x in r["items"]}, "Neu einlesen: diese Suche direkt"
-        assert remote.repo_cache_status()["entries"], "alter Stand bleibt, bis der neue fertig ist"
+        assert r["cached"] is False and "7zNeu.exe" in {x["name"] for x in r["items"]}, "re-read: this search directly"
+        assert remote.repo_cache_status()["entries"], "old snapshot stays until the new one is ready"
         assert remote.repo_search("", "7z")["cached"] is True
         wait()
         assert "7zNeu.exe" in {x["name"] for x in remote.repo_search("", "7z")["items"]}
-        # Stand älter als TTL → noch verwenden und im Hintergrund auffrischen; älter als STALE → direkt suchen
+        # Snapshot older than TTL -> still use it and refresh in the background; older than STALE -> search directly
         with remote._rc_lock:
             remote._rc["at"] -= remote.REPO_CACHE_STALE + 10
         assert remote.repo_search("", "7z")["cached"] is False
         wait()
         assert remote.repo_search("", "7z")["cached"] is True
-        # anderes Repository eingestellt: der alte Index gilt nicht
+        # another repository configured: the old index does not apply
         db.set_setting("repo_path", root2)
         r = remote.repo_search("", "7z")
         assert [x["name"] for x in r["items"]] == ["7zNeu.msi"], r
         wait()
-        # Obergrenze: zu groß → kein Index, jede Suche direkt
+        # Upper limit: too large -> no index, every search direct
         remote.repo_cache_clear()
         remote.REPO_CACHE_MAX = 1
         remote.repo_search("", "7z")
         wait()
         st = remote.repo_cache_status()
         assert st["entries"] is None and st["too_big_or_failed"], st
-        assert set(remote.repo_cache_status(full=False)) == {"age", "building"}, "OU-Admins: nichts über das ganze Repository"
-        assert remote.repo_search("", "7z")["cached"] is False and not remote.repo_cache_status()["building"], "nicht ständig neu versuchen"
+        assert set(remote.repo_cache_status(full=False)) == {"age", "building"}, "OU admins: nothing over the whole repository"
+        assert remote.repo_search("", "7z")["cached"] is False and not remote.repo_cache_status()["building"], "do not retry constantly"
     finally:
         remote.REPO_CACHE_MAX = o_max
         wait()
@@ -2848,7 +2848,7 @@ def _():
         db.set_setting("repo_path", old or "")
 
 
-@test("2.25.4 Pakete exportieren/importieren: ohne IDs (Namen), verschachtelte mit, feste Pfade gemeldet, Prüfen ändert nichts, fehlende Sammlung lehnt ab, OU-Regeln")
+@test("2.25.4 Export/import packages: without IDs (names), nested ones included, fixed paths reported, checking changes nothing, missing collection rejects, OU rules")
 def _():
     import json as _json
     from fastapi import HTTPException
@@ -2879,29 +2879,29 @@ def _():
                                                          {"type": "command", "command": "echo hallo", "conditions": conds}]}})
         data, warn, extra = pkgexport.export(admin, [b])
         text = _json.dumps(data)
-        assert [p["name"] for p in data["packages"]] == ["Exp-Bundle", "Exp-7zip"] and extra == ["Exp-7zip"], "verschachtelte mit"
+        assert [p["name"] for p in data["packages"]] == ["Exp-Bundle", "Exp-7zip"] and extra == ["Exp-7zip"], "nested ones included"
         for k in ('"package_id"', '"profile_id"', '"rescan_profile_id"', '"tenant_id"', f'"id": {col}'):
-            assert k not in text, f"{k} gehört nicht in die Datei"
+            assert k not in text, f"{k} does not belong in the file"
         assert "Exp-Buchhaltung" in text and '"all": true' in text and prof_name in text
         assert any("Pfad des Repositorys" in w and "fix.ps1" in w for w in warn), warn
-        assert "7zip\\\\24.08" in text, "Repository-Pfad relativ"
+        assert "7zip\\\\24.08" in text, "repository path relative"
         n0 = db.val("SELECT COUNT(*) FROM packages")
-        # gleiche Installation, „überspringen“: nichts Neues; Prüfen schreibt nie
+        # same installation, "skip": nothing new; checking never writes
         r = pkgexport.run_import(admin, _json.loads(text), conflict="skip", dry_run=False, pkg_values=_m._pkg_values)
         assert r["count"]["skip"] == 2 and db.val("SELECT COUNT(*) FROM packages") == n0, r
         r = pkgexport.run_import(admin, _json.loads(text), conflict="copy", dry_run=True, pkg_values=_m._pkg_values)
-        assert r["count"]["copy"] == 2 and db.val("SELECT COUNT(*) FROM packages") == n0, ("Prüfen darf nichts anlegen", r)
+        assert r["count"]["copy"] == 2 and db.val("SELECT COUNT(*) FROM packages") == n0, ("checking must not create anything", r)
         r = pkgexport.run_import(admin, _json.loads(text), conflict="copy", dry_run=False, pkg_values=_m._pkg_values)
         assert r["count"]["copy"] == 2 and db.val("SELECT COUNT(*) FROM packages") == n0 + 2, r
         na = db.q1("SELECT * FROM packages WHERE name='Exp-7zip (Import)'")
         nb = db.q1("SELECT * FROM packages WHERE name='Exp-Bundle (Import)'")
         created += [na["id"], nb["id"]]
         pb = steps.normalize(_m.deploy.row_to_package(nb))
-        assert pb["steps"]["main"][0]["package_id"] == na["id"], "Verschachtelung zeigt auf das importierte Paket"
+        assert pb["steps"]["main"][0]["package_id"] == na["id"], "nesting points to the imported package"
         assert pb["steps"]["main"][1]["conditions"]["collections"] == [{"id": col, "mode": "member"}, {"id": 0, "mode": "member"}]
         pa = steps.normalize(_m.deploy.row_to_package(na))
         assert pa["rescan_profile_id"] == prof and pa["steps"]["main"][2]["profile_id"] == prof
-        # Sammlung fehlt in der Ziel-Installation → ablehnen (nicht still weglassen – das würde die Bedingung aufheben)
+        # Collection missing in the target installation -> reject (do not silently omit – that would cancel the condition)
         bad = _json.loads(text.replace("Exp-Buchhaltung", "Gibt-es-nicht"))
         for p in bad["packages"]:
             p["name"] += " X"
@@ -2909,12 +2909,12 @@ def _():
         st = {x["name"]: (x["status"], x["message"]) for x in r["items"]}
         assert st["Exp-7zip X"][0] == "error" and "Gibt-es-nicht" in st["Exp-7zip X"][1], st
         assert st["Exp-Bundle X"][0] == "error" and "verschachtelt" in st["Exp-Bundle X"][1], st
-        # kaputte Dateien
+        # broken files
         for broken in ({"format": "x"}, {"format": "pocketknife-packages", "format_version": 99, "packages": [{}]},
                        {"format": "pocketknife-packages", "packages": []}, {"format": "pocketknife-packages", "packages": [{"key": "a"}]}):
             try:
                 pkgexport.run_import(admin, broken, pkg_values=_m._pkg_values)
-                raise AssertionError(f"hätte abgelehnt werden müssen: {broken}")
+                raise AssertionError(f"should have been rejected: {broken}")
             except HTTPException as e:
                 assert e.status_code == 400
         loop = {"format": "pocketknife-packages", "format_version": 1, "packages": [
@@ -2922,10 +2922,10 @@ def _():
             {"key": "b", "name": "L2", "steps": {"main": [{"type": "nested", "package_key": "a"}]}}]}
         try:
             pkgexport.run_import(admin, loop, pkg_values=_m._pkg_values)
-            raise AssertionError("Schleife muss abgelehnt werden")
+            raise AssertionError("loop must be rejected")
         except HTTPException as e:
             assert "Schleife" in str(e.detail)
-        # OU-Admin: Mandant erzwungen, Dienstkonto → Lokales System, Dateien nur aus dem Mandanten-Ordner
+        # OU admin: tenant enforced, service account -> Local System, files only from the tenant folder
         tid = db.ex("INSERT INTO tenants(name, repo_folder, allow_packages) VALUES('Exp-Nord', 'Kunden\\Nord', 1)")
         ou = {"username": "ou", "scope": [tid]}
         one = _json.loads(text)
@@ -2937,7 +2937,7 @@ def _():
             if st_.get("folder"):
                 st_["folder"] = "Kunden\\Nord\\7zip"
         r = pkgexport.run_import(ou, one, tenant_id=None, dry_run=True, pkg_values=_m._pkg_values)
-        assert r["items"][0]["status"] == "error" and "nicht freigegeben" in r["items"][0]["message"], ("2.29.1: Skripte nur mit Freigabe", r)
+        assert r["items"][0]["status"] == "error" and "nicht freigegeben" in r["items"][0]["message"], ("2.29.1: scripts only with release", r)
         db.ex("UPDATE tenants SET allow_scripts=1 WHERE id=?", (tid,))
         r = pkgexport.run_import(ou, one, tenant_id=None, dry_run=False, pkg_values=_m._pkg_values)
         assert r["items"][0]["status"] == "new", r
@@ -2947,42 +2947,42 @@ def _():
         db.ex("UPDATE tenants SET allow_packages=0 WHERE id=?", (tid,))
         try:
             pkgexport.run_import(ou, one, dry_run=True, pkg_values=_m._pkg_values)
-            raise AssertionError("ohne Freigabe kein Import")
+            raise AssertionError("no import without release")
         except HTTPException as e:
             assert e.status_code == 403
-        # 2.37: Pakete anderer Mandanten sind für OU-Admins unsichtbar – auch nicht exportierbar
+        # 2.37: packages of other tenants are invisible to OU admins – cannot be exported either
         db.ex("UPDATE packages SET tenant_id=? WHERE id=?", (tid + 1000, a))
         try:
             got = pkgexport.export(ou, [a])[0]["packages"]
         except HTTPException as e:
             got = [] if e.status_code == 404 else None
-        assert got == [], "fremdes Paket nicht exportierbar"
+        assert got == [], "foreign package not exportable"
         db.ex("UPDATE packages SET tenant_id=NULL WHERE id=?", (a,))
-        # Verschachtelung nie auf ein gleichnamiges Paket eines ANDEREN Mandanten (dessen OU-Admin könnte es ändern)
+        # Nesting never onto a same-named package of ANOTHER tenant (whose OU admin could change it)
         other = db.ex("INSERT INTO tenants(name, allow_packages) VALUES('Exp-Sued', 1)")
         west = db.ex("INSERT INTO tenants(name, allow_packages) VALUES('Exp-West', 1)")
-        db.ex("UPDATE packages SET tenant_id=? WHERE id=?", (other, a))  # „Exp-7zip“ gehört jetzt Süd
+        db.ex("UPDATE packages SET tenant_id=? WHERE id=?", (other, a))  # "Exp-7zip" now belongs to Süd
         f2 = _json.loads(text)
         for p in f2["packages"]:
             if p["name"] == "Exp-Bundle":
                 p["name"] = "Exp-Bundle-West"
         r = pkgexport.run_import(admin, f2, tenant_id=west, conflict="skip", dry_run=False, pkg_values=_m._pkg_values)
         st = {x["name"]: x["status"] for x in r["items"]}
-        assert st == {"Exp-Bundle-West": "new", "Exp-7zip": "new"}, ("Süd-Paket zählt für West nicht als vorhanden", st)
+        assert st == {"Exp-Bundle-West": "new", "Exp-7zip": "new"}, ("Süd package does not count as existing for West", st)
         nw = db.q1("SELECT * FROM packages WHERE name='Exp-Bundle-West'")
         n7 = db.q1("SELECT * FROM packages WHERE name='Exp-7zip' AND tenant_id=?", (west,))
         created += [nw["id"], n7["id"]]
         nested = [s_ for _k, s_ in steps.iter_steps(steps.normalize(_m.deploy.row_to_package(nw))) if s_.get("type") == "nested"]
-        assert nested[0]["package_id"] == n7["id"] != a, "verschachtelt auf das West-Paket, nie auf das von Süd"
+        assert nested[0]["package_id"] == n7["id"] != a, "nested onto the West package, never onto the one of Süd"
         db.ex("UPDATE packages SET tenant_id=NULL WHERE id=?", (a,))
         db.ex("DELETE FROM packages WHERE id IN (?, ?)", (nw["id"], n7["id"]))
         db.ex("DELETE FROM tenants WHERE id IN (?, ?)", (other, west))
-        # gleicher Name zweimal in der Datei → nur einmal neu
+        # same name twice in the file -> only created once
         dup = _json.loads(text)
         dup["packages"] = [dict(p, name="Exp-Doppelt", key=k) for p, k in ((dup["packages"][1], "x1"), (dup["packages"][1], "x2"))]
         r = pkgexport.run_import(admin, dup, conflict="skip", dry_run=True, pkg_values=_m._pkg_values)
         assert [x["status"] for x in r["items"]] == ["new", "skip"], r
-        # Export: verschachteltes Paket eines anderen Mandanten – 2.37 für OU-Admins unsichtbar, Export abgelehnt
+        # Export: nested package of another tenant – invisible to OU admins since 2.37, export rejected
         db.ex("UPDATE tenants SET allow_packages=1 WHERE id=?", (tid,))
         db.ex("UPDATE packages SET tenant_id=? WHERE id=?", (tid + 1000, a))
         try:
@@ -2990,16 +2990,16 @@ def _():
         except HTTPException as e:
             got = [] if e.status_code in (400, 403, 404) else ("HTTP", e.status_code, e.detail)
         fname = db.val("SELECT name FROM packages WHERE id=?", (a,))
-        assert isinstance(got, list) and fname not in got, ("verschachteltes fremdes Paket exportiert", got)
-        assert len(pkgexport.export(admin, [b])[0]["packages"]) == 2, "Hauptadmin: beide"
+        assert isinstance(got, list) and fname not in got, ("nested foreign package exported", got)
+        assert len(pkgexport.export(admin, [b])[0]["packages"]) == 2, "main admin: both"
         db.ex("UPDATE packages SET tenant_id=NULL WHERE id=?", (a,))
-        # Fehlermeldungen des Repositorys: für OU-Admins ohne Pfad, Server und Konto (auch andere Schreibweise)
+        # Error messages of the repository: for OU admins without path, server and account (also other spelling)
         o_login = _m.config.repo_login
         _m.config.repo_login = lambda: "FIRMA\\svc-repo"
         try:
             msg = _m._repo_err(ou, Exception("SMB-Anmeldung an FS01 als svc-repo abgelehnt: \\\\fs01\\pakete\\x"))
             assert "fs01" not in msg.lower() and "svc-repo" not in msg and "pakete" not in msg.lower(), msg
-            assert _m._repo_err(admin, Exception("\\\\fs01\\PAKETE")) == "\\\\fs01\\PAKETE", "Hauptadmins sehen alles"
+            assert _m._repo_err(admin, Exception("\\\\fs01\\PAKETE")) == "\\\\fs01\\PAKETE", "main admins see everything"
         finally:
             _m.config.repo_login = o_login
         assert access.ROUTES[("POST", "/api/packages/import")] is access._p_build
@@ -3012,7 +3012,7 @@ def _():
         db.set_setting("repo_path", old_repo or "")
 
 
-@test("2.25.5 Paketliste: grünes Häkchen „Benachrichtigung“ nach derselben Regel wie die Meldung am Client (immer/nie/wie Einstellung, nur bei echten Installationen)")
+@test("2.25.5 Package list: green checkmark \"Benachrichtigung\" by the same rule as the message on the client (always/never/as per setting, only for real installations)")
 def _():
     from app import main as _m
     old = db.setting("toast_enabled")
@@ -3027,17 +3027,17 @@ def _():
         db.set_setting("toast_enabled", 1)
         assert eff("7-Zip", "", inst) is True
         assert eff("7-Zip", "off", inst) is False
-        assert eff("Skript", "", ps) is False and eff("Skript", "on", ps) is True, "Skripte nur bei „immer“"
+        assert eff("Skript", "", ps) is False and eff("Skript", "on", ps) is True, "scripts only with \"always\""
         assert eff("Deinstallation: 7-Zip", "", {**inst, "winget_action": "uninstall"}) is False
         db.set_setting("toast_enabled", 0)
-        assert eff("7-Zip", "", inst) is False and eff("7-Zip", "on", inst) is True, "Einstellung aus – „immer“ gilt trotzdem"
+        assert eff("7-Zip", "", inst) is False and eff("7-Zip", "on", inst) is True, "setting off – \"always\" still applies"
     finally:
         db.set_setting("toast_enabled", old if old is not None else 1)
     js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
     assert "notify_effective ? h('span', { style: { color: 'var(--ok)'" in js
 
 
-@test("2.26 Bruchprüfung: Stand festhalten, geänderte/fehlende/neue Dateien erkennen, Lauf unterbrechen, Neuen Stand übernehmen, Vollprüfung, OU-Ansicht")
+@test("2.26 Integrity check: record the state, detect changed/missing/new files, interrupt the run, accept the new state, full check, OU view")
 def _():
     import tempfile as _tf
     import time as _time
@@ -3069,7 +3069,7 @@ def _():
     db.ex("INSERT OR IGNORE INTO computers(id, name, online, winrm) VALUES(2601, 'PC-2601', 1, 1)")
 
     def drain():
-        # der eine Hintergrund-Worker rechnet Fingerabdrücke – warten, bis er fertig ist
+        # the one background worker computes fingerprints – wait until it has finished
         integrity.process_queue(seconds=30)
         for _ in range(200):
             with integrity._q_lock:
@@ -3077,72 +3077,72 @@ def _():
             if idle:
                 return
             _time.sleep(0.05)
-        raise AssertionError("Fingerabdrücke werden nicht fertig")
+        raise AssertionError("fingerprints do not finish")
     try:
         a = mk({"name": "Integ-7zip", "steps": {"main": [{"type": "install", "source": "file", "folder": "7zip\\24.08",
                                                            "install_file": "7z.msi", "install_type": "msi"}]}})
         b = mk({"name": "Integ-Bundle", "steps": {"main": [{"type": "nested", "package_id": a},
                                                            {"type": "filecopy", "source": "Office\\setup.exe", "target": "C:\\Temp"}]}})
         wg = mk({"name": "Integ-winget", "steps": {"main": [{"type": "install", "source": "winget", "winget_id": "7zip.7zip"}]}})
-        assert integrity.check_package(wg)["state"] == "", "winget: nichts zu prüfen"
-        r = integrity.check_package(a, queue_new=True)  # wie nach dem Speichern
+        assert integrity.check_package(wg)["state"] == "", "winget: nothing to check"
+        r = integrity.check_package(a, queue_new=True)  # as after saving
         assert r["state"] == "ok", r
-        assert "keys" not in integrity.scope_view(r, None) and "keys" not in integrity.scope_view(r, ["x"]), "keine Pfadliste an die Oberfläche"
+        assert "keys" not in integrity.scope_view(r, None) and "keys" not in integrity.scope_view(r, ["x"]), "no path list to the UI"
         assert db.val("SELECT COUNT(*) FROM repo_baseline") == 2 and db.val("SELECT 1 FROM repo_baseline_dirs WHERE path='7zip\\24.08'")
         drain()
-        assert db.val("SELECT COUNT(*) FROM repo_baseline WHERE sha256 IS NOT NULL") == 2, "Fingerabdruck nachgetragen"
+        assert db.val("SELECT COUNT(*) FROM repo_baseline WHERE sha256 IS NOT NULL") == 2, "fingerprint filled in later"
         assert integrity.check_package(b, queue_new=True)["state"] == "ok"
         drain()
-        # neue Datei im Paketordner → gelb, Lauf geht weiter
+        # new file in the package folder -> yellow, run continues
         w("7zip\\24.08\\neu.txt", b"x")
         r = integrity.check_package(a)
         assert r["state"] == "warn" and r["issues"][0]["kind"] == "added", r
         os.remove(os.path.join(root, "7zip", "24.08", "neu.txt"))
-        # andere Datei geändert → gelb
+        # other file changed -> yellow
         w("7zip\\24.08\\setup.ini", b"[x]\nmehr=1\n")
         r = integrity.check_package(a)
         assert r["state"] == "warn" and r["issues"][0]["kind"] == "changed" and not r["issues"][0]["main"], r
         integrity.accept(deploy.row_to_package(db.q1("SELECT * FROM packages WHERE id=?", (a,))), "haupt")
-        # (der Hintergrund-Worker kann ihn schon neu gerechnet haben – dann aber vom NEUEN Inhalt; nie ein alter)
+        # (the background worker may already have recomputed it – but from the NEW content; never an old one)
         assert db.val("SELECT sha256 FROM repo_baseline WHERE path='7zip\\24.08\\setup.ini'") in (
-            None, __import__("hashlib").sha256(b"[x]\nmehr=1\n").hexdigest()), "Fingerabdruck wird neu gerechnet, nie ein alter übernommen"
+            None, __import__("hashlib").sha256(b"[x]\nmehr=1\n").hexdigest()), "fingerprint is recomputed, never an old one adopted"
         drain()
-        assert integrity.check_package(a)["state"] == "ok", "Neuen Stand übernommen"
-        # nur angefasst (gleicher Inhalt, neues Datum) → bleibt ok, Stand wird nachgeführt
+        assert integrity.check_package(a)["state"] == "ok", "new state accepted"
+        # only touched (same content, new date) -> stays ok, state is brought up to date
         st0 = os.stat(msi).st_mtime
         os.utime(msi, (st0 + 100, st0 + 100))
         r = integrity.check_package(a)
         assert r["state"] == "ok", r
         assert abs(db.val("SELECT mtime FROM repo_baseline WHERE path='7zip\\24.08\\7z.msi'") - (st0 + 100)) <= 2
-        # Installationsdatei mit gleicher Größe, anderem Inhalt, neuem Datum → rot; Lauf wird unterbrochen
+        # installation file with same size, different content, new date -> red; run is interrupted
         open(msi, "wb").write(b"B" * 4096)
         os.utime(msi, (st0 + 200, st0 + 200))
         n0 = db.val("SELECT COUNT(*) FROM deployments")
-        for pkg_id in (a, b):  # auch über das verschachtelte Paket
+        for pkg_id in (a, b):  # also via the nested package
             try:
                 deploy.create(deploy.row_to_package(db.q1("SELECT * FROM packages WHERE id=?", (pkg_id,))), [2601], "haupt",
                               package_id=pkg_id)
-                raise AssertionError("Bruch muss den Lauf unterbrechen")
+                raise AssertionError("break must interrupt the run")
             except integrity.IntegrityError as e:
                 assert "Unterbrochen" in str(e) and "7z.msi" in str(e) and "Inhalt geändert" in str(e), e
-        assert db.val("SELECT COUNT(*) FROM deployments") == n0, "nichts angelegt"
+        assert db.val("SELECT COUNT(*) FROM deployments") == n0, "nothing created"
         integrity.store(a, {"state": "ok", "issues": [], "at": util.now(), "total": 0})
         try:
             integrity.guard(deploy.row_to_package(db.q1("SELECT * FROM packages WHERE id=?", (a,))), package_id=a)
         except integrity.IntegrityError:
             pass
-        assert json.loads(db.val("SELECT integrity FROM packages WHERE id=?", (a,)))["state"] == "ok", "guard speichert nichts (Ausschnitt/alter Stand)"
+        assert json.loads(db.val("SELECT integrity FROM packages WHERE id=?", (a,)))["state"] == "ok", "guard saves nothing (snippet/old state)"
         integrity.check_package(a)
-        assert json.loads(db.val("SELECT integrity FROM packages WHERE id=?", (a,)))["state"] == "broken", "in der Paketliste sichtbar"
+        assert json.loads(db.val("SELECT integrity FROM packages WHERE id=?", (a,)))["state"] == "broken", "visible in the package list"
         assert "keys" not in json.loads(db.val("SELECT integrity FROM packages WHERE id=?", (a,)))
-        # OU-Admin: zentrale Datei → keine Pfade
+        # OU admin: central file -> no paths
         err = integrity.IntegrityError("x", "Integ-7zip", integrity.check_package(a)["issues"])
         assert "nicht verfügbar" in integrity.public_message(err, ["kunden\\nord"]) and "7z.msi" not in integrity.public_message(err, ["kunden\\nord"])
         v = integrity.scope_view(integrity.check_package(a), ["kunden\\nord"])
         assert all(not x["path"] for x in v["issues"]) and v["issues"][0]["kind"] == "hidden", v
-        # geplante Bereitstellung: wird beim Start unterbrochen, kein Ziel angefasst
+        # scheduled deployment: is interrupted at start, no target touched
         db.set_setting("integrity_full_enabled", 0)
-        open(msi, "wb").write(b"A" * 4096)  # vorübergehend wieder richtig, damit die Bereitstellung angelegt wird
+        open(msi, "wb").write(b"A" * 4096)  # temporarily correct again so that the deployment gets created
         os.utime(msi, (st0 + 100, st0 + 100))
         did = deploy.create(deploy.row_to_package(db.q1("SELECT * FROM packages WHERE id=?", (a,))), [2601], "haupt",
                             scheduled_at="2099-01-01 00:00:00", package_id=a)
@@ -3152,12 +3152,12 @@ def _():
         d = db.q1("SELECT * FROM deployments WHERE id=?", (did,))
         t = db.q1("SELECT * FROM deployment_targets WHERE deployment_id=?", (did,))
         assert d["status"] == "failed" and t["status"] == "failed" and t["message"] == integrity.NEUTRAL, (d, t)
-        assert "7z" not in t["message"], "am Ziel keine Pfade (sehen auch OU-Admins/Kiosk)"
-        # Neuen Stand übernehmen → wieder ok, Bereitstellung möglich
+        assert "7z" not in t["message"], "no paths at the target (OU admins/kiosk see it too)"
+        # Accept new state -> ok again, deployment possible
         res = integrity.accept(deploy.row_to_package(db.q1("SELECT * FROM packages WHERE id=?", (a,))), "haupt")
         drain()
         assert res["count"] >= 1 and integrity.check_package(a)["state"] == "ok"
-        # Datei fehlt → rot
+        # File missing -> red
         os.remove(os.path.join(root, "Office", "setup.exe"))
         r = integrity.check_package(b)
         assert r["state"] == "broken" and r["issues"][0]["kind"] == "missing" and r["issues"][0]["path"] == "Office\\setup.exe", r
@@ -3165,12 +3165,12 @@ def _():
         integrity.accept(deploy.row_to_package(db.q1("SELECT * FROM packages WHERE id=?", (b,))), "haupt")
         drain()
         assert integrity.check_package(b)["state"] == "ok"
-        # Vollprüfung: Inhalt bei gleicher Größe UND gleichem Datum ausgetauscht – nur die Vollprüfung findet das
+        # Full check: content swapped with same size AND same date – only the full check finds that
         drain()
         st1 = os.stat(msi).st_mtime
         open(msi, "wb").write(b"D" * 4096)
         os.utime(msi, (st1, st1))
-        assert integrity.check_package(a)["state"] == "ok", "Schnellprüfung sieht es nicht"
+        assert integrity.check_package(a)["state"] == "ok", "quick check does not see it"
         db.set_setting("integrity_full_enabled", 1)
         db.set_setting("integrity_full_start", 0)
         db.set_setting("integrity_full_end", 24)
@@ -3178,7 +3178,7 @@ def _():
         assert integrity.full_check() >= 1
         r = integrity.check_package(a)
         assert r["state"] == "broken" and "ausgetauscht" in r["issues"][0]["note"], r
-        # Review 2.26 – Ordner als Quelle einer Dateikopie: jede Datei darin zählt wie die Installationsdatei (Bruch)
+        # Review 2.26 – folder as source of a file copy: every file in it counts like the installation file (break)
         w("Cfg\\a.xml", b"<a/>")
         c = mk({"name": "Integ-Cfg", "steps": {"main": [{"type": "filecopy", "source": "Cfg", "target": "C:\\Temp"}]}})
         assert integrity.check_package(c, queue_new=True)["state"] == "ok"
@@ -3188,19 +3188,19 @@ def _():
         assert r["state"] == "broken" and r["issues"][0]["main"], r
         integrity.accept(deploy.row_to_package(db.q1("SELECT * FROM packages WHERE id=?", (c,))), "haupt")
         drain()
-        # verschwindet kurz und kommt GEÄNDERT zurück → Bruch (der Stand darf beim Fehlen nicht aufgeräumt werden)
+        # disappears briefly and comes back CHANGED -> break (the state must not be cleaned up while missing)
         import shutil as _shx
         _shx.move(os.path.join(root, "Cfg"), os.path.join(root, "Cfg-weg"))
         assert integrity.check_package(c)["state"] == "broken"
         db.ex("UPDATE repo_baseline SET confirmed_at='2000-01-01 00:00:00'")
         integrity.check_all(live=True)
-        assert db.val("SELECT COUNT(*) FROM repo_baseline WHERE path='cfg\\a.xml'") == 1, "Stand bleibt, solange das Paket ihn braucht"
+        assert db.val("SELECT COUNT(*) FROM repo_baseline WHERE path='cfg\\a.xml'") == 1, "state stays as long as the package needs it"
         _shx.move(os.path.join(root, "Cfg-weg"), os.path.join(root, "Cfg"))
         w("Cfg\\a.xml", b"<a>boese</a>")
-        assert integrity.check_package(c)["state"] == "broken", "geändert zurückgekommen – nie still übernehmen"
+        assert integrity.check_package(c)["state"] == "broken", "came back changed – never silently adopt"
         integrity.accept(deploy.row_to_package(db.q1("SELECT * FROM packages WHERE id=?", (c,))), "haupt")
         drain()
-        # Repository nicht erreichbar → „nicht prüfbar“, nie Bruch, Stand bleibt
+        # Repository not reachable -> "not checkable", never a break, state stays
         _shx.move(root, root + "-weg")
         try:
             for pid in (a, b, c):
@@ -3208,17 +3208,17 @@ def _():
                 assert r["state"] == "unknown", (pid, r)
             db.ex("UPDATE repo_baseline SET confirmed_at='2000-01-01 00:00:00'")
             integrity.check_all(live=True)
-            assert db.val("SELECT COUNT(*) FROM repo_baseline") >= 3, "kein Aufräumen bei nicht erreichbarem Repository"
+            assert db.val("SELECT COUNT(*) FROM repo_baseline") >= 3, "no cleanup when repository is unreachable"
         finally:
             _shx.move(root + "-weg", root)
-        # Warteschlange: viele Einträge schnell (Menge statt Liste)
+        # Queue: many entries quickly (set instead of list)
         t0 = _time.time()
         with integrity._q_lock:
             for i in range(20000):
                 integrity._hash_queue.setdefault(f"x{i}", None)
             integrity._hash_queue.clear()
         assert _time.time() - t0 < 1
-        # Vollprüfung bleibt nicht an einer unlesbaren Datei hängen
+        # Full check does not get stuck on an unreadable file
         db.ex("UPDATE repo_baseline SET full_at=NULL")
         o_sha = remote.repo_sha256
         bad = {"n": 0}
@@ -3230,16 +3230,16 @@ def _():
             return o_sha(rel, **kw)
         remote.repo_sha256 = flaky
         try:
-            assert integrity.full_check() >= 1, "nach der gesperrten Datei geht es weiter"
+            assert integrity.full_check() >= 1, "it continues after the locked file"
         finally:
             remote.repo_sha256 = o_sha
         assert db.val("SELECT COUNT(*) FROM repo_baseline WHERE full_at IS NULL") == 0
-        # lokale Verknüpfungen im Repository werden nicht verfolgt (wie beim Kopieren)
+        # local links in the repository are not followed (as when copying)
         os.symlink(os.path.join(root, "Office"), os.path.join(root, "Cfg", "link"))
         assert all(not x["dir"] or x.get("link") for x in remote.repo_list("Cfg") if x["name"] == "link")
         assert [f for f, _s, _m in remote.repo_tree("Cfg")] == ["Cfg\\a.xml"]
         os.remove(os.path.join(root, "Cfg", "link"))
-        # Index im Arbeitsspeicher (Schnellprüfung alle 5 Minuten) liefert dasselbe
+        # Index in memory (quick check every 5 minutes) delivers the same
         remote.repo_search("", "7z")
         for _ in range(100):
             if not remote.repo_cache_status()["building"]:
@@ -3248,31 +3248,31 @@ def _():
         assert remote.repo_index_files() is not None
         res_idx = integrity.evaluate(deploy.row_to_package(db.q1("SELECT * FROM packages WHERE id=?", (a,))), live=False)
         assert res_idx["state"] == "broken" and not res_idx["live"], res_idx
-        # Aufräumen: Stand von Dateien, die kein Paket mehr benutzt, verschwindet
-        # veralteter Index: Fehlalarm wird vor dem Speichern direkt auf der Freigabe bestätigt (hier: nicht bestätigt)
-        open(msi, "wb").write(b"E" * 5000)  # der Index kennt noch die alte Größe
+        # Cleanup: state of files that no package uses any more disappears
+        # outdated index: false alarm is confirmed directly on the share before saving (here: not confirmed)
+        open(msi, "wb").write(b"E" * 5000)  # the index still knows the old size
         integrity.accept(deploy.row_to_package(db.q1("SELECT * FROM packages WHERE id=?", (a,))), "haupt")
         drain()
         assert remote.repo_index_files() is not None and integrity.evaluate(
-            deploy.row_to_package(db.q1("SELECT * FROM packages WHERE id=?", (a,))), live=False)["state"] != "ok", "Index ist veraltet"
+            deploy.row_to_package(db.q1("SELECT * FROM packages WHERE id=?", (a,))), live=False)["state"] != "ok", "index is outdated"
         integrity.check_all(live=False)
-        assert json.loads(db.val("SELECT integrity FROM packages WHERE id=?", (a,)))["state"] == "ok", "kein Fehlalarm aus dem Index"
+        assert json.loads(db.val("SELECT integrity FROM packages WHERE id=?", (a,)))["state"] == "ok", "no false alarm from the index"
         for pid in (a, b, c):
             db.ex("DELETE FROM packages WHERE id=?", (pid,))
         db.ex("UPDATE repo_baseline SET confirmed_at='2000-01-01 00:00:00'")
         db.ex("UPDATE repo_baseline_dirs SET confirmed_at='2000-01-01 00:00:00'")
-        # Audit 2.29: Stände, die gespeicherte Bereitstellungen noch brauchen (Erneut verteilen, geplant), bleiben
+        # Audit 2.29: states that saved deployments still need (redistribute, scheduled) stay
         snap = {"name": "Alt", "steps": {"pre": [], "main": [{"type": "install", "id": "s1", "source": "file", "folder": "7zip", "install_file": "7z.msi", "copy_folder": False}], "post": []}}
         db.ex("INSERT INTO repo_baseline(path, size, mtime, confirmed_at) VALUES('7zip\\7z.msi', 1, 1, '2000-01-01 00:00:00') "
               "ON CONFLICT(path) DO NOTHING")
         sd = db.ex("INSERT INTO deployments(name, package_json, status, created_at) VALUES('Alt', ?, 'success', ?)",
                    (json.dumps(snap), util.now()))
         integrity.check_all(live=True)
-        assert db.val("SELECT COUNT(*) FROM repo_baseline WHERE path='7zip\\7z.msi'") == 1, "von einer Bereitstellung gebraucht"
+        assert db.val("SELECT COUNT(*) FROM repo_baseline WHERE path='7zip\\7z.msi'") == 1, "needed by a deployment"
         db.ex("DELETE FROM deployments")
         integrity.check_all(live=True)
         assert db.val("SELECT COUNT(*) FROM repo_baseline") == 0 and db.val("SELECT COUNT(*) FROM repo_baseline_dirs") == 0, sd
-        # Zugriffsregeln und Einbindung
+        # Access rules and integration
         assert _m.access.ROUTES[("POST", "/api/packages/{pid}/integrity/accept")] is _m.access._p_pkg_edit
         assert _m.access.ROUTES[("POST", "/api/packages/{pid}/integrity/check")] is _m.access._p_pkg
         src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "deploy.py"), encoding="utf-8").read()
@@ -3290,7 +3290,7 @@ def _():
         db.set_setting("repo_path", old_repo or "")
 
 
-@test("2.27 Repository über die Oberfläche: Mandantenordner automatisch, Upload in Stücken (Fortsetzen, Grenzen), Schutz benutzter Dateien, Verschieben mit Pfadanpassung und Zurückdrehen, Duplikatsperre (auch zwischen Mandanten), Reparatur per Fingerabdruck")
+@test("2.27 Repository via the UI: tenant folders automatic, upload in chunks (resume, limits), protection of used files, moving with path adjustment and rollback, duplicate lock (also between tenants), repair by fingerprint")
 def _():
     import hashlib
     import secrets
@@ -3338,18 +3338,18 @@ def _():
         except cls as e:
             assert text.lower() in str(e).lower(), (text, str(e))
             return e
-        raise AssertionError(f"erwartet: {cls.__name__} „{text}“")
+        raise AssertionError(f"expected: {cls.__name__} \"{text}\"")
     disk = lambda rel: os.path.join(root, *rel.split("\\"))
     try:
-        # 1) Mandantenordner automatisch („Mandanten\<Name>“), angelegt im Repository; Überschneidung verboten
+        # 1) Tenant folders automatic ("Mandanten\<name>"), created in the repository; overlap forbidden
         assert repofiles.ensure_tenant_folder(t_nord) == "Mandanten\\Nord27" and os.path.isdir(disk("Mandanten\\Nord27"))
         assert repofiles.roots(nord) == ["Mandanten\\Nord27"]
         expect(lambda: repofiles.check_tenant_folder("Mandanten", t_sued), text="überschneidet")
         expect(lambda: repofiles.check_tenant_folder("Mandanten\\Nord27\\x", t_sued), text="überschneidet")
         repofiles.check_tenant_folder("Mandanten\\Nord27", t_nord)
-        st, r = _asgi("POST", "/api/tenants", None, {})  # ohne Anmeldung nichts
+        st, r = _asgi("POST", "/api/tenants", None, {})  # nothing without login
         assert st == 401
-        # 2) Bereich: nur der eigene Ordner, nie der Ordner selbst umbenennen/löschen, kein „..“, nichts von POCKET KNIFE
+        # 2) Scope: only the own folder, never rename/delete the folder itself, no "..", nothing of POCKET KNIFE
         assert repofiles.need_scope(nord, "Mandanten/Nord27/App") == "Mandanten\\Nord27\\App"
         expect(lambda: repofiles.need_scope(nord, "Kunden\\Sued"), text="Mandanten")
         expect(lambda: repofiles.need_scope(nord, "Mandanten\\Nord27", own_root_ok=False), text="selbst")
@@ -3359,23 +3359,23 @@ def _():
             expect(lambda: repofiles.mkdir(nord, "Mandanten\\Nord27", bad))
         repofiles.mkdir(nord, "Mandanten\\Nord27", "App")
         expect(lambda: repofiles.mkdir(nord, "Mandanten\\Nord27", "app"), text="schon")
-        # Verknüpfung nach draußen: dort wird nie geschrieben
+        # Link to the outside: nothing is ever written there
         outside = _tf.mkdtemp(prefix="pk-out-", dir=TMP)
         os.symlink(outside, disk("Mandanten\\Nord27\\Link"))
         expect(lambda: repofiles.mkdir(nord, "Mandanten\\Nord27\\Link", "x"), Exception, "außerhalb")
         assert not os.listdir(outside)
         os.remove(disk("Mandanten\\Nord27\\Link"))
-        # 3) Upload in Stücken: falsche Position → aktueller Stand, Fortsetzen nach Abbruch, fremder Benutzer → nicht gefunden
-        data = bytes(range(256)) * 60  # 15360 Byte
+        # 3) Upload in chunks: wrong position -> current state, resume after abort, foreign user -> not found
+        data = bytes(range(256)) * 60  # 15360 bytes
         s = repofiles.upload_start(nord, "Mandanten\\Nord27\\App", "tool.exe", len(data))
         assert repofiles.upload_chunk(nord, s["token"], 0, data[:5000])["received"] == 5000
         e = expect(lambda: repofiles.upload_chunk(nord, s["token"], 0, data[:5000]), text="Position")
         assert e.info["received"] == 5000 and e.info["status"] == 409
         expect(lambda: repofiles.upload_chunk(sued, s["token"], 5000, data[5000:]), text="nicht gefunden")
-        repofiles._hashers.clear()  # wie nach einem Neustart: Prüfsumme aus der Zwischendatei neu aufbauen
+        repofiles._hashers.clear()  # as after a restart: rebuild the checksum from the intermediate file
         s2 = repofiles.upload_start(nord, "Mandanten\\Nord27\\App", "tool.exe", len(data))
         assert s2["token"] == s["token"] and s2["received"] == 5000 and s2["resumed"], s2
-        assert ".pk-uploads" not in {x["name"] for x in remote.repo_list("")}, "Zwischenablage nicht sichtbar"
+        assert ".pk-uploads" not in {x["name"] for x in remote.repo_list("")}, "clipboard not visible"
         expect(lambda: repofiles.upload_finish(nord, s["token"]), text="unvollständig")
         repofiles.upload_chunk(nord, s["token"], 5000, data[5000:])
         fin = repofiles.upload_finish(nord, s["token"])
@@ -3383,7 +3383,7 @@ def _():
         assert db.val("SELECT sha256 FROM repo_hash WHERE path=?", ("mandanten\\nord27\\app\\tool.exe",)) == fin["sha256"]
         assert not db.val("SELECT COUNT(*) FROM repo_uploads") and not os.listdir(disk(".pk-uploads"))
         expect(lambda: repofiles.upload_start(nord, "Mandanten\\Nord27\\App", "tool.exe", 3), text="schon")
-        # Grenzen: Dateityp (nur Mandanten), Größe, Kontingent
+        # Limits: file type (tenants only), size, quota
         expect(lambda: repofiles.upload_start(nord, "Mandanten\\Nord27\\App", "bild.xyz", 3), text="Dateityp")
         db.set_setting("repo_upload_max_mb", 1)
         expect(lambda: repofiles.upload_start(admin, "", "gross.exe", 2 * 1048576), text="zu groß")
@@ -3391,15 +3391,15 @@ def _():
         db.ex("UPDATE tenants SET quota_mb=1 WHERE id=?", (t_nord,))
         expect(lambda: repofiles.upload_start(nord, "Mandanten\\Nord27", "big.zip", 1048576), text="Kontingent")
         db.ex("UPDATE tenants SET quota_mb=NULL WHERE id=?", (t_nord,))
-        # Abgebrochene Uploads werden nach 24 Stunden aufgeräumt
+        # Aborted uploads are cleaned up after 24 hours
         s3 = repofiles.upload_start(nord, "Mandanten\\Nord27", "halb.zip", 100)
         repofiles.upload_chunk(nord, s3["token"], 0, b"x" * 10)
         db.ex("UPDATE repo_uploads SET updated='2000-01-01 00:00:00'")
         assert repofiles.cleanup_uploads() == 1 and not os.listdir(disk(".pk-uploads"))
-        # 4) Benutzt von einem Paket: Löschen und Überschreiben gesperrt (mit Namen), Neues dazulegen geht (mit Hinweis)
+        # 4) Used by a package: deleting and overwriting blocked (with name), adding new files works (with a note)
         p_tool = mk({"name": "Nord-Tool", "tenant_id": t_nord, "steps": {"main": [{"type": "install", "source": "file",
                      "folder": "Mandanten\\Nord27\\App", "install_file": "tool.exe", "install_type": "exe"}]}}, user=nord)
-        assert ("sha256", fin["sha256"]) in {(r["kind"], r["value"]) for r in db.q("SELECT * FROM pkg_ident WHERE package_id=?", (p_tool,))}, "Fingerabdruck aus dem Upload"
+        assert ("sha256", fin["sha256"]) in {(r["kind"], r["value"]) for r in db.q("SELECT * FROM pkg_ident WHERE package_id=?", (p_tool,))}, "fingerprint from the upload"
         e = expect(lambda: repofiles.delete(nord, ["Mandanten\\Nord27\\App\\tool.exe"]), repofiles.Blocked, "Nord-Tool")
         assert any("Nord-Tool" in x for x in e.info["used_by"])
         expect(lambda: repofiles.delete(nord, ["Mandanten\\Nord27\\App"]), repofiles.Blocked, "Nord-Tool")
@@ -3410,27 +3410,27 @@ def _():
         assert "App" in {x["name"] for x in remote.repo_list("Mandanten\\Nord27") if x["dir"]}
         um = repofiles.used_map("Mandanten\\Nord27")
         assert any("Nord-Tool" in x for x in um["app"]), um
-        # 5) Umbenennen: Pfade im Paket (auch Altfelder) und im bestätigten Stand ziehen mit; Sicherung vorher
+        # 5) Rename: paths in the package (also legacy fields) and in the confirmed state follow; backup beforehand
         integrity.check_package(p_tool, queue_new=True)
         integrity.process_queue(seconds=10)
         pv = repofiles.rename(nord, "Mandanten\\Nord27\\App", "App2", dry_run=True)
         assert pv["dry_run"] and pv["packages"][0]["name"] == "Nord-Tool" and pv["packages"][0]["changes"][0]["new"] == "Mandanten\\Nord27\\App2", pv
-        assert os.path.isdir(disk("Mandanten\\Nord27\\App")), "Vorschau ändert nichts"
+        assert os.path.isdir(disk("Mandanten\\Nord27\\App")), "preview changes nothing"
         res = repofiles.rename(nord, "Mandanten\\Nord27\\App", "App2")
         assert not res["dry_run"] and os.path.isfile(disk("Mandanten\\Nord27\\App2\\tool.exe")) and backups[-1] == "vor-umbenennen"
         row = db.q1("SELECT * FROM packages WHERE id=?", (p_tool,))
         st0 = steps.normalize(deploy.row_to_package(row))["steps"]["main"][0]
         assert st0["folder"] == "Mandanten\\Nord27\\App2" and row["folder"] == "Mandanten\\Nord27\\App2", (st0, row["folder"])
         assert db.val("SELECT 1 FROM repo_baseline WHERE path='mandanten\\nord27\\app2\\tool.exe'") and \
-            not db.val("SELECT 1 FROM repo_baseline WHERE path LIKE 'mandanten\\nord27\\app\\%'"), "Stand zieht mit"
-        assert integrity.check_package(p_tool)["state"] in ("ok", "warn"), "kein Bruch nach dem Umbenennen"
-        # Datei IM benutzten Paketordner umbenennen (nicht die Installationsdatei) → gesperrt; die Installationsdatei geht
+            not db.val("SELECT 1 FROM repo_baseline WHERE path LIKE 'mandanten\\nord27\\app\\%'"), "state follows"
+        assert integrity.check_package(p_tool)["state"] in ("ok", "warn"), "no break after renaming"
+        # Rename a file IN the used package folder (not the installation file) -> blocked; the installation file works
         pv = repofiles.rename(nord, "Mandanten\\Nord27\\App2\\readme.txt", "liesmich.txt", dry_run=True)
         assert pv["problems"] and "Paketordner" in pv["problems"][0] or "benutzt" in pv["problems"][0], pv
         repofiles.rename(nord, "Mandanten\\Nord27\\App2\\tool.exe", "tool2.exe")
         st0 = steps.normalize(deploy.row_to_package(db.q1("SELECT * FROM packages WHERE id=?", (p_tool,))))["steps"]["main"][0]
         assert st0["install_file"] == "tool2.exe" and st0["folder"] == "Mandanten\\Nord27\\App2", st0
-        # Fehler mitten im Umbau → alles zurückgedreht (Dateien wieder am alten Ort, Paket unverändert)
+        # Error in the middle of the rebuild -> everything rolled back (files back in the old place, package unchanged)
         real_apply = repofiles._apply_db
         repofiles._apply_db = lambda plan, pairs: (_ for _ in ()).throw(RuntimeError("Datenbank weg"))
         try:
@@ -3438,7 +3438,7 @@ def _():
         finally:
             repofiles._apply_db = real_apply
         assert os.path.isdir(disk("Mandanten\\Nord27\\App2")) and not os.path.exists(disk("Mandanten\\Nord27\\App3"))
-        # Hauptadmin: zentrales Paket darf nicht in einen Mandantenordner wandern; Mandantenordner verschieben zieht den Mandanten mit
+        # Main admin: central package must not move into a tenant folder; moving a tenant folder moves the tenant along
         os.makedirs(disk("Zentral\\7zip"))
         open(disk("Zentral\\7zip\\7z.msi"), "wb").write(b"M" * 300)
         p_z = mk({"name": "Zentral-7zip", "steps": {"main": [{"type": "install", "source": "file", "folder": "Zentral\\7zip",
@@ -3448,52 +3448,52 @@ def _():
         expect(lambda: repofiles.move_into(nord, ["Zentral\\7zip"], "Mandanten\\Nord27", dry_run=True), text="Mandanten")
         os.makedirs(disk("Kunden\\Sued"))
         res = repofiles.move_into(admin, ["Kunden\\Sued"], "Mandanten", dry_run=False)
-        assert db.val("SELECT repo_folder FROM tenants WHERE id=?", (t_sued,)) == "Mandanten\\Sued", "Mandantenordner zieht mit"
-        # Assistent: neuen Hauptordner anlegen und mehrere Ordner auf einmal hinein (Vorschau ändert nichts)
+        assert db.val("SELECT repo_folder FROM tenants WHERE id=?", (t_sued,)) == "Mandanten\\Sued", "tenant folder moves along"
+        # Wizard: create a new main folder and move several folders into it at once (preview changes nothing)
         os.makedirs(disk("Office"))
         pv = repofiles.move_into(admin, ["Zentral\\7zip", "Office"], "Basis", dry_run=True, create_dest=True)
         assert pv["create_dest"] == "Basis" and not pv["problems"] and not os.path.exists(disk("Basis")), pv
         res = repofiles.move_into(admin, ["Zentral\\7zip", "Office"], "Basis", dry_run=False, create_dest=True)
         assert os.path.isfile(disk("Basis\\7zip\\7z.msi")) and os.path.isdir(disk("Basis\\Office"))
         assert steps.normalize(deploy.row_to_package(db.q1("SELECT * FROM packages WHERE id=?", (p_z,))))["steps"]["main"][0]["folder"] == "Basis\\7zip"
-        # geplante Bereitstellung (Snapshot) wird mit angepasst
+        # scheduled deployment (snapshot) is adjusted too
         did = db.ex("INSERT INTO deployments(name, package_json, status, created_at) VALUES('Plan27', ?, 'scheduled', ?)",
                     (json.dumps(steps.expand(deploy.row_to_package(db.q1("SELECT * FROM packages WHERE id=?", (p_z,))))), util.now()))
         repofiles.rename(admin, "Basis\\7zip", "SevenZip")
         assert "Basis\\\\SevenZip" in db.val("SELECT package_json FROM deployments WHERE id=?", (did,))
         db.ex("DELETE FROM deployments WHERE id=?", (did,))
-        # 6) Duplikatsperre – Bereiche: zentral, Nord, Süd. Gleicher Bereich erlaubt, anderer gesperrt (auch Mandant ↔ Mandant)
+        # 6) Duplicate lock – scopes: central, Nord, Süd. Same scope allowed, different one blocked (also tenant <-> tenant)
         wg = {"steps": {"main": [{"type": "install", "source": "winget", "winget_id": "Dup27.App"}]}}
         p_wz = mk({"name": "Dup zentral", **wg})
-        mk({"name": "Dup zentral 2", **wg})  # gleicher Bereich: erlaubt
+        mk({"name": "Dup zentral 2", **wg})  # same scope: allowed
         e = expect(lambda: mk({"name": "Dup Nord", "tenant_id": t_nord, **wg}, user=nord), repofiles.Duplicate, "Dup zentral")
         assert e.info["can_override"] is False and e.info["duplicate"][0]["kind"] == "winget"
         db.ex("DELETE FROM pkg_ident WHERE package_id IN (?, ?)", (p_wz, created[-1]))
         p_wn = mk({"name": "Dup Nord", "tenant_id": t_nord, **wg}, user=nord)
-        # 2.37: OU-Admin eines anderen Mandanten – abgelehnt, ohne Namen/Mandant des fremden Pakets zu verraten
+        # 2.37: OU admin of another tenant – rejected, without revealing name/tenant of the foreign package
         e = expect(lambda: mk({"name": "Dup Süd", "tenant_id": t_sued, **wg}, user=sued), repofiles.Duplicate, "anderen Mandanten")
         assert "Nord27" not in str(e) and "Dup Nord" not in str(e) and not e.info["duplicate"], (str(e), e.info)
         e = expect(lambda: mk({"name": "Dup Süd", "tenant_id": t_sued, **wg}), repofiles.Duplicate, "übersteuern")
         assert e.info["can_override"] is True
         mk({"name": "Dup Süd (Hauptadmin)", "tenant_id": t_sued, "allow_duplicate": True, **wg})
-        # Altfall (schon vorhandenes Duplikat) blockiert das Speichern anderer Änderungen nicht
+        # Legacy case (duplicate already present) does not block saving other changes
         v = _m._pkg_values({"name": "Dup Nord umbenannt", "tenant_id": t_nord, **wg}, p_wn, user=nord)
         repofiles.guard_package(v, p_wn, nord)
-        # über die Schnittstelle: 409 mit Paketliste
+        # via the interface: 409 with package list
         tok = secrets.token_urlsafe(16)
         th = hashlib.sha256(tok.encode()).hexdigest()
         db.ex("INSERT INTO sessions(token_hash, username, display_name, created, expires, ip, last_active, role, scope) VALUES(?,?,?,?,?,?,?,?,?)",
               (th, "ou-sued27", "Test", util.now(), "2099-01-01 00:00:00", "127.0.0.1", util.now(), "admin", json.dumps([t_sued])))
         auth._checked[th] = _t.time() + 10 ** 6
         st, r = _asgi("POST", "/api/packages", tok, {"name": "Dup API", **wg})
-        assert st == 409 and "message" in r["detail"] and r["detail"]["duplicate"] == [], (st, r)  # 2.37: fremdes Paket nicht genannt
+        assert st == 409 and "message" in r["detail"] and r["detail"]["duplicate"] == [], (st, r)  # 2.37: foreign package not named
         st, r = _asgi("POST", "/api/repository/mkdir", tok, {"folder": "Mandanten\\Sued", "name": "Neu"})
         assert st == 200 and os.path.isdir(disk("Mandanten\\Sued\\Neu")), (st, r)
         st, r = _asgi("POST", "/api/repository/mkdir", tok, {"folder": "Mandanten\\Nord27", "name": "Fremd"})
         assert st == 403, (st, r)
         st, r = _asgi("POST", "/api/repository/delete", tok, {"items": ["Mandanten\\Nord27\\App2"]})
         assert st == 403, (st, r)
-        # Upload über die Schnittstelle (Stück als rohe Bytes), Abschluss
+        # Upload via the interface (chunk as raw bytes), completion
         st, r = _asgi("POST", "/api/repository/upload", tok, {"folder": "Mandanten\\Sued\\Neu", "name": "api.msi", "size": 6})
         assert st == 200 and r["chunk"] == repofiles.CHUNK, (st, r)
         st, r2 = _asgi("PUT", f"/api/repository/upload/{r['token']}?offset=0", tok, raw=b"abcdef")
@@ -3503,23 +3503,23 @@ def _():
         st, r = _asgi("GET", "/api/repository/info", tok)
         assert st == 200 and r["roots"] == ["Mandanten\\Sued"] and "msi" in r["types"], r
         db.ex("DELETE FROM sessions WHERE token_hash=?", (th,))
-        # gleiche Datei (SHA-256) eines Pakets von Nord: Süd darf sie nicht hochladen; Hauptadmin nach Rückfrage schon
+        # same file (SHA-256) of a package from Nord: Süd must not upload it; main admin can after confirmation
         tool = open(disk("Mandanten\\Nord27\\App2\\tool2.exe"), "rb").read()
         e = expect(lambda: upload(sued, "Mandanten\\Sued", "kopie.exe", tool), repofiles.Duplicate, "anderen Mandanten")
-        assert "Nord-Tool" not in str(e), "2.37: fremdes Paket nicht genannt"
-        assert not os.path.exists(disk("Mandanten\\Sued\\kopie.exe")) and not os.listdir(disk(".pk-uploads")), "Mandant: verworfen"
+        assert "Nord-Tool" not in str(e), "2.37: foreign package not named"
+        assert not os.path.exists(disk("Mandanten\\Sued\\kopie.exe")) and not os.listdir(disk(".pk-uploads")), "tenant: discarded"
         e = expect(lambda: upload(admin, "Basis", "kopie.exe", tool), repofiles.Duplicate, "Nord-Tool")
         assert e.info["token"] and not os.path.exists(disk("Basis\\kopie.exe"))
         repofiles.upload_finish(admin, e.info["token"], allow_dup=True)
         assert open(disk("Basis\\kopie.exe"), "rb").read() == tool
-        # Verschachteln: nur zentrale oder desselben Mandanten – auch für Hauptadmins
+        # Nesting: only central ones or the same tenant's – also for main admins
         try:
             _m._pkg_values({"name": "Zentral mit Nord", "steps": {"main": [{"type": "nested", "package_id": p_tool}]}}, user=admin)
-            raise AssertionError("zentral darf kein Mandanten-Paket einbauen")
+            raise AssertionError("central must not nest a tenant package")
         except HTTPException as x:
             assert x.status_code == 403
         _m._pkg_values({"name": "Nord mit Zentral", "tenant_id": t_nord, "steps": {"main": [{"type": "nested", "package_id": p_z}]}}, user=nord)
-        # 7) Reparatur per Fingerabdruck: außerhalb verschoben → gefunden, Pfade übernommen
+        # 7) Repair by fingerprint: moved outside -> found, paths adopted
         integrity.check_package(p_tool, queue_new=True)
         integrity.process_queue(seconds=10)
         assert db.val("SELECT sha256 FROM repo_baseline WHERE path='mandanten\\nord27\\app2\\tool2.exe'")
@@ -3535,8 +3535,8 @@ def _():
             _t.sleep(0.05)
         pk = deploy.row_to_package(db.q1("SELECT * FROM packages WHERE id=?", (p_tool,)))
         sug = repofiles.repair_suggest(nord, pk)
-        assert not sug["items"] and sug["not_found"] == ["Mandanten\\Nord27\\App2"], ("Ordner nur, wenn ALLE Dateien dort liegen", sug)
-        # Datei zurück in den umbenannten Ordner → der Ordner ist vollständig wiedergefunden
+        assert not sug["items"] and sug["not_found"] == ["Mandanten\\Nord27\\App2"], ("folder only if ALL files are located there", sug)
+        # File back in the renamed folder -> the folder is completely found again
         os.rename(disk("Mandanten\\Nord27\\Woanders\\tool2.exe"), disk("Mandanten\\Nord27\\App-alt\\tool2.exe"))
         remote.repo_cache_clear()
         remote._repo_cache_start(remote._repo_key(), force=True)
@@ -3552,17 +3552,17 @@ def _():
         st0 = steps.normalize(deploy.row_to_package(db.q1("SELECT * FROM packages WHERE id=?", (p_tool,))))["steps"]["main"][0]
         assert st0["folder"] == "Mandanten\\Nord27\\App-alt" and backups[-1] == "vor-reparatur", st0
         assert integrity.check_package(p_tool)["state"] != "broken"
-        # 8) Index: eigene Änderungen sofort sichtbar (ohne Neu-Einlesen), auch während ein Einlesen läuft
+        # 8) Index: own changes immediately visible (without re-reading), also while a read is running
         repofiles.mkdir(admin, "Basis", "Frisch")
         assert "Frisch" in {x["name"] for x in remote.repo_search("Basis", "Frisch")["items"]}
         repofiles.delete(admin, ["Basis\\Frisch"])
         assert not remote.repo_search("Basis", "Frisch")["items"]
-        # --- Review-Funde 2.27 ---
-        # H2: zentrales Paket nie mit Dateien aus einem Mandantenordner; OU-Admin legt nichts in fremd benutzte Ordner
+        # --- Review findings 2.27 ---
+        # H2: central package never with files from a tenant folder; OU admin puts nothing into folders used by others
         try:
             _m._pkg_values({"name": "Zentral im Mandant", "steps": {"main": [{"type": "install", "source": "file",
                             "folder": "Mandanten\\Nord27\\App-alt", "install_file": "tool2.exe", "install_type": "exe"}]}}, user=admin)
-            raise AssertionError("zentrales Paket aus Mandantenordner")
+            raise AssertionError("central package from tenant folder")
         except HTTPException as x:
             assert x.status_code == 400 and "Mandant" in str(x.detail), x.detail
         p_cz = db.ex("INSERT INTO packages(name, steps, conditions, run_as, created_at) VALUES('Alt-Zentral', ?, '{}', 'system', ?)",
@@ -3577,25 +3577,25 @@ def _():
         pv = repofiles.move_into(nord, ["Mandanten\\Nord27\\x.txt"], "Mandanten\\Nord27\\Alt", dry_run=True)
         assert any("Alt-Zentral" in x for x in pv["problems"]), pv
         expect(lambda: repofiles.check_tenant_folder("Basis", t_nord), text="Zentral-7zip")
-        # neue Datei von jemand anderem in einem Mandantenordner neben einem zentralen Paket → Bruch, nicht nur Hinweis
+        # new file from someone else in a tenant folder next to a central package -> break, not just a note
         integrity.check_package(p_cz, queue_new=True)
         open(disk("Mandanten\\Nord27\\Alt\\version.dll"), "wb").write(b"evil")
         r = integrity.check_package(p_cz)
         assert r["state"] == "broken" and any(x["kind"] == "added" and x["level"] == "broken" for x in r["issues"]), r
-        # M6: Dateityp lässt sich nicht per Umbenennen umgehen
+        # M6: file type cannot be bypassed by renaming
         expect(lambda: repofiles.rename(nord, "Mandanten\\Nord27\\x.txt", "x.hta"), text="Dateityp")
-        # L8: Sonderzeichen, die beim Kleinschreiben zusammenfallen (Kelvin-Zeichen)
+        # L8: special characters that collapse when lowercasing (Kelvin sign)
         expect(lambda: repofiles.need_scope(nord, "Mandanten\\Nord27\u212a"), text="Sonderzeichen")
         expect(lambda: repofiles.mkdir(nord, "Mandanten\\Nord27", "\u212aunden"), text="Sonderzeichen")
-        # L10: Stück an der richtigen Stelle, auch wenn ein früheres halb geschrieben wurde
+        # L10: chunk at the right place, even if an earlier one was half written
         s4 = repofiles.upload_start(nord, "Mandanten\\Nord27", "teil.bin", 6)
         repofiles.upload_chunk(nord, s4["token"], 0, b"abc")
         with open(disk(".pk-uploads\\" + s4["token"] + ".part"), "ab") as fh:
-            fh.write(b"JUNK")  # halber Schreibvorgang
+            fh.write(b"JUNK")  # half-finished write
         repofiles.upload_chunk(nord, s4["token"], 3, b"def")
-        expect(lambda: repofiles.upload_finish(nord, s4["token"]), text="Größe")  # Rest hinten → neu hochladen
+        expect(lambda: repofiles.upload_finish(nord, s4["token"]), text="Größe")  # rest at the end -> upload again
         repofiles.upload_cancel(nord, s4["token"])
-        # M3: Paket wird während des Umbaus gespeichert → Änderung bleibt, Pfad wird trotzdem angepasst
+        # M3: package is saved during the rebuild -> change stays, path is adjusted anyway
         real_apply = repofiles._apply_db
 
         def edit_then_apply(plan, pairs):
@@ -3612,7 +3612,7 @@ def _():
             repofiles._apply_db = real_apply
         st0 = steps.normalize(deploy.row_to_package(db.q1("SELECT * FROM packages WHERE id=?", (p_tool,))))["steps"]["main"][0]
         assert st0["folder"] == "Mandanten\\Nord27\\App4" and st0["arguments"] == "/S /neu", st0
-        # M4: Gesamtprüfung, während umgebaut wird, speichert nichts Veraltetes und räumt nicht auf
+        # M4: full check while rebuilding saves nothing outdated and does not clean up
         calls = {"n": 0}
         real_eval = integrity.evaluate
 
@@ -3628,9 +3628,9 @@ def _():
             integrity.check_all(live=True)
         finally:
             integrity.evaluate = real_eval
-        assert db.val("SELECT COUNT(*) FROM repo_baseline") == n_base, "nichts aufgeräumt"
-        # H1: Ordner auf der Freigabe löschen folgt keiner Junction darin – mit einem nachgebildeten smbclient
-        # (Junction = Eintrag mit Attribut 0x400; der echte Server würde ihr folgen)
+        assert db.val("SELECT COUNT(*) FROM repo_baseline") == n_base, "nothing cleaned up"
+        # H1: deleting a folder on the share does not follow a junction in it – with a simulated smbclient
+        # (junction = entry with attribute 0x400; the real server would follow it)
         import types as _ty
         sb = _tf.mkdtemp(prefix="pk-smb27-", dir=TMP)
         loc = lambda unc: os.path.join(sb, *[x for x in unc.replace("\\\\srv\\P$", "").split("\\") if x])  # noqa: E731
@@ -3661,10 +3661,10 @@ def _():
                 sys.modules["smbclient"] = real_mod
             else:
                 sys.modules.pop("smbclient", None)
-        assert not os.path.exists(os.path.join(sb, "alt")) and os.path.isfile(os.path.join(sb, "Zentral", "wichtig.msi")), "Ziel der Junction bleibt"
+        assert not os.path.exists(os.path.join(sb, "alt")) and os.path.isfile(os.path.join(sb, "Zentral", "wichtig.msi")), "target of the junction stays"
         src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "remote.py"), encoding="utf-8").read()
-        assert "smbshutil.rmtree" not in src, "nie smbclient.shutil.rmtree (folgt Junctions)"
-        # Zugriffsregeln: alle neuen Routen für OU-Admins nur über _p_repo bzw. _p_pkg_edit
+        assert "smbshutil.rmtree" not in src, "never smbclient.shutil.rmtree (follows junctions)"
+        # Access rules: all new routes for OU admins only via _p_repo or _p_pkg_edit
         for k in [k for k in access.ROUTES if k[1].startswith("/api/repository/") and k[1] not in ("/api/repository/msi", "/api/repository/search")]:
             assert access.ROUTES[k] is access._p_repo, k
         assert access.ROUTES[("POST", "/api/packages/{pid}/repair/apply")] is access._p_pkg_edit
@@ -3681,14 +3681,14 @@ def _():
         db.set_setting("repo_path", old_repo or "")
 
 
-@test("2.28 Neuigkeiten in der App (je Benutzer gesehen, Sicherheit zuerst, OU nur „alle“) und Hinweis auf neue Versionen (Server fragt GitHub, Token verschlüsselt und nie sichtbar)")
+@test("2.28 News in the app (seen per user, security first, OU only \"all\") and notice of new versions (server asks GitHub, token encrypted and never visible)")
 def _():
     import urllib.error as _ue
     from app import config, news, pklog, util
     from app import main as _m
     root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
     vers = news.versions()
-    assert vers and any(v["version"] == config.VERSION for v in vers), "news.json braucht einen Eintrag für die laufende Version"
+    assert vers and any(v["version"] == config.VERSION for v in vers), "news.json needs an entry for the running version"
     assert util.vcmp(vers[0]["version"], config.VERSION) <= 0 or True
     for v in vers:
         assert v["items"], v["version"]
@@ -3701,19 +3701,19 @@ def _():
     db.ex("DELETE FROM news_seen WHERE username IN ('news-haupt','news-ou')")
     r = news.for_user(adm)
     assert r["current"] == config.VERSION and r["unseen"] == 1 and r["versions"][0]["unseen"] and not any(v["unseen"] for v in r["versions"][1:]), \
-        "neuer Benutzer: nur die laufende Version ist neu"
+        "new user: only the running version is new"
     for v in r["versions"]:
         ks = [i["kind"] for i in v["items"]]
-        assert ks == sorted(ks, key=lambda k: news.KINDS.index(k)), "Sicherheit zuerst"
+        assert ks == sorted(ks, key=lambda k: news.KINDS.index(k)), "security first"
     news.mark_seen(adm)
     assert news.for_user(adm)["unseen"] == 0
     db.ex("INSERT OR REPLACE INTO news_seen(username, version, at) VALUES('news-haupt', '2.25', '')")
     r = news.for_user(adm)
-    assert r["unseen"] == sum(1 for v in r["versions"] if util.vcmp(v["version"], "2.25") > 0) and r["unseen"] >= 3, "übersprungene Versionen alle neu"
-    assert news.mark_seen(adm, "99.0")["seen"] == config.VERSION, "nie eine Zukunftsversion als gesehen"
+    assert r["unseen"] == sum(1 for v in r["versions"] if util.vcmp(v["version"], "2.25") > 0) and r["unseen"] >= 3, "skipped versions are all new"
+    assert news.mark_seen(adm, "99.0")["seen"] == config.VERSION, "never a future version as seen"
     ro = news.for_user(ou)
-    assert "update" not in ro and all(i["audience"] == "all" for v in ro["versions"] for i in v["items"]), "OU-Admins: nur „alle“, kein Update-Hinweis"
-    # Neue Version: GitHub nachgestellt (der Browser fragt nie selbst)
+    assert "update" not in ro and all(i["audience"] == "all" for v in ro["versions"] for i in v["items"]), "OU admins: only \"all\", no update notice"
+    # New version: GitHub simulated (the browser never asks by itself)
     old = {k: db.setting_raw(k) for k in ("update_check_enabled", "update_repo", news.TOKEN_KEY, news.STATUS_KEY)}
     real = news._fetch
     calls = []
@@ -3721,7 +3721,7 @@ def _():
         news.save({"enabled": True, "repo": "https://github.com/test/pocketknife.git", "token": "github_pat_Zq9Xw7TOKEN"})
         assert db.setting("update_repo") == "test/pocketknife"
         raw = db.setting_raw(news.TOKEN_KEY)
-        assert raw and "Zq9Xw7" not in raw, "Token verschlüsselt"
+        assert raw and "Zq9Xw7" not in raw, "token encrypted"
         fut = "99.1"
         news._fetch = lambda repo, token: calls.append((repo, token)) or {"tag": "v" + fut, "url": "https://github.com/test/pocketknife/releases/tag/v99.1",
             "published": "2099-01-01T00:00:00", "news": {"versions": [
@@ -3731,16 +3731,16 @@ def _():
         st = news.check(force=True, who="test")
         assert st["ok"] and st["latest"] == fut and [v["version"] for v in st["newer"]] == [fut], st
         assert calls == [("test/pocketknife", "github_pat_Zq9Xw7TOKEN")]
-        news.check()  # innerhalb von 24 Stunden: nicht erneut fragen
+        news.check()  # within 24 hours: do not ask again
         assert len(calls) == 1
         up = news.for_user(adm)["update"]
         assert up["latest"] == fut and up["security"] and up["versions"][0]["items"][0]["kind"] == "security" and up["command"] == "sudo sh update.sh"
         assert db.val("SELECT COUNT(*) FROM logs WHERE message LIKE ?", (f"%{fut} ist verfügbar (mit Sicherheitsupdates)%",)) >= 1
-        # Token nie an die Oberfläche (Einstellungen, Neuigkeiten, Diagnose-Regel)
+        # Token never to the UI (settings, news, diagnostic rule)
         for out in (news.settings(), news.for_user(adm), _m.db.all_settings()):
-            assert "Zq9Xw7" not in json.dumps(out), ("Token sichtbar", [k for k, v in (out.items() if isinstance(out, dict) else []) if "Zq9Xw7" in json.dumps(v)])
+            assert "Zq9Xw7" not in json.dumps(out), ("token visible", [k for k, v in (out.items() if isinstance(out, dict) else []) if "Zq9Xw7" in json.dumps(v)])
         assert news.settings()["token_set"] is True
-        # Fehler von GitHub: verständlich, ohne Token
+        # Error from GitHub: understandable, without token
         def _404(repo, token):
             raise _ue.HTTPError("https://api.github.com/x", 404, "Not Found", {}, None)
         news._fetch = _404
@@ -3751,18 +3751,18 @@ def _():
         assert "Zq9Xw7" not in st["error"] and "nicht erreichbar" in st["error"]
         news.save({"enabled": False})
         assert news.check(force=True) == news.status() or True
-        assert news.for_user(adm).get("update") is None, "abgeschaltet → kein Hinweis"
+        assert news.for_user(adm).get("update") is None, "switched off -> no notice"
         try:
             news.save({"repo": "kein repo"})
-            raise AssertionError("ungültiges Repository")
+            raise AssertionError("invalid repository")
         except ValueError:
             pass
         news.save({"clear_token": True})
         assert not db.setting_raw(news.TOKEN_KEY)
-        assert ("GET", "/api/system/updates") not in _m.access.ROUTES and ("GET", "/api/news") in _m.access.ROUTES, "Einstellungen nur Hauptadmins"
+        assert ("GET", "/api/system/updates") not in _m.access.ROUTES and ("GET", "/api/news") in _m.access.ROUTES, "settings only for main admins"
         wf = os.path.join(root, ".github", "workflows", "release.yml")
         if os.path.exists(wf):
-            assert "app/news.json" in open(wf, encoding="utf-8").read(), "Release bricht ohne Neuigkeiten der Version ab"
+            assert "app/news.json" in open(wf, encoding="utf-8").read(), "release aborts without news for the version"
     finally:
         news._fetch = real
         for k, v in old.items():
@@ -3773,7 +3773,7 @@ def _():
         db.ex("DELETE FROM news_seen WHERE username IN ('news-haupt','news-ou')")
 
 
-@test("2.29 Audit Logik: Ausnahme-Sammlung fehlt/kaputt = Paket übersprungen (nie „überall“), Bedingungen schützen vor dem Löschen, unterbrochener Zeitplan verbraucht keine Wiederholungen, hängende „wartend“-Läufe, Mandant beim Start, eindeutige Sammlungen beim Import")
+@test("2.29 Audit logic: exception collection missing/broken = package skipped (never \"everywhere\"), conditions protect against deletion, interrupted schedule uses up no repetitions, hanging \"waiting\" runs, tenant at start, unambiguous collections on import")
 def _():
     from app import deploy, pkgexport, schedules, steps as stp, integrity
     db.ex("INSERT OR IGNORE INTO computers(id, name, online, winrm) VALUES(291, 'PC-291', 1, 1)")
@@ -3782,15 +3782,15 @@ def _():
     collections_.invalidate()
     run = stp.Runner(1, 1, {"id": 291, "name": "PC-291", "dns_name": ""}, lambda: False, lambda *a: None)
     cond = {**stp.default_conditions(), "collections": [{"id": ex, "mode": "not_member"}]}
-    assert run.check(cond)[0] is False, "Mitglied der Ausnahme → nicht installieren"
+    assert run.check(cond)[0] is False, "member of the exception -> do not install"
     p = stp.clean_package({"name": "Audit-Ausnahme", "conditions": cond,
                            "steps": {"main": [{"type": "command", "command": "cmd /c exit 0"}]}})
     p["steps"], p["conditions"] = json.dumps(p["steps"]), json.dumps(p["conditions"])
     pid = db.ex(f"INSERT INTO packages({', '.join(deploy.PKG_FIELDS)}) VALUES({', '.join('?' * len(deploy.PKG_FIELDS))})",
                 tuple(p[k] for k in deploy.PKG_FIELDS))
     try:
-        assert any("Audit-Ausnahme" in x for x in collections_.used_by([ex])), "Bedingung im Paket zählt als Verwendung"
-        db.ex("DELETE FROM collections WHERE id=?", (ex,))  # z. B. AD-Gruppe umbenannt, alte Sammlung entfernt
+        assert any("Audit-Ausnahme" in x for x in collections_.used_by([ex])), "condition in the package counts as usage"
+        db.ex("DELETE FROM collections WHERE id=?", (ex,))  # e.g. AD group renamed, old collection removed
         collections_.invalidate()
         ok, why = run.check(cond)
         assert ok is False and "gibt es nicht mehr" in why, (ok, why)
@@ -3802,20 +3802,20 @@ def _():
             assert ok is False and "nicht prüfbar" in why, (ok, why)
         finally:
             collections_.member_ids = real
-        # Schritt-Bedingungen zählen ebenfalls
+        # Step conditions count too
         assert ex in collections_._cond_refs(None, {"main": [{"type": "command", "conditions": {"collections": [{"id": ex}]}}]})
     finally:
         db.ex("DELETE FROM packages WHERE id=?", (pid,))
         db.ex("DELETE FROM collections WHERE id=?", (ex,))
         db.ex("DELETE FROM collection_members WHERE collection_id=?", (ex,))
-    # Zeitplan: vom Bruch im Repository unterbrochen → kein „erledigt“
+    # Schedule: interrupted by a break in the repository -> not "done"
     real_fire = schedules.fire
     schedules.fire = lambda s_, cids=None, reason="", **k: {"deployment_id": None, "count": 0, "blocked": "x"}
     try:
         assert schedules._fire_safe({"id": 999291, "name": "T"}, [1]) is False
     finally:
         schedules.fire = real_fire
-    # „wartend“ angelegt, Start gescheitert → der Takt holt ihn nach
+    # created as "waiting", start failed -> the tick catches up
     did = db.ex("INSERT INTO deployments(name, package_json, status, created_at) VALUES('Hängt', ?, 'queued', ?)",
                 (json.dumps({"name": "Hängt", "steps": {"pre": [], "main": [], "post": []}}), util.ago(minutes=10)))
     db.ex("INSERT INTO deployment_targets(deployment_id, computer_id, status) VALUES(?, 291, 'queued')", (did,))
@@ -3824,10 +3824,10 @@ def _():
     deploy.start = lambda d, checked=False: started.append(d)
     try:
         deploy.restart_stuck()
-        assert did in started, "hängende Bereitstellung wird gestartet"
+        assert did in started, "hanging deployment is started"
     finally:
         deploy.start = real_start
-    # Mandant beim Start erneut: Computer hat die Mandanten-Sammlung verlassen → ausgelassen
+    # Tenant again at start: computer has left the tenant collection -> skipped
     real_tf = deploy.tenant_filter
     deploy.tenant_filter = lambda pkg, ids, strict=False: ([], len(ids))
     try:
@@ -3838,8 +3838,8 @@ def _():
     db.ex("DELETE FROM deployment_targets WHERE deployment_id=?", (did,))
     db.ex("DELETE FROM deployments WHERE id=?", (did,))
     src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "deploy.py"), encoding="utf-8").read()
-    assert "    _rescope(did)\n" in src.split("def start(")[1].split("def _rescope")[0], "start() wendet den Mandanten an"
-    # Import: gleichnamige Sammlungen → nur eindeutig (über den Pfad), sonst ablehnen
+    assert "    _rescope(did)\n" in src.split("def start(")[1].split("def _rescope")[0], "start() applies the tenant"
+    # Import: collections of the same name -> only unambiguous (via the path), otherwise reject
     f1 = db.ex("INSERT INTO collections(name, type) VALUES('Ordner A 2.29', 'folder')")
     f2 = db.ex("INSERT INTO collections(name, type) VALUES('Ordner B 2.29', 'folder')")
     c1 = db.ex("INSERT INTO collections(name, parent_id, type, match, filters) VALUES('Doppelt 2.29', ?, 'static', 'all', '{}')", (f1,))
@@ -3853,7 +3853,7 @@ def _():
     finally:
         for x in (c1, c2, f1, f2):
             db.ex("DELETE FROM collections WHERE id=?", (x,))
-    # Hauptdatei mit anderem Datum, Fingerabdruck nicht fertig → Lauf startet nicht
+    # Main file with a different date, fingerprint not ready -> run does not start
     real_ev = integrity.evaluate
     integrity.evaluate = lambda *a, **k: {"state": "warn", "issues": [{"kind": "pending", "main": True, "level": "warn", "path": "a\\b.msi",
                                                                     "note": "", "old": {}, "new": {}}], "total": 1}
@@ -3861,16 +3861,16 @@ def _():
         ipkg = {"name": "X", "steps": {"pre": [], "main": [{"type": "install", "id": "s1", "source": "file", "folder": "a",
                                                            "install_file": "b.msi", "copy_folder": True}], "post": []}}
         must_fail(integrity.guard, ipkg, contains="Unterbrochen")
-        ipkg["steps"]["main"][0]["install_file"] = "setup.exe"  # a\b.msi ist nur eine Datei im kopierten Ordner
-        assert integrity.guard(ipkg)["state"] == "warn", "Ordnerdateien blockieren nicht"
+        ipkg["steps"]["main"][0]["install_file"] = "setup.exe"  # a\b.msi is only a file in the copied folder
+        assert integrity.guard(ipkg)["state"] == "warn", "folder files do not block"
     finally:
         integrity.evaluate = real_ev
-    # Mandantenpakete nie als Dienstkonto – auch wenn ein Hauptadmin sie so gespeichert hat
+    # Tenant packages never as service account – even if a main admin saved them that way
     assert stp.effective_run_as({"type": "command", "run_as": "inherit"}, {"run_as": "deploy", "tenant_id": 3})[0] == "system"
     assert stp.effective_run_as({"type": "command", "run_as": "deploy"}, {"run_as": "deploy"})[0] == "deploy"
 
 
-@test("2.29 Audit Clients: Datei-Explorer folgt beim Löschen/Kopieren keinen Verknüpfungen, Arbeitsordner wird nach dem Anlegen geprüft (CLM-tauglich), Merker in HKLM, winget nur signiert, Nachricht/Variablen/Registry sicher, kein CredSSP")
+@test("2.29 Audit clients: file explorer follows no links when deleting/copying, working folder is checked after creation (CLM-compatible), marker in HKLM, winget only signed, message/variables/registry safe, no CredSSP")
 def _():
     import subprocess as _sp
     from app import deploy, kerberos, remote, steps as stp, tools, uninstall
@@ -3901,12 +3901,12 @@ def _():
         copyfile = staticmethod(lambda a, b: shutil.copyfile(loc(a), loc(b)))
     clientfiles.copytree_nofollow(Fake, FakeSh, "\\\\pc\\C$\\alt", "\\\\pc\\C$\\kopie")
     assert os.path.isfile(os.path.join(sb, "kopie", "sub", "f.txt")) and not os.path.exists(os.path.join(sb, "kopie", "junction")), \
-        "Verknüpfung beim Kopieren ausgelassen"
+        "link skipped when copying"
     clientfiles.rmtree_nofollow(Fake, "\\\\pc\\C$\\alt")
-    assert not os.path.exists(os.path.join(sb, "alt")) and os.path.isfile(os.path.join(sb, "Geheim", "wichtig.txt")), "Ziel bleibt"
+    assert not os.path.exists(os.path.join(sb, "alt")) and os.path.isfile(os.path.join(sb, "Geheim", "wichtig.txt")), "target stays"
     csrc = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "clientfiles.py"), encoding="utf-8").read()
     assert "smbshutil.rmtree" not in csrc and "smbshutil.copytree" not in csrc
-    # Arbeitsordner: nach dem Anlegen Besitzer/Rechte erneut prüfen; nur Cmdlets (CLM)
+    # Working folder: re-check owner/permissions after creation; cmdlets only (CLM)
     for need in ("PkTrusted", "PK_UNTRUSTED", "/setowner", "Sddl", "Inhalt beim Anlegen"):
         assert need in remote.SECURE_BASE, need
     pw = os.environ.get("PK_PWSH")
@@ -3930,27 +3930,27 @@ def _():
         o = run(True, good, good)
         assert "PK_BASE_OK" in o and "rename" not in o, o
         o = run(True, "O:S-1-5-21-1-2-3-1105G:DUD:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)", good)
-        assert "PK_BASE_OK" in o and "rename" not in o, ("Dienstkonto als Besitzer ist in Ordnung", o)
+        assert "PK_BASE_OK" in o and "rename" not in o, ("service account as owner is fine", o)
         o = run(True, "O:S-1-5-21-9-9-9-500G:DUD:(A;OICI;FA;;;S-1-5-21-9-9-9-500)", good)
         assert "PK_MOVED:S-1-5-21-9-9-9-500" in o and "PK_BASE_OK" in o, o
         o = run(True, good[:-1] + ")(A;OICI;FA;;;BU)", good)
         assert "PK_MOVED:Recht für BU" in o, o
         o = run(False, "", "O:S-1-5-21-9-9-9-777G:DUD:PAI(A;OICI;FA;;;SY)")
-        assert "PK_UNTRUSTED" in o and "PK_BASE_OK" not in o, ("im selben Moment fremd angelegt", o)
+        assert "PK_UNTRUSTED" in o and "PK_BASE_OK" not in o, ("created by someone else at the same moment", o)
         o = run(False, "", good, kids=2)
         assert "PK_UNTRUSTED" in o and "Inhalt beim Anlegen" in o, o
         assert "Only core types" not in o and "cannot" not in o.lower(), o
-    # winget: Merker in HKLM, PATH-Ersatz nur mit Microsoft-Signatur
+    # winget: marker in HKLM, PATH replacement only with Microsoft signature
     assert "HKLM:\\SOFTWARE\\PocketKnife" in deploy.WINGET_FIND and "Set-Content -Path $mark" not in deploy.WINGET_FIND
     assert "Get-AuthenticodeSignature" in deploy.WINGET_FIND and "if ($g) { return $g.Source }" not in deploy.WINGET_FIND
-    # Nachricht: keine " im Argument; Variablen mit „-“ nicht unzitiert in CMD
+    # Message: no " in the argument; variables with "-" not unquoted in CMD
     ssrc = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "steps.py"), encoding="utf-8").read()
-    assert ".replace('\"', \"'\")" in ssrc.split('            if t == "message":')[1][:1200], "Nachrichtentext ohne Anführungszeichen"
-    assert "/XJ" in ssrc, "robocopy folgt keinen Verknüpfungen"
+    assert ".replace('\"', \"'\")" in ssrc.split('            if t == "message":')[1][:1200], "message text without quotation marks"
+    assert "/XJ" in ssrc, "robocopy follows no links"
     must_fail(tools.substitute, "x $(User)", {"name": "pc", "current_user": "max -Force"}, "cmd", contains="nicht sicher")
     assert tools.substitute("x $(User)", {"name": "pc", "current_user": "max -Force"}, "powershell") == "x $($PK_User)"
     assert "Test-Path $key" not in uninstall.__dict__.get("SCRIPT", "") and "-Path $key" not in open(uninstall.__file__, encoding="utf-8").read()
-    # CredSSP gibt es nicht mehr (Kennwort des Dienstkontos ginge an jeden Client)
+    # CredSSP no longer exists (the service account password would go to every client)
     old = db.setting_raw("auth_mode")
     try:
         db.set_setting("auth_mode", "credssp")
@@ -3959,19 +3959,19 @@ def _():
         db.set_setting("auth_mode", old or "")
 
 
-@test("2.29 Audit Anmeldung/Daten: allgemeine Fehlermeldungen, Notfallzugang begrenzt und gemeldet, Diagnosepaket maskiert mehr, Proxy-Kennwort nie an neuen Proxy, Token nicht bei Weiterleitung, DNS-Antworten geprüft, mehrere DC-Zertifikate")
+@test("2.29 Audit login/data: generic error messages, emergency access limited and reported, diagnostic package masks more, proxy password never to a new proxy, token not on redirect, DNS answers checked, multiple DC certificates")
 def _():
     import io as _io
     import urllib.request as _ur
     from fastapi import HTTPException as _HE
     from app import ad, auth, config as _cfg, diagnostics, dnsres, notify, proxy
-    # Verbindungsfehler verraten keine DC-Namen
+    # Connection errors do not reveal DC names
     real = ad.authenticate
     ad.authenticate = lambda u, p, allow_kiosk=False: (_ for _ in ()).throw(ad.ADError("LDAPS-Verbindung zu dc1.firma.local:636 fehlgeschlagen"))
     try:
         try:
             auth.login("max", "x", "10.9.9.1")
-            raise AssertionError("keine Anmeldung")
+            raise AssertionError("no login")
         except _HE as e:
             assert "dc1" not in str(e.detail) and "636" not in str(e.detail) and e.detail == auth.INFRA_FAIL, e.detail
     finally:
@@ -3981,7 +3981,7 @@ def _():
     db.ex("INSERT INTO logs(ts, level, category, message) VALUES(?, 'WARN', 'auth', 'Notfallzugang: Anmeldung von 10.1.1.1')", (util.now(),))
     hits = notify._check_breakglass({}, {"since": util.ago(minutes=1)})
     assert any("10.1.1.1" in v["event"] for v in hits.values()), hits
-    # Diagnosepaket: mehr Kennwortformen
+    # Diagnostic package: more password forms
     t = diagnostics._mask_secrets('cmdkey /add:x /user:a /pass:Geh31m psexec \\\\pc -u a -p Zq9Xw7 net user bob Zq9Xw8 /add '
                                   'Authorization: Bearer abcdefghijkl1 ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ012345')
     for bad in ("Geh31m", "Zq9Xw7", "Zq9Xw8", "abcdefghijkl1", "ghp_ABCDEF"):
@@ -3998,20 +3998,20 @@ def _():
     finally:
         db.ex("DELETE FROM tenants WHERE name='Kanzlei Schmidt & Partner'")
         db.ex("DELETE FROM diag_alias WHERE real IN ('Kanzlei Schmidt & Partner', 'GG-Kanzlei-Admins')")
-    # Proxy: gespeichertes Kennwort nie an einen anderen Proxy
+    # Proxy: stored password never to another proxy
     try:
         proxy.save({"url": "http://proxy-a.firma.local:8080", "user": "px", "password": "Pw1", "clients": False})
         must_fail(proxy.save, {"url": "http://evil.example:8080", "user": "px", "clients": False}, contains="erneut eingeben")
-        proxy.save({"url": "http://proxy-a.firma.local:8080", "user": "px", "clients": True})  # unverändert: ok
+        proxy.save({"url": "http://proxy-a.firma.local:8080", "user": "px", "clients": True})  # unchanged: ok
     finally:
         proxy.save({"url": "", "user": "", "clients": False})
-    # Weiterleitung auf einen anderen Rechner: kein Authorization-Header
+    # Redirect to another machine: no Authorization header
     req = _ur.Request("https://api.github.com/x", headers={"Authorization": "Bearer T"})
     n = proxy.SafeRedirect().redirect_request(req, _io.BytesIO(), 302, "Found", {}, "https://evil.example/y")
     assert "Authorization" not in n.headers and not n.get_header("Authorization")
     n = proxy.SafeRedirect().redirect_request(req, _io.BytesIO(), 302, "Found", {}, "https://api.github.com/z")
     assert n.get_header("Authorization") == "Bearer T"
-    # DNS: fremde/unpassende Antworten verworfen
+    # DNS: foreign/mismatched answers discarded
     import struct as _struct
     qname = b"\x02pc\x05firma\x05local\x00" + _struct.pack(">HH", 1, 1)
 
@@ -4028,7 +4028,7 @@ def _():
             hdr = _struct.pack(">HHHHHH", self.qid, 0x8180, 1, 1, 0, 0)
             ans = b"\xc0\x0c" + _struct.pack(">HHIH", 1, 1, 60, 4)
             if not self.out:
-                self.out.append(1)  # erst eine Antwort auf eine ANDERE Frage (gefälscht)
+                self.out.append(1)  # first an answer to a DIFFERENT question (forged)
                 return hdr + b"\x04evil\x05firma\x05local\x00" + _struct.pack(">HH", 1, 1) + ans + bytes([6, 6, 6, 6])
             return hdr + qname + ans + bytes([10, 1, 2, 3])
         def close(self):
@@ -4039,18 +4039,18 @@ def _():
         assert dnsres._query("pc.firma.local", "10.0.0.1") == "10.1.2.3"
     finally:
         dnsres.socket.socket = real_sock
-    # LDAPS: mehrere Zertifikate je Name (mehrere DCs hinter dem Domänennamen)
+    # LDAPS: several certificates per name (several DCs behind the domain name)
     assert ad._fp_list("AA") == ["AA"] and ad._fp_list(["AA", "BB"]) == ["AA", "BB"] and ad._fp_list(None) == []
-    # Oberfläche: CSV-Schutz mit Leerzeichen davor, nur http(s)/mailto als Link, strengere CSP einer Route bleibt
+    # UI: CSV protection with a leading space, only http(s)/mailto as link, stricter CSP of a route stays
     js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
     assert "/^[\\s]*[=+\\-@]|^[\\t\\r]/" in js and "(https?:|mailto:)" in js
     msrc = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "main.py"), encoding="utf-8").read()
     assert 'if "content-security-policy" not in resp.headers' in msrc
-    assert diagnostics._csv([{"a": "=HYPERLINK(1)"}], ["a"]).splitlines()[1].startswith("'="), "Diagnose-CSV entschärft"
+    assert diagnostics._csv([{"a": "=HYPERLINK(1)"}], ["a"]).splitlines()[1].startswith("'="), "diagnostic CSV defused"
     assert _cfg is not None
 
 
-@test("2.29.1 Mandanten absichern: Befehls-/PowerShell-Schritte nur mit eigener Freigabe (Hauptadmin-Schritte unverändert erlaubt, Skripte als Datei aus dem eigenen Ordner gehen), eigene Deinstallationsbefehle ebenso, Hinweis bei Zugriff auf Freigaben/Internet")
+@test("2.29.1 Securing tenants: command/PowerShell steps only with their own release (main admin steps remain allowed unchanged, scripts as a file from the own folder work), own uninstall commands likewise, notice on access to shares/internet")
 def _():
     import hashlib
     import secrets
@@ -4078,54 +4078,54 @@ def _():
                      {"type": "uninstall", "match_name": "X*", "command": "cmd /c del x"}):
             st, r = _asgi("POST", "/api/packages", tok, {"name": "SK verboten", "steps": {"main": [stp_]}})
             assert st == 403 and "nicht freigegeben" in str(r), (stp_["type"], st, r)
-        # erlaubt: Skript als Datei aus dem eigenen Repository-Ordner, Registry, Deinstallation mit erkanntem Befehl
+        # allowed: script as a file from the own repository folder, registry, uninstall with a recognised command
         st, r = _asgi("POST", "/api/packages", tok, {"name": "SK Datei-Skript", "steps": {"main": [
             {"type": "install", "source": "file", "folder": "Kunden\\SK\\tools", "install_file": "setup.ps1"},
             {"type": "uninstall", "match_name": "Alt*"}]}})
         assert st == 200, (st, r)
         created.append(r["id"])
-        # Schritt eines Hauptadmins (Paket für OU-Admins freigegeben, 2.30): unverändert speicherbar, geändert nicht
+        # Step of a main admin (package released for OU admins, 2.30): can be saved unchanged, not changed
         pid = db.ex("INSERT INTO packages(name, version, steps, conditions, run_as, tenant_id, created_at, ou_edit) VALUES('SK von Haupt','1',?,'{}','system',?,?,1)",
                     (json.dumps({"main": [{"id": "h1", "type": "command", "command": "hostname"}]}), tid, util.now()))
         created.append(pid)
         pkg = _asgi("GET", f"/api/packages/{pid}", tok)[1]
         pkg["description"] = "nur Beschreibung geändert"
         st, r = _asgi("PUT", f"/api/packages/{pid}", tok, pkg)
-        assert st == 200, ("unveränderter Hauptadmin-Schritt", st, r)
+        assert st == 200, ("unchanged main admin step", st, r)
         pkg["steps"]["main"][0]["command"] = "net use Z: \\\\fremd\\c$"
-        assert _asgi("PUT", f"/api/packages/{pid}", tok, pkg)[0] == 403, "geänderter Code"
+        assert _asgi("PUT", f"/api/packages/{pid}", tok, pkg)[0] == 403, "changed code"
         pkg["steps"]["main"].append({"type": "command", "command": "hostname"})
         pkg["steps"]["main"][0]["command"] = "hostname"
-        assert _asgi("PUT", f"/api/packages/{pid}", tok, pkg)[0] == 403, "zusätzlicher Code (gleicher Text zählt nur einmal)"
-        # Software-Liste: erkannter Befehl ja, geänderter nein
+        assert _asgi("PUT", f"/api/packages/{pid}", tok, pkg)[0] == 403, "additional code (same text counts only once)"
+        # Software list: recognised command yes, changed one no
         from app import uninstall as _un
         det = _un.command_for(db.q1("SELECT * FROM software WHERE id=?", (sw,)))["command"]
         st, r = _asgi("POST", "/api/uninstall", tok, {"items": [{"software_id": sw, "command": det}]})
-        assert st == 200, ("erkannter Befehl", st, r)
+        assert st == 200, ("recognised command", st, r)
         for d in r["deployments"]:
             db.ex("DELETE FROM deployment_targets WHERE deployment_id=?", (d,))
             db.ex("DELETE FROM deployments WHERE id=?", (d,))
         st, r = _asgi("POST", "/api/uninstall", tok, {"items": [{"software_id": sw, "command": "cmd /c whoami"}]})
-        assert st == 403, ("geänderter Befehl", st, r)
-        # Freigabe beim Mandanten: nur zusammen mit „eigene Pakete“; danach Code erlaubt, mit Hinweis bei Netzzugriff
+        assert st == 403, ("changed command", st, r)
+        # Release at the tenant: only together with "own packages"; afterwards code allowed, with a note on network access
         db.ex("UPDATE tenants SET allow_scripts=1 WHERE id=?", (tid,))
         access.flush()
         st, r = _asgi("POST", "/api/packages", tok, {"name": "SK mit Netz", "steps": {"main": [
             {"type": "powershell", "script": "Copy-Item \\\\fileserver\\daten\\x.txt C:\\Temp; Invoke-WebRequest https://example.org -OutFile a"}]}})
         assert st == 200 and r["warnings"] and "fileserver" in r["warnings"][0], (st, r)
         created.append(r["id"])
-        assert db.val("SELECT COUNT(*) FROM logs WHERE message LIKE '%SK mit Netz%Freigaben oder das Internet%'"), "Hinweis im Protokoll"
+        assert db.val("SELECT COUNT(*) FROM logs WHERE message LIKE '%SK mit Netz%Freigaben oder das Internet%'"), "note in the log"
         st, r = _asgi("POST", "/api/packages", tok, {"name": "SK ohne Netz", "steps": {"main": [{"type": "powershell", "script": "Get-Date"}]}})
         assert st == 200 and r["warnings"] == [], r
         created.append(r["id"])
         assert _m.net_hints({"steps": {"main": [{"type": "command", "command": "net use x: \\\\srv\\a"}]}})
         assert not _m.net_hints({"steps": {"main": [{"type": "command", "command": "msiexec /i C:\\Temp\\a.msi /qn"}]}})
-        # Mandant speichern: Skripte nur mit „eigene Pakete“
+        # Save tenant: scripts only with "own packages"
         _m._tenant_scripts(tid, {"allow_scripts": True}, {"username": "t"})
         assert db.val("SELECT allow_scripts FROM tenants WHERE id=?", (tid,)) == 1
         db.ex("UPDATE tenants SET allow_packages=0 WHERE id=?", (tid,))
         _m._tenant_scripts(tid, {"allow_scripts": True}, {"username": "t"})
-        assert db.val("SELECT allow_scripts FROM tenants WHERE id=?", (tid,)) == 0, "ohne eigene Pakete keine Skripte"
+        assert db.val("SELECT allow_scripts FROM tenants WHERE id=?", (tid,)) == 0, "no scripts without own packages"
         js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
         assert "mayScript(p.tenant_id)" in js and "allow_scripts: scripts.checked && allow.checked" in js
     finally:
@@ -4140,7 +4140,7 @@ def _():
         access.flush()
 
 
-@test("2.29.2 Trivy: Schwachstellen HOCH/KRITISCH mit Korrektur stoppen das Release vor dem Hochladen; Trivy fest in Version und Prüfsumme (keine Action); täglicher Scan des veröffentlichten Images; Versionen aktualisieren per Pull Request")
+@test("2.29.2 Trivy: HIGH/CRITICAL vulnerabilities with a fix stop the release before uploading; Trivy pinned in version and checksum (no action); daily scan of the published image; version updates via pull request")
 def _():
     import re as _re
     import shutil as _sh
@@ -4149,28 +4149,28 @@ def _():
     sc = os.path.join(root, "tools", "trivy-scan.sh")
     wfd = os.path.join(root, ".github", "workflows")
     if not os.path.exists(sc) or not os.path.isdir(wfd):
-        return  # im Container liegen Skript und Workflows nicht
+        return  # the script and workflows are not in the container
     src = open(sc, encoding="utf-8").read()
-    assert _re.search(r"^TRIVY_VERSION=\d+\.\d+\.\d+$", src, _re.M), "feste Trivy-Version"
+    assert _re.search(r"^TRIVY_VERSION=\d+\.\d+\.\d+$", src, _re.M), "pinned Trivy version"
     assert _re.search(r'^SHA_LINUX_64="[0-9a-f]{64}"$', src, _re.M) and _re.search(r'^SHA_LINUX_ARM64="[0-9a-f]{64}"$', src, _re.M)
     assert "sha256sum -c" in src and "--ignore-unfixed" in src and "HIGH,CRITICAL" in src
     ver = tuple(int(x) for x in _re.search(r"^TRIVY_VERSION=(\S+)$", src, _re.M).group(1).split("."))
-    assert not ((0, 69, 4) <= ver <= (0, 69, 6)), "kompromittierte Trivy-Versionen (CVE-2026-33634)"
+    assert not ((0, 69, 4) <= ver <= (0, 69, 6)), "compromised Trivy versions (CVE-2026-33634)"
     wfs = {f: open(os.path.join(wfd, f), encoding="utf-8").read() for f in os.listdir(wfd) if f.endswith(".yml")}
     for f, t in wfs.items():
         for use in _re.findall(r"uses:\s*(\S+)", t):
-            assert _re.search(r"@[0-9a-f]{40}$", use), f"{f}: Action nicht auf Commit festgelegt: {use}"
-        assert "aquasecurity/" not in t, f"{f}: Trivy nur über tools/trivy-scan.sh (keine Action)"
+            assert _re.search(r"@[0-9a-f]{40}$", use), f"{f}: action not pinned to a commit: {use}"
+        assert "aquasecurity/" not in t, f"{f}: Trivy only via tools/trivy-scan.sh (no action)"
     rel = wfs["release.yml"]
-    assert rel.index("tools/trivy-scan.sh pocketknife-test:amd64 pocketknife-test:arm64") < rel.index("Bauen und hochladen"), \
-        "Trivy prüft VOR dem Hochladen"
+    assert rel.index("tools/trivy-scan.sh pocketknife-test:amd64 pocketknife-test:arm64") < rel.index("Build and push"), \
+        "Trivy scans BEFORE uploading"
     assert "tools/trivy-scan.sh" in wfs["test.yml"]
     assert "schedule:" in wfs["security.yml"] and ":latest" in wfs["security.yml"] and "packages: read" in wfs["security.yml"]
     assert "pin-versions.sh --update" in wfs["update-pins.yml"] and "gh pr create" in wfs["update-pins.yml"]
     assert ".trivyignore" in open(os.path.join(root, "update.sh"), encoding="utf-8").read()
     if not _sh.which("sh") or not _sh.which("sha256sum"):
         return
-    # Ablauf mit einer Trivy-Attrappe: sauber → 0, Befund → 1 (+ Bericht), nicht prüfbar → 3
+    # Run with a Trivy dummy: clean -> 0, finding -> 1 (+ report), not checkable -> 3
     d = tempfile.mkdtemp(prefix="pk-trivy-", dir=TMP)
     fake = os.path.join(d, "trivy")
     with open(fake, "w") as h:
@@ -4185,12 +4185,12 @@ def _():
     rc = lambda img: _sp.run(["sh", sc, img], env=env, capture_output=True, text=True, timeout=60).returncode  # noqa: E731
     assert rc("pk-gut") == 0 and rc("pk-schlecht") == 1 and rc("pk-fehlt") == 3
     r = _sp.run(["sh", sc, "pk-gut", "pk-schlecht"], env=env, capture_output=True, text=True, timeout=60)
-    assert r.returncode == 1 and "Versionen aktualisieren" in r.stderr, "Befund in einem von mehreren Images zählt"
+    assert r.returncode == 1 and "Update versions" in r.stderr, "finding in one of several images counts"
     t = open(rep, encoding="utf-8").read()
-    assert "CVE-2026-1111" in t and "libssl3t64" in t and "Keine Schwachstellen" in t, t
+    assert "CVE-2026-1111" in t and "libssl3t64" in t and "No vulnerabilities" in t, t
 
 
-@test("2.29.3 Wöchentliches Sicherheitsupdate: montags Pakete aktualisieren, neu bauen, Selbsttest und Trivy – nur bei Erfolg neue Version und Release (latest); ohne Änderung nichts; Versionsnummer, CHANGELOG und Neuigkeiten automatisch")
+@test("2.29.3 Weekly security update: Mondays update packages, rebuild, self-test and Trivy – only on success new version and release (latest); nothing without a change; version number, CHANGELOG and news automatic")
 def _():
     import shutil as _sh
     import subprocess as _sp
@@ -4198,26 +4198,26 @@ def _():
     wf = os.path.join(root, ".github", "workflows", "weekly.yml")
     tool = os.path.join(root, "tools", "security-release.py")
     if not os.path.exists(wf) or not os.path.exists(tool):
-        return  # im Container liegen Workflows und Werkzeuge nicht
+        return  # workflows and tools are not in the container
     t = open(wf, encoding="utf-8").read()
-    assert '"23 3 * * 1"' in t, "montags"
+    assert '"23 3 * * 1"' in t, "Mondays"
     order = ["pin-versions.sh --update", "git diff --quiet", "tools/trivy-scan.sh pocketknife:local", "tools/security-release.py",
              'git switch -c "$BR"', 'git push', "gh pr create"]
     pos = [t.index(x) for x in order]
-    assert pos == sorted(pos), "Reihenfolge: aktualisieren/bauen/testen → Trivy → Version → Zweig → Pull Request"
-    assert t.count("if: steps.diff.outputs.changed == 'true'") >= 3, "ohne Änderung keine neue Version"
-    # 2.37: nie direkt auf main, kein Release von selbst – nur Zweig + Pull Request (Release nach dem Zusammenführen)
-    assert "gh workflow run" not in t and "actions: write" not in t and "HEAD:${{" not in t, "kein Push auf main, kein Release"
-    assert "pull-requests: write" in t and "contents: write" in t and "packages: write" not in t, "veröffentlichen tut nur release.yml"
-    # 2.32.5: eigene Gruppe (sonst verwirft GitHub einen wartenden Release) und nur auf einen veröffentlichten Stand
+    assert pos == sorted(pos), "order: update/build/test -> Trivy -> version -> branch -> pull request"
+    assert t.count("if: steps.diff.outputs.changed == 'true'") >= 3, "no new version without a change"
+    # 2.37: never directly onto main, no release by itself – only branch + pull request (release after merging)
+    assert "gh workflow run" not in t and "actions: write" not in t and "HEAD:${{" not in t, "no push to main, no release"
+    assert "pull-requests: write" in t and "contents: write" in t and "packages: write" not in t, "only release.yml publishes"
+    # 2.32.5: own group (otherwise GitHub discards a waiting release) and only for a published state
     assert "group: weekly-security" in t and "group: release" in open(os.path.join(root, ".github", "workflows", "release.yml"), encoding="utf-8").read()
     assert 'gh release view "v$VER"' in t and "needs: stand" in t and "if: needs.stand.outputs.released == 'true'" in t
-    # Werkzeug: Version +1, CHANGELOG/Neuigkeiten/README, Änderungen aus den festgelegten Versionen
+    # Tool: version +1, CHANGELOG/news/README, changes from the pinned versions
     import importlib.util as _iu
     spec = _iu.spec_from_file_location("pk_secrel", tool)
     m = _iu.module_from_spec(spec)
     spec.loader.exec_module(m)
-    assert m.bump("2.29.2") == "2.29.2-s1" and m.bump("2.29.2-s1") == "2.29.2-s2" and m.bump("2.30-s9") == "2.30-s10", "gleiches Programm, nur neue Pakete"
+    assert m.bump("2.29.2") == "2.29.2-s1" and m.bump("2.29.2-s1") == "2.29.2-s2" and m.bump("2.30-s9") == "2.30-s10", "same program, only new packages"
     d = tempfile.mkdtemp(prefix="pk-secrel-", dir=TMP)
     for side in ("alt", "neu"):
         os.makedirs(os.path.join(d, side, "tools")); os.makedirs(os.path.join(d, side, "app")); os.makedirs(os.path.join(d, side, "docker"))
@@ -4235,26 +4235,26 @@ def _():
     rd = lambda *p: open(os.path.join(d, "neu", *p), encoding="utf-8").read()  # noqa: E731
     assert rd("VERSION").strip() == "2.29.2-s1" and "pocketknife-2.29.2-s1**" in rd("README.md")
     ch = rd("CHANGELOG.md")
-    assert ch.index("## pocketknife-2.29.2-s1 (") < ch.index("## pocketknife-2.29.2 ") and "libssl3t64` 3.5.1-1 → 3.5.1-2" in ch and "Basis-Image" in ch, ch
+    assert ch.index("## pocketknife-2.29.2-s1 (") < ch.index("## pocketknife-2.29.2 ") and "libssl3t64` 3.5.1-1 → 3.5.1-2" in ch and "base image" in ch and ch.startswith("# Änderungen\n\n## pocketknife-2.29.2-s1"), ch
     nv = json.loads(rd("app", "news.json"))["versions"][0]
     assert nv["version"] == "2.29.2-s1" and nv["items"][0]["kind"] == "security" and nv["items"][0]["de"] and nv["items"][0]["en"]
     from app import news
-    news.validate(json.loads(rd("app", "news.json")))  # Aufbau passt
+    news.validate(json.loads(rd("app", "news.json")))  # Structure fits
 
 
-@test("2.29.4 Alles im Image aktuell: alle Debian-Pakete (auch die des Basis-Images) auf Snapshot-Stand, pip nicht im Image, Update bleibt in Python-Reihe und Debian-Version, guacd neueste Version; Unterbau-Warnung rechtzeitig vor Ende der Updates")
+@test("2.29.4 Everything in the image up to date: all Debian packages (also those of the base image) at snapshot state, pip not in the image, update stays within the Python series and Debian version, guacd latest version; base-layer warning in good time before the end of updates")
 def _():
     import subprocess as _sp
     root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
     pv = os.path.join(root, "tools", "pin-versions.sh")
     if not os.path.exists(pv):
-        return  # im Container liegen die Bauwerkzeuge nicht
+        return  # the build tools are not in the container
     ai = open(os.path.join(root, "docker", "apt-install.sh"), encoding="utf-8").read()
-    assert ai.index("upgrade") < ai.index("apt-get install -y --no-install-recommends $PKGS"), "erst alles aktualisieren, dann installieren"
+    assert ai.index("upgrade") < ai.index("apt-get install -y --no-install-recommends $PKGS"), "first update everything, then install"
     df = open(os.path.join(root, "Dockerfile"), encoding="utf-8").read()
-    assert df.index("pip check") < df.index("pip uninstall -y -q pip"), "pip nach der Prüfung entfernt"
+    assert df.index("pip check") < df.index("pip uninstall -y -q pip"), "pip removed after the check"
     src = open(pv, encoding="utf-8").read()
-    assert "python:3.12-slim|" not in src, "nie „python:3.12-slim“ ohne Debian-Namen (wechselte still die Debian-Version)"
+    assert "python:3.12-slim|" not in src, "never \"python:3.12-slim\" without a Debian name (silently changed the Debian version)"
     assert "PK_PYTHON_BASE" in src and "importlib.metadata" in src and "hub.docker.com/v2/repositories/guacamole/guacd/tags" in src
     line = [x for x in src.splitlines() if x.strip().startswith("BASE_TAG=$(printf")][0]
     sedexpr = line.split("sed -n '", 1)[1].rsplit("'", 1)[0]
@@ -4262,7 +4262,7 @@ def _():
                       ("python:3.13.2-slim-forky", "python:3.13-slim-forky")):
         out = _sp.run(["sed", "-n", sedexpr], input=cur, capture_output=True, text=True).stdout.strip()
         assert out == want, (cur, out)
-    # Unterbau: rechtzeitig melden, nie die Sicherheitsupdates blockieren
+    # Base layer: report in good time, never block the security updates
     import importlib.util as _iu
     spec = _iu.spec_from_file_location("pk_unterbau", os.path.join(root, "tools", "unterbau-check.py"))
     m = _iu.module_from_spec(spec)
@@ -4272,7 +4272,7 @@ def _():
     json.dump({"result": {"releases": [{"name": "3.13", "eolFrom": "2029-10-31"}, {"name": "3.12", "eolFrom": "2028-10-31"}]}}, open(pj, "w"))
     json.dump({"result": {"releases": [{"name": "13", "eolFrom": "2028-08-09"}]}}, open(dj, "w"))
     assert m.eol(json.load(open(pj)), "3.12").isoformat() == "2028-10-31"
-    assert m.eol([{"cycle": "3.12", "eol": "2028-10-31"}], "3.12").isoformat() == "2028-10-31", "altes Format"
+    assert m.eol([{"cycle": "3.12", "eol": "2028-10-31"}], "3.12").isoformat() == "2028-10-31", "old format"
     py, code = m.base()
     assert __import__("re").match(r"^\d+\.\d+$", py) and code in m.DEBIAN, (py, code)
     run = lambda today, p=pj: _sp.run([sys.executable, "-I", os.path.join(root, "tools", "unterbau-check.py"), "--python-json", p,  # noqa: E731
@@ -4280,29 +4280,29 @@ def _():
     r = run("2026-10-24")
     assert r.returncode == 0 and "::" not in r.stdout, r.stdout
     r = run("2027-12-01")
-    assert r.returncode == 0 and "::warning" in r.stdout and "einplanen" in r.stdout
+    assert r.returncode == 0 and "::warning" in r.stdout and "plan to raise it" in r.stdout
     r = run("2028-06-01")
-    assert r.returncode == 1 and "::error title=Unterbau anheben" in r.stdout
+    assert r.returncode == 1 and "::error title=Raise base platform" in r.stdout
     r = run("2028-06-01", p=os.path.join(d, "fehlt.json"))
-    assert "nicht ermittelbar" in r.stdout
+    assert "cannot be determined" in r.stdout
     wf = open(os.path.join(root, ".github", "workflows", "weekly.yml"), encoding="utf-8").read()
-    assert "unterbau:" in wf and "tools/unterbau-check.py" in wf and "guacd prüfen" in wf
+    assert "unterbau:" in wf and "tools/unterbau-check.py" in wf and "Check guacd" in wf
     sec = open(os.path.join(root, ".github", "workflows", "security.yml"), encoding="utf-8").read()
-    assert 'exit "$rc"' in sec and "grc=0" in sec, "guacd-Befunde nur als Hinweis"
+    assert 'exit "$rc"' in sec and "grc=0" in sec, "guacd findings only as a notice"
 
 
-@test("2.29.5 Kein Versionssprung bei Python-Paketen: jedes bleibt auf seiner Hauptversion (vor 1.0 Unterversion), Kalenderversionen (certifi) immer neu; Grenzen gelten beim wöchentlichen Update; neue Hauptversion nur bewusst")
+@test("2.29.5 No version jump for Python packages: each stays on its major version (before 1.0 minor version), calendar versions (certifi) always new; limits apply in the weekly update; new major version only deliberately")
 def _():
     root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
     tool = os.path.join(root, "tools", "caps.py")
     if not os.path.exists(tool):
-        return  # im Container liegen die Bauwerkzeuge nicht
+        return  # the build tools are not in the container
     import importlib.util as _iu
     spec = _iu.spec_from_file_location("pk_caps", tool)
     m = _iu.module_from_spec(spec)
     spec.loader.exec_module(m)
     assert m.cap("50.0.2") == "<51" and m.cap("0.155.0") == "<0.156" and m.cap("0.0.5") == "<0.1" and m.cap("2.9.1") == "<3"
-    assert m.cap("2026.10.19") is None and m.cap("2025.2") is None, "Kalenderversionen ohne Grenze (Stammzertifikate, Zeitzonen)"
+    assert m.cap("2026.10.19") is None and m.cap("2025.2") is None, "calendar versions without a limit (root certificates, time zones)"
     assert m.line_for("fastapi", "0.155.0") == "fastapi>=0.155.0,<0.156" and m.line_for("certifi", "2026.10.19") == "certifi>=2026.10.19"
     t = m.build_ranges("# Kommentar\nCython==3.2.1\nsetuptools\n")
     assert t == "# Kommentar\nCython>=3.2.1,<4\nsetuptools\n", t
@@ -4310,21 +4310,21 @@ def _():
     caps = open(os.path.join(root, "requirements.caps"), encoding="utf-8").read()
     names = {x.split("==")[0].lower() for x in lock.splitlines() if "==" in x and not x.startswith("#")}
     capped = {__import__("re").split(r"[<>=]", x)[0].lower() for x in caps.splitlines() if x and not x.startswith("#")}
-    assert names == capped, ("requirements.caps passt nicht zu requirements.lock", names ^ capped)
+    assert names == capped, ("requirements.caps does not match requirements.lock", names ^ capped)
     df = open(os.path.join(root, "Dockerfile"), encoding="utf-8").read()
-    assert df.count("-c requirements.caps") == 2 and df.count("requirements.caps") >= 4, "Grenzen in Bau- und Laufzeit-Stufe"
+    assert df.count("-c requirements.caps") == 2 and df.count("requirements.caps") >= 4, "limits in build and runtime stage"
     pv = open(os.path.join(root, "tools", "pin-versions.sh"), encoding="utf-8").read()
-    assert pv.index("tools/caps.py lock requirements.lock") < pv.index("' > requirements.lock"), "Grenzen VOR dem Leeren der Datei"
+    assert pv.index("tools/caps.py lock requirements.lock") < pv.index("' > requirements.lock"), "limits BEFORE emptying the file"
     assert "PK_ALLOW_MAJOR" in pv
-    assert "docker compose config --images" not in pv, "guacd aus der Datei lesen (compose config scheitert ohne .env → ohne Digest)"
-    assert pv.index('docker pull -q "$BASE"') < pv.index("DIGEST=$(docker image inspect"), "BuildKit: Basis-Image vor dem Lesen der Prüfsumme holen"
+    assert "docker compose config --images" not in pv, "read guacd from the file (compose config fails without .env -> without digest)"
+    assert pv.index('docker pull -q "$BASE"') < pv.index("DIGEST=$(docker image inspect"), "BuildKit: fetch base image before reading the checksum"
     for f in ("weekly.yml", "update-pins.yml"):
         w = open(os.path.join(root, ".github", "workflows", f), encoding="utf-8").read()
-        assert "requirements.caps" in w and "::error title=Versionen aktualisieren::" in w, f
+        assert "requirements.caps" in w and "::error title=Update versions::" in w, f
     assert "requirements.caps" in open(os.path.join(root, "update.sh"), encoding="utf-8").read()
 
 
-@test("2.29.7 Sicherheitsupdates als <Version>-s<n> (gleiches Programm, nur neue Pakete): richtig sortiert in App, update.sh und Release; keine Git-Anmeldedaten im Arbeitsordner der Workflows")
+@test("2.29.7 Security updates as <version>-s<n> (same program, only new packages): sorted correctly in app, update.sh and release; no git credentials in the workflows' working folder")
 def _():
     import subprocess as _sp
     import re as _re
@@ -4340,12 +4340,12 @@ def _():
         fn = src[src.index("ver_lt() {"):src.index("\n}\n", src.index("ver_lt() {")) + 3]
         for a, b, lt in (("2.29.6", "2.29.6-s1", True), ("2.29.6-s2", "2.29.6-s10", True), ("2.29.6-s3", "2.29.7", True),
                          ("2.30", "2.29.6-s9", False), ("2.29.6-s1", "2.29.6", False),
-                         # 2.32.5: vierstellige Versionen
+                         # 2.32.5: four-part versions
                          ("2.29.6", "2.29.6.1", True), ("2.29.6.1", "2.29.6", False), ("2.29.6.1", "2.29.6.1-s1", True),
                          ("2.29.6.0", "2.29.6", False)):
             r = _sp.run(["sh", "-c", fn + f'\nver_lt "{a}" "{b}"'], capture_output=True, text=True)
             assert (r.returncode == 0) == lt, (a, b, r.returncode)
-        assert "(-s[0-9]+)?$" in src, "ZIP mit -s-Version wird angenommen"
+        assert "(-s[0-9]+)?$" in src, "ZIP with -s version is accepted"
     wfd = os.path.join(root, ".github", "workflows")
     if os.path.isdir(wfd):
         rel = open(os.path.join(wfd, "release.yml"), encoding="utf-8").read()
@@ -4353,20 +4353,20 @@ def _():
         for f in os.listdir(wfd):
             t = open(os.path.join(wfd, f), encoding="utf-8").read()
             n_co = len(_re.findall(r"uses: actions/checkout@", t))
-            assert t.count("persist-credentials: false") == n_co, f"{f}: Git-Anmeldedaten im Arbeitsordner"
+            assert t.count("persist-credentials: false") == n_co, f"{f}: git credentials in the working folder"
 
 
-@test("2.29.8 Übersicht: lange Namen bei „Letzte Bereitstellungen“ werden umgebrochen und schieben die Kachel nicht über ihren Rand")
+@test("2.29.8 Overview: long names under \"Letzte Bereitstellungen\" are wrapped and do not push the tile over its edge")
 def _():
     root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static")
     js = open(os.path.join(root, "app.js"), encoding="utf-8").read()
     dep = js[js.index("const depCard"):js.index("const logCard")]
-    assert "h('td.wrap', h('b', x.name)" in dep, "Name der Bereitstellung umbrechen"
+    assert "h('td.wrap', h('b', x.name)" in dep, "wrap deployment name"
     css = open(os.path.join(root, "app.css"), encoding="utf-8").read()
     assert ".grid > * { min-width: 0; }" in css and ".card > .card-b.flush { overflow-x: auto; }" in css
 
 
-@test("2.29.9 Mandanten: mehrere Sammlungen je Mandant (Bereich = alle zusammen); OU-Admins sehen nur die Sammlungen ihres Bereichs, nicht die ganze Domäne")
+@test("2.29.9 Tenants: several collections per tenant (scope = all together); OU admins see only the collections of their scope, not the whole domain")
 def _():
     import hashlib
     import secrets
@@ -4395,27 +4395,27 @@ def _():
           (th, "ou-mb", "Test", util.now(), "2099-01-01 00:00:00", "127.0.0.1", util.now(), "admin", json.dumps([tid])))
     auth._checked[th] = _t.time() + 10 ** 6
     try:
-        # Bereich = beide Sammlungen zusammen
+        # Scope = both collections together
         assert access.tenant_cols(db.q1("SELECT * FROM tenants WHERE id=?", (tid,))) == [ou_a, ou_b]
-        assert access.tenant_cols({"collection_id": 7, "collection_ids": None}) == [7], "ältere Mandanten: eine Sammlung"
+        assert access.tenant_cols({"collection_id": 7, "collection_ids": None}) == [7], "older tenants: one collection"
         assert deploy.tenant_members(tid) == {a1, a2}
         assert {c["id"] for c in _asgi("GET", "/api/computers", tok)[1]} == {a1, a2}
-        # Sichtbare Sammlungen: eigene, solche mit eigenen Computern (Ausnahme-Gruppe), Standardsammlungen, Ordner darüber
+        # Visible collections: own ones, those with own computers (exception group), default collections, folders above them
         vis = {c["id"]: c for c in _asgi("GET", "/api/collections", tok)[1]}
         assert ou_a in vis and ou_b in vis and ausn in vis and folder in vis, sorted(vis)
-        assert ou_fremd not in vis, "Sammlung eines anderen Mandanten"
-        assert ou_leer not in vis, "Sammlung ohne eigene Computer (Rest der Domäne)"
-        assert vis[ausn]["count"] == 1, "zählt nur eigene Computer"
-        assert any(c["builtin"] == 1 for c in vis.values()), "Standardsammlungen bleiben"
+        assert ou_fremd not in vis, "collection of another tenant"
+        assert ou_leer not in vis, "collection without own computers (rest of the domain)"
+        assert vis[ausn]["count"] == 1, "counts only own computers"
+        assert any(c["builtin"] == 1 for c in vis.values()), "default collections stay"
         meta = _asgi("GET", "/api/packages/meta", tok)[1]
         ch = {c["id"] for c in meta["collections"]}
-        assert ausn in ch and ou_leer not in ch and ou_fremd not in ch, "auch die Auswahl in Paket-Bedingungen"
-        # Mandant speichern mit mehreren Sammlungen (Hauptadmin-Weg)
+        assert ausn in ch and ou_leer not in ch and ou_fremd not in ch, "also the selection in package conditions"
+        # Save tenant with several collections (main admin way)
         assert _m._tenant_cols_in({"collection_ids": [ou_a, str(ou_b), ou_a]}) == [ou_a, ou_b]
-        assert _m._tenant_cols_in({"collection_id": ou_a}) == [ou_a], "alter Aufruf mit einer Sammlung"
-        assert _m._tenant_cols_in({"collection_ids": [0, ou_a]}) == [ou_a], "„Alle Computer“ (0) zählt nicht als Sammlung"
+        assert _m._tenant_cols_in({"collection_id": ou_a}) == [ou_a], "old call with one collection"
+        assert _m._tenant_cols_in({"collection_ids": [0, ou_a]}) == [ou_a], "\"Alle Computer\" (0) does not count as a collection"
         assert _m._tenant_cols_in({"collection_ids": []}) == []
-        assert ou_b in collections_.referenced_ids(), "zweite Sammlung eines Mandanten ist vor dem Löschen geschützt"
+        assert ou_b in collections_.referenced_ids(), "a tenant's second collection is protected from deletion"
         js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
         assert "collection_ids: [...colSet]" in js and "collChoiceOptions(meta.collections, x.id)" in js
     finally:
@@ -4432,7 +4432,7 @@ def _():
         access.flush()
 
 
-@test("2.30 Mandanten sauber getrennt: OU-Admins ändern nur ihr Eigenes – Hauptadmin-Pakete/-Zeitpläne/-Sammlungen nur lesen (kopieren geht), zentrale Zeitpläne und Berichte nur mit eigenen Computern, eigene Sammlungen nie größer als der Mandant")
+@test("2.30 Tenants cleanly separated: OU admins change only their own – main admin packages/schedules/collections read-only (copying works), central schedules and reports only with own computers, own collections never larger than the tenant")
 def _():
     import hashlib
     import secrets
@@ -4466,7 +4466,7 @@ def _():
     made_c, made_p, made_s, made_r = [], [], [], []
     stp = json.dumps({"main": [{"id": "x", "type": "command", "command": "hostname"}]})
     try:
-        # --- Pakete: vom Hauptadmin für den Mandanten = nur lesen; freigegeben oder selbst angelegt = ändern
+        # --- Packages: from the main admin for the tenant = read only; released or self-created = changeable
         p_main = db.ex("INSERT INTO packages(name, version, steps, conditions, run_as, tenant_id, created_at, ou_edit) VALUES('TR Haupt','1',?,'{}','system',?,?,0)", (stp, ta, util.now()))
         p_frei = db.ex("INSERT INTO packages(name, version, steps, conditions, run_as, tenant_id, created_at, ou_edit) VALUES('TR Frei','1',?,'{}','system',?,?,1)", (stp, ta, util.now()))
         made_p += [p_main, p_frei]
@@ -4478,14 +4478,14 @@ def _():
         st, r = _asgi("POST", f"/api/packages/{p_main}/duplicate", ou)
         assert st == 200, (st, r)
         made_p.append(r["id"])
-        assert db.q1("SELECT tenant_id, ou_edit FROM packages WHERE id=?", (r["id"],)) == {"tenant_id": ta, "ou_edit": 1}, "Kopie gehört dem OU-Admin"
-        assert _m._ou_edit_flag({"username": "tr-ou", "scope": [ta]}, {"ou_edit": False}) == 1, "OU-Admin: immer seins"
-        # Hauptadmin-Häkchen „OU-Admins dürfen ändern“
+        assert db.q1("SELECT tenant_id, ou_edit FROM packages WHERE id=?", (r["id"],)) == {"tenant_id": ta, "ou_edit": 1}, "copy belongs to the OU admin"
+        assert _m._ou_edit_flag({"username": "tr-ou", "scope": [ta]}, {"ou_edit": False}) == 1, "OU admin: always their own"
+        # Main admin checkbox "OU admins may change"
         u_h = {"username": "tr-haupt", "scope": None, "role": "admin"}
         assert _m._ou_edit_flag(u_h, {"ou_edit": True}) == 1 and _m._ou_edit_flag(u_h, {"ou_edit": False}, {"ou_edit": 1}) == 0
-        assert _m._ou_edit_flag(u_h, {}, {"ou_edit": 1}) == 1 and _m._ou_edit_flag(u_h, {}) == 0, "Standard: nur lesbar"
+        assert _m._ou_edit_flag(u_h, {}, {"ou_edit": 1}) == 1 and _m._ou_edit_flag(u_h, {}) == 0, "default: read-only"
 
-        # --- Zeitpläne: zentral = nur lesen, nur eigene Computer, nicht starten; Hauptadmin-Mandantenzeitplan = lesen + starten
+        # --- Schedules: central = read only, own computers only, not startable; main admin tenant schedule = read + start
         base = {"kind": "packages", "packages": [p_frei], "triggers": []}
         s_zen = schedules.save(None, {**base, "name": "TR zentral", "targets": {"computers": [a1, b1], "collections": [cb]}}, "tr-haupt")
         s_main = schedules.save(None, {**base, "name": "TR Haupt für A", "tenant_id": ta, "targets": {"computers": [a1], "collections": []}}, "tr-haupt")
@@ -4497,11 +4497,11 @@ def _():
         assert s_zen in lst and s_main in lst and s_own in lst, sorted(lst)
         z = lst[s_zen]
         assert z["editable"] is False and z["runnable"] is False and z["members"] == 1, z
-        assert z["targets"] == {"computers": [a1], "collections": []}, ("fremde Ziele verborgen", z["targets"])
+        assert z["targets"] == {"computers": [a1], "collections": []}, ("foreign targets hidden", z["targets"])
         assert lst[s_main]["editable"] is False and lst[s_main]["runnable"] is True and lst[s_own]["editable"] is True
         zb = {s["id"]: s for s in _asgi("GET", "/api/schedules", ou_b)[1]}
-        assert zb[s_zen]["targets"]["computers"] == [b1] and zb[s_zen]["members"] == 1, "zentral: jeder sieht nur seine Computer"
-        assert s_main not in {s["id"] for s in _asgi("GET", "/api/schedules", ou_b)[1]}, "Zeitplan eines anderen Mandanten"
+        assert zb[s_zen]["targets"]["computers"] == [b1] and zb[s_zen]["members"] == 1, "central: everyone sees only their computers"
+        assert s_main not in {s["id"] for s in _asgi("GET", "/api/schedules", ou_b)[1]}, "schedule of another tenant"
         sd = _asgi("GET", f"/api/schedules/{s_zen}", ou)[1]
         assert sd["members"] == 1 and sd["targets"]["computers"] == [a1]
         assert _asgi("GET", f"/api/schedules/{s_zen}/preview", ou)[1]["members"] == 1
@@ -4509,9 +4509,9 @@ def _():
         for sid in (s_zen, s_main):
             assert _asgi("PUT", f"/api/schedules/{sid}", ou, body)[0] == 403, sid
             assert _asgi("DELETE", f"/api/schedules/{sid}", ou)[0] == 403, sid
-        assert _asgi("POST", f"/api/schedules/{s_zen}/run", ou, {})[0] == 403, "zentral starten nur Hauptadmins"
+        assert _asgi("POST", f"/api/schedules/{s_zen}/run", ou, {})[0] == 403, "only main admins start central ones"
         assert _asgi("POST", f"/api/schedules/{s_zen}/reset", ou, {})[0] == 403
-        access.need_schedule({"username": "tr-ou", "scope": [ta]}, s_main, run=True)  # Hauptadmin-Zeitplan des Mandanten: starten erlaubt
+        access.need_schedule({"username": "tr-ou", "scope": [ta]}, s_main, run=True)  # Main admin schedule of the tenant: starting allowed
         assert _asgi("PUT", f"/api/schedules/{s_own}", ou, {**body, "tenant_id": ta})[0] == 200
         st, r = _asgi("POST", f"/api/schedules/{s_zen}/duplicate", ou)
         assert st == 200, (st, r)
@@ -4519,7 +4519,7 @@ def _():
         cp = schedules.get(r["id"])
         assert cp["tenant_id"] == ta and cp["ou_edit"] == 1 and cp["targets"]["computers"] == [a1] and not cp["enabled"], cp
 
-        # --- Sammlungen: Hauptadmin-Sammlung nur lesen; eigene anlegen, nie größer als der Mandant
+        # --- Collections: main admin collection read only; create own ones, never larger than the tenant
         assert _asgi("PUT", f"/api/collections/{ca}", ou, {"name": "x", "type": "static"})[0] == 403
         assert _asgi("DELETE", f"/api/collections/{ca}", ou)[0] == 403
         assert _asgi("POST", f"/api/collections/{ca}/rename", ou, {"name": "x"})[0] == 403
@@ -4527,17 +4527,17 @@ def _():
         assert st == 200, (st, r)
         dyn = r["id"]; made_c.append(dyn)
         assert db.val("SELECT tenant_id FROM collections WHERE id=?", (dyn,)) == ta
-        assert set(collections_.member_ids(dyn, fresh=True)) == {a1}, "Regel „alle“ – trotzdem nur Computer des Mandanten"
+        assert set(collections_.member_ids(dyn, fresh=True)) == {a1}, "rule \"all\" – still only computers of the tenant"
         st, r = _asgi("POST", "/api/collections", ou, {"name": "TR statisch", "type": "static"})
         stat = r["id"]; made_c.append(stat)
-        assert _asgi("POST", f"/api/collections/{stat}/members", ou, {"add": [b1]})[0] == 403, "fremder Computer"
+        assert _asgi("POST", f"/api/collections/{stat}/members", ou, {"add": [b1]})[0] == 403, "foreign computer"
         assert _asgi("POST", f"/api/collections/{stat}/members", ou, {"add": [a1]})[0] == 200
         assert _asgi("POST", "/api/collections", ou, {"name": "TR unter fremd", "type": "static", "parent_id": ca})[0] == 403
         flt = {"type": "group", "match": "all", "items": [{"type": "cond", "table": "computer", "column": "collection", "op": "in", "value": str(cb)}]}
-        assert _asgi("POST", "/api/collections", ou, {"name": "TR Verweis", "type": "dynamic", "filters": flt})[0] == 403, "Verweis auf unsichtbare Sammlung"
+        assert _asgi("POST", "/api/collections", ou, {"name": "TR Verweis", "type": "dynamic", "filters": flt})[0] == 403, "reference to an invisible collection"
         cl = {c["id"]: c for c in _asgi("GET", "/api/collections", ou)[1]}
         assert cl[dyn]["editable"] is True and cl[ca]["editable"] is False and cb not in cl
-        assert dyn not in {c["id"] for c in _asgi("GET", "/api/collections", ou_b)[1]}, "eigene Sammlung bleibt beim eigenen Mandanten"
+        assert dyn not in {c["id"] for c in _asgi("GET", "/api/collections", ou_b)[1]}, "own collection stays with the own tenant"
         pv = _asgi("POST", "/api/collections/preview", ou, {"filters": [], "match": "all"})[1]
         assert pv["count"] == 1 and [x["id"] for x in pv["sample"]] == [a1], pv
         vals = _asgi("GET", "/api/collections/values?table=computer&column=name&q=TR-", ou)[1]
@@ -4549,15 +4549,15 @@ def _():
         assert _asgi("POST", f"/api/collections/{cb}/duplicate", ou, {})[0] == 404
         try:
             _m._tenant_cols_in({"collection_ids": [dyn]})
-            raise AssertionError("OU-Sammlung als Mandantenbereich angenommen")
+            raise AssertionError("OU collection accepted as tenant scope")
         except _HE:
             pass
         st, r = _asgi("DELETE", f"/api/collections/{ca}", haupt)
-        assert st == 400 and "Mandanten" in str(r), ("Bereich eines Mandanten nie löschbar", st, r)
+        assert st == 400 and "Mandanten" in str(r), ("a tenant's scope is never deletable", st, r)
         assert _asgi("DELETE", f"/api/collections/{stat}", ou)[0] == 200
         made_c.remove(stat)
 
-        # --- Berichte: lesen ja, nur eigene Computer; internen Parameter nicht von außen setzbar
+        # --- Reports: reading yes, own computers only; internal parameter cannot be set from outside
         st, r = _asgi("GET", f"/api/reports/computers?_scope=%5B{b1}%5D", ou)
         names = {x["name"] for x in r["rows"]}
         assert st == 200 and "TR-A1" in names and "TR-B1" not in names, names
@@ -4568,11 +4568,11 @@ def _():
         assert "TR-A1" in {x["c0"] for x in rows} and "TR-B1" not in {x["c0"] for x in rows}
         assert _asgi("GET", f"/api/customreports/{cr['id']}", ou)[0] == 200
         assert _asgi("PUT", f"/api/customreports/{cr['id']}", ou, {"name": "x"})[0] == 403
-        assert _asgi("GET", "/api/mail/reports", ou)[0] == 403, "Mailversand nur Hauptadmins"
+        assert _asgi("GET", "/api/mail/reports", ou)[0] == 403, "mail sending only main admins"
         h_names = {x["name"] for x in _asgi("GET", "/api/reports/computers", haupt)[1]["rows"]}
         assert {"TR-A1", "TR-B1"} <= h_names
 
-        # --- einmalige Übernahme: was ein OU-Admin angelegt hat, darf er weiter ändern
+        # --- one-time takeover: what an OU admin created, they may keep changing
         db.ex("UPDATE packages SET ou_edit=NULL WHERE id IN (?,?)", (p_main, p_frei))
         db.ex("UPDATE schedules SET ou_edit=NULL WHERE id IN (?,?)", (s_main, s_own))
         db.ex("DELETE FROM settings WHERE key='ou_owner_migrated'")
@@ -4605,17 +4605,17 @@ def _():
         access.flush()
 
 
-@test("2.30 docker-compose.yml: zweiter DNS-Server echt optional (nie dieselbe Adresse doppelt – ältere Compose-Versionen lehnen das ab); Installationsanleitung im Handbuch")
+@test("2.30 docker-compose.yml: second DNS server truly optional (never the same address twice – older Compose versions reject that); installation guide in the manual")
 def _():
     import re as _re
     base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
     src = os.path.join(base, "docker-compose.yml")
     if not os.path.exists(src):
-        return  # im Image liegt die Compose-Datei nicht
+        return  # the Compose file is not in the image
     y = open(src, encoding="utf-8").read()
-    assert "${PK_DNS_2:-${PK_DNS_1}}" not in y, "Ersatzwert für PK_DNS_2 darf nicht PK_DNS_1 sein (doppelter Eintrag)"
+    assert "${PK_DNS_2:-${PK_DNS_1}}" not in y, "fallback value for PK_DNS_2 must not be PK_DNS_1 (duplicate entry)"
 
-    def interp(v, env):  # das Nötige von Compose: ${VAR}, ${VAR:-Standard}, ${VAR:?Meldung}
+    def interp(v, env):  # what is needed from Compose: ${VAR}, ${VAR:-default}, ${VAR:?message}
         def one(m):
             name, op, rest = m.group(1), m.group(2), m.group(3) or ""
             val = env.get(name, "")
@@ -4627,7 +4627,7 @@ def _():
             prev, v = v, _re.sub(r"\$\{(\w+)(?:(:-|:\?)((?:[^{}]|\$\{[^{}]*\})*))?\}", one, v)
         return v
     blocks = _re.findall(r"\n    dns:\n((?:      - .*\n)+)", y)
-    assert len(blocks) == 2, "dns bei pocketknife und guacd"
+    assert len(blocks) == 2, "dns for pocketknife and guacd"
     for env in ({"PK_DNS_1": "10.0.10.5"}, {"PK_DNS_1": "10.0.10.5", "PK_DNS_2": ""}, {"PK_DNS_1": "10.0.10.5", "PK_DNS_2": "10.0.10.6"}):
         for b in blocks:
             items = [interp(x.strip()[2:], env) for x in b.strip().splitlines()]
@@ -4642,12 +4642,12 @@ def _():
             assert w in md, (lang, w)
 
 
-@test("2.30 Start ohne Schreibrecht auf /data (z. B. Synology): klare Meldung mit Ordner, Benutzer-ID und Abhilfe statt Traceback; Anleitung für NAS")
+@test("2.30 Start without write permission on /data (e.g. Synology): clear message with folder, user ID and remedy instead of a traceback; NAS guide")
 def _():
     from app import privileges
     d = tempfile.mkdtemp(prefix="pk-wr-")
     try:
-        assert privileges.unwritable([d, os.path.join(d, "tls")]) == [] and os.path.isdir(os.path.join(d, "tls")), "fehlende Unterordner anlegen"
+        assert privileges.unwritable([d, os.path.join(d, "tls")]) == [] and os.path.isdir(os.path.join(d, "tls")), "create missing subfolders"
         def deny(p):
             if p.endswith("tls"):
                 raise PermissionError(13, "Permission denied")
@@ -4657,10 +4657,10 @@ def _():
         for w in ("Start abgebrochen", f"{os.getuid()}:{os.getgid()}", "tls: Permission denied", "PK_UID und PK_GID", "Synology", "chown -R",
                   "nicht von Hand"):
             assert w in msg, (w, msg)
-        if os.geteuid() == 0:  # echt prüfen: als Benutzer ohne Rechte auf einem fremden Ordner (eigener Prozess, kein fork)
+        if os.geteuid() == 0:  # really check: as a user without rights on a foreign folder (own process, no fork)
             import subprocess
             os.chmod(d, 0o700)
-            # Modul in einen für alle lesbaren Ordner kopieren – der Programmordner ist für UID 65534 evtl. nicht lesbar
+            # copy the module to a folder readable by everyone – the program folder may not be readable for UID 65534
             mod = tempfile.mkdtemp(prefix="pk-wrmod-")
             os.chmod(mod, 0o755)
             shutil.copy(privileges.__file__, os.path.join(mod, "pkpriv.py"))
@@ -4670,7 +4670,7 @@ def _():
             r = subprocess.run([sys.executable, "-I", "-c", code], user=65534, group=65534, extra_groups=[],
                                capture_output=True, text=True, timeout=60, cwd="/")
             shutil.rmtree(mod, ignore_errors=True)
-            assert r.returncode == 3, ("fremder Ordner muss als nicht beschreibbar erkannt werden", r.returncode, r.stderr[-300:])
+            assert r.returncode == 3, ("foreign folder must be recognised as not writable", r.returncode, r.stderr[-300:])
         base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
         rp = os.path.join(base, "run.py")
         if os.path.exists(rp):
@@ -4684,7 +4684,7 @@ def _():
         shutil.rmtree(d, ignore_errors=True)
 
 
-@test("2.30.1/2.31 winget: „keine passende Aktualisierung“/„kein installiertes Paket“ mit --scope – einmal ohne --scope wiederholen (MobaXterm, PowerShell 7); danach auch tar.exe ohne --scope; neuere, aber unpassende Version nicht als „aktuell“ werten")
+@test("2.30.1/2.31 winget: \"no applicable upgrade\"/\"no installed package\" with --scope – retry once without --scope (MobaXterm, PowerShell 7); then tar.exe also without --scope; do not treat a newer but unsuitable version as \"current\"")
 def _():
     from app import deploy
     find = deploy._winget_find()
@@ -4694,23 +4694,23 @@ def _():
         rest = body[len(find):]
         assert rest.count("PK-Run $wg $pkA") == 3 and "-1978335189 -or $global:PKExit -eq -1978335212" in rest
         plain = [x for x in rest.splitlines() if x.strip().startswith("$pkA = ")][1]
-        assert "--scope" not in plain and "--force" in plain and "Mobatek.MobaXterm" in plain, "ohne --scope, sonst gleich"
-        assert rest.index("-1978335212") < rest.index("-1978335140"), "erst ohne --scope, dann tar.exe – mit den Argumenten ohne --scope"
+        assert "--scope" not in plain and "--force" in plain and "Mobatek.MobaXterm" in plain, "without --scope, otherwise the same"
+        assert rest.index("-1978335212") < rest.index("-1978335140"), "first without --scope, then tar.exe – with the arguments without --scope"
     nos = deploy._winget_body({"winget_action": "install", "winget_id": "Mobatek.MobaXterm", "winget_scope": ""})[len(find):]
-    assert "-1978335212" not in nos and nos.count("PK-Run $wg $pkA") == 2, "ohne festgelegten Bereich nichts ohne --scope zu wiederholen"
+    assert "-1978335212" not in nos and nos.count("PK-Run $wg $pkA") == 2, "without a fixed scope nothing to repeat without --scope"
     assert "-1978335189" not in deploy._winget_body({"winget_action": "uninstall", "winget_id": "X.Y", "winget_scope": "machine"})
     assert deploy.WINGET_MESSAGES[9011] and deploy.WINGET_MESSAGES[9012] and not deploy.evaluate({"type": "winget"}, 9011)[0]
     src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "remote.py"), encoding="utf-8").read()
-    assert "$global:PKOut += $pkL" in src, "PK-Run merkt sich die Ausgabe"
+    assert "$global:PKOut += $pkL" in src, "PK-Run remembers the output"
     pw = os.environ.get("PK_PWSH")
     if pw and os.path.exists(pw):
         import subprocess
         rest = deploy._winget_body({"winget_action": "upgrade", "winget_id": "X.Y", "winget_scope": "machine"})[len(find):]
-        rest = rest.replace("[IO.File]::WriteAllText", "$null = ")  # Datei schreiben wird hier nicht geprüft
+        rest = rest.replace("[IO.File]::WriteAllText", "$null = ")  # writing the file is not checked here
         NOT_APPLY = "A newer package version is available in a configured source, but it does not apply to your system or requirements."
         TECH = "A newer version was found, but the install technology is different from the current version installed."
         CUR = "No newer package versions are available from the configured sources."
-        cases = [  # (Antworten je Aufruf: (Exitcode, Text), erwartete Aufrufe, erwarteter Endcode)
+        cases = [  # (answers per call: (exit code, text), expected calls, expected final code)
             ([(-1978335189, NOT_APPLY), (-1978335140, "Failed to extract the contents of the archive"), (0, "Successfully installed")], 3, "0"),
             ([(-1978335212, "No installed package found matching input criteria."), (-1978335189, TECH)], 2, "9011"),
             ([(-1978335189, NOT_APPLY), (-1978335189, NOT_APPLY)], 2, "9012"),
@@ -4732,7 +4732,7 @@ def _():
             assert out.stdout.strip().endswith("EXIT " + want_exit), (answers, out.stdout[-400:], out.stderr[-400:])
 
 
-@test("2.31 Dienstkonto-Schutz: „Kennwort falsch“ von einem einzelnen Gerät (falscher DNS-Eintrag, kein Domänenmitglied) löst ihn nur aus, wenn das Konto per LDAP wirklich nicht geht")
+@test("2.31 Service account protection: \"password wrong\" from a single device (wrong DNS entry, not a domain member) triggers it only if the account really fails via LDAP")
 def _():
     from app import guard
     import app.remote as _r
@@ -4743,23 +4743,23 @@ def _():
         msg = "SMB-Anmeldung: STATUS_LOGON_FAILURE 0xc000006d"
         t = guard.report_remote(msg, "SMB")
         assert not guard.paused() and t.startswith(guard.HOST_REJECT), t
-        assert guard.report_remote("WinRM 401: Zugriff verweigert", "WinRM") is None, "kein Kontofehler – nichts zu tun"
+        assert guard.report_remote("WinRM 401: Zugriff verweigert", "WinRM") is None, "no account error – nothing to do"
         assert not guard.paused()
         guard.verify_account = lambda: False
         guard.report_remote(msg, "SMB")
-        assert guard.paused(), "Konto geht wirklich nicht → Schutz"
+        assert guard.paused(), "account really fails -> protection"
         guard.reset()
         guard.verify_account = lambda: True
         assert _r._winrm_error("the specified credentials were rejected by the server 0xc000006d").startswith(guard.HOST_REJECT)
         assert not guard.paused()
         src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "remote.py"), encoding="utf-8").read()
-        assert 'guard.report(' not in src, "WinRM/SMB zu Computern nur über report_remote"
+        assert 'guard.report(' not in src, "WinRM/SMB to computers only via report_remote"
     finally:
         guard.verify_account = orig
         guard.reset()
 
 
-@test("2.31 Wake-on-LAN: mehrfach senden, feste Relays zuerst, MAC der Kabelkarte aus dem Inventar, Aufwachen abwarten mit zweitem Versuch, Bereitschaft im Inventar/Bericht; Zeitplan weckt nur auf Wunsch und nur bei echten Läufen")
+@test("2.31 Wake-on-LAN: send several times, fixed relays first, MAC of the wired card from the inventory, wait for waking up with a second attempt, readiness in inventory/report; schedule wakes only on request and only for real runs")
 def _():
     import time as _t
     from app import inventory, presence, reports, schedules, tools
@@ -4777,20 +4777,20 @@ def _():
     try:
         c = db.q1("SELECT * FROM computers WHERE id=?", (ziel,))
         macs = [m for m, _p in tools._packets(c)]
-        assert macs == ["00:11:22:33:44:55", "00:11:22:33:44:66"], ("Kabelkarte dazu, WLAN nicht", macs)
+        assert macs == ["00:11:22:33:44:55", "00:11:22:33:44:66"], ("wired card included, WLAN not", macs)
         db.set_setting("wol_relays", "wl-srv")
         rel = [(r["name"], same) for r, same in tools.wol_relays(c)]
         assert rel[0][0] == "WL-SRV" and ("WL-NACHBAR", True) in rel, rel
-        # zweiter Versuch: andere Relays, falls es welche gibt – sonst (2.32.5) wieder die im Zielnetz statt nur des Containers
+        # second attempt: other relays if there are any – otherwise (2.32.5) again those in the target network instead of only the container's
         assert ("WL-NACHBAR", True) in [(r["name"], same) for r, same in tools.wol_relays(c, exclude={"WL-NACHBAR", "WL-SRV"})], \
-            "kein anderes Relay im Zielnetz → das bisherige erneut"
+            "no other relay in the target network -> the previous one again"
         db.set_setting("wol_repeat", 3)
         tools.remote.ps = lambda host, script, **kw: (sent.append((host, script)) or ("OK 10.9.0.255:9\n", "", 0))
         res = tools.wake(c)
         assert res["exit"] == 0 and "3×" in res["output"] and "Magic Packet an, darf wecken" in res["output"], res["output"]
-        assert all("-le 3" in sc for _h, sc in sent) and len(sent) == 2, "jedes Relay sendet 3×"
+        assert all("-le 3" in sc for _h, sc in sent) and len(sent) == 2, "each relay sends 3x"
         assert "(fest)" in res["output"]
-        # Aufwachen abwarten: beim zweiten Blick online
+        # wait for waking up: online at the second look
         db.set_setting("wol_wait_seconds", 60)
         tools.WAKE_POLL = 0.05
         calls = {"n": 0}
@@ -4806,11 +4806,11 @@ def _():
             _t.sleep(0.05)
         assert st["state"] == "awake" and db.val("SELECT online FROM computers WHERE id=?", (ziel,)) == 1, st
         db.set_setting("wol_wait_seconds", 0)
-        assert tools.watch_wake(c, [], "test") is False, "0 = nicht warten"
-        # Bereitschaft: Spalte für Sammlungen und Bericht
+        assert tools.watch_wake(c, [], "test") is False, "0 = do not wait"
+        # Readiness: column for collections and report
         w, p = collections_.build({"type": "group", "match": "all", "items": [
             {"type": "cond", "table": "computer", "column": "wol_ready", "op": "is_true", "value": ""}]})
-        assert ziel in {r["id"] for r in db.q(f"SELECT c.id FROM computers c WHERE {w}", p)}, "Kabelkarte mit Magic Packet an → bereit"
+        assert ziel in {r["id"] for r in db.q(f"SELECT c.id FROM computers c WHERE {w}", p)}, "wired card with Magic Packet on -> ready"
         rows = reports.run("wol", {})["rows"]
         assert any(r["computer"] == "WL-ZIEL" and r["wol_magic"] == "an" and r["wake_armed"] == "ja" for r in rows), rows
         script = inventory.build_script(["nics"])
@@ -4824,13 +4824,13 @@ def _():
             r = subprocess.run([pw, "-NoProfile", "-NonInteractive", "-Command", chk], capture_output=True, text=True, timeout=60,
                                env={**os.environ, "PKS": script})
             assert "PARSE-OK" in r.stdout, r.stdout + r.stderr
-        # Zeitplan: Standard aus; an → nur bei echten Läufen, nicht bei Heartbeat/Nachholen
+        # Schedule: default off; on -> only for real runs, not for heartbeat/catch-up
         assert schedules.DEFAULT_OPTIONS["wake_offline"] is False
         woken = []
         orig_wake = tools.wake
         tools.wake = lambda cc, **kw: (woken.append(cc["id"]) or {"exit": 1})
         try:
-            db.ex("UPDATE computers SET online=0 WHERE id=?", (ziel,))  # 2.32.5: geweckt wird nur, wer wirklich aus ist
+            db.ex("UPDATE computers SET online=0 WHERE id=?", (ziel,))  # 2.32.5: only those that are really off are woken
             sc = {"id": 0, "name": "T"}
             schedules._wake_offline(sc, {"wake_offline": True}, [ziel], "Heartbeat (erreichbar, noch nicht versorgt)")
             schedules._wake_offline(sc, {"wake_offline": False}, [ziel], "täglich 07:00")
@@ -4846,7 +4846,7 @@ def _():
                               "targets": {"computers": [ziel]}, "options": {"wake_offline": True, "offline": "skip"}}) \
             if db.val("SELECT id FROM packages LIMIT 1") else None
         if cl:
-            assert cl["options"]["offline"] == "wait", "geweckte Ziele werden vorgemerkt"
+            assert cl["options"]["offline"] == "wait", "woken targets are noted"
         js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
         assert "function wakeDialog(targets)" in js and "['wol', 'Wake-on-LAN', 'play', [wolCard], true]" in js and "o.wake_offline" in js
     finally:
@@ -4858,7 +4858,7 @@ def _():
             db.ex("DELETE FROM computers WHERE id=?", (x,))
 
 
-@test("2.31 Fehlersuche: Prozess „ohne Ergebnis beendet“ nennt den Grund (Fehlerausgabe von PowerShell, Sperre durch Defender-ASR/AppLocker, letzte Ausgabe); Rechenlast je Hintergrundaufgabe und Lastspitzen mit Kontext")
+@test("2.31 Troubleshooting: process \"ended without result\" names the reason (PowerShell error output, blocking by Defender ASR/AppLocker, last output); CPU load per background task and load peaks with context")
 def _():
     from app import loadstats
     import app.remote as _r
@@ -4866,7 +4866,7 @@ def _():
     assert "PK_ASRBLOCK:" in _r.POLL and "Microsoft-Windows-Windows Defender/Operational" in _r.POLL and "8007" in _r.POLL
     m = _r.gone_message("PK_PROC:gone\nPK_ASRBLOCK:D1E49AAC-8F56-4280-B9BA-993A6D77406C\nPK_LAST:OK gesetzt", True)
     assert "Prozesserstellungen durch PSExec- und WMI-Befehle blockieren" in m and "Lokales System" in m and "Letzte Ausgabe: OK gesetzt" in m, m
-    # 2.32.1: „nur überwacht“ (1122) ist nie der Grund – dann zählt die Fehlerausgabe von PowerShell
+    # 2.32.1: "only monitored" (1122) is never the reason – then the PowerShell error output counts
     m = _r.gone_message("PK_PROC:gone\nPK_ASRAUDIT:d1e49aac-8f56-4280-b9ba-993a6d77406c\nPK_ASRAUDIT:d1e49aac-8f56-4280-b9ba-993a6d77406c\n"
                         "PK_ERR:Dieses Skript enthält schädliche Inhalte und wurde von Ihrer Antivirensoftware blockiert.", True)
     assert "blockiert durch" not in m and "schädliche Inhalte" in m, m
@@ -4894,7 +4894,7 @@ def _():
     assert "loadstats.task(" in src and "loadstats.sample(" in src
 
 
-@test("2.32 Pakete zusammenfassen: verschachtelt (Reihenfolge, Neustart, Bei Fehler) oder als Kopie der Schritte („Ausführen als“ bleibt, eigene Bedingungen verhindern das Kopieren); nie über Mandanten hinweg; gpupdate /force wie gewohnt")
+@test("2.32 Combine packages: nested (order, restart, on error) or as a copy of the steps (\"Ausführen als\" stays, own conditions prevent copying); never across tenants; gpupdate /force as usual")
 def _():
     import hashlib
     import secrets
@@ -4933,16 +4933,16 @@ def _():
         st, r = _asgi("POST", "/api/packages/merge", tok, {"ids": [a, cnd], "mode": "copy"})
         assert st == 400 and "Bedingungen" in str(r), (st, r)
         st, r = _asgi("POST", "/api/packages/merge", tok, {"ids": [a, cnd], "mode": "nested"})
-        assert st == 200, ("verschachtelt geht mit Bedingungen", st, r)
+        assert st == 200, ("nested works with conditions", st, r)
         made.append(r["id"])
         st, r = _asgi("POST", "/api/packages/merge", tok, {"ids": [t1, t2], "mode": "nested"})
         assert st == 400 and "Mandanten" in str(r), (st, r)
         st, r = _asgi("POST", "/api/packages/merge", tok, {"ids": [a, t1], "mode": "nested"})
-        assert st == 200 and db.val("SELECT tenant_id FROM packages WHERE id=?", (r["id"],)) == tid, ("zentral + Mandant → Mandant", st, r)
+        assert st == 200 and db.val("SELECT tenant_id FROM packages WHERE id=?", (r["id"],)) == tid, ("central + tenant -> tenant", st, r)
         made.append(r["id"])
-        assert _asgi("POST", "/api/packages/merge", tok, {"ids": [a]})[0] == 400, "mindestens zwei"
+        assert _asgi("POST", "/api/packages/merge", tok, {"ids": [a]})[0] == 400, "at least two"
         src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "main.py"), encoding="utf-8").read()
-        # 2.38.4: Computer- und Benutzerrichtlinie (Benutzer in der eigenen Sitzung, siehe gpupdate.py)
+        # 2.38.4: computer and user policy (user in the own session, see gpupdate.py)
         from app import gpupdate as _gp
         assert '"gpupdate": gpupdate.script()' in src and "echo N| gpupdate.exe /target:computer /force" in _gp.SCRIPT and "gpupdate.exe /target:user /force" in _gp.SCRIPT
         js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
@@ -4955,17 +4955,17 @@ def _():
         db.ex("DELETE FROM tenants WHERE id IN (?,?)", (tid, tid2))
 
 
-@test("2.32 Selbsttest unabhängig von der Instanz: Einstellungen aus der .env (PK_NETBIOS, Dienstkonto …) gelten im Test nicht; kein fork()")
+@test("2.32 Self-test independent of the instance: settings from the .env (PK_NETBIOS, service account ...) do not apply in the test; no fork()")
 def _():
     from app import config
     assert config.NETBIOS == "" and config.DOMAIN == "firma.local" and not config.ENV_SERVICE_USER, (config.NETBIOS, config.DOMAIN)
     assert not [k for k in os.environ if k.startswith("PK_") and k not in ("PK_PWSH", "PK_DATA_DIR", "PK_HTTPS", "PK_DOMAIN", "PK_PUBLIC_HOSTNAME")
                 and not k.startswith("PK_SELFTEST")], sorted(k for k in os.environ if k.startswith("PK_"))
     src = open(os.path.abspath(__file__), encoding="utf-8").read()
-    assert "os." + "fork()" not in src, "fork() in einem Prozess mit Threads kann hängen – subprocess verwenden"
+    assert "os." + "fork()" not in src, "fork() in a process with threads can hang – use subprocess"
 
 
-@test("2.32 Scan nach der Bereitstellung: gewähltes Scanprofil des Pakets – auch bei mehreren Paketen und in Zeitplänen (je Paket, „Nicht scannen“ zählt); läuft gerade ein Scan, wird er danach nachgeholt statt verworfen")
+@test("2.32 Scan after deployment: the package's chosen scan profile – also with several packages and in schedules (per package, \"Nicht scannen\" counts); if a scan is already running, it is caught up afterwards instead of discarded")
 def _():
     from app import deploy, inventory, profiles, schedules, steps
     apps = profiles.apps_profile_id()
@@ -4977,16 +4977,16 @@ def _():
     made = [a, b, n, gone]
     orig_pool = inventory.pool
     try:
-        assert deploy.rescan_profiles(deploy.row_to_package(db.q1("SELECT * FROM packages WHERE id=?", (b,)))) == [hw], "eigenes Profil"
-        assert deploy.rescan_profiles(deploy.row_to_package(db.q1("SELECT * FROM packages WHERE id=?", (a,)))) == [apps], "Standard: Anwendungen"
+        assert deploy.rescan_profiles(deploy.row_to_package(db.q1("SELECT * FROM packages WHERE id=?", (b,)))) == [hw], "own profile"
+        assert deploy.rescan_profiles(deploy.row_to_package(db.q1("SELECT * FROM packages WHERE id=?", (a,)))) == [apps], "default: Anwendungen"
         assert deploy.rescan_profiles(deploy.row_to_package(db.q1("SELECT * FROM packages WHERE id=?", (n,)))) == [], "Nicht scannen"
-        assert deploy.rescan_profiles(deploy.row_to_package(db.q1("SELECT * FROM packages WHERE id=?", (gone,)))) == [apps], "gelöschtes Profil → Anwendungen"
+        assert deploy.rescan_profiles(deploy.row_to_package(db.q1("SELECT * FROM packages WHERE id=?", (gone,)))) == [apps], "deleted profile -> Anwendungen"
         comp = deploy.composite([b, n, a])
-        assert deploy.rescan_profiles(comp) == [hw, apps], ("mehrere Pakete: je Paket", deploy.rescan_profiles(comp))
-        assert deploy.rescan_profiles(deploy.composite([n])) == [], "nur „Nicht scannen“"
+        assert deploy.rescan_profiles(comp) == [hw, apps], ("several packages: per package", deploy.rescan_profiles(comp))
+        assert deploy.rescan_profiles(deploy.composite([n])) == [], "only \"Nicht scannen\""
         s = {"name": "RS", "packages": [b, a], "options": {"stop_on_fail": True}, "tenant_id": None}
-        assert deploy.rescan_profiles(schedules.composite_package(s)) == [hw, apps], "Zeitplan: je Paket statt immer „Anwendungen“"
-        # läuft gerade ein Scan: nachholen statt verwerfen
+        assert deploy.rescan_profiles(schedules.composite_package(s)) == [hw, apps], "schedule: per package instead of always \"Anwendungen\""
+        # a scan is running right now: catch up instead of discarding
         started = []
         class _P:
             def submit(self, fn, cid, user, prof):
@@ -4994,7 +4994,7 @@ def _():
         inventory.pool = lambda: _P()
         cid = 4242
         inventory._scanning[cid] = "läuft"
-        assert inventory.queue_scan(cid, None, hw) is False, "ohne follow: wie bisher"
+        assert inventory.queue_scan(cid, None, hw) is False, "without follow: as before"
         assert inventory.queue_scan(cid, None, hw, follow=True) is True and inventory.queue_scan(cid, None, hw, follow=True)
         inventory.queue_scan(cid, None, apps, follow=True)
         inventory._release(cid)
@@ -5015,14 +5015,14 @@ def _():
 
 
 
-@test("2.32.2 Skripte laufen immer: erst normal als Datei (-File, Exitcode, $PSScriptRoot, Parameter), verweigert Windows die Datei (Ausführungsrichtlinie per GPO, Signatur, Zone), wird ihr Inhalt geladen – nie doppelt; gehärtetes Windows (Sprachmodus, Virenschutz, gesperrtes Programm) meldet POCKET KNIFE mit eigenem Code und Klartext")
+@test("2.32.2 Scripts always run: first normally as a file (-File, exit code, $PSScriptRoot, parameters); if Windows refuses the file (execution policy via GPO, signature, zone), its content is loaded – never twice; hardened Windows (language mode, antivirus, blocked program) is reported by POCKET KNIFE with its own code and plain text")
 def _():
     import subprocess
     from app import deploy, remote, steps, util
-    # Rahmen: erst & 'pk_run.ps1', Laden nur bei UnauthorizedAccess für genau diese Datei
+    # Wrapper: first & 'pk_run.ps1', load only on UnauthorizedAccess for exactly this file
     for src in (remote.REGISTER, remote.START_DIRECT):
         assert "__PKSTART__" not in src and "try { & ''' + $pkRunF + '''" in src and "-File" not in src, src[:300]
-    # Schritte, Inline-Skripte, Repository-.ps1 und Tools über PK-RunPs1
+    # Steps, inline scripts, repository .ps1 and tools via PK-RunPs1
     b = steps.body_for({"type": "powershell", "script": "Write-Output 1", "id": "x"}, {})
     assert b.rstrip().endswith("PK-RunPs1 $pkF ''"), b[-80:]
     assert "PK-RunPs1 $f '-Silent'" in deploy._custom_body({"install_type": "ps1", "install_file": "setup.ps1", "arguments": "-Silent"})
@@ -5034,14 +5034,14 @@ def _():
     assert set(deploy.HARD_MESSAGES) == {9013, 9014, 9015, 9016}
     assert "Sprachmodus" in remote.hard_hint("Methodenaufrufe werden in diesem Sprachmodus nur für Kerntypen unterstützt.")
     assert "Virenschutz" in remote.hard_hint("This script contains malicious content and has been blocked by your antivirus software.")
-    assert remote.hard_hint("System.UnauthorizedAccessException: Access to the path is denied") == "", "Zugriff verweigert ist keine Härtung"
+    assert remote.hard_hint("System.UnauthorizedAccessException: Access to the path is denied") == "", "access denied is not hardening"
     assert "Sprachmodus" in remote.gone_message("PK_PROC:gone\nPK_ERR:Cannot invoke method. Method invocation is supported only on core types in this language mode.", False)
     pw = os.environ.get("PK_PWSH")
     if not (pw and os.path.exists(pw)):
         return
     d = tempfile.mkdtemp(prefix="pk-ps-")
     try:
-        # Windows PowerShell nachgebildet: verweigert -File für Dateien mit „refuse“ im Namen wie eine GPO (RemoteSigned)
+        # Windows PowerShell simulated: refuses -File for files with "refuse" in the name like a GPO (RemoteSigned)
         exe = os.path.join(d, "sr", "System32", "WindowsPowerShell", "v1.0")
         os.makedirs(exe)
         exe = os.path.join(exe, "powershell.exe")
@@ -5071,16 +5071,16 @@ def _():
 
         for clm in (False, True):
             code, log, o = wrap("$f = Join-Path $PKDir 'refuse_x.ps1'\nPK-RunPs1 $f '-Name \"a b\" -Laut'\n", clm)
-            assert code == "6" and o.count("läuft") == 1, ("Verweigert → geladen, einmal, Exitcode", clm, code, log)
+            assert code == "6" and o.count("läuft") == 1, ("refused -> loaded, once, exit code", clm, code, log)
             assert f"R={run} N=a b L=True P={os.path.join(run, 'refuse_x.ps1')}" in log and "lädt ihren Inhalt" in log, log
             assert ("eingeschränkten Sprachmodus" in log) == clm and "Cannot" not in log, log
             code, log, o = wrap("$f = Join-Path $PKDir 'ok_x.ps1'\nPK-RunPs1 $f '-Name z'\n", clm)
             assert code == "6" and o.count("läuft") == 1 and "lädt ihren Inhalt" not in log and "N=z L=False" in log, ("normal -File", log)
-        # Skript lief schon (Ausgabe) und scheitert danach an etwas anderem → nie ein zweites Mal
+        # Script already ran (output) and then fails on something else -> never a second time
         code, log, o = wrap("$sf = Join-Path $PKDir 'x.ps1'\nSet-Content -LiteralPath $sf -Value \"'teil'; Write-Error 'FullyQualifiedErrorId : UnauthorizedAccess x.ps1'; exit 1\"\nPK-RunPs1 $sf ''\n")
         assert code == "1" and "lädt ihren Inhalt" not in log, log
         sc = lambda t: "$sf = Join-Path $PKDir 'c.ps1'\nSet-Content -LiteralPath $sf -Value " + util.psq(t) + "\nPK-RunPs1 $sf ''\n"  # noqa: E731
-        # 2.32.5: der Rahmen ändert den Exitcode nicht mehr – POCKET KNIFE ordnet ihn erst bei einem Fehlschlag ein
+        # 2.32.5: the wrapper no longer changes the exit code – POCKET KNIFE classifies it only on a failure
         code, log, _o = wrap(sc("$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'\n[System.Text.Encoding]::UTF8.GetString([byte[]](65))\nthrow 'x'"))
         assert code == "1" and remote.apply_hard(1, log)[0] == 9015, log
         code, log, _o = wrap(sc("Write-Error 'Dieses Skript enthält schädliche Inhalte und wurde von Ihrer Antivirensoftware blockiert.'; exit 1"))
@@ -5088,25 +5088,25 @@ def _():
         code, log, _o = wrap(sc("Write-Error 'Dieses Programm wird durch eine Gruppenrichtlinie blockiert.'; exit 1"))
         assert code == "1" and remote.hard_code(log) == 9016, log
         code, log, _o = wrap(sc("Write-Error 'Methodenaufrufe werden in diesem Sprachmodus nur für Kerntypen unterstützt.'; exit 0"))
-        assert code == "0", ("Erfolg bleibt Erfolg", log)
-        # 2.32.5: verweigertes Unterskript (Fehler mit Positionsangabe) → das Skript lief schon, nie ein zweites Mal
+        assert code == "0", ("success stays success", log)
+        # 2.32.5: refused sub-script (error with position) -> the script already ran, never a second time
         inner = ("'teil' | Out-File -LiteralPath (Join-Path $PSScriptRoot 'o.txt') -Append\n"
                  "[Console]::Error.WriteLine('At ' + $PSCommandPath + ':2 char:1')\n"
                  "[Console]::Error.WriteLine('    + FullyQualifiedErrorId : UnauthorizedAccess')\nexit 1\n")
         code, log, o = wrap("$f = Join-Path $PKDir 'inner_y.ps1'\nSet-Content -LiteralPath $f -Value " + util.psq(inner) + "\nPK-RunPs1 $f ''\n")
-        assert code == "1" and o.count("teil") == 1 and "lädt ihren Inhalt" not in log, ("Unterskript verweigert – nicht nochmal", o, log)
-        # Softwareeinschränkung: bewusste Sperre, nicht laden
+        assert code == "1" and o.count("teil") == 1 and "lädt ihren Inhalt" not in log, ("sub-script refused – not again", o, log)
+        # Software restriction: deliberate block, do not load
         code, log, o = wrap("$f = Join-Path $PKDir 'refuse_srp.ps1'\nSet-Content -LiteralPath $f -Value 'x'\nPK-RunPs1 $f ''\n")
-        assert "lädt ihren Inhalt" in log, "Gegenprobe: normale Verweigerung lädt"
-        # Syntaxfehler im geladenen Inhalt → 1 statt „Erfolgreich“; „using namespace“ bleibt vorne
+        assert "lädt ihren Inhalt" in log, "control sample: normal refusal loads"
+        # Syntax error in the loaded content -> 1 instead of "Erfolgreich"; "using namespace" stays at the front
         for body_ps, want in (("$x = (1 +", "1"), ("using namespace System.Text\n'ok' | Out-File -LiteralPath (Join-Path $PSScriptRoot 'o.txt')\nexit 3", "3")):
             code, log, o = wrap("$f = Join-Path $PKDir 'refuse_z.ps1'\nSet-Content -LiteralPath $f -Value " + util.psq(body_ps.replace("\\n", "\n")) + "\nPK-RunPs1 $f ''\n")
             assert code == want and "lädt ihren Inhalt" in log, (body_ps, code, log)
-        assert remote.hard_code("FullyQualifiedErrorId : UnauthorizedAccess\n… POCKET KNIFE lädt ihren Inhalt.") == 0, "geladen → 9013 ist nicht der Grund"
+        assert remote.hard_code("FullyQualifiedErrorId : UnauthorizedAccess\n… POCKET KNIFE lädt ihren Inhalt.") == 0, "loaded -> 9013 is not the reason"
         assert "WinRM-Sitzung" in remote.hard_hint("Cannot invoke method … in this language mode.", start=True)
         code, log, _o = wrap("PK-Run (Join-Path $PKDir 'gibtsnicht.exe') 'x'\n")
         assert code == "1" and "Konnte nicht gestartet werden" in log, log
-        # Start des Rahmens: normal einmal; verweigert (UnauthorizedAccess für pk_run.ps1) → Inhalt geladen; anderer Fehler → nicht nochmal
+        # Start of the wrapper: normal once; refused (UnauthorizedAccess for pk_run.ps1) -> content loaded; other error -> not again
         expr = util.ps_start_expr("$pkRunF")
         for body, want in (("'x' | Out-File -LiteralPath (Join-Path (Get-Location) 'o.txt') -Append", 1),
                            ("if ($PSCommandPath) { throw (New-Object System.Management.Automation.ErrorRecord ((New-Object System.Management.Automation.PSSecurityException 'Die Datei pk_run.ps1 ist nicht digital signiert.'), 'UnauthorizedAccess', 'SecurityError', $null)) }\n'x' | Out-File -LiteralPath (Join-Path (Get-Location) 'o.txt') -Append", 1),
@@ -5125,7 +5125,7 @@ def _():
         shutil.rmtree(d, ignore_errors=True)
 
 
-@test("2.32.4 Tastenkürzel gehören zum Tool: im Tool festlegen (Strg+Alt [+Umschalt] + A–Z/0–9/F1–F12), eingebaute Tools mit Vorgaben, schon vergebene Kürzel werden erkannt (mit Namen), Kürzel aus 2.32.3 übernommen; im Browser über e.code, nie in Eingabefeldern/Dialogen, bei mehreren Computern Rückfrage")
+@test("2.32.4 Shortcuts belong to the tool: set in the tool (Ctrl+Alt [+Shift] + A–Z/0–9/F1–F12), built-in tools with defaults, shortcuts already assigned are detected (with name), shortcuts from 2.32.3 adopted; in the browser via e.code, never in input fields/dialogs, confirmation with several computers")
 def _():
     from fastapi import HTTPException
     from app import db, main, tools
@@ -5136,45 +5136,45 @@ def _():
     for bad in ("Ctrl+P", "Alt+P", "Ctrl+Alt+F13", "Ctrl+Alt+Ä", "Ctrl+Alt+Shift", "Ctrl+Ctrl+P", "Ctrl+Alt+Win+P", "Ctrl+Alt+Entf"):
         try:
             n(bad)
-            raise AssertionError(("angenommen", bad))
+            raise AssertionError(("accepted", bad))
         except ValueError:
             pass
     old = db.setting_raw("builtin_hotkeys")
     t1 = db.ex("INSERT INTO tools(name, type, script, run_as) VALUES('HK-Test', 'powershell', 'hostname', 'service')")
     try:
         db.set_setting("builtin_hotkeys", "")
-        assert tools.builtin_hotkeys()["ping"] == "Ctrl+Alt+P", "Vorgabe"
-        # eigenes Tool: Kürzel von Ping → abgelehnt mit Namen
+        assert tools.builtin_hotkeys()["ping"] == "Ctrl+Alt+P", "default"
+        # own tool: shortcut of Ping -> rejected with name
         try:
             main._tool_values({"name": "X", "type": "cmd", "script": "ver", "run_as": "service", "hotkey": "Strg+Alt+P"})
-            raise AssertionError("doppelt angenommen")
+            raise AssertionError("accepted twice")
         except HTTPException as e:
             assert "Ping & Ports" in e.detail and "Strg+Alt+P" in e.detail, e.detail
         d = main._tool_values({"name": "X", "type": "cmd", "script": "ver", "run_as": "service", "hotkey": "strg+alt+shift+k"}, t1)
         assert d["hotkey"] == "Ctrl+Alt+Shift+K"
         db.ex("UPDATE tools SET hotkey='Ctrl+Alt+Shift+K' WHERE id=?", (t1,))
         assert main._tool_values({"name": "X", "type": "cmd", "script": "ver", "run_as": "service", "hotkey": "Ctrl+Alt+Shift+K"}, t1)["hotkey"], \
-            "das eigene Kürzel beim Speichern desselben Tools ist kein Konflikt"
+            "the own shortcut when saving the same tool is not a conflict"
         assert main._tool_values({"name": "X", "type": "cmd", "script": "ver", "run_as": "service", "hotkey": ""})["hotkey"] is None
         assert tools.hotkey_owner("Ctrl+Alt+Shift+K") == "HK-Test"
-        # eingebaute: doppelt / an eigenes Tool vergeben → abgelehnt; leer = bewusst ohne Kürzel
+        # built-in: duplicate / assigned to own tool -> rejected; empty = deliberately without shortcut
         for bad in ({"ping": "Ctrl+Alt+R"}, {"wake": "Ctrl+Alt+Shift+K"}):
             try:
                 tools.save_builtin_hotkeys(bad)
-                raise AssertionError(("angenommen", bad))
+                raise AssertionError(("accepted", bad))
             except ValueError as e:
                 assert "Strg+Alt" in str(e)
         out = tools.save_builtin_hotkeys({"ping": "", "abort": "Strg+Alt+P"})
         assert "ping" not in out and out["abort"] == "Ctrl+Alt+P" and out["rdpweb"] == "Ctrl+Alt+R"
-        # Übernahme aus 2.32.3 (Strg+Alt+Ziffer je Benutzer) – nur frei und nur für eigene Tools
+        # Takeover from 2.32.3 (Ctrl+Alt+digit per user) – only if free and only for own tools
         db.ex("UPDATE tools SET hotkey=NULL WHERE id=?", (t1,))
         db.ex("INSERT OR REPLACE INTO user_prefs(username, key, value, at) VALUES('hk-alt', 'tool_hotkeys', ?, '2026-10-28')",
               (json.dumps({"1": f"tool:{t1}", "2": "builtin:ping"}),))
         db.ex("DELETE FROM settings WHERE key='hotkeys_migrated'")
         tools._migrate_user_hotkeys()
         assert db.val("SELECT hotkey FROM tools WHERE id=?", (t1,)) == "Ctrl+Alt+1" and db.setting_raw("hotkeys_migrated") == "1"
-        tools._migrate_user_hotkeys()  # einmalig – zweiter Lauf ändert nichts
-        # 2.32.5: Neustart/Herunterfahren auf Strg+Alt+B; gespeicherte alte Vorgabe N wird einmalig umgestellt
+        tools._migrate_user_hotkeys()  # one-time – second run changes nothing
+        # 2.32.5: restart/shutdown on Ctrl+Alt+B; stored old default N is converted once
         assert tools.BUILTIN_HOTKEY_DEFAULTS["power"] == "Ctrl+Alt+B"
         db.set_setting("builtin_hotkeys", json.dumps({"power": "Ctrl+Alt+N", "ping": "Ctrl+Alt+P"}))
         db.ex("DELETE FROM settings WHERE key='hotkeys_power_b'")
@@ -5182,8 +5182,8 @@ def _():
         assert tools.builtin_hotkeys()["power"] == "Ctrl+Alt+B"
         db.set_setting("builtin_hotkeys", json.dumps({"power": "Ctrl+Alt+N"}))
         tools._migrate_power_b()
-        assert tools.builtin_hotkeys()["power"] == "Ctrl+Alt+N", "nur einmal – eine spätere eigene Wahl bleibt"
-        # ein eigenes Tool hat B schon: Neustart/Herunterfahren behält N (keine Doppelbelegung durch die neue Vorgabe)
+        assert tools.builtin_hotkeys()["power"] == "Ctrl+Alt+N", "only once – a later own choice stays"
+        # an own tool already has B: restart/shutdown keeps N (no double assignment through the new default)
         db.set_setting("builtin_hotkeys", "")
         db.ex("UPDATE tools SET hotkey='Ctrl+Alt+B' WHERE id=?", (t1,))
         db.ex("DELETE FROM settings WHERE key='hotkeys_power_b'")
@@ -5197,15 +5197,15 @@ def _():
     import re as _re
     blk = js[js.index("const BUILTIN_TOOLS"):js.index("let HK = null")]
     bi = dict(_re.findall(r"\{ key: '([a-z]+)', name: '([^']+)'", blk))
-    assert bi == tools.BUILTIN_NAMES, ("eingebaute Tools in Oberfläche und Server gleich", set(bi.items()) ^ set(tools.BUILTIN_NAMES.items()))
-    # 2.32.5: Fokus auf dem Kontrollkästchen der Auswahl blockiert das Kürzel nicht (nur Schreibfelder)
+    assert bi == tools.BUILTIN_NAMES, ("built-in tools identical in UI and server", set(bi.items()) ^ set(tools.BUILTIN_NAMES.items()))
+    # 2.32.5: focus on the selection checkbox does not block the shortcut (only text fields)
     assert "['checkbox', 'radio', 'button'" in js and "closest('input, textarea" not in js
     for need in ("/^Key([A-Z])$/.exec(e.code", "closest('textarea, select", "#modal-root .backdrop", "targets.length > 1 && !asks",
                  "S.toolTargets = null;", "PUT('/api/tools-hotkeys'", "hotkey: hk.value", "hotkey: '' });", "Bereits vergeben an"):
         assert need in js, need
     assert "me/hotkeys" not in js
 
-@test("2.32.3 Neustart/Herunterfahren: Aktion und Wartezeit wählbar (0 = sofort mit /f … 24 h), Meldungstext passend, eigener Text bleibt")
+@test("2.32.3 Restart/shutdown: action and delay selectable (0 = immediately with /f ... 24 h), message text matching, own text stays")
 def _():
     from app import db, rebootmsg, main
     import inspect
@@ -5218,7 +5218,7 @@ def _():
         assert rebootmsg.text_delay("restart", 900).endswith("Neustart in 15 Minuten.")
         assert rebootmsg.text_delay("restart", 90).endswith("Neustart in 90 Sekunden.")
         db.set_setting(rebootmsg.KEYS["restart"], "Bitte speichern – {minuten} min")
-        assert rebootmsg.text_delay("restart", 900).endswith("Bitte speichern – 15 min"), "eigener Text bleibt"
+        assert rebootmsg.text_delay("restart", 900).endswith("Bitte speichern – 15 min"), "own text stays"
     finally:
         for k, v in old.items():
             db.set_setting(rebootmsg.KEYS[k], v or "")
@@ -5231,7 +5231,7 @@ def _():
     assert "{ action: act.value, seconds: secs }" in js and "secs > 86400" in js and "key: 'power'" in js
     assert "Neustart (60 s)" not in js and "key: 'shutdown'" not in js
 
-@test("2.32.5 Dienstkonto-Schutz: „gesperrt/deaktiviert/abgelaufen“ von einem Gerät löst sofort aus (kein zwischengespeichertes „Konto ok“); AD nicht erreichbar ≠ „Kennwort falsch“; „Konto ok“ nur 60 s gemerkt")
+@test("2.32.5 Service account protection: \"locked/disabled/expired\" from a device triggers immediately (no cached \"account ok\"); AD unreachable != \"password wrong\"; \"account ok\" remembered only 60 s")
 def _():
     from app import ad, guard
     import app.remote as _r
@@ -5244,14 +5244,14 @@ def _():
             guard.reset()
             guard.report_remote(f"SMB-Anmeldung fehlgeschlagen {code}", "SMB")
             assert guard.paused(), code
-        assert not calls, "eindeutige Kontofehler ohne LDAP-Umweg"
+        assert not calls, "unambiguous account errors without LDAP detour"
         guard.reset()
         guard.verify_account = lambda: None
         t = guard.report_remote("STATUS_LOGON_FAILURE 0xc000006d", "SMB")
         assert not guard.paused() and "nicht per LDAP" in t, t
         assert "nicht per LDAP" in _r._winrm_error("the specified credentials were rejected by the server (401)")
         assert not guard.paused()
-        # echte verify_account: Netzwerkfehler → None (kein Schutz), Ablehnung → False (Schutz), ok → True, 60 s gemerkt
+        # real verify_account: network error -> None (no protection), rejection -> False (protection), ok -> True, remembered for 60 s
         guard.verify_account = orig_v
         guard.reset()
         def boom():
@@ -5269,7 +5269,7 @@ def _():
         ad.service_conn = lambda: Conn()
         assert guard.verify_account() is True
         ad.service_conn = rejected
-        assert guard.verify_account() is True, "innerhalb von 60 s gemerkt"
+        assert guard.verify_account() is True, "remembered within 60 s"
         guard._verify["at"] -= guard.VERIFY_SECONDS + 1
         assert guard.verify_account() is False
         assert guard.VERIFY_SECONDS <= 60
@@ -5277,7 +5277,7 @@ def _():
         guard.verify_account, ad.service_conn = orig_v, orig_sc
         guard.reset()
 
-@test("2.32.5 Wecken vor Zeitplänen: nur wirklich ausgeschaltete Computer (nicht „an, aber ohne WinRM“), auch bei der Wiederholung eines gescheiterten Termins, je Zeitplan nur ein Weck-Durchlauf")
+@test("2.32.5 Waking before schedules: only computers that are really switched off (not \"on, but without WinRM\"), also when repeating a failed appointment, only one wake pass per schedule")
 def _():
     import threading as _th
     import time as _t
@@ -5290,7 +5290,7 @@ def _():
     try:
         sc = {"id": 987654, "name": "WK"}
         schedules._wake_offline(sc, {"wake_offline": True}, [a, b], "Wiederholung – Lauf konnte nicht gestartet werden")
-        schedules._wake_offline(sc, {"wake_offline": True}, [a, b], "täglich 07:00")  # läuft noch → kein zweiter Durchlauf
+        schedules._wake_offline(sc, {"wake_offline": True}, [a, b], "täglich 07:00")  # still running -> no second pass
         gate.set()
         for _i in range(100):
             if woken and sc["id"] not in schedules._waking:
@@ -5301,7 +5301,7 @@ def _():
         tools.wake = orig
         db.ex("DELETE FROM computers WHERE id IN (?, ?)", (a, b))
 
-@test("2.32.5 OU-Admins: Kopie einer fremden dynamischen Sammlung verrät deren Regeln nicht (wird „ist Mitglied von“); Unsinn in IDs/Namen ergibt 400 statt 500; Zusammenfassen mit Duplikatsperre übersteuerbar")
+@test("2.32.5 OU admins: copy of a foreign dynamic collection does not reveal its rules (becomes \"is member of\"); nonsense in IDs/names yields 400 instead of 500; combining can be overridden despite the duplicate lock")
 def _():
     import hashlib
     import secrets
@@ -5328,7 +5328,7 @@ def _():
         new = r["id"]
         f = db.val("SELECT filters FROM collections WHERE id=?", (new,))
         assert "GEHEIM" not in f and "CL-A1" not in f and str(exc) in f, f
-        assert set(collections_.member_ids(new)) <= {a1}, "Kopie enthält nur eigene Computer"
+        assert set(collections_.member_ids(new)) <= {a1}, "copy contains only own computers"
         own = db.ex("INSERT INTO collections(name, type, tenant_id) VALUES('CL eigen', 'static', ?)", (ta,))
         collections_.invalidate()
         access.flush()
@@ -5356,18 +5356,18 @@ def _():
     js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
     assert "saveWithDup((x) => POST('/api/packages/merge'" in js
 
-@test("2.32.5 Tastenkürzel/Wecken in der Oberfläche: Wake-on-LAN auf mehreren Computern fragt nach, zweimal drücken startet nicht doppelt, aktuelle Zuordnung zählt, Strg+Alt löst kein Kopieren/Einfügen aus, URL-Tools mit Rückfrage fragen, Wecken sendet nach dem Schließen weiter und an alle")
+@test("2.32.5 Shortcuts/waking in the UI: Wake-on-LAN on several computers asks for confirmation, pressing twice does not start twice, current assignment counts, Ctrl+Alt triggers no copy/paste, URL tools ask for confirmation, waking keeps sending after closing and to all")
 def _():
     js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
     run = js[js.index("async function hotkeyRun2"):js.index("document.addEventListener('keydown', (e) => {\n  const combo")]
-    assert "'wake'" not in run, "Wecken fragt selbst nicht nach – bei mehreren Computern Rückfrage durch das Kürzel"
+    assert "'wake'" not in run, "waking does not ask by itself – with several computers confirmation by the shortcut"
     assert "if (HK_BUSY) return;" in js and "ref = HK.map[combo];" in run
     assert js.count("if (e.altKey) return;  // Strg+Alt+") == 2
     assert "if (t.confirm && !(await confirmDlg(`„${t.name}“ für" in js
     wd = js[js.index("function wakeDialog(targets)"):js.index("function jobDialog(")]
     assert "slice(0, 200)" not in wd and "if (closed) break;" not in wd
 
-@test("2.32.5 Ausführung: Härtungscodes nur bei Fehlschlag (Erfolgscodes und winget-Meldungen gehen vor), Deinstallation per winget/Registry baut den richtigen Befehl, zweiter Weckversuch nutzt das einzige Relay im Zielnetz erneut, Relay im eingeschränkten Sprachmodus meldet sich")
+@test("2.32.5 Execution: hardening codes only on failure (success codes and winget messages take precedence), uninstall via winget/registry builds the right command, second wake attempt reuses the only relay in the target network, relay in restricted language mode reports itself")
 def _():
     from app import deploy, remote, tools
     clm = "Hinweis\nCannot invoke method. Method invocation is supported only on core types in this language mode.\nExitcode: 1"
@@ -5375,14 +5375,14 @@ def _():
     src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "steps.py"), encoding="utf-8").read()
     i = src.index("ok, reboot = evaluate(st, code)")
     blk = src[i:src.index("self._record(", i)]
-    assert "elif not ok:" in blk and "remote.apply_hard(code, out)" in blk, "nur bei Fehlschlag, nach den winget-Meldungen"
-    assert "$global:PKExit = $pkH" not in remote.WRAPPER, "der Rahmen überschreibt keinen Exitcode mehr"
-    # Deinstallation: winget uninstall bzw. Befehl aus der Registry – beides baut einen gültigen Rumpf
+    assert "elif not ok:" in blk and "remote.apply_hard(code, out)" in blk, "only on failure, after the winget messages"
+    assert "$global:PKExit = $pkH" not in remote.WRAPPER, "the wrapper no longer overwrites an exit code"
+    # Uninstall: winget uninstall or command from the registry – both build a valid body
     assert "deploy.build_body(p2)" in src and "deploy._winget_body(p2)" not in src and "deploy._custom_body(p2)" not in src
     w = deploy.adhoc_winget("Mozilla.Firefox", "uninstall")
     assert "uninstall" in deploy.build_body(w)
     assert "PK-Run" in deploy.build_body({"type": "custom", "install_type": "script", "script": "msiexec /x {X} /qn", "arguments": ""})
-    # WoL: Relay im eingeschränkten Sprachmodus sagt es; zweiter Versuch ohne anderes Relay im Zielnetz → wieder dasselbe
+    # WoL: relay in restricted language mode says so; second attempt without another relay in the target network -> the same again
     assert "PK_CLM" in tools.WOL_PS and "LanguageMode -ne 'FullLanguage'" in tools.WOL_PS
     mk = lambda n, ip: db.ex("INSERT INTO computers(name, dns_name, ip_addresses, online, winrm, created_at) VALUES(?,?,?,?,?,?)",  # noqa: E731
                              (n, n.lower() + ".firma.local", ip, 1, 1, util.now()))
@@ -5397,18 +5397,18 @@ def _():
     finally:
         db.ex("DELETE FROM computers WHERE id IN (?, ?, ?)", (ziel, nb, fremd))
 
-@test("2.32.6 Angemeldete Benutzer mit Sitzungszustand: gesperrt (LogonUI in der Sitzung) und getrennt (quser, deutsch/englisch), mehrere Sitzungen → aktiv gewinnt; im eingeschränkten Sprachmodus; Scan und Live-Abfrage gleich")
+@test("2.32.6 Logged-in users with session state: locked (LogonUI in the session) and disconnected (quser, German/English), several sessions -> active wins; in restricted language mode; scan and live query identical")
 def _():
     import subprocess
     from app import remote
     root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app")
     scan = open(os.path.join(root, "scan_modules.ps1"), encoding="utf-8").read()
     blk = lambda t: t[t.index("# @sessions-begin"):t.index("# @sessions-end")]  # noqa: E731
-    assert blk(scan) == blk(remote.SESSIONS_PS), "Scan und Live-Abfrage ermitteln den Zustand gleich"
+    assert blk(scan) == blk(remote.SESSIONS_PS), "scan and live query determine the state identically"
     assert "user_states" in scan
     assert remote.parse_states("PKUSERS:x\nPKSTATES:DOM\\a=locked;DOM\\b=disconnected;DOM\\c=active;kaputt") == \
         {"DOM\\a": "locked", "DOM\\b": "disconnected"}
-    # 2.32.11: alle Sitzungen aktiv → „PKSTATES:“ ganz am Ende ohne Zeilenende (war IndexError → interner Fehler 500)
+    # 2.32.11: all sessions active -> "PKSTATES:" at the very end without a line ending (was IndexError -> internal error 500)
     for o in ("PKUSERS:DOM\\a\nPKSTATES:", "PKUSERS:DOM\\a\r\nPKSTATES:\r\n", "PKSTATES:", "", None):
         assert remote.parse_states(o) == {}, repr(o)
     from app import steps as _stp
@@ -5427,7 +5427,7 @@ def _():
                          + f" {'USERNAME':<22}{'SESSIONNAME':<19}{'ID':>2}  {'STATE':<6}  {'IDLE TIME':>9}  LOGON TIME\n"
                          + row("max", "console", 1, active) + row("eva", "", 2, disc) + row("tom", "rdp-tcp#0", 3, active)
                          + row("ugo", "", 4, disc) + row("ugo", "rdp-tcp#1", 5, active)
-                         # Benutzername mit Leerzeichen und Ziffer: darf keine andere Sitzung überschreiben
+                         # User name with a space and a digit: must not overwrite another session
                          + row("team 2 lager", "", 6, disc) + "X\n")
             os.chmod(q, 0o755)
             mocks = ("$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'\n"
@@ -5451,7 +5451,7 @@ def _():
     finally:
         shutil.rmtree(d, ignore_errors=True)
 
-@test("2.32.7 Tools: Dateien aus dem Repository (POCKET KNIFE kopiert selbst, Befehl im Arbeitsordner, danach aufgeräumt, nie aus Mandanten-Ordnern), Danach scannen (Standard aus), Zeitlimit, Erfolgscodes; CMD-Ausgabe mit Umlauten (OEM)")
+@test("2.32.7 Tools: files from the repository (POCKET KNIFE copies itself, command in the working folder, cleaned up afterwards, never from tenant folders), scan afterwards (default off), time limit, success codes; CMD output with umlauts (OEM)")
 def _():
     import time as _t
     from app import db, inventory, remote, tools
@@ -5470,20 +5470,20 @@ def _():
         d = dict(base, repo_path="/Tools/iperf/")
         tools.validate(d)
         assert d["repo_path"] == "Tools\\iperf" and d["scan_after"] == "never" and d["scan_profile_id"] is None, d
-        assert d["timeout_s"] is None and d["success_codes"] is None, "Standard: kein Zeitlimit eingetragen, Erfolg = 0, kein Scan"
+        assert d["timeout_s"] is None and d["success_codes"] is None, "default: no time limit set, success = 0, no scan"
         for bad in ({"repo_path": "..\\geheim"}, {"repo_path": "C:\\x"}, {"repo_path": "\\\\srv\\x"}, {"repo_path": "Tools\\fehlt"},
                     {"repo_path": "Mandant\\A\\iperf"}, {"repo_path": "Mandant"}, {"scan_after": "manchmal"},
                     {"timeout_s": 5}, {"timeout_s": 999999}, {"timeout_s": "x"}, {"success_codes": "0, abc"}):
             try:
                 tools.validate(dict(base, **bad))
-                raise AssertionError(("angenommen", bad))
+                raise AssertionError(("accepted", bad))
             except ValueError:
                 pass
         d = dict(base, success_codes="0; 3010 ,1", timeout_s="120", scan_after="success")
         tools.validate(d)
         assert d["success_codes"] == "0,3010,1" and d["timeout_s"] == 120
         assert tools.parse_codes("") == [0]
-        # Ausführung als Dienstkonto mit Dateien: kopieren → im Ordner ausführen → aufräumen; Erfolgscodes; Zeitlimit
+        # Execution as service account with files: copy -> run in the folder -> clean up; success codes; time limit
         seen = {}
 
         def ps(host, script, timeout=None, **kw):
@@ -5492,7 +5492,7 @@ def _():
         remote.ps = ps
         t = {"id": 7, "name": "IPERF", "type": "cmd", "script": "iperf3.exe -c pve", "run_as": "service", "repo_path": "Tools\\iperf",
              "timeout_s": 90, "success_codes": "0,3010", "scan_after": "never", "scan_profile_id": None}
-        # 2.32.7: mit Dateien läuft auch das Dienstkonto über den Rahmen (eigener Prozess, Zeitlimit auf dem Client)
+        # 2.32.7: with files the service account also runs via the wrapper (own process, time limit on the client)
         sysc = []
         remote.run_as_system = lambda host, body, name, timeout_s=0, run_as="system", **kw: (
             sysc.append((name, timeout_s, run_as, body)) or (3010, "> x\nAusgabe\nExitcode: 3010"))
@@ -5503,16 +5503,16 @@ def _():
         calls.clear()
         r = tools.run(dict(t, repo_path="Tools\\x.exe", type="powershell", script="Get-Item ."), c)
         assert calls[0] == ("copy", "Tools", calls[0][2], "x.exe") and "PK-RunPs1" in sysc[-1][3], calls
-        # ohne Dateien: Dienstkonto direkt über WinRM, Arbeitsordner nicht nötig, Zeitlimit an WinRM
+        # without files: service account directly via WinRM, working folder not needed, time limit passed to WinRM
         r = tools.run(dict(t, repo_path=None), c)
         assert r["exit"] == 3010 and seen["timeout"] == 90 and "cd /d" not in seen["script"] and "\\uFFFD" in seen["script"], seen["script"][:300]
-        # SYSTEM: gleicher Name für Kopie und Lauf; aufgeräumt wird immer
+        # SYSTEM: same name for copy and run; cleanup always happens
         calls.clear()
         remote.run_as_system = lambda host, body, name, timeout_s=0, **kw: (calls.append(("sys", name, timeout_s)) or (1, "> x\nExitcode: 1"))
         r = tools.run(dict(t, run_as="system"), c)
         assert calls[0][0] == "copy" and calls[1] == ("sys", calls[0][2], 90) and calls[-1] == ("rm", calls[0][2]), calls
         assert r["ok"] is False
-        # Kopie bricht ab → trotzdem aufräumen
+        # Copy aborts -> clean up anyway
         calls.clear()
         def boom(folder, host, name, single_file=None):
             calls.append(("copy", folder, name, single_file))
@@ -5520,46 +5520,46 @@ def _():
         remote.copy_package = boom
         try:
             tools.run(t, c)
-            raise AssertionError("Fehler erwartet")
+            raise AssertionError("error expected")
         except remote.RemoteError:
             pass
         assert calls[-1] == ("rm", calls[0][2]), calls
         remote.copy_package = lambda folder, host, name, single_file=None: calls.append(("copy", folder, name, single_file))
-        # Zeitlimit: eigene Meldung in Sekunden
+        # Time limit: own message in seconds
         def slow(host, script, timeout=None, **kw):
             raise remote.RemoteTimeout("WinRM: keine Antwort")
         remote.ps = slow
         try:
             tools.run(dict(t, repo_path=None, timeout_s=45), c)
-            raise AssertionError("Zeitlimit erwartet")
+            raise AssertionError("time limit expected")
         except remote.RemoteTimeout as e:
             assert "45 Sekunden" in str(e), e
         remote.ps = ps
-        # Mandant bekommt den Ordner NACH dem Speichern des Tools → Tool läuft nicht mehr
+        # Tenant gets the folder AFTER the tool is saved -> tool no longer runs
         t2 = db.ex("INSERT INTO tenants(name, repo_folder, created_at) VALUES('T-HK7b', 'tools', ?)", (util.now(),))
         try:
             calls.clear()
             try:
                 tools.run(t, c)
-                raise AssertionError("Mandanten-Ordner nicht erkannt")
+                raise AssertionError("tenant folder not recognised")
             except ValueError as e:
                 assert "T-HK7b" in str(e)
-            assert not [x for x in calls if x[0] == "copy"], "nichts kopiert"
+            assert not [x for x in calls if x[0] == "copy"], "nothing copied"
         finally:
             db.ex("DELETE FROM tenants WHERE id=?", (t2,))
-        # und umgekehrt: ein Mandant kann keinen Ordner bekommen, den ein Tool benutzt
+        # and vice versa: a tenant cannot get a folder that a tool uses
         from app import repofiles
         tt = db.ex("INSERT INTO tools(name, type, script, run_as, repo_path) VALUES('HK7-Tool', 'cmd', 'x', 'service', 'Tools\\iperf')")
         try:
             for f in ("Tools", "tools\\IPERF", "Tools\\iperf\\sub"):
                 try:
                     repofiles.check_tenant_folder(f)
-                    raise AssertionError(("Tool-Ordner als Mandantenordner", f))
+                    raise AssertionError(("tool folder as tenant folder", f))
                 except repofiles.RepoError as e:
                     assert "HK7-Tool" in str(e)
         finally:
             db.ex("DELETE FROM tools WHERE id=?", (tt,))
-        # Danach scannen: Standard nie; „Nach Erfolg“ nur bei OK; „Immer“ immer
+        # Scan afterwards: default never; "after success" only on OK; "always" always
         scans = []
         inventory.queue_scan = lambda cid, user=None, profile_id=None, follow=False: scans.append((cid, profile_id, follow)) or True
         orig_run = tools.run
@@ -5578,13 +5578,13 @@ def _():
         remote.repo_stat, remote.copy_package, remote.remove_package_copy, remote.ps, remote.run_as_system, inventory.queue_scan = orig
         db.ex("DELETE FROM tenants WHERE id=?", (tid,))
         db.ex("DELETE FROM computers WHERE id=?", (c,))
-    assert "-match '\\uFFFD') { $pkEnc = 'Oem' }" in remote.WRAPPER, "erst UTF-8, bei Ersatzzeichen OEM"
+    assert "-match '\\uFFFD') { $pkEnc = 'Oem' }" in remote.WRAPPER, "first UTF-8, with replacement characters OEM"
     msrc = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "main.py"), encoding="utf-8").read()
-    assert "tools.scan_after(t, cid" in msrc, "Danach scannen auch beim Einzelaufruf"
+    assert "tools.scan_after(t, cid" in msrc, "scan afterwards also on a single call"
     js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
     assert "repo_path: repo.value" in js and "scan_after: scanAfter.value" in js and "tool.scan_after || 'never'" in js
 
-@test("2.32.8 Netzwerkkarten: Geschwindigkeit aus Get-NetAdapter (nicht der veraltete WMI-Wert), nur für verbundene Karten; automatische Scans erst einige Minuten nach dem Hochfahren/Aufwachen, manuelle sofort")
+@test("2.32.8 Network adapters: speed from Get-NetAdapter (not the outdated WMI value), only for connected adapters; automatic scans only a few minutes after boot/wake-up, manual ones immediately")
 def _():
     import subprocess
     from app import db, inventory, profiles
@@ -5614,7 +5614,7 @@ def _():
         sp = {n["name"]: n.get("speed") for n in json.loads(line[0])}
         assert sp == {"Intel Ethernet": 1000000000, "Realtek USB": None, "Alt-Karte": 100000000}, (sp, r.stdout[-300:])
         assert "ERR:\n" in r.stdout + "\n" or r.stdout.strip().endswith("ERR:"), r.stdout[-300:]
-    # Wartezeit nach dem Hochfahren
+    # Waiting time after boot
     assert db.DEFAULT_SETTINGS["scan_online_delay_minutes"] == 3
     c = db.ex("INSERT INTO computers(name, dns_name, online, winrm, online_since, created_at) VALUES('NS-PC', 'ns-pc.firma.local', 1, 1, ?, ?)",
               (util.now(), util.now()))
@@ -5626,13 +5626,13 @@ def _():
     try:
         db.ex("INSERT OR REPLACE INTO profile_scans(computer_id, profile_id, pending, pending_since) VALUES(?,?,1,?)", (c, pid, util.now()))
         profiles.dispatch()
-        assert c not in started, "gerade erst online → noch nicht"
+        assert c not in started, "just came online -> not yet"
         db.ex("UPDATE computers SET online_since=? WHERE id=?", (util.ago(minutes=4), c))
         profiles.dispatch()
-        assert c in started, "nach der Wartezeit"
+        assert c in started, "after the waiting time"
         from app import presence
         db.ex("UPDATE computers SET winrm=0 WHERE id=?", (c,))
-        assert presence.update(c, True, True) and db.val("SELECT online_since FROM computers WHERE id=?", (c,)), "beim Online-Kommen gesetzt"
+        assert presence.update(c, True, True) and db.val("SELECT online_since FROM computers WHERE id=?", (c,)), "set when coming online"
         presence.update(c, False, False)
         assert db.val("SELECT online_since FROM computers WHERE id=?", (c,)) is None
     finally:
@@ -5642,18 +5642,18 @@ def _():
 
 
 
-@test("2.33 Docker-Standard: Programm nur im Image, docker-compose.yml mit Versionsnummer (Hinweis, wenn zu alt), guacd unter eigenem Namen, Release ohne ZIP, kein Update-Helfer mehr")
+@test("2.33 Docker standard: program only in the image, docker-compose.yml with version number (notice if too old), guacd under its own name, release without ZIP, no update helper any more")
 def _():
     import importlib.util as _iu
     import re as _re
     from app import backup, config, news, privileges
     root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
-    assert _iu.find_spec("app.selfupdate") is None, "Update-Helfer (2.32.9–2.32.12) ist ausgebaut"
+    assert _iu.find_spec("app.selfupdate") is None, "update helper (2.32.9–2.32.12) has been removed"
     js = open(os.path.join(root, "app", "static", "app.js"), encoding="utf-8").read()
     assert "/api/system/selfupdate" not in js and "Jetzt aktualisieren" not in js
     from app import main as _m
     assert not [r for r in _m.app.routes if "selfupdate" in getattr(r, "path", "")]
-    # docker-compose.yml: Stand der Datei = das, was das Programm erwartet
+    # docker-compose.yml: state of the file = what the program expects
     dcp = os.path.join(root, "docker-compose.yml")
     if os.path.exists(dcp):
         dc = open(dcp, encoding="utf-8").read()
@@ -5666,25 +5666,25 @@ def _():
     wfd = os.path.join(root, ".github", "workflows")
     if os.path.isdir(wfd):
         rel = open(os.path.join(wfd, "release.yml"), encoding="utf-8").read()
-        assert "git archive" not in rel and ".zip" not in rel, "Release ohne Programm-ZIP"
+        assert "git archive" not in rel and ".zip" not in rel, "release without program ZIP"
         assert "imagetools create" in rel and "docker/guacd.txt" in rel and "docker save" in rel and "tar.gz" in rel
-        assert "cp .env.example dist/env.example" in rel and "dist/.env.example" not in rel, "GitHub benennt .env.example um – als env.example"
-        assert rel.index("- name: Bauen und hochladen") < rel.index("- name: guacd unter eigenem Namen") < rel.index("- name: Release anlegen")
+        assert "cp .env.example dist/env.example" in rel and "dist/.env.example" not in rel, "GitHub renames .env.example – to env.example"
+        assert rel.index("- name: Build and push") < rel.index("- name: Publish guacd under its own name") < rel.index("- name: Create release")
         wk = open(os.path.join(wfd, "weekly.yml"), encoding="utf-8").read()
-        assert "docker/guacd.txt" in wk and "docker-compose.yml" not in wk.split("Etwas geändert?")[1].split("Schwachstellen")[0]
+        assert "docker/guacd.txt" in wk and "docker-compose.yml" not in wk.split("Anything changed?")[1].split("Check vulnerabilities")[0]
         for fn in os.listdir(wfd):
             t_ = open(os.path.join(wfd, fn), encoding="utf-8").read()
-            assert "image: \\(guacamole" not in t_ and " docker-compose.yml;" not in t_, f"{fn}: guacd steht in docker/guacd.txt, nicht mehr in der docker-compose.yml"
-    # Hinweise für Hauptadmins
+            assert "image: \\(guacamole" not in t_ and " docker-compose.yml;" not in t_, f"{fn}: guacd is in docker/guacd.txt, no longer in docker-compose.yml"
+    # Notices for main admins
     old = os.environ.pop("PK_COMPOSE_VERSION", None)
     try:
-        assert [h["id"] for h in news.hints()] == ["compose"], "ohne Versionsnummer = alte docker-compose.yml"
+        assert [h["id"] for h in news.hints()] == ["compose"], "without version number = old docker-compose.yml"
         os.environ["PK_COMPOSE_VERSION"] = str(news.COMPOSE_VERSION)
         assert news.hints() == []
         os.environ["PK_COMPOSE_VERSION"] = "x"
         assert [h["id"] for h in news.hints()] == ["compose"]
         os.environ["PK_COMPOSE_VERSION"] = str(news.COMPOSE_VERSION)
-        # Datenbank von einer neueren Version (zurück ohne die Sicherung): Hinweis; Sicherheitsupdate derselben Version zählt nicht
+        # Database from a newer version (back without the backup): notice; a security update of the same version does not count
         import contextlib as _cl
         import io as _io
         _quiet = _cl.redirect_stdout(_io.StringIO())
@@ -5698,7 +5698,7 @@ def _():
                 assert backup.NEWER_DB == newer, (top, backup.NEWER_DB)
             db.set_setting("db_version_max", "99.0")
             backup.mark_version()
-            assert db.setting_raw("db_version_max") == "99.0" and db.setting_raw("last_version") == config.VERSION, "höchste Version bleibt"
+            assert db.setting_raw("db_version_max") == "99.0" and db.setting_raw("last_version") == config.VERSION, "highest version stays"
             backup.before_update()
             assert [h["id"] for h in news.hints()] == ["newer_db"] and "vor-99.0" in news.hints()[0]["text"]
             db.set_setting("db_version_max", "1.0")
@@ -5714,7 +5714,7 @@ def _():
             os.environ.pop("PK_COMPOSE_VERSION", None)
         else:
             os.environ["PK_COMPOSE_VERSION"] = old
-    # Start-chown lässt den Ordner des früheren Helfers aus (gehört root, update.sh --cleanup räumt ihn weg)
+    # Start chown skips the former helper's folder (belongs to root, update.sh --cleanup removes it)
     if os.geteuid() == 0:
         d = tempfile.mkdtemp(dir=TMP)
         os.makedirs(os.path.join(d, "update", "host")); open(os.path.join(d, "a"), "w").close()
@@ -5722,7 +5722,7 @@ def _():
         assert os.stat(os.path.join(d, "a")).st_uid == 10001 and os.stat(os.path.join(d, "update", "host")).st_uid == 0
 
 
-@test("2.33 update.sh: nur Container aktualisieren (pull, up, Gesundheitscheck, zurück ohne Download), Version festlegen, neuere docker-compose.yml aus dem Image, ohne Internet per Archiv, --cleanup schont Daten auch bei Links")
+@test("2.33 update.sh: only update containers (pull, up, health check, back without download), pin version, newer docker-compose.yml from the image, without internet via archive, --cleanup spares data even with links")
 def _():
     import hashlib as _hl
     import shutil as _sh
@@ -5730,12 +5730,12 @@ def _():
     root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
     f = os.path.join(root, "update.sh")
     if not os.path.exists(f) or not _sh.which("sh"):
-        return  # im Container liegt update.sh nicht
+        return  # update.sh is not in the container
     if _sh.which("dash"):
-        assert _sp.run(["dash", "-n", f]).returncode == 0, "update.sh muss mit /bin/sh (dash) laufen"
+        assert _sp.run(["dash", "-n", f]).returncode == 0, "update.sh must run with /bin/sh (dash)"
     src = open(f, encoding="utf-8").read()
     for bad in ("unzip", "docker build", "git archive", "PROGRAM_ITEMS="):
-        assert bad not in src, ("kein ZIP, kein Bauen", bad)
+        assert bad not in src, ("no ZIP, no building", bad)
     base = tempfile.mkdtemp(prefix="pk-up-", dir=TMP)
     inst, st, bind = os.path.join(base, "opt"), os.path.join(base, "st"), os.path.join(base, "bin")
     for d in (inst, bind, os.path.join(st, "host")):
@@ -5757,7 +5757,7 @@ case "$1" in
       *working_dir*) cat "$st/running_dir" 2>/dev/null ;;
       *Health*) cat "$st/health" ;;
       *image.version*) cat "$st/running_ver" ;;
-      *Mounts*) echo ""; echo "" ;;   # 2.33.2: wie das echte docker – eine leere Zeile je Container ohne Mounts
+      *Mounts*) echo ""; echo "" ;;   # 2.33.2: like the real docker – one empty line per container without mounts
       *pocketknife-guacd*) echo sha256:guacalt ;;
       *.Image*) echo sha256:alt ;;
     esac; exit 0 ;;
@@ -5792,7 +5792,7 @@ exit 0
     w(os.path.join(st, "running_dir"), inst + "\n"); w(os.path.join(st, "running_ver"), "2.32.12\n")
     w(os.path.join(st, "health"), "healthy\n"); w(os.path.join(st, "latest_ver"), "2.33.0\n")
     os.makedirs(os.path.join(inst, "data")); w(os.path.join(inst, "data", "pocketknife.db"), "DB")
-    # 1. Umstieg von 2.32 (lokal gebautes Image, alte docker-compose.yml): Registry-Image, neue Datei, alte als .alt
+    # 1. Switch from 2.32 (locally built image, old docker-compose.yml): registry image, new file, old one as .alt
     r = run("-y")
     assert r.returncode == 0, r.stdout[-800:] + r.stderr[-400:]
     assert "PK_IMAGE=ghcr.io/soleil0815/pocketknife:latest" in rd(".env") and "PK_DNS_1=10.0.10.5" in rd(".env")
@@ -5800,83 +5800,83 @@ exit 0
     calls = open(os.path.join(st, "calls")).read()
     assert "pull ghcr.io/soleil0815/pocketknife:latest" in calls and "pull ghcr.io/soleil0815/pocketknife-guacd:latest" in calls
     tags = open(os.path.join(st, "tags")).read()
-    assert "sha256:alt pocketknife:previous" in tags and "sha256:guacalt pocketknife-guacd:previous" in tags, "vorher merken (zurück ohne Download)"
+    assert "sha256:alt pocketknife:previous" in tags and "sha256:guacalt pocketknife-guacd:previous" in tags, "note beforehand (back without download)"
     assert "build" not in calls and "load" not in calls
     assert sorted(os.listdir(inst)) == [".env", ".env.example", "data", "docker-compose.yml", "docker-compose.yml.alt", "update.sh"], os.listdir(inst)
     assert "Done: POCKET KNIFE 2.33.0" in r.stdout
-    # 2. gleiche Datei-Version: docker-compose.yml bleibt (eigene Kommentare o. ä. bleiben erhalten)
+    # 2. same file version: docker-compose.yml stays (own comments etc. are preserved)
     os.remove(os.path.join(inst, "docker-compose.yml.alt"))
     w(os.path.join(inst, "docker-compose.yml"), new_compose + "# eigene Zeile\n")
     r = run("-y")
     assert r.returncode == 0 and rd("docker-compose.yml").endswith("# eigene Zeile\n") and not os.path.exists(os.path.join(inst, "docker-compose.yml.alt"))
-    # 3. bestimmte Version festlegen – beide Images; „latest“ wieder zurück
+    # 3. pin a specific version – both images; "latest" back again
     r = run("-y", "2.33.1")
     assert r.returncode == 0 and "PK_IMAGE=ghcr.io/soleil0815/pocketknife:2.33.1" in rd(".env") and "PK_GUACD_IMAGE=ghcr.io/soleil0815/pocketknife-guacd:2.33.1" in rd(".env"), rd(".env")
     r = run("-y")
-    assert r.returncode == 0 and open(os.path.join(st, "calls")).read().count("pull ghcr.io/soleil0815/pocketknife:2.33.1") == 2, "ohne Angabe: die festgelegte Version"
+    assert r.returncode == 0 and open(os.path.join(st, "calls")).read().count("pull ghcr.io/soleil0815/pocketknife:2.33.1") == 2, "without argument: the pinned version"
     r = run("-y", "latest")
     assert r.returncode == 0 and "PK_IMAGE=ghcr.io/soleil0815/pocketknife:latest" in rd(".env") and "pocketknife-guacd:latest" in rd(".env")
     for bad in ("2.33; reboot", "../x", "--irgendwas"):
         r = run("-y", bad)
         assert r.returncode != 0, bad
-    # alte Schreibweise --pull [Version] geht weiter
+    # old spelling --pull [version] keeps working
     r = run("-y", "--pull", "2.33.1")
     assert r.returncode == 0 and ":2.33.1" in rd(".env")
     run("-y", "latest")
-    # 4. Ziehen scheitert → nichts geändert, Hinweis auf docker login
+    # 4. Pulling fails -> nothing changed, hint to docker login
     env_before = rd(".env")
     w(os.path.join(st, "pullfail"), "")
     r = run("-y", "2.33.2")
     assert r.returncode != 0 and "could not be pulled" in r.stdout and "docker login ghcr.io" in r.stdout and rd(".env") == env_before
     os.remove(os.path.join(st, "pullfail"))
-    # 5. neue Version startet nicht → vorheriges Image unter dem Namen der bisherigen .env, .env zurück
+    # 5. new version does not start -> previous image under the name of the former .env, .env back
     w(os.path.join(st, "tags"), ""); w(os.path.join(st, "health"), "unhealthy\n")
     ino = os.stat(os.path.join(inst, ".env")).st_ino
     r = run("-y", "2.33.2")
     assert r.returncode != 0 and "is running again" in r.stdout and rd(".env") == env_before, r.stdout[-600:]
-    # 2.36.2: zurück behält die .env selbst (Besitzer, Rechte, Link) – kein mv einer Kopie von root
+    # 2.36.2: back keeps the .env itself (owner, permissions, link) – no mv of a copy from root
     est = os.stat(os.path.join(inst, ".env"))
-    assert est.st_ino == ino and not os.path.exists(os.path.join(inst, ".env.pk-alt")), "2.36.2: .env beim Zurück"
+    assert est.st_ino == ino and not os.path.exists(os.path.join(inst, ".env.pk-alt")), "2.36.2: .env on rollback"
     tags = open(os.path.join(st, "tags")).read()
     assert "pocketknife:previous ghcr.io/soleil0815/pocketknife:latest" in tags and "pocketknife-guacd:previous ghcr.io/soleil0815/pocketknife-guacd:latest" in tags, tags
-    assert "sudo sh update.sh 2.32.12" in r.stdout, "wie man auf der Version bleibt"
+    assert "sudo sh update.sh 2.32.12" in r.stdout, "how to stay on the version"
     w(os.path.join(st, "health"), "healthy\n")
-    # 6. ohne Internet: Archiv aus dem Release (beide Images), Prüfsumme muss stimmen
+    # 6. without internet: archive from the release (both images), checksum must match
     arc = os.path.join(base, "pocketknife-2.33.3-amd64.tar.gz"); w(arc, "ARCHIV")
     w(os.path.join(base, "pocketknife-2.33.3.sha256"), _hl.sha256(b"ARCHIV").hexdigest() + "  pocketknife-2.33.3-amd64.tar.gz\n")
     w(os.path.join(st, "loaded"), "Loaded image: ghcr.io/soleil0815/pocketknife:2.33.3\nLoaded image: ghcr.io/soleil0815/pocketknife-guacd:2.33.3\n")
     w(os.path.join(st, "calls"), "")
     r = run("-y", arc)
     assert r.returncode == 0 and ":2.33.3" in rd(".env") and "pocketknife-guacd:2.33.3" in rd(".env") and "Checksum OK" in r.stdout, r.stdout[-500:]
-    assert "pull" not in open(os.path.join(st, "calls")).read(), "ohne Internet nichts ziehen"
+    assert "pull" not in open(os.path.join(st, "calls")).read(), "pull nothing without internet"
     w(os.path.join(base, "pocketknife-2.33.3.sha256"), "0" * 64 + "  pocketknife-2.33.3-amd64.tar.gz\n")
     env_before = rd(".env")
     r = run("-y", arc)
     assert r.returncode != 0 and "Checksum" in r.stderr and rd(".env") == env_before
-    # 2.36.2: ohne .sha256 nicht ungeprüft laden
+    # 2.36.2: do not load unverified without .sha256
     os.remove(os.path.join(base, "pocketknife-2.33.3.sha256"))
     w(os.path.join(st, "calls"), "")
     r = run("-y", arc)
     assert r.returncode != 0 and "is missing" in r.stderr and rd(".env") == env_before, r.stderr[-300:]
-    assert "load" not in open(os.path.join(st, "calls")).read(), "2.36.2: ohne Prüfsumme nichts laden"
-    # 2.36.2: relativer Pfad ab dem aktuellen Ordner (nicht ab dem Ordner von update.sh)
+    assert "load" not in open(os.path.join(st, "calls")).read(), "2.36.2: load nothing without a checksum"
+    # 2.36.2: relative path from the current folder (not from the folder of update.sh)
     w(os.path.join(base, "pocketknife-2.33.3.sha256"), _hl.sha256(b"ARCHIV").hexdigest() + "  pocketknife-2.33.3-amd64.tar.gz\n")
     r = _sp.run(["sh", os.path.join(inst, "update.sh"), "-y", "pocketknife-2.33.3-amd64.tar.gz"], cwd=base, env=env, capture_output=True, text=True, timeout=120)
-    assert r.returncode == 0 and "Checksum OK" in r.stdout and ":2.33.3" in rd(".env"), "2.36.2: relativer Archivpfad " + r.stdout[-300:] + r.stderr[-300:]
+    assert r.returncode == 0 and "Checksum OK" in r.stdout and ":2.33.3" in rd(".env"), "2.36.2: relative archive path " + r.stdout[-300:] + r.stderr[-300:]
     run("-y", "latest")
-    # 7. läuft aus einem anderen Ordner → nichts tun
+    # 7. runs from another folder -> do nothing
     w(os.path.join(st, "running_dir"), base + "\n")
     r = run("-y")
     assert r.returncode != 0 and "runs from" in r.stderr
     w(os.path.join(st, "running_dir"), inst + "\n")
-    # 8. Timer des früheren Update-Helfers (2.32.9–2.32.12) räumt das Skript selbst weg – auch wenn er es aufruft
+    # 8. Timer of the former update helper (2.32.9–2.32.12) is removed by the script itself – even if it calls it
     if os.geteuid() == 0:
         cd = os.path.join(env["PK_SYSROOT"], "etc", "cron.d"); os.makedirs(cd)
         w(os.path.join(cd, "pocketknife-update"), "*/5 * * * * root /bin/sh x --watch\n")
         r = run("--watch")
         assert r.returncode == 0 and not os.path.exists(os.path.join(cd, "pocketknife-update")), r.stdout + r.stderr
-    # 9. --cleanup: alte Programmdateien weg – Daten, Sicherungen, Repository, .env, docker-compose.yml bleiben,
-    #    auch wenn ein „Programmordner“ in Wirklichkeit ein Link auf Daten ist
+    # 9. --cleanup: old program files gone – data, backups, repository, .env, docker-compose.yml stay,
+    #    even if a "program folder" is in reality a link to data
     for d in ("app", "docker", ".pk-vorher/app", "pocketknife-2.24/app", "pocketknife-2.23.3/app", "pocketknife-2.23.3/data", "data-backup", "repo", "data/update/host"):
         os.makedirs(os.path.join(inst, d), exist_ok=True)
     for p_ in ("Dockerfile", "run.py", "VERSION", "pocketknife-2.30.zip", "pocketknife-2.30.zip.sha256", "pocketknife-2.24/VERSION",
@@ -5885,51 +5885,51 @@ exit 0
         w(os.path.join(inst, p_), "x")
     ext = os.path.join(base, "geheim"); os.makedirs(ext); w(os.path.join(ext, "wichtig.txt"), "W")
     w(os.path.join(inst, ".env"), rd(".env") + f"PK_REPO_MOUNT={ext}\n")
-    os.symlink(ext, os.path.join(inst, "tools"))  # „tools“ zeigt auf das Repository → nie löschen
+    os.symlink(ext, os.path.join(inst, "tools"))  # "tools" points to the repository -> never delete
     w(os.path.join(st, "images"), "pocketknife:local\nghcr.io/soleil0815/pocketknife:latest\n")
     r = run("--cleanup", inp="n\nn\n")
-    assert r.returncode == 0 and os.path.exists(os.path.join(inst, "app")), "ohne Ja nichts gelöscht"
+    assert r.returncode == 0 and os.path.exists(os.path.join(inst, "app")), "nothing deleted without Ja"
     r = run("-y", "--cleanup")
     left = sorted(os.listdir(inst))
     assert r.returncode == 0, r.stderr
     assert left == [".env", ".env.example", "data", "data-backup", "docker-compose.override.yml", "docker-compose.yml", "pocketknife-2.23.3", "repo", "tools", "update.sh"], left
     assert os.path.islink(os.path.join(inst, "tools")) and open(os.path.join(ext, "wichtig.txt")).read() == "W"
     assert rd("data", "pocketknife.db") == "DB" and rd("data-backup", "s.zip") == "x" and rd("repo", "x.msi") == "x"
-    assert not os.path.exists(os.path.join(inst, "data", "update")), "Ordner des früheren Helfers weg"
-    assert "kept: " in r.stdout and "pocketknife-2.23.3" in r.stdout, "Versionsordner mit Datenbank bleibt"
+    assert not os.path.exists(os.path.join(inst, "data", "update")), "folder of the former helper gone"
+    assert "kept: " in r.stdout and "pocketknife-2.23.3" in r.stdout, "version folder with database stays"
     assert "image rm pocketknife:local" in open(os.path.join(st, "calls")).read()
     assert "pocketknife:latest" not in [x.split()[-1] for x in open(os.path.join(st, "calls")).read().splitlines() if x.startswith("image rm")]
-    # 2.33.1: Umstieg – das neue Skript läuft als update.sh.neu (das alte liegt noch als update.sh da) und legt sich selbst ab
+    # 2.33.1: Switch – the new script runs as update.sh.neu (the old one is still there as update.sh) and puts itself in place
     w(os.path.join(st, "host", "update.sh"), open(f, encoding="utf-8").read())
     _sh.copy(f, os.path.join(inst, "update.sh.neu")); w(os.path.join(inst, "update.sh"), "#!/bin/sh\n# POCKET KNIFE – update (since 2.24.1: alt)\n")
     r = _sp.run(["sh", "update.sh.neu", "-y"], cwd=inst, env=env, capture_output=True, text=True, timeout=120)
     assert r.returncode == 0 and rd("update.sh") == open(f, encoding="utf-8").read(), r.stdout[-400:]
     for doc in ("README.md", "README.en.md", os.path.join("app", "static", "help", "de.md"), os.path.join("app", "static", "help", "en.md")):
         t_ = open(os.path.join(root, doc), encoding="utf-8").read()
-        assert "> update.sh.neu && mv" not in t_ and "&& sh update.sh.neu'" in t_ and "sudo sh -c 'docker pull" in t_, ("Umstieg in einem Befehl als root", doc)
+        assert "> update.sh.neu && mv" not in t_ and "&& sh update.sh.neu'" in t_ and "sudo sh -c 'docker pull" in t_, ("switch in one command as root", doc)
     os.remove(os.path.join(inst, "update.sh.neu"))
-    # 10. update.sh nimmt sich selbst aus dem Image (neue Datei per mv – das laufende Skript bleibt unberührt)
+    # 10. update.sh takes itself out of the image (new file via mv – the running script stays untouched)
     w(os.path.join(st, "host", "update.sh"), open(f, encoding="utf-8").read() + "\n# aus dem Image\n")
     r = run("-y")
     assert r.returncode == 0 and rd("update.sh").endswith("# aus dem Image\n")
 
 
-@test("2.33.3 Sammlungsbaum: je Ebene alphabetisch (Ordner zuerst), AD und Standard oben, Standard-Sammlungen in fester Reihenfolge")
+@test("2.33.3 Collection tree: alphabetical per level (folders first), AD and default on top, default collections in a fixed order")
 def _():
     js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
     i = js.index("const byParent = {};")
     seg = js[i:i + 900]
-    assert "v.sort(" in seg and "deCmp(a.name, b.name)" in seg and "a.builtin === 1 && b.builtin === 1 ? 0" in seg, "Baum sortiert"
+    assert "v.sort(" in seg and "deCmp(a.name, b.name)" in seg and "a.builtin === 1 && b.builtin === 1 ? 0" in seg, "tree sorted"
 
 
-@test("2.33.4 Virenschutz auf Windows Server: Microsoft Defender direkt (kein Sicherheitscenter), leere Ausgabe nie als „undefined (aus)“")
+@test("2.33.4 Antivirus on Windows Server: Microsoft Defender directly (no Security Center), empty output never as \"undefined (aus)\"")
 def _():
     root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
     ps = open(os.path.join(root, "app", "scan_modules.ps1"), encoding="utf-8").read()
     blk = ps[ps.index("PKX 'antivirus' {"):ps.index("} catch { $r.errors += ('security: '")]
-    assert "if ($av.Count -eq 0 -and $mp)" in blk and "Microsoft Defender Antivirus" in blk and ",$av" in blk, "Server: Defender, immer eine Liste"
-    assert ps.index("$mp = Get-MpComputerStatus") < ps.index("PKX 'antivirus' {"), "Defender-Status vorher gelesen"
-    assert "-ClassName MSFT_MpComputerStatus" in ps and ps.index("MSFT_MpComputerStatus") < ps.index("PKX 'antivirus' {"), "ohne Defender-Modul: WMI-Klasse"
+    assert "if ($av.Count -eq 0 -and $mp)" in blk and "Microsoft Defender Antivirus" in blk and ",$av" in blk, "server: Defender, always a list"
+    assert ps.index("$mp = Get-MpComputerStatus") < ps.index("PKX 'antivirus' {"), "Defender status read beforehand"
+    assert "-ClassName MSFT_MpComputerStatus" in ps and ps.index("MSFT_MpComputerStatus") < ps.index("PKX 'antivirus' {"), "without Defender module: WMI class"
     from app import inventory
     out = inventory._merge_extra(-4711, {"extra": {"antivirus": {}, "firewall": [{"profile": "Domain", "enabled": True}, {}]}}, ["security"])
     assert out["antivirus"] == [] and out["firewall"] == [{"profile": "Domain", "enabled": True}], out
@@ -5941,27 +5941,27 @@ def _():
     assert "if not (isinstance(x, dict) and not x)" in src
 
 
-@test("2.34 Windows Server: Rückfrage vor Neustart/Herunterfahren von Servern und Domänencontrollern, Sammlung „Domänencontroller“, Virtualisierung erkannt, winget-Version ohne Profile, Server Core-Benutzer, Bildschirme auf VMs ohne Warnung")
+@test("2.34 Windows Server: confirmation before restart/shutdown of servers and domain controllers, collection \"Domänencontroller\", virtualisation detected, winget version without profiles, Server Core users, screens on VMs without warning")
 def _():
     import json as _j
     from app import main as _m, collections_, db as _db
     root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
-    # Rolle: aus dem Scan (ProductType), sonst aus dem Betriebssystem
+    # Role: from the scan (ProductType), otherwise from the operating system
     sr = _m.server_role
     assert sr({"extra": _j.dumps({"product_type": 2})}) == "dc" and sr({"extra": _j.dumps({"product_type": "3"})}) == "server"
-    assert sr({"extra": _j.dumps({"product_type": 1}), "os_name": "Windows Server 2022"}) is None, "Scan geht vor"
+    assert sr({"extra": _j.dumps({"product_type": 1}), "os_name": "Windows Server 2022"}) is None, "scan takes precedence"
     assert sr({"extra": None, "os_name": "Microsoft Windows Server 2025 Standard"}) == "server" and sr({"extra": "{}", "ad_os": "Windows 11 Pro"}) is None
     assert ("POST", "/api/computers/power-check") in _m.access.ROUTES
     js = open(os.path.join(root, "app", "static", "app.js"), encoding="utf-8").read()
     pdl = js[js.index("function powerDialog(targets)"):js.index("function fmtDelay(")]
-    assert "/api/computers/power-check" in pdl and "servers.length && !sure.checked" in pdl and "servers === null" in pdl, "Server: bestätigen"
-    # Sammlung „Domänencontroller“ und Feld „Rolle“
+    assert "/api/computers/power-check" in pdl and "servers.length && !sure.checked" in pdl and "servers === null" in pdl, "server: confirm"
+    # Collection "Domänencontroller" and field "Rolle"
     assert any(n == "Domänencontroller" for n, _mm, _f in _db.BUILTIN_COLLECTIONS)
     a = _db.ex("INSERT INTO computers(name, extra) VALUES('DC-TEST1', ?)", (_j.dumps({"product_type": 2, "virtual": "Hyper-V"}),))
     b = _db.ex("INSERT INTO computers(name, extra) VALUES('SRV-TEST1', ?)", (_j.dumps({"product_type": 3}),))
     try:
         dc = _db.val("SELECT id FROM collections WHERE builtin=1 AND name='Domänencontroller'")
-        assert dc, "beim Start angelegt"
+        assert dc, "created at startup"
         mem = set(collections_.member_ids(dc, fresh=True))
         assert a in mem and b not in mem, mem
         w, p = collections_.build([{"field": "virtual", "op": "equals", "value": "Hyper-V"}])
@@ -5971,10 +5971,10 @@ def _():
     ps = open(os.path.join(root, "app", "scan_modules.ps1"), encoding="utf-8").read()
     vm = ps[ps.index("PKX 'virtual' {"):]
     vm = vm[:vm.index("\n}\n")]
-    assert vm.index("'VMware'") < vm.index("'Hyper-V'") and "'KVM/QEMU" in vm and "Proxmox" in vm and "HypervisorPresent" not in vm.replace("(HypervisorPresent", ""), "Hersteller/Modell, nicht HypervisorPresent"
+    assert vm.index("'VMware'") < vm.index("'Hyper-V'") and "'KVM/QEMU" in vm and "Proxmox" in vm and "HypervisorPresent" not in vm.replace("(HypervisorPresent", ""), "manufacturer/model, not HypervisorPresent"
     wg = ps[ps.index("if ($os.ProductType -eq 1) {\n  try { $ai = Get-AppxPackage"):ps.index("$e.pending_reboot")]
-    assert "^(Applications|InboxApplications|S-1-.*)$" in wg, "nicht EndOfLife/Staged"
-    assert "AppxAllUserStore" in wg and "-Recurse -Depth" not in wg and "Get-AppxPackage -AllUsers" in wg.split("} else {")[0], "Server: Registry statt alle Profile"
+    assert "^(Applications|InboxApplications|S-1-.*)$" in wg, "not EndOfLife/Staged"
+    assert "AppxAllUserStore" in wg and "-Recurse -Depth" not in wg and "Get-AppxPackage -AllUsers" in wg.split("} else {")[0], "server: registry instead of all profiles"
     disp = ps[ps.index("PKS 'displays'"):ps.index("# @module environment")]
     assert "nicht unterst|not supported|8004100C" in disp and "{ throw }" in disp
     blk = ps[ps.index("# @sessions-begin"):ps.index("# @sessions-end")]
@@ -5982,8 +5982,8 @@ def _():
     from app import inventory, remote as _r
     assert "virtual" in inventory.MODULE_EXTRA["computer"]
     lo = _r.LOGGEDON_PS[_r.LOGGEDON_PS.index("@sessions-end"):]
-    assert "$u += $pkExp" not in lo and ".Split('\\')[-1] -eq $x" in lo, "quser-Namen nicht doppelt zu DOMÄNE\\name"
-    # power-check: alle Ziele, auch über 5000; Fehler der Prüfung = vorsichtshalber Häkchen verlangen
+    assert "$u += $pkExp" not in lo and ".Split('\\')[-1] -eq $x" in lo, "quser names not doubled to DOMAIN\\name"
+    # power-check: all targets, even above 5000; failure of the check = ask for the checkmark to be safe
     import inspect as _insp
     assert "[:5000]" not in _insp.getsource(_m.api_power_check)
     a2 = _db.ex("INSERT INTO computers(name, extra, current_user) VALUES('SRV-PC2', ?, 'FIRMA\\a,FIRMA\\b')", (_j.dumps({"product_type": 3}),))
@@ -5992,21 +5992,21 @@ def _():
         assert r["servers"] == [{"id": a2, "name": "SRV-PC2", "role": "server", "users": 2}], r
     finally:
         _db.ex("DELETE FROM computers WHERE id=?", (a2,))
-    assert "servers = [{ unknown: true }];" in pdl, "Prüfung fehlgeschlagen: nicht ohne Rückfrage"
+    assert "servers = [{ unknown: true }];" in pdl, "check failed: not without confirmation"
 
-@test("2.34 Ältere Windows ohne winget (vor 1809 / Server 2019): kein winget-Aktualisieren, Kiosk bietet winget-Pakete dort nicht an, Hinweis statt „fehlt“")
+@test("2.34 Older Windows without winget (before 1809 / Server 2019): no winget upgrade, kiosk does not offer winget packages there, notice instead of \"missing\"")
 def _():
     import re as _re
     from app import kiosk, deploy, steps as stp
     root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
     ok = deploy.winget_ok
-    assert ok(None) and ok("") and ok("17763") and ok(26100) and ok("x") and not ok("14393") and not ok(9600), "Build-Grenze"
-    assert not ok("14393.6897") and ok("17763.1") and ok("26100.4061"), "Scan speichert Build.UBR"
+    assert ok(None) and ok("") and ok("17763") and ok(26100) and ok("x") and not ok("14393") and not ok(9600), "build limit"
+    assert not ok("14393.6897") and ok("17763.1") and ok("26100.4061"), "scan stores Build.UBR"
     js = open(os.path.join(root, "app", "static", "app.js"), encoding="utf-8").read()
-    assert int(_re.search(r"const WINGET_MIN_BUILD = (\d+);", js).group(1)) == deploy.WINGET_MIN_BUILD, "JS und Server gleiche Grenze"
+    assert int(_re.search(r"const WINGET_MIN_BUILD = (\d+);", js).group(1)) == deploy.WINGET_MIN_BUILD, "JS and server same limit"
     sv = js[js.index("if (cat === 'software') {"):]
     sv = sv[:sv.index("return wrapT(t);\n  }")]
-    # 2.35: ohne winget nur, was im winget-Cache bereitliegt
+    # 2.35: without winget only what is available in the winget cache
     assert "const wok = wingetOk(c);" in sv and "const upOk = (r) => wok || wcHas(r.winget_id);" in sv
     assert "r.outdated && r.winget_id && upOk(r) ? btn('Aktualisieren'" in sv and "s.outdated && s.winget_id && upOk(s)" in sv
     assert "c.outdated && (wingetOk(c) || wcHas(wid))" in js[js.index("async function updateOutdated("):js.index("async function scanSubItems(")]
@@ -6014,8 +6014,8 @@ def _():
     assert "c.outdated && (wingetOk(c) || wcHas(sw.winget_id))" in sd[:sd.index("modal(sw.name")] and sd.index("await wcReady();") < sd.index("const t = table(")
     from app import main as _m
     import inspect
-    assert "c.os_build" in inspect.getsource(_m.api_software_detail), "Build für die Anzeige"
-    # Kiosk: winget-Paket auf Server 2016 nicht anbieten, eigenes Paket schon
+    assert "c.os_build" in inspect.getsource(_m.api_software_detail), "build for display"
+    # Kiosk: do not offer a winget package on Server 2016, own package yes
     db.set_setting("kiosk_enabled", 1)
     cid = db.ex("INSERT INTO computers(name, online, winrm, current_user, os_build) VALUES('PC-ALT1', 1, 1, 'FIRMA\\nutzer', '14393.6897')")
     pk = {}
@@ -6032,7 +6032,7 @@ def _():
         names = {i["name"] for i in kiosk.catalog(cid)}
         assert "Eigen Tool" in names and "WG Tool" not in names, names
         must_fail(kiosk.request, {"username": "nutzer", "display_name": "N"}, "?", cid, pk["WG Tool"], "install", contains="1809")
-        # Deinstallieren per winget: auf alten Systemen nicht angeboten
+        # Uninstall via winget: not offered on old systems
         kiosk.save_item(pk["Eigen Tool"], {"enabled": True, "approval": 0, "uninstall_package_id": pk["WG Tool"]})
         it = {i["name"]: i for i in kiosk.catalog(cid)}
         assert db.val("SELECT uninstall_package_id FROM kiosk_items WHERE package_id=?", (pk["Eigen Tool"],)) == pk["WG Tool"]
@@ -6049,28 +6049,28 @@ def _():
         db.ex("DELETE FROM computers WHERE id=?", (cid,))
 
 
-@test("2.34 Befehl ausführen: PowerShell/CMD direkt ohne Tool, nur Hauptadmins, protokolliert, als Tool speicherbar, Strg+Alt+C nur wenn frei")
+@test("2.34 Run command: PowerShell/CMD directly without a tool, main admins only, logged, can be saved as a tool, Ctrl+Alt+C only if free")
 def _():
     import time as _t
     from app import tools, remote, main as _m, pklog
     root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
     t = tools.adhoc_tool({"type": "powershell", "script": "Get-Service Spooler\r\nGet-Date\n\n"})
     assert t["type"] == "powershell" and t["run_as"] == "service" and t["script"] == "Get-Service Spooler\r\nGet-Date", t["script"]
-    assert t["name"] == "Befehl (PowerShell)" and not t["repo_path"] and t["scan_after"] == "never", "Name ohne Befehlstext"
+    assert t["name"] == "Befehl (PowerShell)" and not t["repo_path"] and t["scan_after"] == "never", "name without command text"
     assert tools.adhoc_tool({"type": "cmd", "script": "ipconfig", "run_as": "system"})["name"] == "Befehl (CMD als SYSTEM)"
     for bad, txt in (({"type": "url", "script": "http://x"}, "PowerShell oder CMD"), ({"type": "cmd", "script": "  \n "}, "Befehl eingeben"),
                      ({"type": "cmd", "script": "x", "run_as": "root"}, "Ausführung"),
                      ({"type": "cmd", "script": "x" * (tools.ADHOC_MAX + 1)}, "zu lang"),
                      ({"type": "cmd", "script": "x", "timeout_s": 3}, "Zeitlimit")):
         must_fail(tools.adhoc_tool, bad, contains=txt)
-    # OU-Admins: Route nicht freigegeben, Handler prüft zusätzlich
+    # OU admins: route not released, handler checks additionally
     assert ("POST", "/api/tools-command") not in _m.access.ROUTES
     try:
         _m.api_tool_command({"type": "cmd", "script": "whoami", "ids": [1]}, {"username": "ou-x", "scope": [1]})
-        raise AssertionError("OU-Admin durfte Befehl ausführen")
+        raise AssertionError("OU admin was allowed to run a command")
     except _m.HTTPException as e:
         assert e.status_code == 403
-    # Ausführung wie ein Tool, Befehl im Protokoll
+    # Execution like a tool, command in the log
     c = db.ex("INSERT INTO computers(name, dns_name) VALUES('CMD-PC1', 'cmd-pc1.firma.local')")
     old_ps, logs = remote.ps, []
     old_info = pklog.info
@@ -6087,12 +6087,12 @@ def _():
             _t.sleep(0.05)
         assert j["targets"][0]["status"] == "OK" and "Spooler Running" in j["targets"][0]["res"]["output"], j
         assert any("gestartet" in m and "nicht protokolliert" in m for m in logs), logs
-        assert not any("Geheim123" in m or "net user" in m for m in logs), ("Befehlstext im Protokoll", logs)
-        assert len(j["targets"]) == 1 and len(runs) == 1, ("doppelte ID doppelt ausgeführt", runs)
+        assert not any("Geheim123" in m or "net user" in m for m in logs), ("command text in the log", logs)
+        assert len(j["targets"]) == 1 and len(runs) == 1, ("duplicate ID executed twice", runs)
     finally:
         remote.ps, pklog.info = old_ps, old_info
         db.ex("DELETE FROM computers WHERE id=?", (c,))
-    # Tastenkürzel: Vorgabe Strg+Alt+C nur, wenn kein eigenes Tool es hat
+    # Shortcut: default Ctrl+Alt+C only if no own tool has it
     assert "command" in tools.BUILTIN_KEYS and tools.builtin_hotkeys().get("command") == "Ctrl+Alt+C"
     tid = db.ex("INSERT INTO tools(name, type, script, hotkey) VALUES('Eigenes C', 'cmd', 'ver', 'Ctrl+Alt+C')")
     try:
@@ -6103,13 +6103,13 @@ def _():
     dlg = js[js.index("async function commandDlg(targets)"):]
     dlg = dlg[:dlg.index("\n}\n")]
     assert "/api/tools-command" in dlg and "toolDlg({" in dlg and "return false;  // Fenster bleibt offen" in dlg and "if (busy) return false;" in dlg
-    assert "localStorage" not in dlg, "Verlauf nicht speichern (Kennwörter)"
+    assert "localStorage" not in dlg, "do not store history (passwords)"
     assert "{ key: 'command', name: 'Befehl ausführen …', icon: 'terminal', main: true }" in js and "if (b.key === 'command') { commandDlg(targets); return; }" in js
     assert "const isNew = !tool || !tool.id;" in js
 
 
 def _mszip(data, chunk=32768):
-    """MSZIP wie die Windows Compression API (für den Selbsttest des winget-Caches)."""
+    """MSZIP like the Windows Compression API (for the winget cache self-test)."""
     import zlib as _z
     out, prev, first = [], b"", 0
     for i in range(0, len(data), chunk):
@@ -6122,19 +6122,19 @@ def _mszip(data, chunk=32768):
     return bytes.fromhex("0a51e5c01800") + b"\x00\x02" + len(data).to_bytes(8, "little") + first.to_bytes(8, "little") + b"".join(out)
 
 
-@test("2.35 winget-Cache: Manifest wie winget laden (MSZIP, Prüfsummen), Installer wählen, ins Repository, Paket erzeugen, neue Version ersetzt alte, Entfernen räumt auf, Computer ohne winget bekommen das Paket")
+@test("2.35 winget cache: load manifest like winget (MSZIP, checksums), choose installer, into the repository, create package, new version replaces old, removal cleans up, computers without winget get the package")
 def _():
     import hashlib as _h, io as _io, sqlite3 as _sq, tempfile as _tf, json as _j, time as _t
     from app import wingetcache as wc, winget, remote, deploy, main as _m, schedules, config
-    # MSZIP: mehrere Stücke mit Wörterbuch, kaputte Daten werden abgelehnt
+    # MSZIP: several chunks with dictionary, broken data is rejected
     raw = ("vD:\n" + "".join(f"- v: '1.{i}'\n  rP: manifests/t/x/{i}.yaml\n  s256H: {'a' * 64}\n" for i in range(3000))).encode()
     assert len(raw) > 70000 and wc.mszip_decompress(_mszip(raw)) == raw
     y = wc._yaml("v: 1.10\nPackageVersion: 2.50\nInstallerSuccessCodes: [1, 0x10]\nx: yes\n")
-    assert y == {"v": "1.10", "PackageVersion": "2.50", "InstallerSuccessCodes": ["1", "0x10"], "x": "yes"}, ("Versionen bleiben Text", y)
+    assert y == {"v": "1.10", "PackageVersion": "2.50", "InstallerSuccessCodes": ["1", "0x10"], "x": "yes"}, ("versions stay text", y)
     must_fail(wc.mszip_decompress, b"PK\x03\x04" + b"0" * 40, contains="MSZIP")
     bad = bytearray(_mszip(raw)); bad[8] ^= 1
     must_fail(wc.mszip_decompress, bytes(bad))
-    # Installer wählen und Schalter
+    # Choose installer and switches
     man = {"PackageIdentifier": "Test.App", "PackageVersion": "1.0", "PackageName": "Test App", "InstallerType": "msi",
            "Scope": "machine", "InstallerSwitches": {"Custom": "REBOOT=ReallySuppress"},
            "Installers": [{"Architecture": "x86", "InstallerUrl": "https://dl.example.test/app-x86.msi", "InstallerSha256": "00"},
@@ -6147,7 +6147,7 @@ def _():
     man["ExpectedReturnCodes"] = [{"InstallerReturnCode": "1638", "ReturnResponse": "alreadyInstalled"}, {"InstallerReturnCode": "5", "ReturnResponse": "blockedByPolicy"}]
     i = wc.choose(man, "x64", "machine", "de-DE")
     assert i["InstallerUrl"].endswith("app-de.msi"), i
-    assert wc.choose(man, "x64", "machine", "fr-FR")["InstallerUrl"].endswith("app-en.msi"), "sonst en-US"
+    assert wc.choose(man, "x64", "machine", "fr-FR")["InstallerUrl"].endswith("app-en.msi"), "otherwise en-US"
     assert wc.choose(man, "x86", "machine", "de-DE")["InstallerUrl"].endswith("x86.msi")
     p = wc.plan(man, i)
     assert p["install_type"] == "msi" and p["arguments"] == "REBOOT=ReallySuppress ALLUSERS=1" and p["success_codes"] == "0,3010,1641,1638", p
@@ -6155,7 +6155,7 @@ def _():
     inno = {"PackageName": "I", "PackageVersion": "2", "Installers": [{"Architecture": "x64", "InstallerType": "inno", "InstallerUrl": "https://x/i.exe"}]}
     assert wc.plan(inno, wc.choose(inno))["arguments"] == "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /ALLUSERS"
     nsis = {"Installers": [{"Architecture": "x64", "InstallerType": "nullsoft", "InstallerSwitches": {"Silent": "/S /Q"}}]}
-    assert wc.plan(nsis, wc.choose(nsis))["arguments"] == "/S /Q", "Schalter aus dem Manifest gehen vor"
+    assert wc.plan(nsis, wc.choose(nsis))["arguments"] == "/S /Q", "switches from the manifest take precedence"
     exe = {"Installers": [{"Architecture": "x64", "InstallerType": "exe"}]}
     must_fail(wc.plan, exe, wc.choose(exe), contains="stille Installation")
     must_fail(wc.choose, {"Installers": [{"Architecture": "x64", "InstallerType": "msix"}, {"Architecture": "x64", "InstallerType": "zip", "NestedInstallerType": "msi"}]},
@@ -6166,7 +6166,7 @@ def _():
     assert wc.os_ok({"os_version": "10.0.14393", "os_build": "14393.6897"}, "10.0.0.0")
     assert not wc.os_ok({"os_version": "6.3.9600", "os_build": "9600"}, "10.0.0.0") and wc.os_ok({}, "10.0.17763.0")
     assert not wc.os_ok({"os_version": "10.0.14393", "os_build": "14393"}, "10.0.17763.0")
-    # --- Ende zu Ende mit nachgebautem winget-Server und lokalem Repository
+    # --- End to end with a simulated winget server and local repository
     root = _tf.mkdtemp(prefix="pk-wc-", dir=TMP)
     old_repo, old_idx = db.setting("repo_path"), None
     db.set_setting("repo_path", root)
@@ -6230,34 +6230,34 @@ def _():
         assert st["install_type"] == "exe" and st["folder"] == "winget-cache\\Test.App\\" + d10 and st["install_file"] == "testapp-1.0.exe"
         assert st["arguments"] == "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /ALLUSERS" and st["detect_name"] == "Test App"
         n = len(calls)
-        assert wc.refresh_entry(eid)["status"] == "ok" and not any("testapp" in u for u in calls[n:]), "gleiche Version: nicht neu laden"
-        # gleiche Version, Katalog tauscht die Datei (neue Prüfsumme): eigener Ordner, alter weg – Bruchprüfung bleibt stimmig
+        assert wc.refresh_entry(eid)["status"] == "ok" and not any("testapp" in u for u in calls[n:]), "same version: do not reload"
+        # same version, catalog swaps the file (new checksum): own folder, old one gone – integrity check stays consistent
         publish("1.0", b"MZ-eins-neu" * 1000)
         e1b = wc.refresh_entry(eid)
         d10b = "1.0_" + _h.sha256(b"MZ-eins-neu" * 1000).hexdigest()[:8]
         assert e1b["folder"].endswith(d10b) and sorted(os.listdir(os.path.join(root, "winget-cache", "Test.App"))) == [d10b], dict(e1b)
-        # neue Version: laden, Paket umstellen (gleiche ID), alte Version weg – nicht, solange eine Bereitstellung sie braucht
+        # new version: load, switch package (same ID), old version gone – not while a deployment needs it
         dep = db.ex("INSERT INTO deployments(name, status, package_json) VALUES('WC-läuft', 'running', ?)",
                     (_j.dumps({"steps": {"pre": [], "main": [{"type": "install", "source": "file", "folder": e1b["folder"], "install_file": "testapp-1.0.exe"}], "post": []}}),))
         publish("1.1", b"MZ-zwei" * 1000)
         e2 = wc.refresh_entry(eid)
         d11 = "1.1_" + _h.sha256(b"MZ-zwei" * 1000).hexdigest()[:8]
         assert e2["version"] == "1.1" and e2["package_id"] == e["package_id"] and "noch verwendet" in (e2["message"] or ""), dict(e2)
-        assert sorted(os.listdir(os.path.join(root, "winget-cache", "Test.App"))) == sorted([d10b, d11]), "alte Version bleibt, solange sie gebraucht wird"
+        assert sorted(os.listdir(os.path.join(root, "winget-cache", "Test.App"))) == sorted([d10b, d11]), "old version stays as long as it is needed"
         db.ex("DELETE FROM deployments WHERE id=?", (dep,))
         wc.cleanup("selftest")
-        assert sorted(os.listdir(os.path.join(root, "winget-cache", "Test.App"))) == [d11], "nur die aktuelle Version im Cache"
+        assert sorted(os.listdir(os.path.join(root, "winget-cache", "Test.App"))) == [d11], "only the current version in the cache"
         assert _j.loads(db.val("SELECT steps FROM packages WHERE id=?", (e["package_id"],)))["main"][0]["install_file"] == "testapp-1.1.exe"
-        # Hersteller tauscht die Datei: Prüfsumme falsch → nichts übernehmen, alte bleibt
+        # Vendor swaps the file: checksum wrong -> adopt nothing, old one stays
         publish("1.2", b"MZ-drei" * 1000, sha="0" * 64)
         e3 = wc.refresh_entry(eid)
         assert e3["status"] == "error" and "Prüfsumme" in e3["message"] and e3["version"] == "1.1", dict(e3)
         assert sorted(os.listdir(os.path.join(root, "winget-cache", "Test.App"))) == [d11]
-        assert not [f for f in os.listdir(config.WINGET_DIR) if f.endswith(".part")], "keine Reste vom Download"
-        assert "test.app" in wc.ready(), "Fehler beim Laden der neuen Version: die bisherige bleibt nutzbar"
+        assert not [f for f in os.listdir(config.WINGET_DIR) if f.endswith(".part")], "no leftovers from the download"
+        assert "test.app" in wc.ready(), "error loading the new version: the previous one stays usable"
         db.ex("UPDATE winget_cache SET status='checking' WHERE id=?", (eid,))
-        assert "test.app" in wc.ready(), "auch während einer Prüfung"
-        # Installiert: 1.0 → Cache 1.1 neuer; schon 1.1 → nichts zu tun; x86 installiert → kein x64 daneben; 32-Bit-Windows → nein
+        assert "test.app" in wc.ready(), "also during a check"
+        # Installed: 1.0 -> cache 1.1 newer; already 1.1 -> nothing to do; x86 installed -> no x64 next to it; 32-bit Windows -> no
         c32 = db.ex("INSERT INTO computers(name, os_build, os_version, os_arch) VALUES('PC-ALT32', '14393', '10.0.14393', '32-Bit')")
         cx86 = db.ex("INSERT INTO computers(name, os_build, os_version, os_arch) VALUES('PC-ALT86', '14393', '10.0.14393', '64-Bit')")
         cneu = db.ex("INSERT INTO computers(name, os_build, os_version, os_arch) VALUES('PC-ALTOK', '14393', '10.0.14393', '64-Bit')")
@@ -6267,14 +6267,14 @@ def _():
         assert cc == [cneu] and sorted(sk) == sorted([cmp_, cx86, c32]), (cc, sk)
         db.ex("DELETE FROM software WHERE winget_id='Test.App'")
         db.ex("DELETE FROM computers WHERE id IN (?,?,?)", (c32, cx86, cneu))
-        # Aufteilen: neue Windows per winget, alte aus dem Cache, zu alte (Mindestversion) auslassen
+        # Split: new Windows via winget, old ones from the cache, skip too old ones (minimum version)
         wg, cache, skip, ce = wc.split("test.app", [cmp_, cnew, c81])
         assert wg == [cnew] and cache == [cmp_] and skip == [c81] and ce["id"] == eid, (wg, cache, skip)
         assert "test.app" in _m.api_wc_ready({"username": "ou", "scope": [1]})["ids"]
         assert ("GET", "/api/wingetcache/ready") in _m.access.ROUTES and ("GET", "/api/wingetcache") not in _m.access.ROUTES
         try:
             _m.api_wc_list({"username": "ou", "scope": [1]})
-            raise AssertionError("OU-Admin darf den Cache nicht verwalten")
+            raise AssertionError("OU admin must not manage the cache")
         except _m.HTTPException as x:
             assert x.status_code == 403
         made = []
@@ -6288,7 +6288,7 @@ def _():
             assert made == [("custom", [cmp_], e["package_id"])] and r.get("cache"), made
         finally:
             deploy.create = old_create
-        # Entfernen: wird es noch benutzt, sagt es wo; sonst Paket und Ordner weg
+        # Remove: if still in use, says where; otherwise package and folder gone
         sid = db.ex("INSERT INTO schedules(name, packages) VALUES('WC-Test', ?)", (_j.dumps([e["package_id"]]),))
         must_fail(wc.remove, eid, "selftest", contains="Zeitplan")
         db.ex("DELETE FROM schedules WHERE id=?", (sid,))
@@ -6297,15 +6297,15 @@ def _():
         os.makedirs(os.path.join(root, "Anderes"))
         bp = db.ex("INSERT INTO packages(name, type, steps) VALUES('WC-Fremd', 'custom', ?)",
                    (_j.dumps({"pre": [], "main": [{"type": "install", "source": "file", "folder": "winget-cache\\Benutzt\\x", "install_file": "a.exe"}], "post": []}),))
-        assert wc.orphans() == ["Fremd.Rest"], ("benutzte Ordner nie als verwaist", wc.orphans())
-        # Paket in der Paketliste löschen → Eintrag und Ordner auch weg
+        assert wc.orphans() == ["Fremd.Rest"], ("used folders never as orphaned", wc.orphans())
+        # Delete package in the package list -> entry and folder gone too
         _m.api_package_delete(e["package_id"], {"username": "haupt", "scope": None})
-        assert not wc.entry(eid) and not os.path.exists(os.path.join(root, "winget-cache", "Test.App")), "beim Löschen des Pakets aufräumen"
+        assert not wc.entry(eid) and not os.path.exists(os.path.join(root, "winget-cache", "Test.App")), "clean up when deleting the package"
         eid = None
-        assert wc.cleanup("selftest") == ["Fremd.Rest"] and os.path.isdir(os.path.join(root, "Anderes")), "nur im Cache-Ordner aufräumen"
-        assert os.path.isdir(os.path.join(root, "winget-cache", "Benutzt", "x")), "von einem Paket benutzt – bleibt"
+        assert wc.cleanup("selftest") == ["Fremd.Rest"] and os.path.isdir(os.path.join(root, "Anderes")), "clean up only in the cache folder"
+        assert os.path.isdir(os.path.join(root, "winget-cache", "Benutzt", "x")), "used by a package – stays"
         db.ex("DELETE FROM packages WHERE id=?", (bp,))
-        # Ordner: nie leer/Wurzel, nicht über die allgemeinen Einstellungen, nur ein eigener (neuer/leerer) Ordner
+        # Folder: never empty/root, not via the general settings, only an own (new/empty) folder
         must_fail(wc.set_folder, "..\\x", contains="Ordner")
         must_fail(wc.set_folder, ".", contains="Ordner")
         must_fail(wc.set_folder, "Anderes\\..", contains="Ordner")
@@ -6318,7 +6318,7 @@ def _():
         db.set_setting("winget_cache_folder", "winget-cache")
         assert wc.set_folder("winget-cache") == "winget-cache" and wc.set_folder("wc-neu") == "wc-neu"
         db.set_setting("winget_cache_folder", "winget-cache")
-        # Aufnehmen mehrerer: eine ungültige ID hält die anderen nicht auf
+        # Adding several: one invalid ID does not stop the others
         r = _m.api_wc_add({"winget_ids": ["Gibt.Es.Nicht", "Test.App"]}, {"username": "haupt", "scope": None})
         assert len(r["ids"]) == 1 and r["errors"] and "Gibt.Es.Nicht" in r["errors"][0], r
         for _ in range(100):
@@ -6345,7 +6345,7 @@ def _():
     assert "async function viewWingetCache()" in js and "/api/wingetcache/ready" in js
 
 
-@test("2.35.1 Wiederholen nach Änderung am Paket: wählbar mit dem aktuellen Stand (Standard) oder dem der Bereitstellung, Ausschnitte bleiben Ausschnitte")
+@test("2.35.1 Repeat after a change to the package: selectable with the current state (default) or that of the deployment, snippets stay snippets")
 def _():
     import json as _j
     from app import deploy, main as _m, steps as stp
@@ -6371,9 +6371,9 @@ def _():
         assert _m.api_deployment(did, {"username": "haupt", "scope": None})["package_changed"] == "2026-10-02 10:00:00"
         cmds = lambda pk: [x.get("command") for _ph, x in stp.iter_steps(stp.normalize(pk))]
         deploy.redeploy(did, True, "t")
-        assert cmds(made[-1][0]) == ["echo alt"], "Standard der Funktion: Stand der Bereitstellung"
+        assert cmds(made[-1][0]) == ["echo alt"], "function default: state of the deployment"
         deploy.redeploy(did, True, "t", current=True)
-        assert cmds(made[-1][0]) == ["echo neu", "echo neu-b"] and made[-1][2]["package_id"] == pid, "aktueller Stand"
+        assert cmds(made[-1][0]) == ["echo neu", "echo neu-b"] and made[-1][2]["package_id"] == pid, "current state"
         deploy.retry_step(did, "sa", "step", [], "t", current=True)
         assert cmds(made[-1][0]) == ["echo neu"]
         must_fail(deploy.retry_step, did, "gibts-nicht", "step", [], "t", True, contains="geänderten Paket")
@@ -6381,13 +6381,13 @@ def _():
         assert [x["sid"] for x in ov["steps"]] == ["sa", "sb"] and ov["steps"][0]["counts"] == {"failed": 1} and ov["steps"][1]["counts"] == {}, ov
         assert [x["sid"] for x in deploy.steps_overview(did)["steps"]] == ["sa"]
         deploy.rerun_steps(did, ["sb"], "all", [], "t", current=True)
-        assert cmds(made[-1][0]) == ["echo neu-b"], "neuer Schritt wählbar"
+        assert cmds(made[-1][0]) == ["echo neu-b"], "new step selectable"
         must_fail(deploy.rerun_steps, did, ["sb"], "all", [], "t", contains="Unbekannter Schritt")
-        # war schon ein Ausschnitt („– „A“ wiederholt“): aus dem aktuellen Paket nur diese Schritte
+        # was already a snippet ("– "A" repeated"): from the current package only these steps
         db.ex("UPDATE deployments SET name='Rerun-Neu – „A“ wiederholt' WHERE id=?", (did,))
         deploy.redeploy(did, False, "t", current=True)
-        assert cmds(made[-1][0]) == ["echo neu"], "Ausschnitt bleibt Ausschnitt"
-        # nicht geändert (Paket älter als die Bereitstellung): immer der Stand der Bereitstellung
+        assert cmds(made[-1][0]) == ["echo neu"], "snippet stays a snippet"
+        # not changed (package older than the deployment): always the state of the deployment
         db.ex("UPDATE packages SET updated_at='2026-09-01 00:00:00' WHERE id=?", (pid,))
         deploy.redeploy(did, False, "t", current=True)
         assert cmds(made[-1][0]) == ["echo alt"] and deploy.package_changed(db.q1("SELECT * FROM deployments WHERE id=?", (did,))) is None
@@ -6402,7 +6402,7 @@ def _():
     assert "if (!(id in RERUN_CUR)) RERUN_CUR[id] = !!d.package_changed;" in js
 
 
-@test("2.35.1 winget-Cache überall: winget-Schritt auf Computern ohne winget läuft aus dem Cache (Pakete, Zeitpläne, Kiosk), Cache auf der Paketseite und im Paket festlegen")
+@test("2.35.1 winget cache everywhere: winget step on computers without winget runs from the cache (packages, schedules, kiosk), set cache on the package page and in the package")
 def _():
     import json as _j, tempfile as _tf
     from app import wingetcache as wc, deploy, kiosk, steps as stp
@@ -6425,43 +6425,43 @@ def _():
         assert sub and sub["source"] == "file" and sub["install_file"] == "tool.msi" and sub["id"] == "w1" and sub["on_error"] == "continue", sub
         assert "aus dem winget-Cache (2.0)" in sub["title"]
         db.set_setting("winget_cache_all", 0)
-        assert wc.step_for(ws, c_neu) is None, "Einstellung aus: mit winget wie bisher per winget"
+        assert wc.step_for(ws, c_neu) is None, "setting off: with winget as before via winget"
         db.set_setting("winget_cache_all", 1)
-        assert wc.step_for(ws, c_neu)["install_file"] == "tool.msi", "2.35.2: auch mit winget aus dem Cache (Standard)"
-        assert wc.step_for(dict(ws, extra_args="--override /S"), c_neu) is None and wc.step_for(dict(ws, winget_scope="user"), c_neu) is None, "eigene winget-Argumente/Benutzer: winget"
-        assert wc.step_for(dict(ws, winget_action="upgrade"), c_neu) is None, "Aktualisieren installiert nichts neu"
+        assert wc.step_for(ws, c_neu)["install_file"] == "tool.msi", "2.35.2: also with winget from the cache (default)"
+        assert wc.step_for(dict(ws, extra_args="--override /S"), c_neu) is None and wc.step_for(dict(ws, winget_scope="user"), c_neu) is None, "own winget arguments/user: winget"
+        assert wc.step_for(dict(ws, winget_action="upgrade"), c_neu) is None, "upgrade installs nothing new"
         db.ex("INSERT INTO software(computer_id, name, version, arch, scope, winget_id) VALUES(?, 'Cache Tool', '1.0', 'x64', 'Computer', 'Cache.Tool')", (neu,))
-        assert wc.step_for(dict(ws, winget_action="upgrade"), c_neu), "installiert: Aktualisieren aus dem Cache"
+        assert wc.step_for(dict(ws, winget_action="upgrade"), c_neu), "installed: upgrade from the cache"
         db.ex("DELETE FROM software WHERE computer_id=?", (neu,))
-        # 2.35.2: Cache-Pakete nicht in der Paketliste, nicht zur Auswahl (Bereitstellen, Zeitpläne, verschachtelt, Kiosk)
+        # 2.35.2: cache packages not in the package list, not for selection (deploy, schedules, nested, kiosk)
         from app import main as _m2
         hu = {"username": "haupt", "scope": None}
         assert cpid not in {r["id"] for r in _m2.api_packages(hu)}
-        # 2.35.5: Auswahllisten bekommen sie mit Kennzeichen (bereits gewählte bleiben sichtbar), angeboten werden sie nicht
+        # 2.35.5: selection lists get them with a marker (already chosen ones stay visible), they are not offered
         assert {r["id"]: r["cache"] for r in _m2.api_packages_meta(hu)["packages"]}.get(cpid) is True
         assert {r["id"]: r["cache"] for r in _m2.api_kiosk_admin(hu)["packages"]}.get(cpid) is True
         assert wc.step_for(dict(ws, winget_action="uninstall"), c_alt) is None and wc.step_for(dict(ws, winget_version="1.5"), c_alt) is None
         db.ex("INSERT INTO software(computer_id, name, version, arch, scope, winget_id) VALUES(?, 'Cache Tool', '1.0', 'x64', 'Computer', 'Cache.Tool')", (alt,))
-        assert wc.step_for(dict(ws, winget_action="upgrade", winget_version="2.0"), c_alt), "gleiche feste Version geht"
+        assert wc.step_for(dict(ws, winget_action="upgrade", winget_version="2.0"), c_alt), "same fixed version works"
         db.ex("DELETE FROM software WHERE computer_id=?", (alt,))
-        assert wc.step_for(ws, dict(c_alt, os_arch="32-Bit")) is None, "x64 nicht auf 32-Bit-Windows"
-        # 2.35.5: nie als angemeldeter Benutzer, nie Bereich „Benutzer“, nie herunterstufen
+        assert wc.step_for(ws, dict(c_alt, os_arch="32-Bit")) is None, "x64 not on 32-bit Windows"
+        # 2.35.5: never as logged-in user, never scope "user", never downgrade
         assert wc.step_for(ws, c_alt, {"run_as": "user"}) is None and wc.step_for(ws, c_alt, {"run_as": "deploy"})
-        assert wc.step_for(dict(ws, winget_scope="user"), c_alt) is None, "Benutzer-Bereich auch ohne winget nicht"
+        assert wc.step_for(dict(ws, winget_scope="user"), c_alt) is None, "user scope not even without winget"
         db.ex("INSERT INTO software(computer_id, name, version, arch, scope, winget_id) VALUES(?, 'Cache Tool', '3.0', 'x64', 'Computer', 'Cache.Tool')", (alt,))
-        assert wc.step_for(ws, c_alt) is None, "installierte 3.0 nicht durch 2.0 ersetzen"
+        assert wc.step_for(ws, c_alt) is None, "do not replace installed 3.0 with 2.0"
         db.ex("DELETE FROM software WHERE computer_id=?", (alt,))
         src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "steps.py"), encoding="utf-8").read()
         cs = src[src.index("    def _client_step(self, st, pkg, phase, depth, t0):"):]
-        assert cs.index("wingetcache.step_for(st, self.c, pkg)") < cs.index("effective_run_as(st, pkg)"), "vor der Ausführung ersetzen (mit dem Paket: Ausführen als)"
-        # Kiosk: winget-Paket auf altem Windows nur, wenn der Cache es abdeckt
+        assert cs.index("wingetcache.step_for(st, self.c, pkg)") < cs.index("effective_run_as(st, pkg)"), "replace before execution (with the package: run as)"
+        # Kiosk: winget package on old Windows only if the cache covers it
         db.set_setting("kiosk_enabled", 1)
         wp = stp.clean_package({"name": "WG Cache Tool", "steps": {"main": [dict(ws, id="k1")]}})
         wp["steps"], wp["conditions"] = _j.dumps(wp["steps"]), _j.dumps(wp["conditions"])
         wpid = db.ex(f"INSERT INTO packages({', '.join(deploy.PKG_FIELDS)}) VALUES({', '.join('?' * len(deploy.PKG_FIELDS))})", tuple(wp[k] for k in deploy.PKG_FIELDS))
         kiosk.save_item(wpid, {"enabled": True, "approval": 0})
         try:
-            assert "WG Cache Tool" in {i["name"] for i in kiosk.catalog(alt)}, "im Cache → im Kiosk"
+            assert "WG Cache Tool" in {i["name"] for i in kiosk.catalog(alt)}, "in cache -> in kiosk"
             db.ex("UPDATE winget_cache SET package_id=NULL WHERE id=?", (eid,))
             assert "WG Cache Tool" not in {i["name"] for i in kiosk.catalog(alt)}
             db.ex("UPDATE winget_cache SET package_id=? WHERE id=?", (cpid, eid))
@@ -6477,7 +6477,7 @@ def _():
     js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
     assert "['wingetcache', 'winget-Cache', 'db']," in js and "'wingetcache']);" in js[js.index("const OU_HIDDEN"):js.index("const OU_HIDDEN") + 120]
     sw = js[js.index("async function viewSoftware("):js.index("// --- Ausnahmen der Aktualitätsprüfung")]
-    assert "#/wingetcache" not in sw, "nicht mehr unter Software"
+    assert "#/wingetcache" not in sw, "no longer under software"
     pk = js[js.index("async function viewPackages("):js.index("// --- 2.32: Pakete zu einem neuen zusammenfassen")]
     assert "go('#/wingetcache')" in pk and "key: 'wcache'" in pk and "In den winget-Cache aufnehmen" in pk and "].filter(Boolean), shown," in pk
     assert "const w = wcStepField(st);" in js
@@ -6485,7 +6485,7 @@ def _():
     assert "(!inCat.has(p.id) && !p.cache) || p.id === x.package_id" in js and "!p.cache || p.id === x.uninstall_package_id" in js
 
 
-@test("2.35.1 Oberfläche: kein „null“ als Text – replaceChildren/append bekommen nie null (Paket-Eigenschaften zeigten seit 2.27.1 „null“)")
+@test("2.35.1 UI: no \"null\" as text – replaceChildren/append never get null (package properties showed \"null\" since 2.27.1)")
 def _():
     import re as _re
     js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
@@ -6508,10 +6508,10 @@ def _():
             a = a.strip()
             if a == "null" or _re.search(r"\?\s*[^:]+:\s*null$", a):
                 bad.append((js.count("\n", 0, m.start()) + 1, a[:60]))
-    assert not bad, ("DOM-Methoden zeigen null als Text", bad)
+    assert not bad, ("DOM methods show null as text", bad)
 
 
-@test("2.35.3 winget-Cache: ZIP mit Installer darin (entpackt, nie außerhalb), „Prüfsumme des Katalogs nicht verlangen“ (Adressen ohne Version wie Google Chrome)")
+@test("2.35.3 winget cache: ZIP with installer inside (extracted, never outside), \"do not require catalog checksum\" (addresses without version like Google Chrome)")
 def _():
     import hashlib as _h, io as _io, sqlite3 as _sq, tempfile as _tf, json as _j, zipfile as _zf
     from app import wingetcache as wc, winget, config
@@ -6574,7 +6574,7 @@ def _():
     try:
         if os.path.exists(ip):
             os.remove(ip)
-        # --- ZIP mit Installer
+        # --- ZIP with installer
         z = zipbytes([("sub/setup.exe", b"MZ-zip" * 100), ("sub/data.cab", b"cab"), ("readme.txt", b"hi")])
         publish("Zip.Tool", "5.1", "  InstallerType: zip\n  NestedInstallerType: nullsoft\n  NestedInstallerFiles:\n  - RelativeFilePath: sub\\setup.exe\n"
                 "  InstallerSwitches:\n    Silent: /auto\n", "https://dl.example.test/zt.zip", z)
@@ -6583,10 +6583,10 @@ def _():
         assert e["status"] == "ok" and e["installer_type"] == "zip/nullsoft" and e["file"] == "sub\\setup.exe", dict(e)
         d = os.path.join(root, *e["folder"].split("\\"))
         assert open(os.path.join(d, "sub", "setup.exe"), "rb").read() == b"MZ-zip" * 100 and os.path.isfile(os.path.join(d, "sub", "data.cab"))
-        assert not [x for x in os.listdir(os.path.dirname(d)) if x.endswith(".pk-part")], "kein halber Ordner"
+        assert not [x for x in os.listdir(os.path.dirname(d)) if x.endswith(".pk-part")], "no half folder"
         st = _j.loads(db.val("SELECT steps FROM packages WHERE id=?", (e["package_id"],)))["main"][0]
         assert st["folder"] == e["folder"] + "\\sub" and st["install_file"] == "setup.exe" and st["arguments"] == "/auto", st
-        # ZIP mit Pfad nach außen: abgelehnt, nichts außerhalb geschrieben
+        # ZIP with path to the outside: rejected, nothing written outside
         evil = zipbytes([("../../boese.exe", b"x"), ("setup.exe", b"MZ")])
         publish("Zip.Evil", "1.0", "  InstallerType: zip\n  NestedInstallerType: exe\n  NestedInstallerFiles:\n  - RelativeFilePath: setup.exe\n"
                 "  InstallerSwitches:\n    Silent: /S\n", "https://dl.example.test/ev.zip", evil)
@@ -6594,7 +6594,7 @@ def _():
         e2 = wc.refresh_entry(ids[-1])
         assert e2["status"] == "error" and "Ungültiger Pfad im ZIP" in e2["message"], dict(e2)
         assert not os.path.exists(os.path.join(root, "boese.exe")) and not os.path.exists(os.path.join(os.path.dirname(root), "boese.exe"))
-        # genannte Datei fehlt im ZIP → Fehler, Ordner weg
+        # named file missing in the ZIP -> error, folder gone
         publish("Zip.Miss", "1.0", "  InstallerType: zip\n  NestedInstallerType: msi\n  NestedInstallerFiles:\n  - RelativeFilePath: fehlt.msi\n",
                 "https://dl.example.test/zm.zip", zipbytes([("anders.msi", b"x")]))
         ids.append(wc.add("Zip.Miss"))
@@ -6602,7 +6602,7 @@ def _():
         assert e3["status"] == "error" and "nicht im ZIP" in e3["message"] and not os.listdir(os.path.join(root, "winget-cache", "Zip.Miss")), dict(e3)
         must_fail(wc.choose, {"Installers": [{"Architecture": "x64", "InstallerType": "zip", "NestedInstallerType": "portable",
                                                "NestedInstallerFiles": [{"RelativeFilePath": "a.exe"}]}]}, contains="Kein passender")
-        # --- Adresse ohne Version: Prüfsumme passt nicht → Fehler mit Hinweis; mit Häkchen: laden, eigene Prüfsumme merken
+        # --- Address without version: checksum does not match -> error with hint; with checkmark: load, remember own checksum
         url = "https://dl.example.test/latest/chromish.exe"
         publish("Latest.Tool", "100.0", "  InstallerType: inno\n", url, b"MZ-alt", sha="0" * 64)
         files[url] = b"MZ-neu-1"
@@ -6616,23 +6616,23 @@ def _():
         assert "ohne Prüfsumme des Katalogs" in (e5["message"] or "")
         n = len([c for c in calls if c == ("GET", url)])
         e6 = wc.refresh_entry(ids[-1])
-        assert len([c for c in calls if c == ("GET", url)]) == n and e6["folder"] == e5["folder"], "gleiches ETag: nicht neu laden"
+        assert len([c for c in calls if c == ("GET", url)]) == n and e6["folder"] == e5["folder"], "same ETag: do not reload"
         files[url], heads[url] = b"MZ-neu-2", {"ETag": '"v2"'}
         e7 = wc.refresh_entry(ids[-1])
         assert e7["sha256"] == _h.sha256(b"MZ-neu-2").hexdigest() and e7["folder"] != e5["folder"], dict(e7)
-        assert sorted(os.listdir(os.path.join(root, "winget-cache", "Latest.Tool"))) == [e7["folder"].rsplit("\\", 1)[-1]], "alte Datei weg"
+        assert sorted(os.listdir(os.path.join(root, "winget-cache", "Latest.Tool"))) == [e7["folder"].rsplit("\\", 1)[-1]], "old file gone"
         upd = db.val("SELECT updated_at FROM packages WHERE id=?", (e7["package_id"],))
         db.ex("UPDATE packages SET updated_at='2000-01-01 00:00:00' WHERE id=?", (e7["package_id"],))
         wc.refresh_entry(ids[-1])
-        assert db.val("SELECT updated_at FROM packages WHERE id=?", (e7["package_id"],)) == "2000-01-01 00:00:00", "unverändert: Paket nicht neu geschrieben"
-        # 2.35.5: ohne Katalog-Prüfsumme nur HTTPS – auch nach Weiterleitung
+        assert db.val("SELECT updated_at FROM packages WHERE id=?", (e7["package_id"],)) == "2000-01-01 00:00:00", "unchanged: package not rewritten"
+        # 2.35.5: without catalog checksum only HTTPS – also after a redirect
         files[url], heads[url] = b"MZ-neu-3", {"ETag": '"v3"'}
         redirects[url] = "http://dl.example.test/latest/chromish.exe"
         e8 = wc.refresh_entry(ids[-1])
         assert e8["status"] == "error" and "nur über HTTPS" in e8["message"] and e8["sha256"] == e7["sha256"], dict(e8)
         redirects.clear()
         must_fail(wc._download, "http://dl.example.test/x.exe", None, 10 ** 6, False, contains="nur über HTTPS")
-        # ZIP: Namen, die sich nur in der Schreibung unterscheiden → abgelehnt; Datei mit der Schreibung aus dem ZIP
+        # ZIP: names that differ only in spelling -> rejected; file with the spelling from the ZIP
         zp = os.path.join(TMP, "case.zip")
         open(zp, "wb").write(zipbytes([("Setup.exe", b"a"), ("setup.EXE", b"b")]))
         must_fail(wc._zip_members, zp, 10 ** 6, contains="Groß-/Kleinschreibung")
@@ -6658,7 +6658,7 @@ def _():
         winget.load()
 
 
-@test("2.35.4 winget-Cache: Angaben auf oberster Ebene des Manifests gelten für alle Installer (ZIP-Datei, z. B. MobaXterm); Programm nur als x86 auch im x64-Eintrag")
+@test("2.35.4 winget cache: top-level manifest values apply to all installers (ZIP file, e.g. MobaXterm); program only as x86 also in the x64 entry")
 def _():
     from app import wingetcache as wc
     man = {"PackageIdentifier": "Mobatek.MobaXterm", "PackageVersion": "26.6.0.5560", "PackageName": "MobaXterm", "InstallerType": "zip",
@@ -6668,15 +6668,15 @@ def _():
     i = wc.choose(man, "x64")
     p = wc.plan(man, i)
     assert p["nested"] == "MobaXterm_installer_26.6.msi" and p["install_type"] == "msi" and p["type"] == "zip/wix" and p["product_code"].startswith("{498D"), p
-    # Installer x86 im x64-Eintrag: installiertes x86-Programm passt, 32-Bit-Windows auch; x64-Installer nie auf 32 Bit
+    # Installer x86 in the x64 entry: installed x86 program fits, 32-bit Windows too; x64 installer never on 32-bit
     assert wc._arch_ok({"os_arch": "64-Bit"}, [{"arch": "x86", "scope": "Computer"}], "x86")
     assert wc._arch_ok({"os_arch": "32-Bit"}, [], "x86") and not wc._arch_ok({"os_arch": "32-Bit"}, [], "x64")
-    assert not wc._arch_ok({"os_arch": "64-Bit"}, [{"arch": "x86"}], "x64"), "x86 installiert, x64-Installer: nein"
+    assert not wc._arch_ok({"os_arch": "64-Bit"}, [{"arch": "x86"}], "x64"), "x86 installed, x64 installer: no"
     src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "wingetcache.py"), encoding="utf-8").read()
-    assert src.count('e["inst_arch"] or e["arch"]') == 2, "Aufteilen und winget-Schritt nehmen die Architektur des Installers"
+    assert src.count('e["inst_arch"] or e["arch"]') == 2, "split and winget step take the architecture of the installer"
 
 
-@test("2.35.5 Wiederholen mit aktuellem Stand: Ausschnitt fest markiert (auch bei gekürztem Namen), ausgeschaltete Schritte bleiben aus")
+@test("2.35.5 Repeat with current state: snippet marked firmly (also with shortened name), switched-off steps stay off")
 def _():
     import json as _j
     from app import deploy, steps as stp
@@ -6687,13 +6687,13 @@ def _():
     pid = db.ex(f"INSERT INTO packages({', '.join(deploy.PKG_FIELDS)}, created_at, updated_at) VALUES({', '.join('?' * len(deploy.PKG_FIELDS))}, ?, ?)",
                 tuple(cur[k] for k in deploy.PKG_FIELDS) + ("2026-10-01 10:00:00", "2026-10-02 10:00:00"))
     full = stp.normalize(deploy.row_to_package(dict(cur, id=pid)))
-    sl, _t = deploy.retry_package(full, "a", "from")  # ab „a“: b (ausgeschaltet) und c mit
+    sl, _t = deploy.retry_package(full, "a", "from")  # from "a": b (switched off) and c along
     assert sl.get("slice") is True
     did = db.ex("INSERT INTO deployments(name, package_id, package_json, status, created_at) VALUES(?, ?, ?, 'failed', '2026-10-01 12:00:00')",
                 (("S" * 190 + " – ab „" + "x" * 50 + "“ wiederholt")[:200], pid, _j.dumps(sl)))
     try:
         d = db.q1("SELECT * FROM deployments WHERE id=?", (did,))
-        assert not deploy.RETRY_SUFFIX.search(d["name"]), "Name gekürzt – Endung fehlt"
+        assert not deploy.RETRY_SUFFIX.search(d["name"]), "name shortened – suffix missing"
         p = stp.normalize(deploy.source_package(d, True))
         got = [(x["id"], x.get("enabled", True)) for _ph, x in stp.iter_steps(p)]
         assert got == [("a", True), ("b", False), ("c", True)] and p.get("slice"), got
@@ -6702,23 +6702,23 @@ def _():
         db.ex("DELETE FROM packages WHERE id=?", (pid,))
 
 
-@test("2.35.6 Dateien (Explorer): versteckte Einträge ausgeblendet, umschaltbar; Anzahl, Hochladen-Rückfrage und gezielter Eintrag bleiben")
+@test("2.35.6 Files (explorer): hidden entries hidden, switchable; count, upload confirmation and targeted entry stay")
 def _():
     js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
     i = js.index("async function viewFiles(")
     v = js[i:js.index("\nasync function ", i + 10)]
-    assert "showHidden ? d0.items : d0.items.filter((x) => !x.hidden" in v, "versteckte Einträge nicht gefiltert"
-    assert "x.name.toLowerCase() === fl" in v, "gezielt geöffneter Eintrag (focus) muss sichtbar bleiben"
-    assert "localStorage.setItem('pk-files-hidden'" in v and "'Versteckte anzeigen'" in v, "Umschalter fehlt"
-    # Hochladen prüft gegen ALLE Namen (auch versteckte) – sonst würde eine versteckte Datei ungefragt überschrieben
+    assert "showHidden ? d0.items : d0.items.filter((x) => !x.hidden" in v, "hidden entries not filtered"
+    assert "x.name.toLowerCase() === fl" in v, "targeted opened entry (focus) must stay visible"
+    assert "localStorage.setItem('pk-files-hidden'" in v and "'Versteckte anzeigen'" in v, "toggle missing"
+    # Upload checks against ALL names (also hidden) – otherwise a hidden file would be overwritten without asking
     assert "curNames = new Set((d.items || d.entries || []).map(" in v
     assert v.index("curNames = new Set((d.items") < v.index("lastList = d;")
     from app import clientfiles
     src = open(clientfiles.__file__, encoding="utf-8").read()
-    assert '"hidden": bool(attr & 0x2)' in src, "Server liefert das Attribut versteckt"
+    assert '"hidden": bool(attr & 0x2)' in src, "server delivers the hidden attribute"
 
 
-@test("2.36 Freigabe neuer winget-Versionen: sofort / Tage / manuell, freigeben, sperren, Ausgangsstand, Schritt mit --version, Zeitpläne, Cache")
+@test("2.36 Release of new winget versions: immediately / days / manual, approve, block, initial state, step with --version, schedules, cache")
 def _():
     from app import wingetrelease as wr, wingetcache as wc, util as u
     W = "Selftest.RelApp"
@@ -6728,14 +6728,14 @@ def _():
     db.ex("DELETE FROM winget_releases WHERE winget_id=?", (W,))
     try:
         db.set_setting("winget_release_mode", "days"); db.set_setting("winget_release_days", 2)
-        assert wr.target(W)["state"] == "latest", "unbekannte ID: keine Einschränkung"
-        # Ausgangsstand beim ersten Kontakt freigegeben (sonst stünde nach dem Einschalten alles still)
+        assert wr.target(W)["state"] == "latest", "unknown ID: no restriction"
+        # Initial state approved on first contact (otherwise everything would stand still after switching on)
         db.ex("INSERT INTO software(computer_id, name, version, winget_id, winget_sure) VALUES(NULL, 'RelApp', '1.0', ?, 1)", (W,))
         cat["v"] = "1.5"
         wr.sync()
         assert db.val("SELECT base FROM winget_releases WHERE winget_id=? AND version='1.5'", (W,)) == 1
         assert wr.target(W)["state"] == "latest"
-        # neue Version 2.0: 2 Tage zurückgestellt → 1.5 wird installiert
+        # new version 2.0: deferred for 2 days -> 1.5 is installed
         cat["v"] = "2.0"
         wr.sync()
         t = wr.target(W)
@@ -6743,20 +6743,20 @@ def _():
         st = {"type": "install", "source": "winget", "winget_id": W, "winget_action": "install", "winget_version": ""}
         s2, why = wr.apply_step(st)
         assert s2["winget_version"] == "1.5" and why is None
-        assert wr.apply_step({**st, "winget_version": "1.9"})[0]["winget_version"] == "1.9", "feste Version bleibt"
-        assert wr.apply_step(st, {"release_bypass": True})[0] is st, "Knopf „Aktualisieren“: neueste"
-        assert wr.apply_step({**st, "winget_action": "uninstall"})[0]["winget_version"] == "", "Deinstallieren unverändert"
+        assert wr.apply_step({**st, "winget_version": "1.9"})[0]["winget_version"] == "1.9", "fixed version stays"
+        assert wr.apply_step(st, {"release_bypass": True})[0] is st, "button \"Aktualisieren\": latest"
+        assert wr.apply_step({**st, "winget_action": "uninstall"})[0]["winget_version"] == "", "uninstall unchanged"
         assert wr.allowed_update(W, "1.0") and not wr.allowed_update(W, "1.5") and not wr.allowed_update(W, "")
-        # nach Ablauf der Tage frei
+        # released after the days have passed
         db.ex("UPDATE winget_releases SET first_seen=? WHERE winget_id=? AND version='2.0'", (u.ago(days=3), W))
         assert wr.target(W)["state"] == "latest" and wr.allowed_update(W, "1.5")
-        # manuell: wartet, bis freigegeben
+        # manual: waits until approved
         db.set_setting("winget_release_mode", "manual")
         t = wr.target(W)
         assert t["state"] == "pin" and "wartet auf Freigabe" in t["reason"], t
         wr.set_status(W, "2.0", "approved", "selftest")
         assert wr.target(W)["state"] == "latest"
-        # sofort, aber gesperrt → die vorige; alles gesperrt → nichts
+        # immediately, but blocked -> the previous one; everything blocked -> nothing
         db.set_setting("winget_release_mode", "off")
         wr.set_status(W, "2.0", "blocked", "selftest")
         t = wr.target(W)
@@ -6764,25 +6764,25 @@ def _():
         wr.set_status(W, "1.5", "blocked", "selftest")
         assert wr.target(W)["state"] == "hold" and wr.apply_step(st)[0] is None and not wr.allowed_update(W, "1.0")
         wr.set_status(W, "1.5", "", "selftest"); wr.set_status(W, "2.0", "", "selftest")
-        assert wr.target(W)["state"] == "latest", "zurück auf die Regel (sofort)"
+        assert wr.target(W)["state"] == "latest", "back to the rule (immediately)"
         try:
             wr.set_status(W, "9.9", "approved", "selftest")
-            raise AssertionError("unbekannte Version angenommen")
+            raise AssertionError("unknown version accepted")
         except ValueError:
             pass
-        # Katalog neuer als der letzte Abgleich: wird bei der Abfrage als erste Sichtung vermerkt
+        # Catalog newer than the last sync: noted as first sighting on query
         db.set_setting("winget_release_mode", "days")
         cat["v"] = "2.1"
         t = wr.target(W)
         assert t["state"] == "pin" and t["version"] == "2.0" and db.val("SELECT 1 FROM winget_releases WHERE winget_id=? AND version='2.1'", (W,))
-        # winget-Cache: freigegebene Version liegt schon im Cache → nichts laden, Stand behalten
+        # winget cache: approved version is already in the cache -> load nothing, keep state
         eid = db.ex("INSERT INTO winget_cache(winget_id, status, version, folder, file, created_at) VALUES(?, 'ok', '2.0', 'x\\y', 'a.msi', ?)", (W, u.now()))
         old_fm = wc.fetch_manifest
         wc.fetch_manifest = lambda *a, **k: (_ for _ in ()).throw(AssertionError("darf nichts laden"))
         try:
             e = wc.refresh_entry(eid)
             assert e["status"] == "ok" and e["version"] == "2.0" and "bleibt 2.0" in (e["message"] or ""), dict(e)
-            # gesperrte Version im Cache wird nicht benutzt
+            # blocked version in the cache is not used
             assert wc._released(dict(e))
             wr.set_status(W, "2.0", "blocked", "selftest")
             assert not wc._released(dict(wc.entry(eid))) and wr.version_ok(W, "1.5") and wr.version_ok(W, "0.1")
@@ -6791,14 +6791,14 @@ def _():
             wc.fetch_manifest = old_fm
             db.ex("DELETE FROM winget_cache WHERE id=?", (eid,))
         src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "schedules.py"), encoding="utf-8").read()
-        assert "wingetrelease.target(" in src and 'util.vcmp(str(r["version"]), t["version"]) < 0' in src, "Zeitpläne: nur ältere als die freigegebene"
+        assert "wingetrelease.target(" in src and 'util.vcmp(str(r["version"]), t["version"]) < 0' in src, "schedules: only older ones than the approved one"
         stp = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "steps.py"), encoding="utf-8").read()
-        assert stp.index("wingetrelease.apply_step(") < stp.index("wingetcache.step_for(st, self.c, pkg)"), "Freigabe vor dem winget-Cache"
-        assert "util.vcmp(str(v), pin) >= 0" in stp, "nie herunterstufen"
+        assert stp.index("wingetrelease.apply_step(") < stp.index("wingetcache.step_for(st, self.c, pkg)"), "approval before the winget cache"
+        assert "util.vcmp(str(v), pin) >= 0" in stp, "never downgrade"
         mn = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "main.py"), encoding="utf-8").read()
         assert 'pkg["release_bypass"] = True' in mn and '"winget_release_days": (1, 365)' in mn
         wcs = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "wingetcache.py"), encoding="utf-8").read()
-        assert 'pkg.get("release_bypass")' in wcs, "„Aktualisieren“: neueste per winget statt Cache"
+        assert 'pkg.get("release_bypass")' in wcs, "\"Aktualisieren\": latest via winget instead of cache"
 
     finally:
         wr._latest = old_latest
@@ -6807,7 +6807,7 @@ def _():
         db.ex("DELETE FROM software WHERE winget_id=?", (W,))
 
 
-@test("2.36.2 Audit: Sperre gilt auch für „Aktualisieren“, Wechsel der Regel behält Freigaben, Fehler beim Prüfen nicht offen, ungültige Version, Gesundheitscheck wartet die Migration ab")
+@test("2.36.2 Audit: block also applies to \"Aktualisieren\", changing the rule keeps approvals, errors during checking not open, invalid version, health check waits for the migration")
 def _():
     from app import wingetrelease as wr, wingetcache as wc
     W = "Selftest.RelAudit"
@@ -6824,36 +6824,36 @@ def _():
             cat["v"] = v
             wr.sync()
         assert wr.target(W)["state"] == "latest"
-        # Fund 1: gesperrte neueste – „Aktualisieren“ (release_bypass) bekommt die vorige, nicht die gesperrte
+        # Finding 1: blocked latest – "Aktualisieren" (release_bypass) gets the previous one, not the blocked one
         wr.set_status(W, "1.3", "blocked", "selftest")
         s2, why = wr.apply_step(st, {"release_bypass": True})
-        assert s2 is not None and s2["winget_version"] == "1.2", ("Sperre gilt auch für Aktualisieren", s2, why)
+        assert s2 is not None and s2["winget_version"] == "1.2", ("block also applies to Aktualisieren", s2, why)
         wr.set_status(W, "1.2", "blocked", "selftest"); wr.set_status(W, "1.1", "blocked", "selftest"); wr.set_status(W, "1.0", "blocked", "selftest")
         s2, why = wr.apply_step(st, {"release_bypass": True})
-        assert s2 is None and "keine freigegebene Version" in why, "alles gesperrt: auch Aktualisieren nicht"
+        assert s2 is None and "keine freigegebene Version" in why, "everything blocked: not even Aktualisieren"
         for v in ("1.0", "1.1", "1.2", "1.3"):
             wr.set_status(W, v, "", "selftest")
-        # zurückgestellt (nicht gesperrt): Aktualisieren bekommt weiter die neueste
+        # deferred (not blocked): Aktualisieren still gets the latest
         db.set_setting("winget_release_mode", "manual"); cat["v"] = "1.4"; wr.sync()
-        assert wr.target(W)["state"] == "pin" and wr.apply_step(st, {"release_bypass": True})[0] is st, "Zurückstellung umgeht Aktualisieren"
+        assert wr.target(W)["state"] == "pin" and wr.apply_step(st, {"release_bypass": True})[0] is st, "deferral bypasses Aktualisieren"
         db.ex("DELETE FROM winget_releases WHERE winget_id=? AND version='1.4'", (W,)); cat["v"] = "1.3"
         db.set_setting("winget_release_mode", "off")
-        # Fund 2: Wechsel sofort → manuell: 1.3 (unter „sofort“ freigegeben) bleibt freigegeben
+        # Finding 2: change immediately -> manual: 1.3 (approved under "immediately") stays approved
         assert wr.freeze("manual") >= 3
         db.set_setting("winget_release_mode", "manual")
-        assert wr.target(W)["state"] == "latest", ("Wechsel der Regel stellt nicht zurück", wr.target(W))
+        assert wr.target(W)["state"] == "latest", ("changing the rule does not defer", wr.target(W))
         cat["v"] = "1.4"; wr.sync()
         t = wr.target(W)
         assert t["state"] == "pin" and t["version"] == "1.3" and "wartet auf Freigabe" in t["reason"], t
-        assert wr.freeze("manual") == 0, "gleiche Regel: nichts"
-        # days → manual: noch zurückgestellte Version bleibt zurückgestellt
+        assert wr.freeze("manual") == 0, "same rule: nothing"
+        # days -> manual: a still-deferred version stays deferred
         db.set_setting("winget_release_mode", "days"); db.set_setting("winget_release_days", 5)
         assert wr.freeze("manual") == 0 and db.val("SELECT base FROM winget_releases WHERE winget_id=? AND version='1.4'", (W,)) == 0
         db.set_setting("winget_release_mode", "manual")
         mn = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "main.py"), encoding="utf-8").read()
         i = mn.index('if k == "winget_release_mode":\n')
-        assert "wingetrelease.freeze(v)" in mn[i:i + 200] and mn.index("wingetrelease.freeze(v)") < mn.index("db.set_setting(k, v)", i), "freeze vor dem Speichern"
-        # Fund 3: Fehler beim Prüfen → nicht die neueste installieren, Cache nicht benutzen
+        assert "wingetrelease.freeze(v)" in mn[i:i + 200] and mn.index("wingetrelease.freeze(v)") < mn.index("db.set_setting(k, v)", i), "freeze before saving"
+        # Finding 3: error while checking -> do not install the latest, do not use the cache
         old_vo = wr.version_ok
         wr.version_ok = lambda *a: (_ for _ in ()).throw(RuntimeError("DB gesperrt"))
         try:
@@ -6862,8 +6862,8 @@ def _():
             wr.version_ok = old_vo
         stp = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "steps.py"), encoding="utf-8").read()
         j = stp.index("wingetrelease.apply_step(st, pkg)")
-        assert "st2, why = st, None" not in stp[j:j + 400] and '"failed", why' in stp[j:j + 600], "2.36.2: Fehler nicht offen"
-        # Fund 5: freigegebene Version aus dem Index wird vor --version geprüft
+        assert "st2, why = st, None" not in stp[j:j + 400] and '"failed", why' in stp[j:j + 600], "2.36.2: error not open"
+        # Finding 5: approved version from the index is checked before --version
         db.ex("UPDATE winget_releases SET version='1.3\" --override x' WHERE winget_id=? AND version='1.3'", (W,))
         s2, why = wr.apply_step({**st, "winget_action": "install"})
         assert s2 is None and "ungültig" in why, (s2, why)
@@ -6872,7 +6872,7 @@ def _():
         db.set_setting("winget_release_mode", old_mode); db.set_setting("winget_release_days", old_days)
         db.ex("DELETE FROM winget_releases WHERE winget_id=?", (W,))
         db.ex("DELETE FROM software WHERE winget_id=?", (W,))
-    # update.sh/Dockerfile: Gesundheitscheck lässt Sicherung und Migration Zeit (nur wo die Dateien vorhanden sind)
+    # update.sh/Dockerfile: health check gives backup and migration time (only where the files exist)
     root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
     for name in ("Dockerfile", "update.sh"):
         p = os.path.join(root, name)
@@ -6880,35 +6880,35 @@ def _():
             continue
         t = open(p, encoding="utf-8").read()
         if name == "Dockerfile":
-            assert "--start-period=15m" in t and "--start-interval=10s" in t, "Startzeit des Gesundheitschecks"
+            assert "--start-period=15m" in t and "--start-interval=10s" in t, "start time of the health check"
         else:
             assert 'WAIT_STEPS="${PK_WAIT_STEPS:-240}"' in t and "mv .env.pk-alt .env" not in t
             assert "is missing next to" in t and 'OFFLINE=$(resolve "$CALLDIR" "$ARG")' in t
 
 
-@test("2.36.1 Lizenz AGPL-3.0: Lizenztext unverändert, im Image, Kennzeichnung, Hinweis in Hilfe und Oberfläche")
+@test("2.36.1 License AGPL-3.0: license text unchanged, in the image, labelling, notice in help and UI")
 def _():
     import hashlib
     root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
     rd = lambda *p: open(os.path.join(root, *p), encoding="utf-8").read()
     lic = open(os.path.join(root, "LICENSE"), "rb").read()
-    assert hashlib.sha256(lic).hexdigest() == "8486a10c4393cee1c25392769ddd3b2d6c242d6ec7928e1414efff7dfb2f07ef", "LICENSE ist nicht der unveränderte Text der AGPL-3.0"
-    # Im Image fehlen Dockerfile, Workflows und README (dort beweist schon die vorhandene LICENSE, dass sie mitkommt)
+    assert hashlib.sha256(lic).hexdigest() == "8486a10c4393cee1c25392769ddd3b2d6c242d6ec7928e1414efff7dfb2f07ef", "LICENSE is not the unchanged text of the AGPL-3.0"
+    # Dockerfile, workflows and README are missing in the image (there the existing LICENSE already proves that it comes along)
     if os.path.exists(os.path.join(root, "Dockerfile")):
-        assert "LICENSE ./" in rd("Dockerfile"), "Lizenztext gehört ins Image"
+        assert "LICENSE ./" in rd("Dockerfile"), "license text belongs in the image"
     if os.path.exists(os.path.join(root, ".github", "workflows", "release.yml")):
         assert "org.opencontainers.image.licenses=AGPL-3.0-only" in rd(".github", "workflows", "release.yml")
     for f in ("de.md", "en.md"):
         assert "{#license}" in rd("app", "static", "help", f) and "github.com/soleil0815/pocketknife" in rd("app", "static", "help", f)
     js = rd("app", "static", "app.js")
-    assert "'#/help?s=license'" in js and "'AGPL-3.0'" in js, "Lizenzhinweis in der Oberfläche"
+    assert "'#/help?s=license'" in js and "'AGPL-3.0'" in js, "license notice in the UI"
     for f in ("README.md", "README.en.md"):
         if os.path.exists(os.path.join(root, f)):
             assert "AGPL-3.0-only" in rd(f) and "(LICENSE)" in rd(f)
 
 
 
-@test("2.36.3 Audit: Direktaktionen (Dateien, Dienste, Tools, Speicherplatz, Fernsteuerung, Neustart …) nie unter einer Adresse, die die Identitätsprüfung als fremd markiert hat")
+@test("2.36.3 Audit: direct actions (files, services, tools, disk space, remote control, restart ...) never under an address that the identity check has marked as foreign")
 def _():
     from app import actions, presence, remote_desktop, tools
     root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
@@ -6920,7 +6920,7 @@ def _():
         must_fail(actions._host, cid, contains="FS01")
         try:
             clientfiles._host(cid)
-            raise AssertionError("Dateien: kein Fehler")
+            raise AssertionError("files: no error")
         except clientfiles.FileError as e:
             assert "Nicht ausgeführt" in str(e)
         c = db.q1("SELECT * FROM computers WHERE id=?", (cid,))
@@ -6928,47 +6928,47 @@ def _():
         must_fail(diskusage.start, cid, "C:\\", 2, "test", contains="Nicht ausgeführt")
         must_fail(remote_desktop.prepare, c, {"username": "haupt"}, "x", {"protocol": "rdp", "auth": "manual", "username": "a"},
                   contains="Nicht ausgeführt")
-        # nur id übergeben (ohne Spalten): Vermerk wird nachgelesen
+        # only id passed (without columns): note is read afterwards
         must_fail(presence.direct_host, {"id": cid, "name": "PC-AUD363", "dns_name": "fs01.firma.local"}, contains="FS01")
-        # Prüfung aus: alter Vermerk gilt nicht mehr; ohne Vermerk die normale Adresse
+        # Check off: old note no longer applies; without a note the normal address
         db.set_setting("identity_check", 0)
         assert actions._host(cid)[1] == "fs01.firma.local"
         db.set_setting("identity_check", 1)
         db.ex("UPDATE computers SET addr_problem=NULL, addr_detail=NULL WHERE id=?", (cid,))
         assert actions._host(cid)[1] == "fs01.firma.local"
-        # Alle Direktwege benutzen die Prüfung (Quelltext)
+        # All direct paths use the check (source text)
         rd = lambda f: open(os.path.join(root, "app", f), encoding="utf-8").read()  # noqa: E731
         mn = rd("main.py")
-        assert 'remote.ps(presence.direct_host(c), cmds[act])' in mn, "Neustart/Herunterfahren/gpupdate"
-        assert 'remote.ps(presence.direct_host(c), script)' in mn, "Scanner testen"
-        assert "host = presence.direct_host(c)\n    except ValueError as e:\n        _err(e)\n    if not remote.is_online(host)[1]" in mn, "angemeldete Benutzer"
+        assert 'remote.ps(presence.direct_host(c), cmds[act])' in mn, "restart/shutdown/gpupdate"
+        assert 'remote.ps(presence.direct_host(c), script)' in mn, "test scanner"
+        assert "host = presence.direct_host(c)\n    except ValueError as e:\n        _err(e)\n    if not remote.is_online(host)[1]" in mn, "logged-in users"
         assert "presence.direct_host(c)" in rd("toast.py") and "presence.direct_host(c)" in rd("kiosk.py")
-        assert 'remote.ps(c["dns_name"] or c["name"], script, timeout=seconds)' not in rd("clientfiles.py"), "Dateisuche über _host"
+        assert 'remote.ps(c["dns_name"] or c["name"], script, timeout=seconds)' not in rd("clientfiles.py"), "file search via _host"
     finally:
         db.set_setting("identity_check", old)
         db.ex("DELETE FROM computers WHERE id=?", (cid,))
 
 
-@test("2.36.3 Audit: Lade-Ausweichweg von PK-RunPs1 verdoppelt auch typografische Apostrophe; .env-Kopie in update.sh nie für andere lesbar")
+@test("2.36.3 Audit: loading fallback of PK-RunPs1 also doubles typographic apostrophes; .env copy in update.sh never readable by others")
 def _():
     import re as _re
     from app import remote
     root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
     w = remote.WRAPPER
-    assert '.Replace("\'", "\'\'")' not in w, "nur ASCII-Apostroph verdoppelt"
+    assert '.Replace("\'", "\'\'")' not in w, "only the ASCII apostrophe doubled"
     m = _re.search(r'\$pkApo = "(\[[^"]+\])"', w)
     assert m and "-replace $pkApo, '$0$0'" in w
-    # Gleiche Wirkung wie util.psq (PowerShell-Regex ≙ Python-Regex für diese Klasse)
+    # Same effect as util.psq (PowerShell regex = Python regex for this class)
     pat = m.group(1).replace("\\u2018", "\u2018").replace("\\u201B", "\u201b")
     for name in ("C:\\Pakete\\Mike’s Setup.ps1", "C:\\a'b‚c‛d‘e.ps1"):
         assert "'" + _re.sub(pat, lambda x: x.group(0) * 2, name) + "'" == util.psq(name)
     us = os.path.join(root, "update.sh")
-    if os.path.exists(us):  # im Image liegt update.sh nicht
+    if os.path.exists(us):  # update.sh is not in the image
         t = open(us, encoding="utf-8").read()
         assert "( umask 077; rm -f .env.pk-alt; cp .env .env.pk-alt )" in t and "\n  cp .env .env.pk-alt" not in t
 
 
-@test("2.36.3 Audit: Kiosk-Anfragen mit Frist gelöscht (offene bleiben), Reste gelöschter Computer weg")
+@test("2.36.3 Audit: kiosk requests deleted after a deadline (open ones stay), leftovers of deleted computers gone")
 def _():
     from app import scheduler
     old = db.setting("deployment_retention_days")
@@ -6986,7 +6986,7 @@ def _():
         left = {r["id"] for r in db.q("SELECT id FROM kiosk_requests")}
         assert ids["alt_fertig"] not in left and ids["verwaist"] not in left, left
         assert {ids["alt_offen"], ids["alt_start"], ids["neu"]} <= left
-        db.set_setting("deployment_retention_days", 0)  # 0 = nie löschen
+        db.set_setting("deployment_retention_days", 0)  # 0 = never delete
         db.ex("UPDATE kiosk_requests SET status='success' WHERE id=?", (ids["alt_offen"],))
         scheduler._cleanup()
         assert db.val("SELECT 1 FROM kiosk_requests WHERE id=?", (ids["alt_offen"],))
@@ -6996,7 +6996,7 @@ def _():
         db.ex("DELETE FROM computers WHERE id=?", (cid,))
 
 
-@test("2.36.3 Audit: db.tx – fehlgeschlagenes COMMIT lässt keine offene Transaktion zurück; Download des winget-Index begrenzt")
+@test("2.36.3 Audit: db.tx – a failed COMMIT leaves no open transaction behind; download of the winget index limited")
 def _():
     import io
     c = db.conn()
@@ -7005,15 +7005,15 @@ def _():
     try:
         try:
             with db.tx():
-                db.ex("INSERT INTO t363_c(pid) VALUES(4711)")  # Fremdschlüssel erst beim COMMIT geprüft → COMMIT scheitert
-            raise AssertionError("COMMIT hätte scheitern müssen")
+                db.ex("INSERT INTO t363_c(pid) VALUES(4711)")  # Foreign key only checked at COMMIT -> COMMIT fails
+            raise AssertionError("COMMIT should have failed")
         except Exception as e:  # noqa: BLE001
             assert "FOREIGN KEY" in str(e).upper(), e
-        assert not c.in_transaction, "Transaktion blieb offen"
+        assert not c.in_transaction, "transaction stayed open"
         with db.tx():
             db.ex("INSERT INTO t363_p(id) VALUES(1)")
         assert db.val("SELECT COUNT(*) FROM t363_p") == 1 and db.val("SELECT COUNT(*) FROM t363_c") == 0
-        # Fehler im Block: ROLLBACK, ursprünglicher Fehler bleibt sichtbar
+        # Error in the block: ROLLBACK, original error stays visible
         try:
             with db.tx():
                 db.ex("INSERT INTO t363_p(id) VALUES(2)")
@@ -7031,7 +7031,7 @@ def _():
     assert "_copy_limited(r, f)" in src and "shutil.copyfileobj(r, f)" not in src
 
 
-@test("2.36.3 Audit: OU-Admins sehen in Computer → Sammlungen und in der Scanprofil-Liste keine fremden Sammlungen/Computer")
+@test("2.36.3 Audit: OU admins see no foreign collections/computers in Computer -> Collections and in the scan profile list")
 def _():
     from app import access, main as _m, profiles
     ou = {"username": "ou363", "scope": [1]}
@@ -7047,14 +7047,14 @@ def _():
         p = _m.api_profiles(ou)["profiles"][0]
         assert p["computers"] == [1] and p["collections"] == [profiles.ALL_COMPUTERS, 11], p
         n_all = db.val("SELECT COUNT(*) FROM computers")
-        assert p["members"] <= 1, "Zähler nur über den eigenen Bereich"
+        assert p["members"] <= 1, "counter only over the own scope"
         h = _m.api_profiles({"username": "h", "scope": None})["profiles"][0]
         assert h["computers"] == [1, 2, 3] and h["members"] == n_all
     finally:
         _m._visible_collections, _m._member_collections, access.computer_ids, profiles.all_profiles = o_vis, o_mem, o_ids, o_all
 
 
-@test("2.37 Vorschläge aus dem Audit: App-Installer nur aus dem Repository (Server lädt einmal), NLA, Hinweis Mandanten-PC, Bruchprüfung, Sperre je Computer ohne Blockade, Berichtsversand wiederholt, Cache-Sperre je Eintrag, Winterzeit, Indizes, Lieferkette")
+@test("2.37 Suggestions from the audit: App Installer only from the repository (server downloads once), NLA, notice for tenant PC, integrity check, lock per computer without blocking, report sending repeated, cache lock per entry, winter time, indexes, supply chain")
 def _():
     import datetime as _dt
     import hashlib as _h
@@ -7064,7 +7064,7 @@ def _():
     import time
     from app import deploy, notify, profiles, proxy, remote_desktop, wingetboot, wingetcache as wc
     root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
-    # --- App-Installer: der Client lädt nie selbst; der Server holt das Release einmal in das Repository
+    # --- App Installer: the client never downloads by itself; the server fetches the release once into the repository
     f = deploy._winget_find()
     assert "Invoke-WebRequest" not in f and "Invoke-RestMethod" not in f and "github.com" not in f and "liegt noch nicht im Repository" in f
     repo = _tf.mkdtemp(prefix="pk-boot-", dir=TMP)
@@ -7105,23 +7105,23 @@ def _():
         msg = wingetboot.refresh("selftest")
         assert "v1.99.0" in msg and wingetboot.present()
         assert open(os.path.join(repo, "_winget", "Microsoft.DesktopAppInstaller_8wekyb3d8bbwe.msixbundle"), "rb").read() == bundle
-        assert not os.path.exists(os.path.join(repo, "_winget", "Source.zip")), "nur App-Installer, Lizenz, Abhängigkeiten"
+        assert not os.path.exists(os.path.join(repo, "_winget", "Source.zip")), "only App Installer, license, dependencies"
         n = len(calls)
-        assert "liegt schon" in wingetboot.refresh("selftest") and all(c == wingetboot.API for c in calls[n:]), "gleiches Release: nichts laden"
+        assert "liegt schon" in wingetboot.refresh("selftest") and all(c == wingetboot.API for c in calls[n:]), "same release: load nothing"
         files["https://dl.example.test/AppInstaller.msixbundle"] = b"ANDERS"
         rel["tag_name"] = "v1.99.1"
         try:
             wingetboot.refresh("selftest")
-            raise AssertionError("falsche Prüfsumme angenommen")
+            raise AssertionError("wrong checksum accepted")
         except wingetboot.BootError as e:
             assert "Prüfsumme" in str(e)
-        assert open(os.path.join(repo, "_winget", "Microsoft.DesktopAppInstaller_8wekyb3d8bbwe.msixbundle"), "rb").read() == bundle, "alter Stand bleibt"
+        assert open(os.path.join(repo, "_winget", "Microsoft.DesktopAppInstaller_8wekyb3d8bbwe.msixbundle"), "rb").read() == bundle, "old state stays"
         db.set_setting("winget_bootstrap", 0)
         assert "ausgeschaltet" in wingetboot.refresh("selftest")
     finally:
         proxy.urlopen = old_open
         db.set_setting("repo_path", old_repo or ""); db.set_setting("winget_bootstrap_tag", old_tag or ""); db.set_setting("winget_bootstrap", old_boot)
-    # --- Fernsteuerung: mit Anmeldedaten nur NLA; ohne (Anmeldung am Computer) wie bisher
+    # --- Remote control: with credentials only NLA; without (login at the computer) as before
     cid = db.ex("INSERT INTO computers(name, dns_name) VALUES('PC-0137', 'pc-0137.firma.local')")
     try:
         comp = db.q1("SELECT * FROM computers WHERE id=?", (cid,))
@@ -7134,11 +7134,11 @@ def _():
     finally:
         db.ex("DELETE FROM computers WHERE id=?", (cid,))
     rjs = open(os.path.join(root, "app", "static", "remote.js"), encoding="utf-8").read()
-    assert "st.tenant_names" in rjs and "/api/remote/status?computer_id=" in rjs, "Hinweis vor eigener Anmeldung auf Mandanten-PCs"
-    # --- Bruchprüfung: nicht lesbare Installationsdatei blockiert
+    assert "st.tenant_names" in rjs and "/api/remote/status?computer_id=" in rjs, "notice before own login on tenant PCs"
+    # --- Integrity check: unreadable installation file blocks
     src = open(os.path.join(root, "app", "integrity.py"), encoding="utf-8").read()
     assert 'x["kind"] == "unreachable" and x["main"]' in src
-    # --- Sperre je Computer: nie blockierend warten, sondern neu einreihen
+    # --- Lock per computer: never wait blocking, re-queue instead
     lcid = db.ex("INSERT INTO computers(name) VALUES('PC-LOCK37')")
     lk = deploy._computer_lock(lcid)
     lk.acquire()
@@ -7158,14 +7158,14 @@ def _():
     try:
         t0 = time.time()
         deploy._run_target_safe(did, tid)
-        assert time.time() - t0 < 2 and started == [deploy.REQUEUE_SECONDS], "nicht blockiert, neu eingereiht"
+        assert time.time() - t0 < 2 and started == [deploy.REQUEUE_SECONDS], "not blocked, re-queued"
         assert db.val("SELECT status FROM deployment_targets WHERE id=?", (tid,)) == "queued"
     finally:
         deploy.threading.Timer = old_timer
         lk.release()
         db.ex("DELETE FROM deployment_targets WHERE deployment_id=?", (did,)); db.ex("DELETE FROM deployments WHERE id=?", (did,))
         db.ex("DELETE FROM computers WHERE id=?", (lcid,))
-    # --- Berichtsversand: nach einem Fehler erneut versuchen (5/15/30 Minuten), dann aufgeben
+    # --- Report sending: try again after an error (5/15/30 minutes), then give up
     sid = db.ex("INSERT INTO mail_reports(name, enabled) VALUES('Rt', 1)")
     tries, waits = [], []
     old_send = notify.send_subscription
@@ -7181,11 +7181,11 @@ def _():
         tries.clear(); waits.clear()
         notify.send_subscription = lambda s_, r: (_ for _ in ()).throw(RuntimeError("weg"))
         notify._send_bg(sid, "Zeitplan", sleep=lambda s_: waits.append(s_))
-        assert waits == [300, 900, 1800], "nach drei Wiederholungen Schluss"
+        assert waits == [300, 900, 1800], "after three retries it is over"
     finally:
         notify.send_subscription = old_send
         db.ex("DELETE FROM mail_reports WHERE id=?", (sid,))
-    # --- winget-Cache: Sperre je Eintrag (ein Download blockiert das Löschen anderer Einträge nicht)
+    # --- winget cache: lock per entry (a download does not block deleting other entries)
     a, b = wc._entry_lock(1), wc._entry_lock(2)
     assert a is not b and wc._entry_lock(1) is a
     a.acquire()
@@ -7195,35 +7195,35 @@ def _():
         res = []
         th = __import__("threading").Thread(target=lambda: res.append(_try_lock(wc, 1)))
         th.start(); th.join()
-        assert res == [False], "derselbe Eintrag bleibt gesperrt"
+        assert res == [False], "the same entry stays locked"
     finally:
         a.release()
-    # --- Winterzeit: Intervall setzt nicht eine Stunde aus; Tages-Auslöser löst nicht doppelt aus
+    # --- Winter time: interval does not skip an hour; daily trigger does not fire twice
     it = {"type": "interval", "unit": "m", "every": 15, "start": "2026-10-01 00:00:00"}
     now = _dt.datetime(2026, 10, 25, 2, 5)
     last = _dt.datetime(2026, 10, 25, 2, 59)
-    assert profiles.fires(it, profiles.last_occurrence(it, now), last, now), "Uhr zurück: einmal auslösen"
-    assert not profiles.fires(it, profiles.last_occurrence(it, now), _dt.datetime(2026, 10, 25, 2, 4, 50), now), "danach normal weiter"
+    assert profiles.fires(it, profiles.last_occurrence(it, now), last, now), "clock set back: fire once"
+    assert not profiles.fires(it, profiles.last_occurrence(it, now), _dt.datetime(2026, 10, 25, 2, 4, 50), now), "then continue normally"
     dl = {"type": "daily", "time": "02:30", "every": 1}
-    assert not profiles.fires(dl, profiles.last_occurrence(dl, now), last, now), "täglich: nicht doppelt"
-    # --- Indizes
+    assert not profiles.fires(dl, profiles.last_occurrence(dl, now), last, now), "daily: not twice"
+    # --- Indexes
     names = {r["name"] for r in db.q("SELECT name FROM sqlite_master WHERE type='index'")}
     assert {"ix_dt_status", "ix_dep_sched", "ix_st_c", "ix_cm_c"} <= names
-    # --- Ergebnis „als angemeldeter Benutzer“ gekennzeichnet
+    # --- Result marked "as logged-in user"
     assert "Ergebnis vom angemeldeten Benutzer gemeldet" in open(os.path.join(root, "app", "steps.py"), encoding="utf-8").read()
-    # --- Lieferkette (nur im Repository; im Image fehlen die Dateien)
+    # --- Supply chain (only in the repository; the files are missing in the image)
     wfd = os.path.join(root, ".github", "workflows")
     if os.path.isdir(wfd):
         rl = open(os.path.join(wfd, "release.yml"), encoding="utf-8").read()
         assert "actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8" in rl and "attestations: write" in rl
-        at = rl[rl.index("- name: Herkunftsnachweis"):rl.index("uses: actions/attest-build-provenance")]
-        assert "if: ${{ !github.event.repository.private }}" in at, "privates Repository: Release darf daran nicht scheitern"
-        g = rl[rl.index("- name: guacd unter eigenem Namen"):rl.index("- name: Archive für Installationen")]
-        assert "run: |" in g and "${{" not in g.split("run: |", 1)[1], "guacd-Schritt: Werte nur über env"
+        at = rl[rl.index("- name: Provenance attestation"):rl.index("uses: actions/attest-build-provenance")]
+        assert "if: ${{ !github.event.repository.private }}" in at, "private repository: the release must not fail because of it"
+        g = rl[rl.index("- name: Publish guacd under its own name"):rl.index("- name: Archives for installations")]
+        assert "run: |" in g and "${{" not in g.split("run: |", 1)[1], "guacd step: values only via env"
         sec = open(os.path.join(wfd, "security.yml"), encoding="utf-8").read()
         assert "for arch in amd64 arm64" in sec and "PK_TRIVY_PLATFORM" in sec
         tst = open(os.path.join(wfd, "test.yml"), encoding="utf-8").read()
-        assert "Selbsttest auf dem Checkout" in tst and '-v "$PWD:/src:ro"' in tst
+        assert "Self-test on the checkout" in tst and '-v "$PWD:/src:ro"' in tst
     dc = os.path.join(root, "docker-compose.yml")
     if os.path.exists(dc):
         c = open(dc, encoding="utf-8").read()
@@ -7242,7 +7242,7 @@ def _try_lock(wc_, eid):
         return False
 
 
-@test("2.38 Constrained Language Mode (Softwareeinschränkung, AppLocker, App Control): Client-PowerShell ohne gesperrte .NET-Aufrufe; mit PK_PWSH echt im eingeschränkten Modus ausgeführt")
+@test("2.38 Constrained Language Mode (software restriction, AppLocker, App Control): client PowerShell without blocked .NET calls; with PK_PWSH really executed in restricted mode")
 def _():
     import re as _re
     import subprocess as _sp
@@ -7264,26 +7264,26 @@ def _():
         "scan_files": scanners._body({"type": "files", "target": "%SystemDrive%\\Users\\**\\*.log", "extra": "{}"}),
         "scan_ps": scanners._body({"type": "powershell", "target": "Get-Date", "extra": "{}"}),
         "tool_ps": tools.ps_tool_winrm("'x'; exit 3"), "tool_cmd": tools._cmd_ps("echo x"),
-        # Einrichtung (SYSTEM per WinRM) – ohne das Anzeigeskript selbst: das läuft beim Benutzer aus „Programme“
+        # Setup (SYSTEM via WinRM) – without the display script itself: that runs at the user from "Programme"
         "toast_setup": toast.build_send_script([("installed", "7-Zip", "26.00")])[0].replace(_u.psq(toast.USER_PS), "''").split("function Action")[0],
         "modules": open(os.path.join(root, "app", "scan_modules.ps1"), encoding="utf-8").read(),
     }
-    # Im eingeschränkten Modus gesperrt: nur erlaubt in Zeilen, die selbst auf FullLanguage prüfen
+    # Blocked in restricted mode: only allowed in lines that themselves check for FullLanguage
     bad = _re.compile(r"FromBase64String|\[ScriptBlock\]::Create|\[Environment\]::|\[BitConverter\]|::TryParse|\[math\]::|"
                       r"\[pscustomobject\]|WriteAllText|WriteAllBytes|ReadAllText|\[regex\]::Replace|IsInRole|\[Convert\]::", _re.I)
     for name, txt in scripts.items():
         for ln in txt.splitlines():
             if bad.search(ln) and "FullLanguage" not in ln and not ln.lstrip().startswith("#"):
-                raise AssertionError(f"{name}: im Constrained Language Mode gesperrt: {ln.strip()[:160]}")
-    # Add-Type/.NET-Registry/ADSI nur hinter einer Prüfung des Sprachmodus
+                raise AssertionError(f"{name}: blocked in Constrained Language Mode: {ln.strip()[:160]}")
+    # Add-Type/.NET registry/ADSI only behind a language mode check
     m = scripts["modules"]
     assert "if (-not $pkFull) { throw 'CLM' }" in m and m.index("if (-not $pkFull)") < m.index("Add-Type -ErrorAction")
     assert "Get-CimAssociatedInstance -InputObject $grp -Association Win32_GroupUser" in m and "$k.GetValue(" not in m
     assert "if ($ExecutionContext.SessionState.LanguageMode -ne 'FullLanguage') {\n    try { PK-RegClm" in scripts["reg"]
-    assert "([int]-1)" in scripts["reg"] and "([long]-1)" in scripts["reg"], "DWORD/QWORD schon umgerechnet"
+    assert "([int]-1)" in scripts["reg"] and "([long]-1)" in scripts["reg"], "DWORD/QWORD already converted"
     assert "LanguageMode -ne 'FullLanguage') {{ 'PKERR:'" not in diskusage._script("C:\\", 2) and "'PKERR:' + " in diskusage._script("C:\\", 2)
     assert "S-1-16-12288" in scripts["winget"] and "S-1-16-12288" in open(os.path.join(root, "app", "remote.py"), encoding="utf-8").read()
-    # Schreiben ohne .NET: Inhalt steht als Text-Literal im Aufruf (kein Base64)
+    # Writing without .NET: content is a text literal in the call (no Base64)
     assert _u.ps_write("$f", "a'b") == "Set-Content -LiteralPath ($f) -Value 'a''b' -Encoding UTF8 -NoNewline\n"
     w = _u.ps_write("$f", "@echo off\r\nä", cmd=True)
     assert "-Encoding Byte -Value ([byte[]]@(64,101,99,104,111,32,111,102,102,13,10,195,164))" in w and "-Encoding Oem" in w
@@ -7298,45 +7298,45 @@ def _():
         r = _sp.run([pw, "-NoProfile", "-NonInteractive", "-File", f], capture_output=True, text=True, timeout=120,
                     env={**os.environ, "TEMP": d, "PKTEST": "wert"})
         return r.stdout + r.stderr
-    # Syntax aller erzeugten Skripte (Parser der echten PowerShell)
+    # Syntax of all generated scripts (parser of the real PowerShell)
     for name, txt in scripts.items():
         pf = os.path.join(d, name + ".ps1")
         open(pf, "w", encoding="utf-8").write(txt)
         out = run(f"$e = $null; [void][System.Management.Automation.Language.Parser]::ParseFile({_u.psq(pf)}, [ref]$null, [ref]$e); "
                   "if ($e) { $e | ForEach-Object { 'PARSEFEHLER: ' + $_.Message + ' Zeile ' + $_.Extent.StartLineNumber } }", clm=False)
         assert "PARSEFEHLER" not in out, (name, out[:600])
-    # %VAR% auflösen, Datei schreiben, Werte lesen – im eingeschränkten Modus
+    # Resolve %VAR%, write file, read values – in restricted mode
     out = run(_u.PS_EXPAND + "PK-Exp 'a%PKTEST%b%NIX%c'\n" + _u.ps_write(_u.psq(os.path.join(d, "o.txt")), "Grüße 'x' ‘y’")
               + f"Get-Content -LiteralPath {_u.psq(os.path.join(d, 'o.txt'))} -Encoding UTF8")
     assert "awertb%NIX%c" in out and "Grüße 'x' ‘y’" in out and "language mode" not in out.lower(), out
-    # Eigener PowerShell-Scanner: Ausgabe und Syntaxfehler (nur dieser Scanner)
+    # Own PowerShell scanner: output and syntax error (only this scanner)
     out = run("function PKO($o) { $o }\n$r = & {" + scanners._body({"type": "powershell", "target": "'eins'; 2", "extra": "{}"}) + "}\n$r | ConvertTo-Json -Compress")
     assert '"value":"eins"' in out.replace(" ", "") and "language mode" not in out.lower(), out
     out = run("function PKO($o) { $o }\n$r = & {" + scanners._body({"type": "powershell", "target": "if ($true) { 'x' ", "extra": "{}"}) + "}\n$r | ConvertTo-Json -Compress")
     assert "fehler" in out and "language mode" not in out.lower(), out
-    # Tool per WinRM: „exit N“ und Exitcode eines Programms kommen an
+    # Tool via WinRM: "exit N" and a program's exit code arrive
     assert "PKEXIT:3" in run(tools.ps_tool_winrm("'x'; exit 3")) and "PKEXIT:0" in run(tools.ps_tool_winrm("'ok'"))
     out = run(tools.ps_tool_winrm("Get-Item -LiteralPath '/gibt/es/nicht'"))
     assert "PKEXIT:1" in out, out
-    # Registry-Pfade für die Cmdlets (32-Bit-Ansicht nur unter HKLM\\SOFTWARE umgeleitet)
+    # Registry paths for the cmdlets (32-bit view redirected only under HKLM\\SOFTWARE)
     out = run(steps.REG_FUNCS + "PK-RegPath 'HKLM' 'SOFTWARE\\Firma' '32'; PK-RegPath 'HKLM' 'SYSTEM\\X' '32'; PK-RegPath 'HKCU' 'Software\\A' '64'")
     assert "Registry::HKEY_LOCAL_MACHINE\\SOFTWARE\\WOW6432Node\\Firma" in out and "Registry::HKEY_LOCAL_MACHINE\\SYSTEM\\X" in out \
         and "Registry::HKEY_CURRENT_USER\\Software\\A" in out, out
 
 
-@test("2.38.1 Tools als Dienstkonto: darf in %TEMP% kein Skript laufen (Softwareeinschränkung), läuft das Tool direkt")
+@test("2.38.1 Tools as service account: if no script may run in %TEMP% (software restriction), the tool runs directly")
 def _():
     import subprocess as _sp
     from app import tools
     ps = tools.ps_tool_winrm("'ok'")
     assert "pk_probe_" in ps and "-contains 'PKPROBE'" in ps and "if (-not $pkFileOk -or" in ps
-    assert ps.index("$pkFileOk") < ps.index("& $pkF "), "erst prüfen, dann als Datei starten"
+    assert ps.index("$pkFileOk") < ps.index("& $pkF "), "check first, then start as a file"
     pw = os.environ.get("PK_PWSH")
     if not pw or not os.path.exists(pw):
         return
     d = tempfile.mkdtemp(prefix="pk-probe-", dir=TMP)
     f = os.path.join(d, "t.ps1")
-    # %TEMP% nicht nutzbar (wie gesperrt) → direkt ausführen, Ausgabe kommt trotzdem
+    # %TEMP% not usable (as if blocked) -> run directly, output still arrives
     open(f, "w", encoding="utf-8").write("$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'\n" + ps)
     r = _sp.run([pw, "-NoProfile", "-NonInteractive", "-File", f], capture_output=True, text=True, timeout=120,
                 env={**os.environ, "TEMP": os.path.join(d, "gibt-es-nicht")})
@@ -7345,7 +7345,7 @@ def _():
     assert "ok" in r.stdout and "PKEXIT:0" in r.stdout, r.stdout + r.stderr
 
 
-@test("2.38.2 Registry-Schritt: Werte wie Password/Kennwort/Secret nie in der Ausgabe (Protokoll der Bereitstellung)")
+@test("2.38.2 Registry step: values like Password/Kennwort/Secret never in the output (deployment log)")
 def _():
     import re as _re
     import subprocess as _sp
@@ -7368,28 +7368,28 @@ def _():
 
 
 
-@test("2.38.3 Tabellen: Auswahlkästchen schaltet zuverlässig um (ziehbare Zeilen schlucken den Klick nicht)")
+@test("2.38.3 Tables: selection checkbox toggles reliably (draggable rows do not swallow the click)")
 def _():
     js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
     i = js.index("const cell = h('td.chk', {")
     blk = js[i:i + 900]
-    # Drücken auf die Kästchen-Zelle: Zeile vorübergehend nicht ziehbar (sonst startet bei kleiner Bewegung ein Ziehen)
+    # Pressing on the checkbox cell: row temporarily not draggable (otherwise a small movement starts a drag)
     assert "tr.draggable = false" in blk and "tr.draggable = drag" in blk and "'mouseup'" in blk, blk
-    # Klick auf den Rand der Zelle schaltet das Kästchen um
+    # Click on the edge of the cell toggles the checkbox
     assert "if (e.target !== cb) { e.stopPropagation(); cb.click(); }" in blk, blk
-    # Losgelassen außerhalb der Zelle: die Zeile wählt nicht „nur diese“ aus, sondern schaltet das Kästchen um
+    # Released outside the cell: the row does not select "only this one" but toggles the checkbox
     j = js.index("tr.addEventListener('click', (e) => {", i)
     assert js[j:j + 120].split("\n")[1].strip() == "if (tr.pkChk && tr.pkChk()) return;", js[j:j + 120]
 
 
 
-@test("2.38.4 gpupdate: Benutzerrichtlinie in der Sitzung jedes angemeldeten Benutzers (nicht nur für das Dienstkonto), CLM-tauglich")
+@test("2.38.4 gpupdate: user policy in the session of every logged-in user (not only for the service account), CLM-compatible")
 def _():
     import subprocess as _sp
     from app import gpupdate
     sc = gpupdate.script("ab12")
     assert "__ID__" not in sc and "__WAIT__" not in sc
-    # Benutzer: Besitzer von explorer.exe/sihost.exe; Aufgabe als dieser Benutzer, interaktiv, eingeschränkt, ohne Kennwort
+    # User: owner of explorer.exe/sihost.exe; task as this user, interactive, restricted, without password
     assert "Name='explorer.exe' OR Name='sihost.exe'" in sc and "-LogonType Interactive -RunLevel Limited" in sc and "-Password" not in sc
     assert "gpupdate.exe /target:user /force" in sc and "conhost.exe" in sc and "--headless" in sc
     assert "Kein Benutzer angemeldet" in sc
@@ -7397,7 +7397,7 @@ def _():
         assert bad not in sc, bad
     try:
         gpupdate.script("a;b")
-        raise AssertionError("Lauf-ID muss alphanumerisch sein")
+        raise AssertionError("run ID must be alphanumeric")
     except ValueError:
         pass
     pw = os.environ.get("PK_PWSH")
@@ -7433,18 +7433,18 @@ $script:tasks = @()
         assert "=== Computerrichtlinie ===" in out and "Computerrichtlinie aktualisiert" in out, out + r.stderr
         assert out.count("=== Benutzerrichtlinie: FIRMA\\anna ===") == 1 and "=== Benutzerrichtlinie: FIRMA\\bob ===" in out, out
         assert "Benutzerrichtlinie 1" in out and "Benutzerrichtlinie 2" in out and "endete mit Code 1" in out, out
-        assert not os.path.exists(os.path.join(root, "Temp", "pk_gp_ab12")), "Ordner nach dem Lauf entfernt"
+        assert not os.path.exists(os.path.join(root, "Temp", "pk_gp_ab12")), "folder removed after the run"
         assert not r.stderr.strip(), r.stderr
 
 
 
-@test("Wöchentliches Update: genau verlangte Bauwerkzeuge (gssapi/krb5: „Cython == 3.3.0“) gelten statt der neuesten im Bau-Image")
+@test("Weekly update: exactly required build tools (gssapi/krb5: \"Cython == 3.3.0\") apply instead of the latest in the build image")
 def _():
     import importlib.util as _iu
     root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
     bp = os.path.join(root, "tools", "buildpins.py")
     if not os.path.exists(bp):
-        return  # im Container liegen die Bauwerkzeuge nicht
+        return  # the build tools are not in the container
     spec = _iu.spec_from_file_location("pk_buildpins", bp)
     m = _iu.module_from_spec(spec)
     spec.loader.exec_module(m)
@@ -7455,15 +7455,15 @@ def _():
     assert pins == {"cython": ("Cython", "3.3.0")}, pins
     try:
         m.collect(["gssapi==1", "krb5==2"], fetch=lambda n, v: gss if n == "gssapi" else krb.replace("3.3.0", "3.3.1"))
-        raise AssertionError("verschiedene genaue Versionen müssen scheitern")
+        raise AssertionError("different exact versions must fail")
     except SystemExit as e:
-        assert "nicht gemeinsam baubar" in str(e)
+        assert "cannot be built together" in str(e)
     assert m.collect(["x==1"], fetch=lambda n, v: "") == {}
     pv = open(os.path.join(root, "tools", "pin-versions.sh"), encoding="utf-8").read()
     i = pv.index('say "Build tools"')
     blk = pv[i:pv.index("mv build-requirements.txt.new build-requirements.txt", i)]
-    assert "tools/buildpins.py" in blk and blk.index('"$EXACT" | grep -i') < blk.index('"$FREEZE" | grep -i'), "genaue Vorgabe vor pip freeze"
-    assert "-linux_" in blk, "nur selbst gebaute Wheels"
+    assert "tools/buildpins.py" in blk and blk.index('"$EXACT" | grep -i') < blk.index('"$FREEZE" | grep -i'), "exact requirement before pip freeze"
+    assert "-linux_" in blk, "only self-built wheels"
 
 
 def main():
@@ -7477,8 +7477,8 @@ def main():
             print(f"  ✗ {name}\n      {type(e).__name__}: {e}")
             if os.environ.get("PK_SELFTEST_TRACE"):
                 traceback.print_exc()
-    print(f"\n{ok} von {len(RESULTS)} Tests bestanden (Python {sys.version.split()[0]}).")
-    shutil.rmtree(TMP, ignore_errors=True)  # keine pk-selftest-*-Ordner zurücklassen
+    print(f"\n{ok} of {len(RESULTS)} tests passed (Python {sys.version.split()[0]}).")
+    shutil.rmtree(TMP, ignore_errors=True)  # do not leave pk-selftest-* folders behind
     return 0 if ok == len(RESULTS) else 1
 
 

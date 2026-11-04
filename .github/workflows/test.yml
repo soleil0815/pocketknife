@@ -1,5 +1,5 @@
-# POCKET KNIFE – bei jedem Push und Pull Request: Image bauen (amd64) und Selbsttest darin laufen lassen.
-# Es wird nichts veröffentlicht (dafür: release.yml mit einem Tag v<VERSION>).
+# POCKET KNIFE – on every push and pull request: build the image (amd64) and run the self-test in it.
+# Nothing is published (for that: release.yml with a tag v<VERSION>).
 name: Test
 
 on:
@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   typen:
-    # Typprüfung (mypy): neue Funde lassen die Prüfung scheitern; der Ausgangsstand steht in tools/mypy-baseline.txt
+    # Type check (mypy): new findings make the check fail; the baseline is in tools/mypy-baseline.txt
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -22,7 +22,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Typprüfung (mypy)
+      - name: Type check (mypy)
         run: |
           python3 -m venv "$RUNNER_TEMP/mypy"
           "$RUNNER_TEMP/mypy/bin/pip" install --quiet --disable-pip-version-check "mypy==1.15.0"
@@ -40,7 +40,7 @@ jobs:
       - name: Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069  # v4.4.1
 
-      - name: Bauen (amd64)
+      - name: Build (amd64)
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc  # v7.4.0
         with:
           context: .
@@ -50,38 +50,38 @@ jobs:
           cache-from: type=gha,scope=amd64
           cache-to: type=gha,scope=amd64,mode=max
 
-      - name: Selbsttest im Image
+      - name: Self-test in the image
         run: |
-          # Fehlgeschlagene Tests als Hinweis direkt am Lauf zeigen (Annotation)
+          # Show failed tests as a notice directly on the run (annotation)
           if ! docker run --rm -e PK_SELFTEST_TRACE=1 pocketknife-test:amd64 python3 tools/selftest.py > selftest.txt 2>&1; then
             tail -n 120 selftest.txt
             msg=$( (grep -A14 "✗" selftest.txt || tail -n 60 selftest.txt) | head -n 150 | sed -e ':a' -e 'N' -e '$!ba' -e 's/%/%25/g' -e 's/\r/%0D/g' -e 's/\n/%0A/g')
-            echo "::error title=Selbsttest im Image::${msg:-Selbsttest fehlgeschlagen (siehe Log)}"
+            echo "::error title=Self-test in the image::${msg:-Self-test failed (see log)}"
             exit 1
           fi
           tail -n 1 selftest.txt
 
-      - name: Selbsttest auf dem Checkout (Workflows, Compose, update.sh)
+      - name: Self-test on the checkout (workflows, Compose, update.sh)
         run: |
-          # 2.37: im Image fehlen Workflows, Dockerfile, docker-compose.yml und update.sh – die Prüfungen dazu werden dort
-          # übersprungen. Hier laufen sie mit dem Checkout (Programm und Abhängigkeiten aus dem gebauten Image).
-          # HOME/TMPDIR wie auf einem normalen Rechner (im Image zeigen sie auf /nonexistent bzw. /data/tmp – Skripte wie
-          # trivy-scan.sh und update.sh legen dort Cache bzw. Zwischendateien an)
+          # 2.37: the image lacks workflows, Dockerfile, docker-compose.yml and update.sh - the checks for them are
+          # skipped there. Here they run with the checkout (program and dependencies from the built image).
+          # HOME/TMPDIR as on a normal machine (in the image they point to /nonexistent and /data/tmp - scripts like
+          # trivy-scan.sh and update.sh create cache and temporary files there)
           if ! docker run --rm -e PK_SELFTEST_TRACE=1 -e HOME=/tmp -e TMPDIR=/tmp -v "$PWD:/src:ro" -w /src --entrypoint python3 \
                pocketknife-test:amd64 -I tools/selftest.py > selftest-repo.txt 2>&1; then
             tail -n 120 selftest-repo.txt
             msg=$( (grep -A14 "✗" selftest-repo.txt || tail -n 60 selftest-repo.txt) | head -n 150 | sed -e ':a' -e 'N' -e '$!ba' -e 's/%/%25/g' -e 's/\r/%0D/g' -e 's/\n/%0A/g')
-            echo "::error title=Selbsttest auf dem Checkout::${msg:-Selbsttest fehlgeschlagen (siehe Log)}"
+            echo "::error title=Self-test on the checkout::${msg:-Self-test failed (see log)}"
             exit 1
           fi
           grep -c "übersprungen" selftest-repo.txt || true
           tail -n 1 selftest-repo.txt
 
-      - name: Schwachstellen prüfen (Trivy)
+      - name: Check vulnerabilities (Trivy)
         env:
           PK_TRIVY_REPORT: trivy.md
         run: |
           rc=0; sh tools/trivy-scan.sh pocketknife-test:amd64 || rc=$?
           if [ -f trivy.md ]; then cat trivy.md >> "$GITHUB_STEP_SUMMARY"; fi
-          [ "$rc" = 1 ] && echo "::error title=Trivy::Schwachstellen mit verfügbarer Korrektur – ein Release würde abgelehnt. Abhilfe: Actions → Versionen aktualisieren."
+          [ "$rc" = 1 ] && echo "::error title=Trivy::Vulnerabilities with an available fix – a release would be rejected. Remedy: Actions → Update versions."
           exit "$rc"

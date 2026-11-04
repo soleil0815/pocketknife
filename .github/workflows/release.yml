@@ -1,15 +1,15 @@
-# POCKET KNIFE – Release: Image für amd64 und arm64 bauen, Selbsttest, in die GitHub Container Registry (ghcr.io)
-# laden, guacd unter eigenem Namen veröffentlichen und ein Release anlegen (2.33: ohne Programm-ZIP – das Programm
-# steckt komplett im Image; für Installationen ohne Internet je Plattform ein Archiv beider Images für docker load).
+# POCKET KNIFE – Release: build the image for amd64 and arm64, self-test, upload to the GitHub Container Registry
+# (ghcr.io), publish guacd under its own name and create a release (2.33: without a program ZIP - the program
+# lives entirely in the image; for installations without internet one archive of both images per platform for docker load).
 #
-# Auslösen: Tag „v<VERSION>“ pushen (muss zur Datei VERSION passen), z. B.
+# Trigger: push the tag "v<VERSION>" (must match the VERSION file), e.g.
 #     git tag v2.27.1 && git push origin v2.27.1
-# oder von Hand unter Actions → Release → Run workflow (baut die Version aus VERSION).
+# or by hand under Actions → Release → Run workflow (builds the version from VERSION).
 #
-# Das Image enthält die zur Version passende docker-compose.yml (/opt/pocketknife/host) – update.sh legt sie bei Bedarf
-# auf dem Host ab; sonst kommt nichts vom Programm auf den Host.
-# Alle Actions sind auf einen Commit festgelegt (wie die übrigen Bausteine, siehe tools/pin-versions.sh).
-# Vor dem Hochladen prüft Trivy beide Images (tools/trivy-scan.sh): Schwachstellen mit Korrektur → kein Release.
+# The image contains the docker-compose.yml matching the version (/opt/pocketknife/host) - update.sh puts it on the host
+# when needed; otherwise nothing of the program reaches the host.
+# All actions are pinned to a commit (like the other building blocks, see tools/pin-versions.sh).
+# Before uploading, Trivy scans both images (tools/trivy-scan.sh): vulnerabilities with a fix → no release.
 name: Release
 
 on:
@@ -17,10 +17,10 @@ on:
     tags: ["v*"]
   workflow_dispatch:
 
-permissions: {}       # nichts vorab – der Job bekommt nur, was er braucht
+permissions: {}       # nothing up front - the job gets only what it needs
 
 concurrency:
-  group: release        # nie zwei Releases gleichzeitig (Tag und „Run workflow“ derselben Version)
+  group: release        # never two releases at once (tag and "Run workflow" of the same version)
   cancel-in-progress: false
 
 jobs:
@@ -28,39 +28,39 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 150
     permissions:
-      contents: write     # Release anlegen
-      packages: write     # Image nach ghcr.io
-      id-token: write     # 2.37: Herkunftsnachweis (Attestation) signieren
+      contents: write     # create the release
+      packages: write     # image to ghcr.io
+      id-token: write     # 2.37: sign the provenance attestation
       attestations: write
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
-          persist-credentials: false   # Token nicht im Arbeitsordner liegen lassen (Bau, Selbsttest)
+          persist-credentials: false   # do not leave the token in the working folder (build, self-test)
 
-      - name: Version prüfen
+      - name: Check version
         id: v
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VER=$(tr -d ' \r\n' < VERSION)
-          # 2.29.6 (Programmversion) oder 2.29.6-s3 (drittes Sicherheitsupdate davon – gleiches Programm, neue Pakete)
-          printf '%s' "$VER" | grep -Eq '^[0-9]+(\.[0-9]+){1,3}(-s[0-9]+)?$' || { echo "::error::Ungültige VERSION: '$VER'"; exit 1; }
+          # 2.29.6 (program version) or 2.29.6-s3 (third security update of it - same program, new packages)
+          printf '%s' "$VER" | grep -Eq '^[0-9]+(\.[0-9]+){1,3}(-s[0-9]+)?$' || { echo "::error::Invalid VERSION: '$VER'"; exit 1; }
           if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "v$VER" ]; then
-            echo "::error::Tag $GITHUB_REF_NAME passt nicht zu VERSION $VER (erwartet v$VER)"; exit 1
+            echo "::error::Tag $GITHUB_REF_NAME does not match VERSION $VER (expected v$VER)"; exit 1
           fi
-          grep -q "^## pocketknife-$VER " CHANGELOG.md || { echo "::error::CHANGELOG.md hat keinen Eintrag für $VER"; exit 1; }
+          grep -q "^## pocketknife-$VER " CHANGELOG.md || { echo "::error::CHANGELOG.md has no entry for $VER"; exit 1; }
           python3 -c "import json,sys; v=sys.argv[1]; d=json.load(open('app/news.json')); sys.exit(0 if any(x['version']==v for x in d['versions']) else 1)" "$VER" \
-            || { echo "::error::app/news.json hat keine Neuigkeiten für $VER (Seitenleiste „Neu“)"; exit 1; }
-          # Nur Stände, die auf dem Hauptzweig liegen (kein Release aus einem Nebenzweig oder fremden Tag)
+            || { echo "::error::app/news.json has no news for $VER (sidebar \"Neu\")"; exit 1; }
+          # Only states that are on the main branch (no release from a side branch or a foreign tag)
           DEF=$(gh api "repos/$GITHUB_REPOSITORY" --jq .default_branch)
           ST=$(gh api "repos/$GITHUB_REPOSITORY/compare/$DEF...$GITHUB_SHA" --jq .status)
-          case "$ST" in identical|behind) ;; *) echo "::error::$GITHUB_SHA liegt nicht auf $DEF ($ST)"; exit 1 ;; esac
-          # Veröffentlichte Versionen werden nie überschrieben – für Änderungen VERSION erhöhen
+          case "$ST" in identical|behind) ;; *) echo "::error::$GITHUB_SHA is not on $DEF ($ST)"; exit 1 ;; esac
+          # Published versions are never overwritten - raise VERSION for changes
           if gh release view "v$VER" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "::error::Release v$VER gibt es schon – bitte VERSION erhöhen"; exit 1
+            echo "::error::Release v$VER already exists – please raise VERSION"; exit 1
           fi
-          # „latest“ nur, wenn diese Version die höchste ist (ein nachgereichtes älteres Release zieht latest nicht zurück)
+          # "latest" only if this version is the highest (an older release added later does not pull latest back)
           LATEST=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName 2>/dev/null | sed 's/^v//' || true)
           IMG="ghcr.io/${GITHUB_REPOSITORY,,}"
           TAGS="$IMG:$VER"
@@ -75,7 +75,7 @@ jobs:
           echo "guacd_image=$GIMG" >> "$GITHUB_OUTPUT"
           echo "guacd_tags=$GTAGS" >> "$GITHUB_OUTPUT"
           G=$(sed -n 's/^\(guacamole\/guacd:[^ ]*@sha256:[0-9a-f]\{64\}\)$/\1/p' docker/guacd.txt | head -n 1)
-          [ -n "$G" ] || { echo "::error::docker/guacd.txt enthält kein guacd-Image mit Digest"; exit 1; }
+          [ -n "$G" ] || { echo "::error::docker/guacd.txt contains no guacd image with a digest"; exit 1; }
           echo "guacd_src=$G" >> "$GITHUB_OUTPUT"
 
       - name: QEMU (arm64 auf amd64)
@@ -86,7 +86,7 @@ jobs:
       - name: Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069  # v4.4.1
 
-      - name: Testbau amd64
+      - name: Test build amd64
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc  # v7.4.0
         with:
           context: .
@@ -96,18 +96,18 @@ jobs:
           cache-from: type=gha,scope=amd64
           cache-to: type=gha,scope=amd64,mode=max
 
-      - name: Selbsttest amd64
+      - name: Self-test amd64
         run: |
-          # Fehlgeschlagene Tests als Hinweis direkt am Lauf zeigen (Annotation)
+          # Show failed tests as a notice directly on the run (annotation)
           if ! docker run --rm --platform linux/amd64 -e PK_SELFTEST_TRACE=1 pocketknife-test:amd64 python3 tools/selftest.py > selftest.txt 2>&1; then
             tail -n 120 selftest.txt
             msg=$( (grep -A14 "✗" selftest.txt || tail -n 60 selftest.txt) | head -n 150 | sed -e ':a' -e 'N' -e '$!ba' -e 's/%/%25/g' -e 's/\r/%0D/g' -e 's/\n/%0A/g')
-            echo "::error title=Selbsttest amd64::${msg:-Selbsttest fehlgeschlagen (siehe Log)}"
+            echo "::error title=Self-test amd64::${msg:-Self-test failed (see log)}"
             exit 1
           fi
           tail -n 1 selftest.txt
 
-      - name: Testbau arm64
+      - name: Test build arm64
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc  # v7.4.0
         with:
           context: .
@@ -117,39 +117,39 @@ jobs:
           cache-from: type=gha,scope=arm64
           cache-to: type=gha,scope=arm64,mode=max
 
-      - name: Selbsttest arm64 (emuliert)
+      - name: Self-test arm64 (emulated)
         run: |
-          # Fehlgeschlagene Tests als Hinweis direkt am Lauf zeigen (Annotation)
+          # Show failed tests as a notice directly on the run (annotation)
           if ! docker run --rm --platform linux/arm64 -e PK_SELFTEST_TRACE=1 pocketknife-test:arm64 python3 tools/selftest.py > selftest.txt 2>&1; then
             tail -n 120 selftest.txt
             msg=$( (grep -A14 "✗" selftest.txt || tail -n 60 selftest.txt) | head -n 150 | sed -e ':a' -e 'N' -e '$!ba' -e 's/%/%25/g' -e 's/\r/%0D/g' -e 's/\n/%0A/g')
-            echo "::error title=Selbsttest arm64 (emuliert)::${msg:-Selbsttest fehlgeschlagen (siehe Log)}"
+            echo "::error title=Self-test arm64 (emulated)::${msg:-Self-test failed (see log)}"
             exit 1
           fi
           tail -n 1 selftest.txt
 
-      - name: Schwachstellen prüfen (Trivy)
+      - name: Check vulnerabilities (Trivy)
         env:
           PK_TRIVY_REPORT: trivy.md
         run: |
-          # Bekannte Schwachstellen HOCH/KRITISCH mit verfügbarer Korrektur → kein Release (siehe tools/trivy-scan.sh)
+          # Known vulnerabilities HIGH/CRITICAL with an available fix → no release (see tools/trivy-scan.sh)
           rc=0; sh tools/trivy-scan.sh pocketknife-test:amd64 pocketknife-test:arm64 || rc=$?
           if [ -f trivy.md ]; then cat trivy.md >> "$GITHUB_STEP_SUMMARY"; fi
           if [ "$rc" = 1 ]; then
-            echo "::error title=Trivy::Schwachstellen mit verfügbarer Korrektur im Image – es wird nichts veröffentlicht. Abhilfe: Actions → Versionen aktualisieren → Run workflow."
+            echo "::error title=Trivy::Vulnerabilities with an available fix in the image – nothing will be published. Remedy: Actions → Update versions → Run workflow."
           elif [ "$rc" != 0 ]; then
-            echo "::error title=Trivy::Prüfung nicht möglich (Exitcode $rc) – ohne Prüfung kein Release. Lauf später wiederholen."
+            echo "::error title=Trivy::Scan not possible (exit code $rc) – no release without a scan. Run again later."
           fi
           exit "$rc"
 
-      - name: Anmelden an ghcr.io
+      - name: Log in to ghcr.io
         uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6  # v4.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Bauen und hochladen (amd64 + arm64)
+      - name: Build and push (amd64 + arm64)
         id: push
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc  # v7.4.0
         with:
@@ -167,11 +167,11 @@ jobs:
             type=gha,scope=amd64
             type=gha,scope=arm64
 
-      - name: Herkunftsnachweis (Attestation) für das Image
-        # 2.37: von GitHub signiert – belegt, dass genau dieses Image aus diesem Repository und Commit gebaut wurde.
-        # Prüfen: gh attestation verify oci://ghcr.io/<besitzer>/pocketknife:<version> --repo <besitzer>/pocketknife
-        # GitHub bietet das für private Repositorys von Einzelpersonen nicht an – dann übersprungen (sonst bräche das
-        # Release nach dem Hochladen ab)
+      - name: Provenance attestation for the image
+        # 2.37: signed by GitHub - proves that exactly this image was built from this repository and commit.
+        # Verify: gh attestation verify oci://ghcr.io/<owner>/pocketknife:<version> --repo <owner>/pocketknife
+        # GitHub does not offer this for private repositories of individuals - skipped then (otherwise the
+        # release would fail after the upload)
         if: ${{ !github.event.repository.private }}
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8  # v4.2.2
         with:
@@ -179,23 +179,23 @@ jobs:
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
 
-      - name: guacd unter eigenem Namen veröffentlichen (amd64 + arm64, unverändert)
+      - name: Publish guacd under its own name (amd64 + arm64, unchanged)
         id: guacd
         env:
-          # 2.37: Werte über env statt direkt im Skript (kein Ausdruck wird zu Shell-Code)
+          # 2.37: values via env instead of directly in the script (no expression becomes shell code)
           GUACD_TAGS: ${{ steps.v.outputs.guacd_tags }}
           GUACD_SRC: ${{ steps.v.outputs.guacd_src }}
           GUACD_IMAGE: ${{ steps.v.outputs.guacd_image }}
           VER: ${{ steps.v.outputs.version }}
         run: |
-          # dieselbe, auf ihren Digest festgelegte offizielle guacd-Version – nur unter …/pocketknife-guacd, damit sich die
-          # docker-compose.yml für ein guacd-Update nicht ändern muss (Container-Verwaltungen aktualisieren beide)
+          # the same official guacd version, pinned to its digest - only under …/pocketknife-guacd, so that
+          # docker-compose.yml does not have to change for a guacd update (container managers update both)
           set -- ; for t in $GUACD_TAGS; do set -- "$@" -t "$t"; done
           docker buildx imagetools create "$@" "$GUACD_SRC"
           D=$(docker buildx imagetools inspect "$GUACD_IMAGE:$VER" --format '{{ .Manifest.Digest }}')
           echo "digest=$D" >> "$GITHUB_OUTPUT"
 
-      - name: Archive für Installationen ohne Internet (docker load)
+      - name: Archives for installations without internet (docker load)
         run: |
           VER=${{ steps.v.outputs.version }}
           mkdir -p dist
@@ -206,20 +206,20 @@ jobs:
             docker save "${{ steps.v.outputs.image }}:$VER" "${{ steps.v.outputs.guacd_image }}:$VER" | gzip -6 > "dist/pocketknife-$VER-$arch.tar.gz"
             docker rmi -f "${{ steps.v.outputs.image }}:$VER" "${{ steps.v.outputs.guacd_image }}:$VER" >/dev/null 2>&1 || true
           done
-          # die Dateien für den Docker-Host dieser Version (für den Download im Browser – sonst aus dem Image)
-          # GitHub erlaubt keine Dateinamen mit Punkt am Anfang (machte „default.env.example“ daraus) → env.example
+          # the files for the Docker host of this version (for download in the browser - otherwise from the image)
+          # GitHub does not allow file names with a leading dot (turned it into "default.env.example") → env.example
           cp docker-compose.yml update.sh dist/ && cp .env.example dist/env.example
           (cd dist && sha256sum pocketknife-"$VER"-*.tar.gz docker-compose.yml env.example update.sh > "pocketknife-$VER.sha256")
           ls -l dist
 
-      - name: Release anlegen
+      - name: Create release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VER=${{ steps.v.outputs.version }}
           { echo "${{ steps.v.outputs.image }}@${{ steps.push.outputs.digest }}"
             echo "${{ steps.v.outputs.guacd_image }}@${{ steps.guacd.outputs.digest }}"; } > "dist/pocketknife-$VER.image"
-          # Abschnitt dieser Version aus dem CHANGELOG als Beschreibung
+          # Section of this version from the CHANGELOG as the description
           awk -v v="## pocketknife-$VER " 'index($0, v) == 1 { on = 1; next } /^## pocketknife-/ { on = 0 } on' CHANGELOG.md > notes.md
           {
             echo ""

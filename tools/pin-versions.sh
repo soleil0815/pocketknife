@@ -31,31 +31,31 @@ say() { printf '\n== %s\n' "$*"; }
 
 if [ "$UPDATE" = 1 ]; then
   say "Fetching latest versions (Dockerfile without pinning)"
-  # Unterbau bleibt: dieselbe Python-Reihe (z. B. 3.12) auf derselben Debian-Version (z. B. trixie) – nur deren neueste
-  # Updates. „python:3.12-slim“ ohne Debian-Namen wechselte still auf die nächste Debian-Version. Den Unterbau anheben
-  # (z. B. Python 3.13 oder Debian 14) nur bewusst: PK_PYTHON_BASE=python:3.13-slim-trixie ./tools/pin-versions.sh --update
+  # The base platform stays: the same Python series (e.g. 3.12) on the same Debian version (e.g. trixie) - only their latest
+  # updates. "python:3.12-slim" without a Debian name silently switched to the next Debian version. Raise the base platform
+  # (e.g. Python 3.13 or Debian 14) only deliberately: PK_PYTHON_BASE=python:3.13-slim-trixie ./tools/pin-versions.sh --update
   CUR=$(sed -n 's/^ARG PYTHON_IMAGE=//p' Dockerfile)
   BASE_TAG=$(printf '%s' "$CUR" | sed -n 's|^python:\([0-9]*\.[0-9]*\)[0-9.]*-slim-\([a-z]*\).*|python:\1-slim-\2|p')
   BASE_TAG="${PK_PYTHON_BASE:-${BASE_TAG:-python:3.12-slim-trixie}}"
-  echo "Basis: $BASE_TAG"
+  echo "Base: $BASE_TAG"
   sed -i -e "s|^ARG PYTHON_IMAGE=.*|ARG PYTHON_IMAGE=${BASE_TAG}|" -e 's|^ARG DEBIAN_SNAPSHOT=.*|ARG DEBIAN_SNAPSHOT=|' Dockerfile
   for f in docker/apt-build.txt docker/apt-runtime.txt; do
     sed -i -e '/^[[:space:]]*#/!s/[=<>!~].*$//' "$f"
   done
-  # Python-Pakete: kein Versionssprung – jedes bleibt auf seiner Hauptversion (vor 1.0: Unterversion), Korrekturen darin
-  # kommen mit (tools/caps.py). Neue Hauptversionen nur bewusst: PK_ALLOW_MAJOR=1
+  # Python packages: no version jump - each stays on its major version (before 1.0: minor version), fixes within that
+  # still come in (tools/caps.py). New major versions only deliberately: PK_ALLOW_MAJOR=1
   if [ "${PK_ALLOW_MAJOR:-0}" = 1 ]; then
-    echo "PK_ALLOW_MAJOR=1: neue Hauptversionen der Python-Pakete erlaubt"
-    printf '# keine Obergrenzen (PK_ALLOW_MAJOR=1)\n' > requirements.caps
+    echo "PK_ALLOW_MAJOR=1: new major versions of the Python packages allowed"
+    printf '# no upper limits (PK_ALLOW_MAJOR=1)\n' > requirements.caps
     sed -i -e '/^[[:space:]]*#/!s/[=<>!~].*$//' build-requirements.txt
   else
     python3 tools/caps.py lock requirements.lock > requirements.caps.new && mv requirements.caps.new requirements.caps
     python3 tools/caps.py build build-requirements.txt > build-requirements.txt.new && mv build-requirements.txt.new build-requirements.txt
-    echo "Obergrenzen: $(grep -c '<' requirements.caps) Python-Pakete bleiben auf ihrer Hauptversion"
+    echo "Upper limits: $(grep -c '<' requirements.caps) Python packages stay on their major version"
   fi
   printf '# Exact versions of all Python packages (incl. dependencies) – created with tools/pin-versions.sh.\n' > requirements.lock
   sed -i -e 's|@sha256:[0-9a-f]*||' docker/guacd.txt
-  # guacd: neueste stabile Version (x.y.z) von Docker Hub – bei einem Fehler bleibt die bisherige
+  # guacd: latest stable version (x.y.z) from Docker Hub - on an error the current one stays
   GNEW=$(python3 -c '
 import json, re, urllib.request
 u = "https://hub.docker.com/v2/repositories/guacamole/guacd/tags?page_size=100"
@@ -76,7 +76,7 @@ print(".".join(map(str, best)) if best else "")
     printf 'guacamole/guacd:%s\n' "$GNEW" > docker/guacd.txt
     echo "guacd: $GNEW"
   else
-    echo "guacd: neueste Version nicht ermittelbar – bleibt"
+    echo "guacd: latest version could not be determined – keeping the current one"
   fi
   docker build --pull --no-cache -t "$IMG" .
 else
@@ -89,7 +89,7 @@ BASE=$(sed -n 's/^ARG PYTHON_IMAGE=//p' Dockerfile)
 case "$BASE" in
   *@sha256:*) PIN_BASE="$BASE"; echo "already pinned: $BASE" ;;
   *)
-    # BuildKit lädt das Basis-Image in seinen eigenen Speicher – für die Prüfsumme hier einmal regulär holen
+    # BuildKit loads the base image into its own storage - fetch it once normally here to read the checksum
     docker image inspect "$BASE" >/dev/null 2>&1 || docker pull -q "$BASE" >/dev/null
     DIGEST=$(docker image inspect "$BASE" --format '{{range .RepoDigests}}{{println .}}{{end}}' | sed -n 's/.*@//p' | head -n1)
     [ -n "$DIGEST" ] || { echo "Digest of $BASE not found (docker pull $BASE)" >&2; exit 1; }
@@ -104,7 +104,7 @@ say "Python packages"
 {
   printf '# Exact versions of all Python packages (incl. dependencies) – created with tools/pin-versions.sh on %s\n' "$(date -u +%Y-%m-%d)"
   printf '# Base: %s\n' "$PIN_BASE"
-  # pip ist im fertigen Image nicht mehr enthalten – Pakete über importlib.metadata lesen
+  # pip is no longer in the finished image - read the packages via importlib.metadata
   docker run --rm --entrypoint python "$IMG" -c 'import importlib.metadata as m; print("\n".join(sorted({d.metadata["Name"] + "==" + d.version for d in m.distributions() if d.metadata["Name"].lower() not in ("pip", "setuptools", "wheel")})))' | LC_ALL=C sort -f
 } > requirements.lock.new
 grep -c '==' requirements.lock.new | sed 's/^/Packages: /'
@@ -113,15 +113,15 @@ mv requirements.lock.new requirements.lock
 say "Build tools"
 TOOLS=$(sed -e '/^[[:space:]]*#/d' -e 's/[=<>!~].*$//' -e '/^[[:space:]]*$/d' build-requirements.txt)
 FREEZE=$(docker run --rm --entrypoint pip "$BUILDIMG" freeze --all --disable-pip-version-check)
-# Selbst gebaute Pakete (Wheel mit Plattform linux_*, z. B. gssapi, krb5) verlangen ihre Bauwerkzeuge teils mit genauer
-# Version („Cython == 3.3.0“). Die gilt dann – nicht die neuere Version, die pip oben im Bau-Image installiert hat –,
-# sonst scheitert ihre Bauumgebung an PIP_CONSTRAINT (tools/buildpins.py).
+# Self-built packages (wheel with platform linux_*, e.g. gssapi, krb5) sometimes require their build tools with an exact
+# version ("Cython == 3.3.0"). That version then applies - not the newer one pip installed in the build image above -,
+# otherwise their build environment fails because of PIP_CONSTRAINT (tools/buildpins.py).
 BUILT=$(docker run --rm --entrypoint ls "$BUILDIMG" /wheels | sed -n 's/^\([^-]*\)-\([^-]*\)-.*-linux_[^-]*\.whl$/\1==\2/p')
 EXACT=""
 if [ -n "$BUILT" ]; then
   # shellcheck disable=SC2086
-  EXACT=$(python3 tools/buildpins.py $BUILT) || { echo "Genaue Bauwerkzeug-Versionen nicht ermittelbar ($BUILT)" >&2; exit 1; }
-  [ -z "$EXACT" ] || printf 'Von %s genau verlangt:\n%s\n' "$(echo $BUILT)" "$EXACT"
+  EXACT=$(python3 tools/buildpins.py $BUILT) || { echo "Exact build tool versions could not be determined ($BUILT)" >&2; exit 1; }
+  [ -z "$EXACT" ] || printf 'Exactly required by %s:\n%s\n' "$(echo $BUILT)" "$EXACT"
 fi
 {
   sed -n '/^[[:space:]]*#/p' build-requirements.txt
@@ -146,7 +146,7 @@ say "Debian packages"
 pin_apt "$BUILDIMG" docker/apt-build.txt
 pin_apt "$IMG" docker/apt-runtime.txt
 
-say "Debian-Snapshot"
+say "Debian snapshot"
 SNAP=$(sed -n 's/^ARG DEBIAN_SNAPSHOT=//p' Dockerfile)
 if [ -z "$SNAP" ]; then
   # Point in time at which apt installed in the runtime image – exactly this state is pinned
@@ -162,13 +162,13 @@ if [ -z "$SNAP" ]; then
 fi
 
 say "guacd image"
-# direkt aus der Datei (2.33: docker/guacd.txt – die docker-compose.yml nennt nur noch ghcr.io/…/pocketknife-guacd)
+# directly from the file (2.33: docker/guacd.txt - docker-compose.yml only names ghcr.io/…/pocketknife-guacd)
 GUAC=$(sed -n 's/^\(guacamole\/guacd:[^ ]*\)$/\1/p' docker/guacd.txt | head -n1)
 case "$GUAC" in
   ""|*@sha256:*) PIN_GUAC="$GUAC" ;;
   *) docker pull -q "$GUAC" >/dev/null
      GD=$(docker image inspect "$GUAC" --format '{{range .RepoDigests}}{{println .}}{{end}}' | sed -n 's/.*@//p' | head -n1)
-     [ -n "$GD" ] || { echo "Digest von $GUAC nicht ermittelbar" >&2; exit 1; }
+     [ -n "$GD" ] || { echo "Digest of $GUAC could not be determined" >&2; exit 1; }
      PIN_GUAC="${GUAC}@${GD}" ;;
 esac
 echo "${PIN_GUAC:-–}"

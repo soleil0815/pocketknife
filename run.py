@@ -1,4 +1,4 @@
-"""Startpunkt: Zertifikat bereitstellen (selbstsigniert oder eigenes aus /data/tls) und den Webserver starten."""
+"""Entry point: provide the certificate (self-signed or own from /data/tls) and start the web server."""
 import os
 
 import uvicorn
@@ -7,14 +7,14 @@ from app import config
 
 
 if __name__ == "__main__":
-    # Als root gestartet (Docker): Datenordner übergeben und Rechte abgeben – der Webserver läuft nie als root
-    os.umask(0o077)  # Audit 2.29: Datenbank, Protokolle und Ordner nie für andere lesbar – auch ohne Start als root
+    # Started as root (Docker): hand over the data folders and drop privileges - the web server never runs as root
+    os.umask(0o077)  # Audit 2.29: database, logs and folders never readable by others - even without starting as root
     from app import privileges
     backup_dir = os.environ.get("PK_BACKUP_DIR", "/backup")
     privileges.drop([config.DATA_DIR] + ([backup_dir] if os.path.isdir(backup_dir) else []))
     if os.environ.get("HOME", "/nonexistent") == "/nonexistent":
-        os.environ["HOME"] = "/tmp"  # ohne Start als root (privileges.drop setzt es sonst)
-    # 2.30: Schreibrecht in /data (samt Unterordnern) und /backup vorher prüfen – sonst nur ein Traceback im Protokoll
+        os.environ["HOME"] = "/tmp"  # without starting as root (privileges.drop sets it otherwise)
+    # 2.30: check write permission in /data (incl. subfolders) and /backup beforehand - otherwise only a traceback in the log
     _bad = privileges.unwritable([config.DATA_DIR, config.LOG_DIR, config.WINGET_DIR, config.TLS_DIR, config.REPORT_DIR,
                                   config.TMP_DIR])
     _bad_backup = privileges.unwritable([backup_dir]) if os.path.isdir(backup_dir) else []
@@ -40,6 +40,6 @@ if __name__ == "__main__":
                          log_level="warning", access_log=False, **kw)
     cfg.load()
     if config.HTTPS:
-        # Den TLS-Kontext merken: ein neues Zertifikat aus der Oberfläche wird ohne Neustart geladen
+        # Remember the TLS context: a new certificate from the UI is loaded without a restart
         tls.register(cfg.ssl)
     uvicorn.Server(cfg).run()

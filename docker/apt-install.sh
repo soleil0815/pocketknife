@@ -37,8 +37,8 @@ else
   echo "Note: no DEBIAN_SNAPSHOT set – apt uses the current state (tools/pin-versions.sh)."
   apt-get update
 fi
-# Alle Pakete des Basis-Images auf denselben Stand bringen (Sicherheitsupdates) – nicht nur die eigenen: sonst blieben
-# Bibliotheken des Basis-Images bis zu dessen nächstem Neubau veraltet. Mit Snapshot reproduzierbar.
+# Bring all packages of the base image to the same state (security updates) - not only our own: otherwise libraries
+# of the base image would stay outdated until its next rebuild. Reproducible with the snapshot.
 apt-get -y -o Dpkg::Options::=--force-confold upgrade
 # shellcheck disable=SC2086
 if ! apt-get install -y --no-install-recommends $PKGS; then

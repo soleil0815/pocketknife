@@ -1,4 +1,6 @@
-# Änderungen
+# Changelog
+
+New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
 ## pocketknife-2.38.4-s1 (02.11.2026)
 - **Wöchentliches Sicherheitsupdate** (automatisch gebaut): Basis-Image, Debian- und Python-Pakete auf den neuesten Stand gebracht, ohne Cache neu gebaut, Selbsttest und Schwachstellen-Prüfung (Trivy) bestanden. Am Programm selbst hat sich nichts geändert (Programmstand 2.38.4)

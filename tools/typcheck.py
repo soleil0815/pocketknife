@@ -1,13 +1,13 @@
-"""Typprüfung (mypy) mit Ausgangsstand: nur NEUE Funde lassen die Prüfung scheitern.
+"""Type check (mypy) with a baseline: only NEW findings make the check fail.
 
-Der Code ist kaum annotiert; mypy prüft trotzdem die Rümpfe aller Funktionen (check_untyped_defs). Die beim
-Einführen vorhandenen Funde (meist Folge fehlender Annotationen, keine Fehler) stehen in tools/mypy-baseline.txt –
-ohne Zeilennummern, damit Änderungen an anderer Stelle sie nicht „neu“ machen. Wer einen Fund behebt, nimmt ihn mit
---update aus dem Ausgangsstand.
+The code is hardly annotated; mypy still checks the bodies of all functions (check_untyped_defs). The findings present
+when this was introduced (mostly a consequence of missing annotations, not bugs) are in tools/mypy-baseline.txt -
+without line numbers, so changes elsewhere do not make them "new". Whoever fixes a finding removes it from the
+baseline with --update.
 
-Aufruf:  python3 tools/typcheck.py            prüfen (Exitcode 1 bei neuen Funden)
-         python3 tools/typcheck.py --update   Ausgangsstand neu schreiben (nach Behebungen)
-mypy muss installiert sein (CI: feste Version, siehe .github/workflows/test.yml).
+Usage:  python3 tools/typcheck.py            check (exit code 1 on new findings)
+        python3 tools/typcheck.py --update   rewrite the baseline (after fixes)
+mypy must be installed (CI: pinned version, see .github/workflows/test.yml).
 """
 import collections
 import os
@@ -30,7 +30,7 @@ def run():
             found.append((m["file"].replace("\\", "/"), m["code"], m["msg"], int(m["line"])))
     if r.returncode not in (0, 1) or (r.returncode == 1 and not found):
         sys.stderr.write(r.stdout + r.stderr)
-        raise SystemExit(f"mypy ist nicht gelaufen (Exitcode {r.returncode}).")
+        raise SystemExit(f"mypy did not run (exit code {r.returncode}).")
     return found
 
 
@@ -42,10 +42,10 @@ def main():
     found = run()
     if "--update" in sys.argv:
         with open(BASE, "w", encoding="utf-8") as fh:
-            fh.write("# Ausgangsstand der Typprüfung (tools/typcheck.py) – je Zeile ein Fund ohne Zeilennummer\n")
+            fh.write("# Baseline of the type check (tools/typcheck.py) – one finding per line, without line number\n")
             for k in sorted(key(f) for f in found):
                 fh.write(k + "\n")
-        print(f"Ausgangsstand geschrieben: {len(found)} Funde.")
+        print(f"Baseline written: {len(found)} findings.")
         return 0
     base = collections.Counter()
     if os.path.exists(BASE):
@@ -60,13 +60,13 @@ def main():
         k = key(f)
         if shown[k] < new[k]:
             shown[k] += 1
-            print(f"NEU  {f[0]}:{f[3]}: {f[2]} [{f[1]}]")
+            print(f"NEW  {f[0]}:{f[3]}: {f[2]} [{f[1]}]")
             if gh:
-                print(f"::error file={f[0]},line={f[3]},title=Typprüfung::{f[2]} [{f[1]}]")
-    print(f"\n{len(found)} Funde, davon {sum(new.values())} neu; {sum(gone.values())} behoben "
-          f"(Ausgangsstand {sum(base.values())}).")
+                print(f"::error file={f[0]},line={f[3]},title=Type check::{f[2]} [{f[1]}]")
+    print(f"\n{len(found)} findings, {sum(new.values())} of them new; {sum(gone.values())} fixed "
+          f"(baseline {sum(base.values())}).")
     if gone:
-        print("Behoben – bitte den Ausgangsstand verkleinern: python3 tools/typcheck.py --update")
+        print("Fixed – please shrink the baseline: python3 tools/typcheck.py --update")
     return 1 if new else 0
 
 
