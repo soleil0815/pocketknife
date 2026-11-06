@@ -1,12 +1,26 @@
-# POCKET KNIFE – on every push and pull request: build the image (amd64) and run the self-test in it.
+# POCKET KNIFE – for pull requests and on main: build the image (amd64) and run the self-test in it.
 # Nothing is published (for that: release.yml with a tag v<VERSION>).
+#
+# Saving Actions minutes (private repository, 2000 free minutes per month):
+# - A push to a PR branch used to start the test twice (push + pull_request). Branches are now tested via their pull
+#   request only; main is tested on every push (merge).
+# - A newer push to the same PR/branch cancels the run that is still in progress.
+# - Changes to the README or docs/ only (screenshots) do not start a build (the help in app/static/help is part of
+#   the image and is tested).
+# - Manual start: Actions -> Test -> Run workflow (e.g. for a branch without a pull request).
 name: Test
 
 on:
   push:
-    branches: ["**"]
-    tags-ignore: ["v*"]
+    branches: [main]
+    paths-ignore: ["README.md", "README.en.md", "docs/**"]
   pull_request:
+    paths-ignore: ["README.md", "README.en.md", "docs/**"]
+  workflow_dispatch:
+
+concurrency:
+  group: test-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
