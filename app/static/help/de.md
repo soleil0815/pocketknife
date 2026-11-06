@@ -978,7 +978,7 @@ Zeitpläne sind die eine Stelle für alles, was automatisch verteilt oder aktual
 | Art | Was passiert |
 |---|---|
 | **Pakete verteilen** | ein oder mehrere gespeicherte Pakete, je Computer in fester Reihenfolge |
-| **winget-Updates** | veraltete Software der Ziele per `winget upgrade` aktualisieren – alle veralteten oder nur bestimmte winget-IDs, mit Ausnahmen; je Programm eine Bereitstellung |
+| **winget-Updates** | veraltete Software der Ziele per `winget upgrade` aktualisieren – alle veralteten oder nur bestimmte winget-IDs, mit Ausnahmen; je Programm eine Bereitstellung. IDs und Ausnahmen lassen sich mit **„Aus dem Inventar wählen …“** aus den installierten Programmen übernehmen, statt sie abzutippen |
 
 Gemeinsam für beide Arten:
 

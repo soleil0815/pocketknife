@@ -463,6 +463,7 @@ ROUTES = {
     # Software (handlers filter)
     ("GET", "/api/software"): OPEN,
     ("GET", "/api/software/detail"): OPEN,
+    ("GET", "/api/software/winget-ids"): OPEN,  # 2.38.6: picker in the schedule dialog - filtered to own computers
     ("POST", "/api/software/update"): OPEN,
     ("GET", "/api/winget/status"): OPEN,
     ("GET", "/api/wingetcache/ready"): OPEN,      # 2.35: only which winget IDs are ready (button "Aktualisieren")

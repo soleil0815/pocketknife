@@ -978,7 +978,7 @@ Schedules are the one place for everything that is distributed or updated automa
 | Kind | What happens |
 |---|---|
 | **Deploy packages** | one or more saved packages, in a fixed order per computer |
-| **winget updates** | update outdated software on the targets with `winget upgrade` – all outdated or only specific winget IDs, with exceptions; one deployment per program |
+| **winget updates** | update outdated software on the targets with `winget upgrade` – all outdated or only specific winget IDs, with exceptions; one deployment per program. IDs and exceptions can be taken from the installed programs with **“Pick from the inventory …”** instead of typing them |
 
 Common to both kinds:
 
