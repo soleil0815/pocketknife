@@ -7467,7 +7467,7 @@ def _():
 
 
 
-@test("Build: outage of snapshot.debian.org (package lists not delivered) - retry, then normal mirror instead of a failed build")
+@test("Build: outage of snapshot.debian.org (package lists or packages not delivered) - retry, then normal mirror instead of a failed build")
 def _():
     import shutil as _sh
     import subprocess as _sp
@@ -7475,21 +7475,22 @@ def _():
     ai = os.path.join(root, "docker", "apt-install.sh")
     if not os.path.exists(ai) or not _sh.which("sh"):
         return  # the build scripts are not in the container
-    for snap_ok in (False, True):
-        base = os.path.join(TMP, "aptroot-%s" % snap_ok)
+    # mode: lists = snapshot does not deliver the package lists (504), pkgs = lists yes, packages no, ok = all fine
+    for mode in ("lists", "pkgs", "ok"):
+        base = os.path.join(TMP, "aptroot-" + mode)
         _sh.rmtree(base, ignore_errors=True)
-        os.makedirs(os.path.join(base, "etc", "apt", "sources.list.d"))
-        os.makedirs(os.path.join(base, "etc", "apt", "apt.conf.d"))
-        os.makedirs(os.path.join(base, "var", "lib", "apt", "lists"))
-        os.makedirs(os.path.join(base, "bin"))
+        for d in (("etc", "apt", "sources.list.d"), ("etc", "apt", "apt.conf.d"), ("var", "lib", "apt", "lists"), ("bin",)):
+            os.makedirs(os.path.join(base, *d))
         src = os.path.join(base, "etc", "apt", "sources.list.d", "debian.sources")
         orig = "Types: deb\nURIs: http://deb.debian.org/debian\nSuites: trixie\n\nURIs: http://deb.debian.org/debian-security\n"
         open(src, "w").write(orig)
         log = os.path.join(base, "calls.log")
-        # Stand-in for apt-get: "update" fails as long as the sources point to the snapshot (like a 504), unless snap_ok
-        stub = ("#!/bin/sh\necho \"$* | $(grep -c snapshot.debian.org '%s')\" >> '%s'\n"
-                "if [ \"$1\" = update ] && grep -q snapshot.debian.org '%s' && [ '%s' = False ]; then exit 100; fi\nexit 0\n"
-                % (src, log, src, snap_ok))
+        # Stand-in for apt-get: logs "<args> | <number of snapshot URLs in the sources>" and fails like the snapshot would
+        stub = ("#!/bin/sh\nS=$(grep -c snapshot.debian.org '%s')\necho \"$* | $S\" >> '%s'\n"
+                "[ \"$S\" = 0 ] && exit 0\n"
+                "[ '%s' = lists ] && [ \"$1\" = update ] && exit 100\n"
+                "[ '%s' = pkgs ] && [ \"$1\" = install ] && exit 100\n"
+                "exit 0\n" % (src, log, mode, mode))
         open(os.path.join(base, "bin", "apt-get"), "w").write(stub)
         os.chmod(os.path.join(base, "bin", "apt-get"), 0o755)
         lst = os.path.join(base, "pk.txt")
@@ -7497,20 +7498,22 @@ def _():
         r = _sp.run(["sh", ai, "20261106T120000Z", lst], capture_output=True, text=True, timeout=60,
                     env={**os.environ, "PATH": os.path.join(base, "bin") + ":" + os.environ.get("PATH", ""),
                          "PK_APT_ROOT": base, "PK_APT_RETRY_WAIT": "0"})
-        calls = open(log).read().splitlines()
-        assert r.returncode == 0, (snap_ok, r.stdout, r.stderr, calls)
-        upd = [c for c in calls if c.startswith("update")]
-        if snap_ok:
-            assert upd == ["update --error-on=any | 2"], calls
-            assert "apt: Debian-Snapshot 20261106T120000Z" in r.stdout
+        calls = [("upgrade |" + c.rsplit("|", 1)[1]) if " upgrade |" in c else c for c in open(log).read().splitlines()]
+        assert r.returncode == 0, (mode, r.stdout, r.stderr, calls)
+        inst = "install -y --no-install-recommends tzdata=2026f-0+deb13u1"
+        if mode == "ok":
+            assert calls == ["update --error-on=any | 2", "upgrade | 2", inst + " | 2"], calls
+            assert "apt: Debian-Snapshot 20261106T120000Z" in r.stdout and "WARNING" not in r.stderr
+        elif mode == "lists":
+            # three attempts against the snapshot (missing lists count as errors), then the normal mirror
+            assert calls == ["update --error-on=any | 2"] * 3 + ["update | 0", "upgrade | 0", inst + " | 0"], calls
+            assert "attempt 1 of 3" in r.stderr and "did not deliver the package lists" in r.stderr, r.stderr
         else:
-            # three attempts against the snapshot (errors count), then the normal mirror
-            assert upd == ["update --error-on=any | 2"] * 3 + ["update | 0"], calls
-            assert "attempt 1 of 3" in r.stderr and "using the normal package sources" in r.stderr, r.stderr
-        assert any(c.startswith("install -y --no-install-recommends tzdata=2026f-0+deb13u1") for c in calls), calls
+            # lists from the snapshot, packages do not come: install again from the normal mirror
+            assert calls == ["update --error-on=any | 2", "upgrade | 2", inst + " | 2", "update | 0", "upgrade | 0", inst + " | 0"], calls
+            assert "did not deliver the packages" in r.stderr, r.stderr
         assert open(src).read() == orig, "package sources restored after the build"
         assert not os.path.exists(os.path.join(base, "etc", "apt", "apt.conf.d", "99pk-snapshot"))
-
 
 def main():
     ok = 0
