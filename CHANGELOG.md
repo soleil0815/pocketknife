@@ -2,6 +2,10 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.38.4-s2 (06.11.2026)
+- **Weekly security update** (built automatically): base image, Debian and Python packages brought up to date, rebuilt without cache, self-test and vulnerability scan (Trivy) passed. The program itself is unchanged (program state 2.38.4)
+- Changed (4): `base image` previous state → new state (security updates from Debian/Python), `pydantic` 2.14.2 → 2.14.3, `pydantic_core` 2.50.2 → 2.50.4, `typing-inspection` 0.4.4 → 0.4.5
+
 ## pocketknife-2.38.4-s1 (02.11.2026)
 - **Wöchentliches Sicherheitsupdate** (automatisch gebaut): Basis-Image, Debian- und Python-Pakete auf den neuesten Stand gebracht, ohne Cache neu gebaut, Selbsttest und Schwachstellen-Prüfung (Trivy) bestanden. Am Programm selbst hat sich nichts geändert (Programmstand 2.38.4)
 - Geändert (7): `anyio` 4.15.1 → 4.16.0, `Basis-Image` python:3.12.15-slim-trixie → python:3.12.16-slim-trixie, `opentelemetry-api` 1.45.1 → 1.45.2, `pydantic` 2.14.1 → 2.14.2, `pydantic_core` 2.50.1 → 2.50.2, `tzdata` 2026e-0+deb13u1 → 2026f-0+deb13u1, `websockets` 17.3 → 17.4

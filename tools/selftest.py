@@ -7515,6 +7515,21 @@ def _():
         assert open(src).read() == orig, "package sources restored after the build"
         assert not os.path.exists(os.path.join(base, "etc", "apt", "apt.conf.d", "99pk-snapshot"))
 
+
+@test("CI: Test workflow saves Actions minutes (no double runs for PR branches, cancel outdated runs)")
+def _():
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+    p = os.path.join(root, ".github", "workflows", "test.yml")
+    if not os.path.exists(p):
+        return  # workflows are not part of the image
+    w = open(p, encoding="utf-8").read()
+    on = w[w.index("\non:"):w.index("\nconcurrency:")]
+    assert "branches: [main]" in on and '"**"' not in on, "push only on main - PR branches are tested via pull_request"
+    assert "pull_request:" in on and "workflow_dispatch:" in on
+    assert "app/static/help" not in on and '"**.md"' not in on, "help files are part of the image and must be tested"
+    assert "cancel-in-progress: true" in w and "github.event.pull_request.number || github.ref" in w
+
+
 def main():
     ok = 0
     for name, fn in RESULTS:
