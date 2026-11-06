@@ -2,6 +2,10 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.38.6 (06.11.2026)
+- **New - schedules "winget-Updates": pick winget IDs from the inventory.** Next to "winget-IDs" and "Ausnahmen" a button "Aus dem Inventar wählen …" lists the programs installed in your environment with a sure winget assignment (name, winget ID, number of computers, outdated ones first). Selected IDs are appended to the field; IDs already listed are marked and not added twice. OU admins only see programs on their own computers
+- **Self-test:** picker offers only sure, not excluded assignments, grouped case-insensitively; OU admins see only their own computers
+
 ## pocketknife-2.38.5 (06.11.2026)
 - **Slimmer image:** after the build, everything only the build needs is removed - apt with its libraries and keys (via dpkg, so the security scan keeps seeing all other Debian packages), C headers and the static Python library, Tk/IDLE/turtle/2to3 of Python. `krb5-user` (`kinit`/`klist` by hand) is no longer installed; Kerberos for WinRM/SMB runs through the library as before. Fewer packages that can trigger security warnings (e.g. apt 3.0.3 on 2026-11-06)
 - **Self-test:** checks in the built image that apt, kinit/klist and Tk are gone while the package database, ping and Kerberos are still there

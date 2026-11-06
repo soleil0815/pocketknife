@@ -2030,7 +2030,7 @@ def _():
     p_sued = db.ex("INSERT INTO packages(name, version, steps, conditions, run_as, tenant_id, created_at) VALUES('Süd-Paket','1',?,'{}','deploy',?,?)",
                    (json.dumps({"main": [{"type": "command", "command": "hostname"}]}), t_sued, util.now()))
     for c in ids:
-        db.ex("INSERT INTO software(computer_id, name, version) VALUES(?,?,?)", (c, f"OU-Testprogramm-{c}", "1"))
+        db.ex("INSERT INTO software(computer_id, name, version, winget_id) VALUES(?,?,?,?)", (c, f"OU-Testprogramm-{c}", "1", f"OU.Test{c}"))
         pklog.info("system", f"OU-Testeintrag {c}", computer_id=c)
     access.flush()
 
@@ -2092,6 +2092,9 @@ def _():
     assert "OU-OUT" in {c["name"] for c in _asgi("GET", "/api/computers", main_admin)[1]}, "main admin still sees everything"
     sw = {r["name"] for r in _asgi("GET", "/api/software", ou)[1]}
     assert f"OU-Testprogramm-{cin1}" in sw and f"OU-Testprogramm-{cout}" not in sw
+    # 2.38.6: winget-ID picker of the schedule dialog - only programs on own computers
+    wi = {r["winget_id"] for r in _asgi("GET", "/api/software/winget-ids", ou)[1]["items"]}
+    assert f"OU.Test{cin1}" in wi and f"OU.Test{cout}" not in wi, wi
     st, det = _asgi("GET", f"/api/software/detail?name=OU-Testprogramm-{cout}", ou)
     assert st == 200 and det["computers"] == [], "software details of foreign computers"
     logs = [l["message"] for l in _asgi("GET", "/api/logs?q=OU-Testeintrag", ou)[1]]
@@ -7559,6 +7562,36 @@ def _():
         import krb5  # noqa: F401
         import sysconfig
         assert not os.path.exists(os.path.join(sysconfig.get_path("stdlib"), "tkinter"))
+
+
+
+@test("2.38.6 Schedule winget-Updates: pick winget IDs from the inventory (sure assignment only, grouped, outdated first)")
+def _():
+    from app import main as _m
+    for cid, name in ((9601, "WI-PC1"), (9602, "WI-PC2")):
+        db.ex("INSERT OR REPLACE INTO computers(id, name) VALUES(?,?)", (cid, name))
+    db.ex("DELETE FROM software WHERE computer_id IN (9601, 9602)")
+    rows = [(9601, "Mozilla Firefox (x64 de)", "Mozilla.Firefox", 1, 1, 0), (9602, "Mozilla Firefox", "mozilla.firefox", 0, 1, 0),
+            (9601, "7-Zip 24.08 (x64)", "7zip.7zip", 0, 1, 0),
+            (9601, "Unsicher erkannt", "Some.Guess", 1, 0, 0),      # unsure assignment - not offered
+            (9602, "Ausgeschlossen", "Excl.Tool", 1, 1, 1),         # excluded from the up-to-date check - not offered
+            (9602, "Ohne winget", None, 0, 1, 0)]
+    for cid, name, wid, outd, sure, excl in rows:
+        db.ex("INSERT INTO software(computer_id, name, version, winget_id, outdated, winget_sure, excluded) VALUES(?,?,?,?,?,?,?)",
+              (cid, name, "1", wid, outd, sure, excl))
+    items = [r for r in _m.api_software_winget_ids(user={"username": "t", "scope": None, "role": "admin"})["items"]
+             if r["winget_id"].lower() in ("mozilla.firefox", "7zip.7zip", "some.guess", "excl.tool")]
+    ids = [r["winget_id"].lower() for r in items]
+    assert ids == ["mozilla.firefox", "7zip.7zip"], items       # grouped case-insensitively, outdated first
+    ff = items[0]
+    assert ff["n"] == 2 and ff["outdated"] == 1, ff
+    js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
+    i = js.index("async function wingetIdPickDlg(")
+    blk = js[i:js.index("\n}\n", i)]
+    assert "GET('/api/software/winget-ids')" in blk and "!have.has(x.toLowerCase())" in blk, "no duplicates in the field"
+    assert "pickBtn(wIds, 'ids')" in js and "pickBtn(wEx, 'exclude')" in js, "picker for IDs and exclusions"
+    db.ex("DELETE FROM software WHERE computer_id IN (9601, 9602)")
+    db.ex("DELETE FROM computers WHERE id IN (9601, 9602)")
 
 
 def main():

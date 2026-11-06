@@ -1757,6 +1757,18 @@ def api_software(collection: int = 0, user=U):
     return rows
 
 
+@app.get("/api/software/winget-ids")
+def api_software_winget_ids(user=U):
+    """2.38.6: programs installed in the environment with a sure winget assignment - for picking winget IDs in a
+    schedule (instead of typing them). Only computers the user may see; outdated ones first."""
+    sw, sp = access.sql_in(user, "c.id")
+    return {"items": db.q(f"""SELECT s.winget_id, MAX(s.name) name, COUNT(DISTINCT s.computer_id) n, SUM(s.outdated) outdated
+                    FROM software s JOIN computers c ON c.id=s.computer_id
+                    WHERE s.winget_id IS NOT NULL AND s.winget_id != '' AND COALESCE(s.excluded, 0)=0
+                      AND COALESCE(s.winget_sure, 1)=1 AND {sw}
+                    GROUP BY lower(s.winget_id) ORDER BY SUM(s.outdated) DESC, n DESC, name COLLATE NOCASE LIMIT 2000""", sp)}
+
+
 @app.get("/api/software/detail")
 def api_software_detail(name: str, user=U):
     sw, sp = access.sql_in(user, "c.id")

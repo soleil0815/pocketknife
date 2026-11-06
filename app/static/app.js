@@ -3165,6 +3165,35 @@ async function wcRemove(rows) {
   for (const x of rows) if (await run(() => DEL(`/api/wingetcache/${x.id}`)) === undefined) break;
   route();
 }
+// 2.38.6: choose winget IDs from the programs installed in the environment (sure winget assignment) and append
+// them to a text field (comma/line separated) - IDs already in the field are marked and not added twice
+function wingetIdList(text) {
+  return String(text || '').split(/[\s,;]+/).map((x) => x.trim()).filter(Boolean);
+}
+async function wingetIdPickDlg(ta, onChange) {
+  const d = await run(() => GET('/api/software/winget-ids'));
+  if (!d) return;
+  const have = new Set(wingetIdList(ta.value).map((x) => x.toLowerCase()));
+  const t = table([
+    { key: 'name', label: 'Programm' }, { key: 'winget_id', label: 'winget-ID', cls: 'mono' },
+    { key: 'n', label: 'Computer', cls: 'right' },
+    { key: 'outdated', label: 'veraltet', cls: 'right', render: (r) => (r.outdated ? h('span.badge.warn', String(r.outdated)) : '0') },
+    { key: 'have', label: 'Eingetragen', render: (r) => (have.has(r.winget_id.toLowerCase()) ? h('span.badge.ok', 'ja') : '') },
+  ], d.items, { id: (r) => r.winget_id, selectable: true, noun: 'Programme', fill: false, key: 'winget-id-pick',
+    empty: 'Keine Programme mit sicherer winget-Zuordnung im Inventar – erst Computer inventarisieren.' });
+  t.el.querySelector('.tbl-scroll').style.maxHeight = '420px';
+  modal('winget-IDs aus dem Inventar', h('div', h('p.muted.small', { style: { marginTop: 0 } }, 'Programme, die in Ihrer Umgebung installiert sind und sicher einer winget-ID zugeordnet sind – veraltete zuerst. Auswählen und übernehmen; die IDs werden an das Feld angehängt.'), t.el), [
+    { label: 'Abbrechen' },
+    { label: 'Übernehmen', cls: 'primary', onClick: () => {
+      const add = t.selectedIds().filter((x) => !have.has(x.toLowerCase()));
+      if (!t.selectedIds().length) { toast('Bitte Programme auswählen', 'err'); return false; }
+      const list = wingetIdList(ta.value).concat(add);
+      ta.value = list.join('\n');
+      onChange(ta.value);
+      toast(add.length ? `${add.length} winget-ID(s) übernommen` : 'Schon alle eingetragen', 'ok');
+      return true;
+    } }], { wide: true });
+}
 async function wcSuggestDlg() {
   const d = await GET('/api/wingetcache/suggest');
   const t = table([
@@ -4063,10 +4092,12 @@ async function scheduleDlg(id, preset = {}) {
   const wIds = h('textarea', { rows: 3, value: w.ids || '', placeholder: 'z. B. Mozilla.Firefox, 7zip.7zip, Notepad++.Notepad++', oninput: (e) => { w.ids = e.target.value; } });
   const wEx = h('textarea', { rows: 2, value: w.exclude || '', placeholder: 'z. B. Oracle.JavaRuntimeEnvironment', oninput: (e) => { w.exclude = e.target.value; } });
   const wScope = sel([['', 'Standard des Pakets'], ['machine', 'Computer (--scope machine)'], ['user', 'Benutzer (--scope user)']], w.scope || '', { onchange: (e) => { w.scope = e.target.value; } });
-  const idsRow = field('winget-IDs', wIds, 'Durch Komma oder Zeilenumbruch getrennt.');
+  // 2.38.6: pick winget IDs from the inventory instead of typing them
+  const pickBtn = (ta, key) => h('button.ghost.small', { type: 'button', style: { marginTop: '6px' }, onclick: () => wingetIdPickDlg(ta, (v) => { w[key] = v; }) }, icon('list'), 'Aus dem Inventar wählen …');
+  const idsRow = field('winget-IDs', h('div', wIds, pickBtn(wIds, 'ids')), 'Durch Komma oder Zeilenumbruch getrennt.');
   idsRow.forEach((x) => x && (x.style.display = w.mode === 'specific' ? '' : 'none'));
   const wingetBox = h('div', h('p.muted.small', { style: { marginTop: 0 } }, 'Aktualisiert auf den Zielen alle Programme, für die das Inventar eine neuere Version im winget-Katalog kennt (sichere Zuordnung). Je Programm entsteht eine Bereitstellung „winget upgrade“; nach dem Update wird neu inventarisiert. Computer vor Windows 10 1809 / Server 2019 werden ausgelassen.'),
-    h('div.form', field('Programme', wMode), idsRow, field('Ausnahmen', wEx, 'Diese winget-IDs nie automatisch aktualisieren.'), field('Bereich', wScope)));
+    h('div.form', field('Programme', wMode), idsRow, field('Ausnahmen', h('div', wEx, pickBtn(wEx, 'exclude')), 'Diese winget-IDs nie automatisch aktualisieren.'), field('Bereich', wScope)));
   // Targets
   const colSet = new Set(s.targets.collections);
   const colBox = await collPicker(colSet);

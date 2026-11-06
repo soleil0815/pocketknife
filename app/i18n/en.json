@@ -5648,5 +5648,12 @@
  "Die Speicherplatz-Analyse braucht volle PowerShell – auf diesem Computer läuft PowerShell im eingeschränkten Sprachmodus (Softwareeinschränkung, AppLocker oder App Control). Alternative: Dateien (Explorer) bzw. ein Scanner „Dateien & Ordner“.": "The disk usage analysis needs full PowerShell – on this computer PowerShell runs in constrained language mode (software restriction, AppLocker or App Control). Alternative: Files (Explorer) or a \"Files & folders\" scanner.",
  "PowerShell läuft hier eingeschränkt (Softwareeinschränkung, AppLocker oder App Control). POCKET KNIFE kommt damit zurecht; nur die Speicherplatz-Analyse braucht volle PowerShell.": "PowerShell runs restricted here (software restriction, AppLocker or App Control). POCKET KNIFE copes with this; only the disk usage analysis needs full PowerShell.",
  "unbekannt (eingeschränkter Sprachmodus)": "unknown (constrained language mode)",
- "Ungültige Lauf-ID": "Invalid run ID"
+ "Ungültige Lauf-ID": "Invalid run ID",
+ "Aus dem Inventar wählen …": "Pick from the inventory …",
+ "Eingetragen": "Listed",
+ "Keine Programme mit sicherer winget-Zuordnung im Inventar – erst Computer inventarisieren.": "No programs with a sure winget assignment in the inventory – inventory computers first.",
+ "Programme, die in Ihrer Umgebung installiert sind und sicher einer winget-ID zugeordnet sind – veraltete zuerst. Auswählen und übernehmen; die IDs werden an das Feld angehängt.": "Programs installed in your environment with a sure winget ID – outdated ones first. Select and apply; the IDs are appended to the field.",
+ "Schon alle eingetragen": "All already listed",
+ "winget-IDs aus dem Inventar": "winget IDs from the inventory",
+ "{0} winget-ID(s) übernommen": "{0} winget ID(s) added"
 }

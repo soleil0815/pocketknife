@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.38.6",
+   "date": "2026-11-06",
+   "items": [
+    {
+     "kind": "new",
+     "audience": "all",
+     "de": "Zeitpläne „winget-Updates“: winget-IDs und Ausnahmen per „Aus dem Inventar wählen …“ aus den installierten Programmen übernehmen – kein Abtippen mehr.",
+     "en": "Schedules \"winget updates\": take winget IDs and exceptions from the installed programs via \"Pick from the inventory …\" – no more typing."
+    }
+   ]
+  },
+  {
    "version": "2.38.5",
    "date": "2026-11-06",
    "items": [
