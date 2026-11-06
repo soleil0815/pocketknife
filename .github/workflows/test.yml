@@ -64,6 +64,9 @@ jobs:
           cache-from: type=gha,scope=amd64
           cache-to: type=gha,scope=amd64,mode=max
 
+      - name: Image size
+        run: docker image inspect -f 'pocketknife-test:amd64 {{.Size}} bytes' pocketknife-test:amd64 | awk '{printf "%s %.1f MB\n", $1, $2/1000000}'
+
       - name: Self-test in the image
         run: |
           # Show failed tests as a notice directly on the run (annotation)
