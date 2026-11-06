@@ -39,7 +39,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     TZ=Europe/Berlin \
     DEBIAN_FRONTEND=noninteractive
 
-COPY docker/apt-install.sh docker/apt-runtime.txt /tmp/pk/
+COPY docker/apt-install.sh docker/apt-runtime.txt docker/slim.sh /tmp/pk/
 RUN sh /tmp/pk/apt-install.sh "$DEBIAN_SNAPSHOT" /tmp/pk/apt-runtime.txt \
  && rm -f /etc/krb5.conf \
  && groupadd --system --gid 10001 pocketknife \
@@ -56,8 +56,12 @@ RUN set -e; \
     fi; \
     pip check; \
     python -m pip uninstall -y -q pip; \
-    rm -rf /tmp/wheels /tmp/pk /usr/local/lib/python3*/ensurepip/_bundled
+    rm -rf /tmp/wheels /usr/local/lib/python3*/ensurepip/_bundled; \
+    sh /tmp/pk/slim.sh; \
+    rm -rf /tmp/pk
 # pip is not needed at runtime - removed so no outdated component stays in the image (2.29.4)
+# 2.38.5 docker/slim.sh: remove what only the build needs (apt, C headers, Tk/IDLE/2to3 of Python) - fewer packages
+# that can trigger security warnings, smaller image
 
 # Temporary files in the data directory (the root file system is read-only in operation, /tmp is small)
 # HOME: for root (healthcheck, docker exec) a place where nobody can put anything - otherwise the app user could slip

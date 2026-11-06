@@ -7530,6 +7530,37 @@ def _():
     assert "cancel-in-progress: true" in w and "github.event.pull_request.number || github.ref" in w
 
 
+
+@test("2.38.5 Slim image: apt, kinit/klist, C headers and Tk/IDLE removed after the build; package database, ping and Kerberos stay")
+def _():
+    import shutil as _sh
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+    df_p = os.path.join(root, "Dockerfile")
+    if os.path.exists(df_p):
+        df = open(df_p, encoding="utf-8").read()
+        rt = df[df.index("# --- Runtime"):]
+        # after pip and after all packages: slim.sh, in the same layer, before /tmp/pk is removed
+        assert rt.index("pip uninstall -y -q pip") < rt.index("sh /tmp/pk/slim.sh") < rt.index("rm -rf /tmp/pk")
+        sl = open(os.path.join(root, "docker", "slim.sh"), encoding="utf-8").read()
+        assert "dpkg --purge --force-remove-protected apt" in sl
+        assert "/var/lib/dpkg" not in sl, "never delete the package database (Trivy would no longer see any package)"
+        assert "--force-depends" not in sl and "--force-all" not in sl, "dependencies of apt only if nothing else needs them"
+        rtp = open(os.path.join(root, "docker", "apt-runtime.txt"), encoding="utf-8").read()
+        assert "krb5-user" not in rtp.split("2.38.5:")[1].split("\n", 1)[1] and "libgssapi-krb5-2=" in rtp and "iputils-ping=" in rtp
+    # In the built image (the self-test runs there in CI and on every start check): verify the result
+    if os.path.exists("/opt/pocketknife/host/update.sh") and os.path.exists("/var/lib/dpkg/status"):
+        for gone in ("apt", "apt-get", "kinit", "klist", "idle3", "2to3"):
+            assert _sh.which(gone) is None, gone + " still in the image"
+        assert _sh.which("ping"), "ping missing (tool Ping & Ports)"
+        st = open("/var/lib/dpkg/status", encoding="utf-8", errors="replace").read()
+        assert "Package: libgssapi-krb5-2\n" in st and "Package: libssl3t64\n" in st, "package database incomplete"
+        assert "Package: apt\n" not in st
+        import gssapi  # noqa: F401  - Kerberos for WinRM/SMB
+        import krb5  # noqa: F401
+        import sysconfig
+        assert not os.path.exists(os.path.join(sysconfig.get_path("stdlib"), "tkinter"))
+
+
 def main():
     ok = 0
     for name, fn in RESULTS:

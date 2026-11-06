@@ -2,6 +2,10 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.38.5 (06.11.2026)
+- **Slimmer image:** after the build, everything only the build needs is removed - apt with its libraries and keys (via dpkg, so the security scan keeps seeing all other Debian packages), C headers and the static Python library, Tk/IDLE/turtle/2to3 of Python. `krb5-user` (`kinit`/`klist` by hand) is no longer installed; Kerberos for WinRM/SMB runs through the library as before. Fewer packages that can trigger security warnings (e.g. apt 3.0.3 on 2026-11-06)
+- **Self-test:** checks in the built image that apt, kinit/klist and Tk are gone while the package database, ping and Kerberos are still there
+
 ## pocketknife-2.38.4-s2 (06.11.2026)
 - **Weekly security update** (built automatically): base image, Debian and Python packages brought up to date, rebuilt without cache, self-test and vulnerability scan (Trivy) passed. The program itself is unchanged (program state 2.38.4)
 - Changed (4): `base image` previous state → new state (security updates from Debian/Python), `pydantic` 2.14.2 → 2.14.3, `pydantic_core` 2.50.2 → 2.50.4, `typing-inspection` 0.4.4 → 0.4.5
