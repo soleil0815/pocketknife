@@ -11,6 +11,8 @@
 # dpkg itself stays (the package database belongs to it), as do perl-base, bash and coreutils (core of Debian).
 set -eu
 export DEBIAN_FRONTEND=noninteractive
+BEFORE=$(du -sxk / 2>/dev/null | cut -f1)
+PKGS_BEFORE=$(dpkg-query -W -f '${Package}\n' | wc -l)
 
 # --- apt: first apt itself (marked "protected" in Debian), then what only apt needed ---
 dpkg --purge --force-remove-protected apt
@@ -41,4 +43,5 @@ command -v ping >/dev/null || { echo "slim: ERROR - ping missing (tool \"Ping & 
 python -c "import ssl, sqlite3, zoneinfo, gssapi, krb5, cryptography, fastapi, uvicorn, ldap3, pypsrp, smbprotocol, spnego, websockets, yaml" \
   || { echo "slim: ERROR - a module of the program can no longer be imported" >&2; exit 1; }
 dpkg --audit
-echo "slim: done"
+AFTER=$(du -sxk / 2>/dev/null | cut -f1)
+echo "slim: done - $((PKGS_BEFORE - $(dpkg-query -W -f '${Package}\n' | wc -l))) Debian packages and $(((BEFORE - AFTER) / 1024)) MB removed"
