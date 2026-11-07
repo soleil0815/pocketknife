@@ -2,6 +2,24 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.38.8",
+   "date": "2026-11-07",
+   "items": [
+    {
+     "kind": "fixed",
+     "audience": "all",
+     "de": "Verteilen an viele Computer gleichzeitig: Pakete schlagen nicht mehr mit „being used by another process“ fehl – alle Computer können dieselbe Paketdatei zugleich holen.",
+     "en": "Deploying to many computers at once: packages no longer fail with \"being used by another process\" – all computers can fetch the same package file at the same time."
+    },
+    {
+     "kind": "improved",
+     "audience": "all",
+     "de": "Datei-Explorer: Auch Dateien, die ein Programm auf dem Client geöffnet hält (z. B. Logdateien), lassen sich herunterladen.",
+     "en": "File explorer: files a program on the client keeps open (e.g. log files) can now be downloaded."
+    }
+   ]
+  },
+  {
    "version": "2.38.7",
    "date": "2026-11-07",
    "items": [
