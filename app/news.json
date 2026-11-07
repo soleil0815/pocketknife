@@ -16,6 +16,12 @@
      "audience": "all",
      "de": "Datei-Explorer: Auch Dateien, die ein Programm auf dem Client geöffnet hält (z. B. Logdateien), lassen sich herunterladen.",
      "en": "File explorer: files a program on the client keeps open (e.g. log files) can now be downloaded."
+    },
+    {
+     "kind": "new",
+     "audience": "all",
+     "de": "Tabellen: Rechtsklick auf eine Zelle → „… kopieren“ kopiert den vollständigen Wert, z. B. den Deinstallationsbefehl in der Softwareliste – bei mehreren markierten Zeilen alle Werte.",
+     "en": "Tables: right click on a cell → \"Copy …\" copies the full value, e.g. the uninstall command in the software list – with several selected rows all values."
     }
    ]
   },

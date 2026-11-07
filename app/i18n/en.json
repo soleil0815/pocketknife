@@ -5657,5 +5657,7 @@
  "winget-IDs aus dem Inventar": "winget IDs from the inventory",
  "{0} winget-ID(s) übernommen": "{0} winget ID(s) added",
  "Die Entwicklung von POCKET KNIFE unterstützen – öffnet buymeacoffee.com in einem neuen Tab": "Support the development of POCKET KNIFE – opens buymeacoffee.com in a new tab",
- "Buy me a coffee": "Buy me a coffee"
+ "Buy me a coffee": "Buy me a coffee",
+ "„{0}“ kopieren": "Copy “{0}”",
+ "„{0}“ kopieren ({1})": "Copy “{0}” ({1})"
 }
