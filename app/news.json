@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.38.7",
+   "date": "2026-11-07",
+   "items": [
+    {
+     "kind": "new",
+     "audience": "all",
+     "de": "„Buy me a coffee“ unten in der Navigation: Wer die Weiterentwicklung von POCKET KNIFE unterstützen möchte, findet dort den Link. Es wird nichts aus dem Internet geladen.",
+     "en": "\"Buy me a coffee\" at the bottom of the navigation: the link for anyone who would like to support the development of POCKET KNIFE. Nothing is loaded from the internet."
+    }
+   ]
+  },
+  {
    "version": "2.38.6-s1",
    "date": "2026-11-07",
    "items": [

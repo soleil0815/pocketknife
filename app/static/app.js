@@ -90,6 +90,7 @@ const ICONS = {
   env: 'M4 6h16M4 12h10M4 18h7M17 15l3 3-3 3',
   db: 'M12 3c5 0 8 1.3 8 3s-3 3-8 3-8-1.3-8-3 3-3 8-3zM4 6v12c0 1.7 3 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3 3 8 3s8-1.3 8-3',
   list: 'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01',
+  coffee: 'M4 8h13v6a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5zM17 10h1.5a2.5 2.5 0 0 1 0 5H17M8 2.5c-.6.8-.6 1.7 0 2.5M12 2.5c-.6.8-.6 1.7 0 2.5',
   share: 'M18 8a3 3 0 100-6 3 3 0 000 6zM6 15a3 3 0 100-6 3 3 0 000 6zM18 22a3 3 0 100-6 3 3 0 000 6zM8.6 13.5l6.8 4M15.4 6.5l-6.8 4',
 };
 
@@ -956,6 +957,14 @@ const mayBuild = () => !isOU() || !!S.me.may_build;
 
 // Author's website (just a link – nothing is loaded from the internet)
 const WEBSITE = 'https://helfi.space';
+// 2.38.7: support the development (Buy Me a Coffee) – only in the administration (not on the login page, not in the
+// kiosk). Own button with an inline icon: nothing is loaded from the internet, the link only opens on click.
+const COFFEE = 'https://buymeacoffee.com/soleil0815';
+function coffeeLink() {
+  return h('a.coffee.raw', { href: COFFEE, target: '_blank', rel: 'noopener noreferrer', title: tr('Die Entwicklung von POCKET KNIFE unterstützen – öffnet buymeacoffee.com in einem neuen Tab') },
+    icon('coffee'), 'Buy me a coffee');
+}
+
 function websiteLink(cls = '', loggedIn = true) {
   // 2.36.1: License notice (AGPL-3.0) – leads to the "Lizenz" help (source code, license text), nothing from the internet
   return h('span', { class: cls },
@@ -982,7 +991,7 @@ function renderShell() {
       isOU() ? h('span.badge.info', { style: { marginTop: '6px', display: 'block', width: 'fit-content' }, title: tr('Sie sehen und verwalten nur die Computer dieses Mandanten.') },
         tr('OU-Admin: ') + (S.me.tenants || []).map((x) => x.name).join(', ')) : null,
       h('div.row', { style: { gap: '6px', marginTop: '8px' } }, btn('Abmelden', logout, { cls: 'small' }), langSwitch(), themeToggle()),
-      websiteLink('nav-web')));
+      websiteLink('nav-web'), h('div', coffeeLink())));
   const main = h('div.main', h('header.topbar#topbar'), h('div#tabs'), h('main.content#content'));
   $('#app').replaceChildren(h('div.shell', nav, main));
   loadNews();
