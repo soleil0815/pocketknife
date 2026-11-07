@@ -7610,6 +7610,27 @@ def _():
     assert "${{" not in rem.split("run: |", 1)[1], "no expressions inside run: (env instead)"
 
 
+@test("2.38.7 Buy me a coffee: only in the administration, a plain link (nothing loaded from the internet)")
+def _():
+    base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static")
+    js = open(os.path.join(base, "app.js"), encoding="utf-8").read()
+    i = js.index("function coffeeLink() {")
+    blk = js[i:js.index("\n}\n", i)]
+    assert "rel: 'noopener noreferrer'" in blk and "target: '_blank'" in blk and "icon('coffee')" in blk, blk
+    assert "innerHTML" not in blk
+    # shown in the navigation of the administration only - not on the login page
+    assert js.count("coffeeLink()") == 2, "defined once, used once"
+    sh = js[js.index("function renderShell() {"):js.index("\n}\n", js.index("function renderShell() {"))]
+    assert "coffeeLink()" in sh
+    login = js[js.index("websiteLink('login-web', false)") - 400:js.index("websiteLink('login-web', false)") + 200]
+    assert "coffee" not in login
+    # never in the kiosk, and nothing from buymeacoffee is embedded (no image, script or font)
+    for f in os.listdir(base):
+        if f.endswith((".html", ".js", ".css")) and f not in ("app.js", "i18n.js"):  # i18n.js: translation of the tooltip
+            assert "buymeacoffee" not in open(os.path.join(base, f), encoding="utf-8").read(), f
+    assert not any(x in js for x in ("cdn.buymeacoffee", "img.buymeacoffee", "buymeacoffee.com/button"))
+
+
 def main():
     ok = 0
     for name, fn in RESULTS:
