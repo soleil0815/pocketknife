@@ -5655,5 +5655,7 @@
  "Programme, die in Ihrer Umgebung installiert sind und sicher einer winget-ID zugeordnet sind – veraltete zuerst. Auswählen und übernehmen; die IDs werden an das Feld angehängt.": "Programs installed in your environment with a sure winget ID – outdated ones first. Select and apply; the IDs are appended to the field.",
  "Schon alle eingetragen": "All already listed",
  "winget-IDs aus dem Inventar": "winget IDs from the inventory",
- "{0} winget-ID(s) übernommen": "{0} winget ID(s) added"
+ "{0} winget-ID(s) übernommen": "{0} winget ID(s) added",
+ "Die Entwicklung von POCKET KNIFE unterstützen – öffnet buymeacoffee.com in einem neuen Tab": "Support the development of POCKET KNIFE – opens buymeacoffee.com in a new tab",
+ "Buy me a coffee": "Buy me a coffee"
 }

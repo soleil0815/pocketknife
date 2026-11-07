@@ -2,7 +2,7 @@ Deutsche Fassung: [README.md](README.md)
 
 # POCKET KNIFE
 
-Current version: **pocketknife-2.38.6** – see `CHANGELOG.md` (German).
+Current version: **pocketknife-2.38.7** – see `CHANGELOG.md` (German).
 
 Website: [helfi.space](https://helfi.space)
 
@@ -629,6 +629,10 @@ app/
 ## Privacy
 
 POCKET KNIFE runs entirely in your own network; all data is stored under `/data` on the Docker host. Stored are inventory, AD data, the log (with user names), deployments and kiosk requests – with configurable retention (default: log 90 days, deployments and kiosk requests 180 days). Passwords and keys only encrypted. Only what you enable goes to the internet (winget catalog/cache, App Installer from github.com, notice about new versions, e-mails to your recipients). Details: Help → Privacy.
+
+## Support
+
+POCKET KNIFE is free. If it saves you work and you would like to support its development: [☕ Buy me a coffee](https://buymeacoffee.com/soleil0815)
 
 ## License
 

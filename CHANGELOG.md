@@ -2,6 +2,9 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.38.7 (07.11.2026)
+- **New - "Buy me a coffee":** a small button at the bottom of the navigation, visible to administrators only (not on the login page, not in the kiosk). It is a plain link to buymeacoffee.com/soleil0815 with its own icon - nothing is loaded from the internet before you click. Also in the help (License → Support), the README and as the "Sponsor" button on GitHub (`.github/FUNDING.yml`)
+
 ## pocketknife-2.38.6 (06.11.2026)
 - **New - schedules "winget-Updates": pick winget IDs from the inventory.** Next to "winget-IDs" and "Ausnahmen" a button "Aus dem Inventar wählen …" lists the programs installed in your environment with a sure winget assignment (name, winget ID, number of computers, outdated ones first). Selected IDs are appended to the field; IDs already listed are marked and not added twice. OU admins only see programs on their own computers
 - **Self-test:** picker offers only sure, not excluded assignments, grouped case-insensitively; OU admins see only their own computers

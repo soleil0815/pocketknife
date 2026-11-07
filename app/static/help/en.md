@@ -1523,6 +1523,10 @@ POCKET KNIFE is free software under the **GNU Affero General Public License, ver
 - Source code and full license text: `https://github.com/soleil0815/pocketknife` (file `LICENSE`; in the container at `/opt/pocketknife/LICENSE`)
 - Bundled third-party components keep their own licenses, e.g. Apache Guacamole (Apache-2.0, `app/static/vendor/guacamole-LICENSE.txt`) and the Python libraries (MIT, BSD, Apache-2.0, LGPL-3.0 – list in `requirements.lock`)
 
+## Support {#support}
+
+POCKET KNIFE is free. If you would like to support its development, you can buy me a coffee: **"Buy me a coffee"** at the bottom of the navigation (visible to administrators only) opens `https://buymeacoffee.com/soleil0815` in a new tab. Nothing is loaded from the internet before you click.
+
 # Glossary {#glossary}
 
 | Term | Explanation |
