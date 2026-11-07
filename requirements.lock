@@ -1,4 +1,4 @@
-# Exact versions of all Python packages (incl. dependencies) – created with tools/pin-versions.sh on 2026-11-06
+# Exact versions of all Python packages (incl. dependencies) – created with tools/pin-versions.sh on 2026-11-07
 # Base: python:3.12.16-slim-trixie@sha256:4840d514c583a4d3d8cad3940e68dee6f0f6f3635c12fcd0a3d74c21a5b93a54
 annotated-doc==0.0.5
 annotated-types==0.8.0
@@ -6,7 +6,7 @@ anyio==4.16.0
 certifi==2026.10.23
 cffi==2.1.1
 charset-normalizer==3.5.2
-click==8.5.0
+click==8.5.1
 cryptography==50.0.2
 decorator==5.3.1
 fastapi==0.155.0
