@@ -2,6 +2,10 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.38.9 (07.11.2026)
+- **New - copy a cell from any table:** right click on a cell → "<column> kopieren" copies the full value, also of truncated cells (e.g. the uninstall command in the software list); with several selected rows the values of all of them, one per line. Works in every table, also those without their own context menu (links, input fields and selected text keep the browser menu). Was announced for 2.38.8 but missed that release (the commit reached the pull request after it had been merged)
+- **Self-test:** cell copy in table menus
+
 ## pocketknife-2.38.8 (07.11.2026)
 - **Fixed - parallel deployments of one package failed with "being used by another process":** the SMB library opened repository files exclusively by default, so when several computers fetched the same package at once, only the first got it ("[NtStatus 0xc0000043] The process cannot access the file …"). Repository files are now opened with read sharing - any number of computers can copy the same file at the same time. If a file is being written (e.g. a new version is copied into the repository), POCKET KNIFE retries three times (2, 5, 10 s) instead of copying a half-written file
 - **Improved - file explorer:** files a program on the client keeps open (e.g. log files) can now be downloaded

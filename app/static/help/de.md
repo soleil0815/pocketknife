@@ -456,6 +456,7 @@ Alle Listen funktionieren gleich:
 - **Suchen:** Feld „Filtern …“ über der Tabelle durchsucht alle Spalten.
 - **Auswahl:** Klick wählt aus, **Strg**+Klick fügt hinzu, **Umschalt**+Klick wählt einen Bereich, **Strg+A** alles. **Doppelklick** öffnet.
 - **Rechtsklick** zeigt alle Aktionen für die Auswahl.
+- **Wert kopieren:** Rechtsklick auf eine Zelle → **„<Spalte> kopieren“** kopiert den vollständigen Wert – auch wenn er in der Tabelle abgeschnitten ist (z. B. der Deinstallationsbefehl in der Softwareliste). Bei mehreren markierten Zeilen werden alle Werte kopiert, je einer pro Zeile. Das geht in jeder Tabelle.
 
 Spaltenreihenfolge, -breiten, ausgeblendete Spalten und Sortierung merkt sich der Browser je Ansicht.
 
