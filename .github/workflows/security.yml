@@ -1,6 +1,9 @@
 # POCKET KNIFE – daily security scan of the published image (ghcr.io/…/pocketknife:latest) with Trivy.
 # New vulnerabilities become known AFTER a release too - this run reports them (failed run → GitHub
-# sends a mail to the owner). Remedy: Actions → Update versions → Run workflow, then a release.
+# sends a mail to the owner).
+# Remedy (automatic since 2.38.8): if a vulnerability has an available fix, the job "remedy" starts the weekly
+# security update right away - it builds, tests and scans the update and opens a pull request; the owner merges it
+# and starts the release. Nothing is merged or published automatically.
 # Note: GitHub pauses scheduled runs after 60 days without a change in the repository (then re-enable under Actions).
 name: Security scan
 
@@ -22,6 +25,8 @@ jobs:
     permissions:
       contents: read
       packages: read      # read private image from ghcr.io
+    outputs:
+      fixable: ${{ steps.scan.outputs.fixable }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -36,6 +41,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Check vulnerabilities (Trivy)
+        id: scan
         env:
           PK_TRIVY_REPORT: trivy.md
         run: |
@@ -48,7 +54,8 @@ jobs:
             [ "$r" -gt "$rc" ] && rc=$r
           done
           if [ "$rc" = 1 ]; then
-            echo "::error title=Security scan::The published image has vulnerabilities with an available fix. Remedy: Actions → Weekly security update → Run workflow."
+            echo "fixable=1" >> "$GITHUB_OUTPUT"
+            echo "::error title=Security scan::The published image has vulnerabilities with an available fix. The weekly security update is started automatically (job remedy)."
           fi
           # guacd (from the Guacamole project) as a notice only - POCKET KNIFE cannot fix it itself
           G=$(sed -n 's/^\(guacamole\/guacd:[^ ]*\)$/\1/p' docker/guacd.txt | head -n 1)
@@ -56,3 +63,31 @@ jobs:
           if [ -f trivy-guacd.md ]; then cat trivy-guacd.md >> "$GITHUB_STEP_SUMMARY"; fi
           [ "$grc" = 0 ] || echo "::warning title=guacd::$G has findings (or could not be scanned) – can only be fixed by the Guacamole project."
           exit "$rc"
+
+  remedy:
+    # 2.38.8: vulnerability with an available fix -> start the weekly security update at once instead of waiting for
+    # Monday. Not twice: skipped while an update is running or a security-update pull request is still open.
+    needs: scan
+    if: ${{ always() && needs.scan.outputs.fixable == '1' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: write          # start the workflow
+      pull-requests: read     # look for an open security-update pull request
+    steps:
+      - name: Start the weekly security update
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          running=$(gh api "repos/$REPO/actions/workflows/weekly.yml/runs?status=in_progress" --jq '.total_count')
+          queued=$(gh api "repos/$REPO/actions/workflows/weekly.yml/runs?status=queued" --jq '.total_count')
+          open=$(gh api "repos/$REPO/pulls?state=open&per_page=100" --jq '[.[] | select(.head.ref | startswith("sicherheitsupdate-"))] | length')
+          if [ "$running" != 0 ] || [ "$queued" != 0 ]; then
+            echo "Security update already running - not started twice."
+          elif [ "$open" != 0 ]; then
+            echo "::notice title=Security update::A security-update pull request is already open - merge it and start the release."
+          else
+            gh workflow run weekly.yml --repo "$REPO" --ref main
+            echo "::notice title=Security update::Started the weekly security update - it opens a pull request when build, self-test and scan pass."
+          fi

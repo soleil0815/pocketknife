@@ -7594,6 +7594,22 @@ def _():
     db.ex("DELETE FROM computers WHERE id IN (9601, 9602)")
 
 
+
+@test("CI: daily security scan starts the security update by itself when a fix is available (never twice, never merges)")
+def _():
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+    p = os.path.join(root, ".github", "workflows", "security.yml")
+    if not os.path.exists(p):
+        return  # workflows are not part of the image
+    w = open(p, encoding="utf-8").read()
+    assert 'echo "fixable=1" >> "$GITHUB_OUTPUT"' in w and "fixable: ${{ steps.scan.outputs.fixable }}" in w
+    rem = w[w.index("\n  remedy:"):]
+    assert "needs: scan" in rem and "always() && needs.scan.outputs.fixable == '1'" in rem
+    assert "gh workflow run weekly.yml" in rem and "status=in_progress" in rem and 'startswith("sicherheitsupdate-")' in rem
+    assert "actions: write" in rem and "contents: write" not in rem, "only starts the update - no pushes, no merges"
+    assert "${{" not in rem.split("run: |", 1)[1], "no expressions inside run: (env instead)"
+
+
 def main():
     ok = 0
     for name, fn in RESULTS:
