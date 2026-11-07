@@ -2,6 +2,11 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.38.8 (07.11.2026)
+- **Fixed - parallel deployments of one package failed with "being used by another process":** the SMB library opened repository files exclusively by default, so when several computers fetched the same package at once, only the first got it ("[NtStatus 0xc0000043] The process cannot access the file …"). Repository files are now opened with read sharing - any number of computers can copy the same file at the same time. If a file is being written (e.g. a new version is copied into the repository), POCKET KNIFE retries three times (2, 5, 10 s) instead of copying a half-written file
+- **Improved - file explorer:** files a program on the client keeps open (e.g. log files) can now be downloaded
+- **Self-test:** read sharing, retries only on sharing violations, no exclusive read of repository files
+
 ## pocketknife-2.38.7 (07.11.2026)
 - **New - "Buy me a coffee":** a small button at the bottom of the navigation, visible to administrators only (not on the login page, not in the kiosk). It is a plain link to buymeacoffee.com/soleil0815 with its own icon - nothing is loaded from the internet before you click. Also in the help (License → Support), the README and as the "Sponsor" button on GitHub (`.github/FUNDING.yml`)
 ## pocketknife-2.38.6-s1 (07.11.2026)

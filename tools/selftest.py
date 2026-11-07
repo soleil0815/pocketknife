@@ -7631,6 +7631,64 @@ def _():
     assert not any(x in js for x in ("cdn.buymeacoffee", "img.buymeacoffee", "buymeacoffee.com/button"))
 
 
+
+@test("2.38.8 Repository files are opened with read sharing - parallel deployments of one package no longer block each other")
+def _():
+    import sys as _sys
+    import types as _types
+    from app import remote as _r
+    calls, fails = [], {"n": 0}
+
+    class _Err(Exception):
+        pass
+
+    def open_file(path, mode="r", share_access=None, **kw):
+        calls.append((path, mode, share_access))
+        if fails["n"]:
+            fails["n"] -= 1
+            raise _Err("[Error 1] [NtStatus 0xc0000043] The process cannot access the file because it is being used by another process")
+        return "handle"
+
+    fake = _types.ModuleType("smbclient")
+    fake.open_file = open_file
+    old = _sys.modules.get("smbclient")
+    _sys.modules["smbclient"] = fake
+    try:
+        waits = []
+        assert _r._repo_open(r"\\fs01\PAKETE\7zip\7z.msi", sleep=waits.append) == "handle"
+        assert calls[-1] == (r"\\fs01\PAKETE\7zip\7z.msi", "rb", "r"), calls   # read sharing, never exclusive
+        # a writer holds the file: retried (2, 5, 10 s), then opened
+        fails["n"] = 2
+        assert _r._repo_open(r"\\fs01\PAKETE\x.msi", sleep=waits.append) == "handle" and waits == [2, 5], waits
+        # still blocked after all retries: the error is passed on (no half-written copy)
+        fails["n"], waits[:] = 9, []
+        try:
+            _r._repo_open(r"\\fs01\PAKETE\x.msi", sleep=waits.append)
+            raise AssertionError("must fail")
+        except _Err:
+            pass
+        assert waits == [2, 5, 10], waits
+        # other errors are not retried
+        def nf(path, mode="r", share_access=None, **kw):
+            raise _Err("[NtStatus 0xc0000034] OBJECT_NAME_NOT_FOUND")
+        fake.open_file, waits[:] = nf, []
+        try:
+            _r._repo_open(r"\\fs01\PAKETE\gone.msi", sleep=waits.append)
+            raise AssertionError("must fail")
+        except _Err:
+            pass
+        assert waits == []
+    finally:
+        if old is not None:
+            _sys.modules["smbclient"] = old
+        else:
+            _sys.modules.pop("smbclient", None)
+    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "remote.py"), encoding="utf-8").read()
+    assert 'smbclient.open_file(path, mode="rb")' not in src, "no exclusive read of repository files"
+    cf = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "clientfiles.py"), encoding="utf-8").read()
+    assert 'smbclient.open_file(unc, mode="rb", share_access="rw")' in cf
+
+
 def main():
     ok = 0
     for name, fn in RESULTS:

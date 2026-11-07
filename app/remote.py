@@ -986,11 +986,30 @@ def _repo_walk(path):
                 yield os.path.relpath(full, path).replace("/", "\\"), full
 
 
-def _repo_open(path):
+SHARING_RETRY_SECONDS = (2, 5, 10)
+
+
+def _repo_open(path, sleep=time.sleep):
+    """Opens a repository file for reading. 2.38.8: with read sharing - smbclient opens files EXCLUSIVELY by default
+    (share_access=None), so parallel deployments of the same package (several computers at once) blocked each other:
+    "[NtStatus 0xc0000043] The process cannot access the file because it is being used by another process".
+    Read sharing lets any number of readers in; a process that is WRITING the file (e.g. a new version being copied
+    into the repository) still blocks - then up to three retries before giving up, never a half-written copy."""
     if _is_unc(path):
         import smbclient
-        return smbclient.open_file(path, mode="rb")
+        for wait in SHARING_RETRY_SECONDS + (None,):
+            try:
+                return smbclient.open_file(path, mode="rb", share_access="r")
+            except Exception as e:  # noqa: BLE001 - only sharing violations are retried
+                if wait is None or not _sharing_violation(e):
+                    raise
+                sleep(wait)
     return open(path, "rb")
+
+
+def _sharing_violation(e):
+    s = str(e)
+    return "0xc0000043" in s.lower() or "SHARING_VIOLATION" in s or "being used by another process" in s
 
 
 def _not_found(e):
@@ -1084,7 +1103,7 @@ def _smb_roundtrip(folder, size=4 * 1024 * 1024):
     t1 = time.time()
     res["write"] = True
     res["write_mb_s"] = round(size / 1048576 / max(t1 - t0, 0.001), 1)
-    with smbclient.open_file(path, mode="rb") as f:
+    with smbclient.open_file(path, mode="rb", share_access="r") as f:
         back = f.read()
     t2 = time.time()
     res["read"] = True

@@ -542,7 +542,9 @@ def open_read(cid, path, name, _hops=0):
         raise FileError(f"Datei zu groß für den Download über den Browser ({size // 1048576} MB, Grenze {MAX_DOWNLOAD // 1048576} MB).")
 
     def gen():
-        with smbclient.open_file(unc, mode="rb") as f:
+        # 2.38.8: share read+write - also files a program on the client keeps open (e.g. log files) can be downloaded;
+        # smbclient would otherwise open exclusively
+        with smbclient.open_file(unc, mode="rb", share_access="rw") as f:
             while True:
                 chunk = f.read(1024 * 256)
                 if not chunk:
