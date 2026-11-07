@@ -2,7 +2,7 @@ English version: [README.en.md](README.en.md)
 
 # POCKET KNIFE
 
-Aktuelle Version: **pocketknife-2.38.8** – siehe `CHANGELOG.md`.
+Aktuelle Version: **pocketknife-2.38.9** – siehe `CHANGELOG.md`.
 
 Webseite: [helfi.space](https://helfi.space)
 
