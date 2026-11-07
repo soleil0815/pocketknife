@@ -8,7 +8,7 @@
 #   build-requirements.txt  build tools (Cython, setuptools) with exact version
 # Without requirements.lock the build uses requirements.txt (minimum versions) and prints a warning.
 ARG PYTHON_IMAGE=python:3.12.16-slim-trixie@sha256:4840d514c583a4d3d8cad3940e68dee6f0f6f3635c12fcd0a3d74c21a5b93a54
-ARG DEBIAN_SNAPSHOT=20261106T120000Z
+ARG DEBIAN_SNAPSHOT=20261107T144323Z
 
 # --- Build: build Python packages as wheels (gssapi/krb5 need a compiler and Kerberos headers) ---
 FROM ${PYTHON_IMAGE} AS build

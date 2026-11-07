@@ -14,6 +14,18 @@
    ]
   },
   {
+   "version": "2.38.6-s1",
+   "date": "2026-11-07",
+   "items": [
+    {
+     "kind": "security",
+     "audience": "admin",
+     "de": "Wöchentliches Sicherheitsupdate: Basis-Image und Pakete aktualisiert (1 Änderungen), geprüft mit Selbsttest und Trivy. Keine Änderung am Programm.",
+     "en": "Weekly security update: base image and packages updated (1 changes), checked with self-test and Trivy. No change to the program."
+    }
+   ]
+  },
+  {
    "version": "2.38.6",
    "date": "2026-11-06",
    "items": [
