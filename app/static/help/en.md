@@ -456,6 +456,7 @@ All lists work the same way:
 - **Search:** the "Filter …" field above the table searches all columns.
 - **Selection:** click selects, **Ctrl**+click adds, **Shift**+click selects a range, **Ctrl+A** selects all. **Double-click** opens.
 - **Right-click** shows all actions for the selection.
+- **Copy a value:** right-click a cell → **"Copy <column>"** copies the full value – even if it is cut off in the table (e.g. the uninstall command in the software list). With several selected rows all values are copied, one per line. This works in every table.
 
 The browser remembers column order, widths, hidden columns and sorting for each view.
 

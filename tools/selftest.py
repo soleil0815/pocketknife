@@ -7689,6 +7689,22 @@ def _():
     assert 'smbclient.open_file(unc, mode="rb", share_access="rw")' in cf
 
 
+
+@test("2.38.9 Tables: right click on a cell copies its full value (\"<column> kopieren\"), also truncated cells and several rows")
+def _():
+    js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
+    cm = js[js.index("function contextMenu(x, y, items) {"):][:400]
+    assert "cellCopyItem()" in cm and "'Wert kopieren'" in cm, "added to every menu, not twice where a table copies itself"
+    tb = js[js.index("function table(cols, rows, opt = {}) {"):]
+    h = tb[tb.index("tr.addEventListener('contextmenu', (e) => {"):][:1800]
+    # full value from the data (not the truncated text), all selected rows, column label translated
+    assert "const v = x[c.key]" in h and "rowsSel.map(one)" in h and "window.tr(c.label" in h, h
+    # tables without own menu get the copy menu, but links/inputs/selected text keep the browser menu
+    assert "else contextMenu(e.clientX, e.clientY, [])" in h and "closest('a,input,textarea,select')" in h and "getSelection" in h
+    # the old handler only existed with onContext - the selection logic stays tied to it
+    assert "if (opt.onContext && opt.selectable && !st.sel.has(id))" in h
+
+
 def main():
     ok = 0
     for name, fn in RESULTS:

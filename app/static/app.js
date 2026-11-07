@@ -296,8 +296,21 @@ let ctxMenu = null;
 function closeCtx() { if (ctxMenu) { ctxMenu.remove(); ctxMenu = null; document.removeEventListener('mousedown', ctxOutside, true); document.removeEventListener('keydown', ctxKey, true); } }
 function ctxOutside(e) { if (ctxMenu && !ctxMenu.contains(e.target)) closeCtx(); }
 function ctxKey(e) { if (e.key === 'Escape') { e.stopPropagation(); e.preventDefault(); closeCtx(); } }
+// 2.38.9: right click on a table cell -> "<column> kopieren" in every table context menu (also tables without own
+// menu). Copies the full value - truncated cells (paths, uninstall commands …) included; with several selected rows
+// the values of all of them, one per line.
+let CELL_COPY = null;
+function cellCopyItem() {
+  const cc = CELL_COPY;
+  CELL_COPY = null;
+  if (!cc || Date.now() - cc.at > 1000 || !cc.text) return null;
+  return { label: cc.n > 1 ? `„${cc.label}“ kopieren (${cc.n})` : `„${cc.label}“ kopieren`, icon: 'coll', onClick: () => copyText(cc.text) };
+}
+
 function contextMenu(x, y, items) {
   closeCtx();
+  const cc = cellCopyItem();
+  if (cc && !items.some((it) => it && it.label === 'Wert kopieren')) items = [...items, '-', cc];
   // Clean up separators: no duplicates, none at the start or end
   const tidy = (list) => list.filter(Boolean).filter((it, i, a) => !((it === '-' || it.sep) && (i === 0 || a[i - 1] === '-' || a[i - 1].sep || i === a.length - 1)));
   const build = (list) => h('div.cmenu', tidy(tidy(list)).map((it) => {
@@ -681,13 +694,23 @@ function table(cols, rows, opt = {}) {
         tr.addEventListener('dragleave', () => tr.classList.remove('dropto'));
         tr.addEventListener('drop', (e) => { tr.classList.remove('dropto'); if (opt.canDrop(r, e)) { e.preventDefault(); e.stopPropagation(); opt.onDrop(r, e); } });
       }
-      if (opt.onContext) {
-        tr.addEventListener('contextmenu', (e) => {
-          e.preventDefault();
-          if (opt.selectable && !st.sel.has(id)) { st.sel.clear(); st.sel.add(id); st.anchor = idx; draw(); selChanged(); }
-          opt.onContext(r, e, opt.selectable ? api.selected() : [r]);
-        });
-      }
+      tr.addEventListener('contextmenu', (e) => {
+        const td = e.target.closest ? e.target.closest('td[data-k]') : null;
+        const c = td && cols.find((x) => x.key === td.dataset.k);
+        // tables without an own menu: keep the browser menu for links, input fields and selected text
+        if (!opt.onContext && (!c || e.target.closest('a,input,textarea,select') || String(window.getSelection() || ''))) return;
+        e.preventDefault();
+        if (opt.onContext && opt.selectable && !st.sel.has(id)) { st.sel.clear(); st.sel.add(id); st.anchor = idx; draw(); selChanged(); }
+        const rowsSel = opt.onContext && opt.selectable ? api.selected() : [r];
+        if (c) {
+          // full value: raw data of the column, otherwise the visible text of the clicked cell
+          const one = (x) => { const v = x[c.key]; return v === null || v === undefined || typeof v === 'object' ? '' : String(v); };
+          const vals = rowsSel.length > 1 ? rowsSel.map(one).filter((v) => v !== '') : [one(r) || (td.title || td.innerText || '').trim()];
+          CELL_COPY = { label: window.tr(c.label || c.key), text: vals.join('\r\n'), n: vals.length, at: Date.now() };
+        }
+        if (opt.onContext) opt.onContext(r, e, rowsSel);
+        else contextMenu(e.clientX, e.clientY, []);
+      });
       tbody.appendChild(tr);
     });
     const tbl = h('table', thead, tbody);
