@@ -1472,7 +1472,8 @@ if ($pkRunAs -eq 'user') {
   if ($pkSid) { $sess = @($sess | Where-Object { $_.Sid -eq $pkSid }) }
   if (-not $sess) {
     $who = $pkSid
-    try { if ($pkSid) { $who = (New-Object System.Security.Principal.SecurityIdentifier($pkSid)).Translate([System.Security.Principal.NTAccount]).Value } } catch {}
+    # only for the message (name instead of SID) - the .NET translation is not available in Constrained Language Mode
+    try { if ($pkSid -and $ExecutionContext.SessionState.LanguageMode -eq 'FullLanguage') { $who = (New-Object System.Security.Principal.SecurityIdentifier($pkSid)).Translate([System.Security.Principal.NTAccount]).Value } } catch {}
     'PK_NOUSER:' + $who
     return
   }

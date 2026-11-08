@@ -23,9 +23,14 @@ $sys = Join-Path $env:SystemRoot 'System32'
 # remove leftovers of earlier runs (aborted, timed out) - running tasks stay
 Get-ScheduledTask -TaskPath $pkTask -ErrorAction SilentlyContinue | Where-Object { $_.TaskName -like 'PK_GP_*' -and $_.State -ne 'Running' } |
   ForEach-Object { Unregister-ScheduledTask -TaskName $_.TaskName -TaskPath $pkTask -Confirm:$false -ErrorAction SilentlyContinue }
+# 2.38.10 (Audit): delete with "rd /s /q" - it removes junctions/links themselves and never follows them. Remove-Item -Recurse
+# of Windows PowerShell 5.1 follows junctions: a user who can write in the folder (or created a pk_gp_* folder himself
+# under %SystemRoot%\Temp) could otherwise have arbitrary files deleted with administrator rights.
+function PK-GpRemove($p) { & (Join-Path $sys 'cmd.exe') /d /c ('rd /s /q "' + $p + '"') 2>$null | Out-Null }
 $old = (Get-Date).AddHours(-1)
 Get-ChildItem -Path (Join-Path $env:SystemRoot 'Temp') -Filter 'pk_gp_*' -Directory -ErrorAction SilentlyContinue |
-  Where-Object { $_.LastWriteTime -lt $old } | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+  Where-Object { $_.Name -match '^pk_gp_[0-9a-zA-Z]+$' -and $_.LastWriteTime -lt $old -and "$($_.Attributes)" -notmatch 'ReparsePoint' } |
+  ForEach-Object { PK-GpRemove $_.FullName }
 
 '=== Computerrichtlinie ==='
 (& (Join-Path $sys 'cmd.exe') /d /c 'echo N| gpupdate.exe /target:computer /force' | Out-String).Trim()
@@ -109,7 +114,7 @@ foreach ($u in $users) {
   ''
 }
 if (-not (Get-ScheduledTask -TaskPath $pkTask -ErrorAction SilentlyContinue | Where-Object { $_.TaskName -like ('PK_GP_' + $id + '_*') })) {
-  Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
+  PK-GpRemove $dir
 }
 """
 

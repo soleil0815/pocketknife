@@ -2,6 +2,30 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.38.10",
+   "date": "2026-11-08",
+   "items": [
+    {
+     "kind": "security",
+     "audience": "admin",
+     "de": "„Verbindung testen“ am Computer meldet sich nur noch unter einer bestätigten Adresse an – wie alle anderen Direktaktionen.",
+     "en": "\"Test connection\" on a computer now only logs in under a confirmed address – like all other direct actions."
+    },
+    {
+     "kind": "security",
+     "audience": "admin",
+     "de": "gpupdate /force räumt seinen Arbeitsordner so auf, dass Verknüpfungen (Junctions) darin nie verfolgt werden.",
+     "en": "gpupdate /force cleans up its working folder without ever following links (junctions) inside it."
+    },
+    {
+     "kind": "fixed",
+     "audience": "all",
+     "de": "Benachrichtigungen an angemeldete Benutzer melden auch unter AppLocker/App Control (eingeschränkter Sprachmodus) zuverlässig zurück, ob sie angekommen sind.",
+     "en": "Notifications to logged-on users now also report reliably whether they arrived under AppLocker/App Control (Constrained Language Mode)."
+    }
+   ]
+  },
+  {
    "version": "2.38.9",
    "date": "2026-11-07",
    "items": [
