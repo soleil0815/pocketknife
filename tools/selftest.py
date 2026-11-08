@@ -7414,7 +7414,10 @@ def _():
         os.makedirs(os.path.join(root, "System32"), exist_ok=True)
         os.makedirs(os.path.join(root, "Temp"), exist_ok=True)
         cmd = os.path.join(root, "System32", "cmd.exe")
-        open(cmd, "w").write("#!/bin/sh\necho Computerrichtlinie aktualisiert\n")
+        # stand-in for cmd.exe: "rd /s /q <dir>" (2.38.10: cleanup without following junctions) removes the folder,
+        # everything else is gpupdate
+        open(cmd, "w").write("#!/bin/sh\ncase \"$3\" in rd\\ /s\\ /q\\ *) d=${3#rd /s /q }; d=${d#\\\"}; rm -rf \"${d%\\\"}\"; exit 0;; esac\n"
+                             "echo Computerrichtlinie aktualisiert\n")
         os.chmod(cmd, 0o755)
         stub = r"""
 function Get-ScheduledTask { param($TaskPath, $ErrorAction) $script:tasks }
@@ -7708,6 +7711,32 @@ def _():
     assert "else contextMenu(e.clientX, e.clientY, [])" in h and "closest('a,input,textarea,select')" in h and "getSelection" in h
     # the old handler only existed with onContext - the selection logic stays tied to it
     assert "if (opt.onContext && opt.selectable && !st.sel.has(id))" in h
+
+
+
+@test("2.38.11 Notification \"Bruch im Repository\": one case per broken package, all-clear after confirming, deviations optional")
+def _():
+    import json as _json
+    from app import notify
+    a = notify.alert_def("repo_break")
+    assert a and a["resolvable"] and [x["name"] for x in a["params"]] == ["warn"]
+    db.ex("DELETE FROM packages WHERE name LIKE 'RB-Test-%'")
+    def pkg(name, state):
+        res = {"state": state, "at": "2026-11-08 12:38:00", "total": 1,
+               "issues": [{"kind": "changed", "path": "OpenVPN\\FIRMA.ovpn", "level": state if state != "ok" else "ok", "note": "Größe geändert"}]}
+        return db.ex("INSERT INTO packages(name, type, integrity) VALUES(?,?,?)", (name, "steps", _json.dumps(res)))
+    pb, pw, po = pkg("RB-Test-Bruch", "broken"), pkg("RB-Test-Abweichung", "warn"), pkg("RB-Test-OK", "ok")
+    cur = {k: v for k, v in notify._check_repo_break({}, {"since": ""}).items() if v["package"].startswith("RB-Test-")}
+    assert set(cur) == {str(pb)}, cur
+    v = cur[str(pb)]
+    assert v["state"].startswith("Bruch") and "OpenVPN\\FIRMA.ovpn: Größe geändert" in v["issues"] and v["checked"] == "2026-11-08 12:38"
+    assert notify._label("repo_break", v) == "RB-Test-Bruch"
+    cur2 = {k for k, v in notify._check_repo_break({"warn": "1"}, {"since": ""}).items() if v["package"].startswith("RB-Test-")}
+    assert cur2 == {str(pb), str(pw)}, cur2
+    # confirmed ("Neuen Stand übernehmen") -> state ok -> case gone -> all-clear
+    db.ex("UPDATE packages SET integrity=? WHERE id=?", (_json.dumps({"state": "ok", "issues": [], "at": "2026-11-08 13:00:00"}), pb))
+    assert notify._is_resolved("repo_break", {}, str(pb), notify._check_repo_break({}, {"since": ""}))
+    db.ex("DELETE FROM packages WHERE name LIKE 'RB-Test-%'")
 
 
 @test("2.38.10 Audit: \"Verbindung testen\" only under a confirmed address; gpupdate deletes its folder without following junctions; notification sending without blocked .NET calls (SIDs, rights check, cleanup)")

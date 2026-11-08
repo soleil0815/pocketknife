@@ -5659,5 +5659,10 @@
  "Die Entwicklung von POCKET KNIFE unterstützen – öffnet buymeacoffee.com in einem neuen Tab": "Support the development of POCKET KNIFE – opens buymeacoffee.com in a new tab",
  "Buy me a coffee": "Buy me a coffee",
  "„{0}“ kopieren": "Copy “{0}”",
- "„{0}“ kopieren ({1})": "Copy “{0}” ({1})"
+ "„{0}“ kopieren ({1})": "Copy “{0}” ({1})",
+ "Auch Abweichungen melden": "Also report deviations",
+ "Bruch im Repository": "Repository break",
+ "Bruch – Bereitstellungen unterbrochen": "Break – deployments stopped",
+ "Eine Datei eines Pakets hat sich geändert oder fehlt – Bereitstellungen und Zeitpläne des Pakets sind unterbrochen, bis der neue Stand übernommen wird.": "A file of a package changed or is missing – deployments and schedules of the package are stopped until the new state is accepted.",
+ "andere Dateien im Paketordner geändert – Bereitstellungen laufen weiter": "other files in the package folder changed – deployments continue"
 }

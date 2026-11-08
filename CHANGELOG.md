@@ -2,6 +2,10 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.38.11 (08.11.2026)
+- **New - notification "Bruch im Repository":** mail when a file of a package changed or is missing (integrity check). Deployments and schedules of the package stop until a main admin clicks "Neuen Stand übernehmen" - easy to forget after replacing a file yourself. One case per package with the findings; all-clear once the new state is accepted (or the file is back). Optionally also deviations (other files in the package folder changed, deployments continue)
+- **Self-test:** cases per package, deviations only on request, resolved after confirming
+
 ## pocketknife-2.38.10 (08.11.2026)
 - **Security - weekly code audit:**
   - **"Test connection" on a computer only under a confirmed address:** the button still logged in with the service account (WinRM) and wrote a test file to `ADMIN$` even when the identity check had marked the computer's address as foreign (e.g. a changed dNSHostName pointing at another server). It now uses the same check as all other direct actions and says "Nicht ausgeführt – …"

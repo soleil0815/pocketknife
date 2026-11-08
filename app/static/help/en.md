@@ -1216,6 +1216,7 @@ Under **Settings → E-mail & notifications** you can turn on e-mails for certai
 | Deployment failed | a deployment failed completely (optionally also partially) – one notification per deployment |
 | Service account guard triggered | automatic access was paused because the service account was rejected |
 | Backup failed | the automatic database backup failed |
+| Repository break | a file of a package changed or is missing ([integrity check](#packages)) – deployments and schedules of the package stop until a main admin clicks **Accept new state**. All-clear once confirmed. Optionally deviations too. |
 | Emergency access used | every sign-in via the emergency access and every failed attempt for it |
 | Custom report: … | a [custom report](#customreports) returns rows – one notification per custom report |
 

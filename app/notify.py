@@ -322,6 +322,13 @@ ALERTS = [
     {"key": "breakglass", "title": "Notfallzugang benutzt",
      "desc": "Jede Anmeldung über den Notfallzugang (PK_BREAKGLASS_USER) und gehäufte Fehlversuche dafür.",
      "params": [], "resolvable": False},
+    # 2.38.11: a changed or missing repository file stops every deployment of the package until a main admin confirms
+    # it ("Neuen Stand übernehmen") - easy to forget after replacing a file yourself
+    {"key": "repo_break", "title": "Bruch im Repository",
+     "desc": "Eine Datei eines Pakets hat sich geändert oder fehlt – Bereitstellungen und Zeitpläne des Pakets sind unterbrochen, bis der neue Stand übernommen wird.",
+     "params": [{"name": "warn", "label": "Auch Abweichungen melden", "type": "bool", "default": "0",
+                 "hint": "andere Dateien im Paketordner geändert – Bereitstellungen laufen weiter"}],
+     "resolvable": True},
     {"key": "backup_failed", "title": "Sicherung fehlgeschlagen",
      "desc": "Die automatische Sicherung der Datenbank ist fehlgeschlagen.",
      "params": [], "resolvable": False},
@@ -552,6 +559,25 @@ def _check_backup_failed(p, cfg):
     return {ts[:10]: {"time": ts[:16], "error": last.split("FEHLGESCHLAGEN:", 1)[-1].strip()[:300]}}
 
 
+def _check_repo_break(p, cfg):
+    """2.38.11: packages whose repository files broke (integrity check). One case per package; resolved when the new
+    state is confirmed or the file is back."""
+    from . import integrity  # late import: integrity is not needed for the other notifications
+    states = ("broken", "warn") if str(p.get("warn", "0")) == "1" else ("broken",)
+    rows = db.q(f"""SELECT id, name, integrity FROM packages
+                   WHERE json_extract(integrity, '$.state') IN ({','.join('?' * len(states))}) ORDER BY name COLLATE NOCASE""",
+                states)
+    out = {}
+    for r in rows:
+        try:
+            res = json.loads(r["integrity"] or "{}")
+        except ValueError:
+            continue
+        out[str(r["id"])] = {"package": r["name"], "state": "Bruch – Bereitstellungen unterbrochen" if res.get("state") == "broken"
+                             else "Abweichung", "issues": integrity.summary(res)[:400], "checked": (res.get("at") or "")[:16]}
+    return out
+
+
 def _check_breakglass(p, cfg):
     """Audit 2.29: use and failed attempts of the emergency access (from the log)."""
     rows = db.q("""SELECT id, ts, message FROM logs WHERE category='auth' AND message LIKE 'Notfallzugang:%' AND ts >= ?
@@ -570,6 +596,7 @@ CHECKS = {
     "guard": (_check_guard, [("reason", "Grund"), ("source", "Auslöser"), ("since", "Seit"), ("until", "Pausiert bis")]),
     "backup_failed": (_check_backup_failed, [("time", "Zeit"), ("error", "Fehler")]),
     "breakglass": (_check_breakglass, [("time", "Zeit"), ("event", "Ereignis")]),
+    "repo_break": (_check_repo_break, [("package", "Paket"), ("state", "Zustand"), ("issues", "Befund"), ("checked", "Geprüft")]),
 }
 
 
@@ -763,6 +790,8 @@ def _label(key, v):
         return v["computer"]
     if key == "deploy_failed":
         return v["name"]
+    if key == "repo_break":
+        return v["package"]
     return v.get("reason") or v.get("time") or key
 
 
