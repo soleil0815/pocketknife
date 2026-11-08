@@ -2,6 +2,10 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.38.10 (08.11.2026)
+- **New - notification "Bruch im Repository":** mail when a file of a package changed or is missing (integrity check). Deployments and schedules of the package stop until a main admin clicks "Neuen Stand übernehmen" - easy to forget after replacing a file yourself. One case per package with the findings; all-clear once the new state is accepted (or the file is back). Optionally also deviations (other files in the package folder changed, deployments continue)
+- **Self-test:** cases per package, deviations only on request, resolved after confirming
+
 ## pocketknife-2.38.9 (07.11.2026)
 - **New - copy a cell from any table:** right click on a cell → "<column> kopieren" copies the full value, also of truncated cells (e.g. the uninstall command in the software list); with several selected rows the values of all of them, one per line. Works in every table, also those without their own context menu (links, input fields and selected text keep the browser menu)
 - **Self-test:** cell copy in table menus

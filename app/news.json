@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.38.10",
+   "date": "2026-11-08",
+   "items": [
+    {
+     "kind": "new",
+     "audience": "admin",
+     "de": "Neue Benachrichtigung „Bruch im Repository“: Mail, sobald eine Paketdatei geändert wurde oder fehlt und Bereitstellungen deshalb stehen – mit Entwarnung nach „Neuen Stand übernehmen“.",
+     "en": "New notification \"Repository break\": mail as soon as a package file changed or is missing and deployments are stopped because of it – with an all-clear after \"Accept new state\"."
+    }
+   ]
+  },
+  {
    "version": "2.38.9",
    "date": "2026-11-07",
    "items": [

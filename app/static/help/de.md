@@ -1216,6 +1216,7 @@ Unter **Einstellungen → E-Mail & Benachrichtigungen** lassen sich Mails bei be
 | Bereitstellung fehlgeschlagen | eine Bereitstellung ganz (optional auch teilweise) fehlgeschlagen – eine Meldung je Bereitstellung |
 | Dienstkonto-Schutz ausgelöst | automatische Zugriffe wurden pausiert, weil das Dienstkonto abgelehnt wurde |
 | Sicherung fehlgeschlagen | die automatische Datenbanksicherung ist fehlgeschlagen |
+| Bruch im Repository | eine Datei eines Pakets hat sich geändert oder fehlt ([Bruchprüfung](#packages)) – Bereitstellungen und Zeitpläne des Pakets stehen, bis ein Hauptadmin **Neuen Stand übernehmen** klickt. Entwarnung, sobald bestätigt. Optional auch Abweichungen. |
 | Notfallzugang benutzt | jede Anmeldung über den Notfallzugang und jeder Fehlversuch dafür |
 | Eigener Bericht: … | ein [eigener Bericht](#customreports) liefert Zeilen – je eigenem Bericht eine Benachrichtigung |
 
