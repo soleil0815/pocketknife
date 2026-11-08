@@ -7249,7 +7249,7 @@ def _try_lock(wc_, eid):
 def _():
     import re as _re
     import subprocess as _sp
-    from app import deploy, diskusage, remote, scanners, steps, toast, tools, util as _u
+    from app import deploy, diskusage, gpupdate, remote, scanners, steps, toast, tools, util as _u
     root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
     st_cmd = steps.normalize({"name": "x", "steps": {"main": [{"type": "command", "command": "echo Grüße 'x'"}]}})["steps"]["main"][0]
     st_ps = steps.normalize({"name": "x", "steps": {"main": [{"type": "powershell", "script": "'a'"}]}})["steps"]["main"][0]
@@ -7270,10 +7270,15 @@ def _():
         # Setup (SYSTEM via WinRM) – without the display script itself: that runs at the user from "Programme"
         "toast_setup": toast.build_send_script([("installed", "7-Zip", "26.00")])[0].replace(_u.psq(toast.USER_PS), "''").split("function Action")[0],
         "modules": open(os.path.join(root, "app", "scan_modules.ps1"), encoding="utf-8").read(),
+        # 2.38.10 (Audit): also the sending part (after "function Action") and gpupdate
+        "toast_send": toast.build_send_script([("installed", "7-Zip", "26.00")])[0].split("\n}\n$set = New-ScheduledTaskSettingsSet", 1)[1],
+        "gpupdate": gpupdate.script(),
     }
     # Blocked in restricted mode: only allowed in lines that themselves check for FullLanguage
     bad = _re.compile(r"FromBase64String|\[ScriptBlock\]::Create|\[Environment\]::|\[BitConverter\]|::TryParse|\[math\]::|"
-                      r"\[pscustomobject\]|WriteAllText|WriteAllBytes|ReadAllText|\[regex\]::Replace|IsInRole|\[Convert\]::", _re.I)
+                      r"\[pscustomobject\]|WriteAllText|WriteAllBytes|ReadAllText|\[regex\]::Replace|IsInRole|\[Convert\]::|"
+                      # 2.38.10: method calls on non-core types (SID translation, registry key objects)
+                      r"\.Translate\(|New-Object\s+(System\.)?Security\.Principal|\[Microsoft\.Win32\.Registry\]::", _re.I)
     for name, txt in scripts.items():
         for ln in txt.splitlines():
             if bad.search(ln) and "FullLanguage" not in ln and not ln.lstrip().startswith("#"):
@@ -7703,6 +7708,73 @@ def _():
     assert "else contextMenu(e.clientX, e.clientY, [])" in h and "closest('a,input,textarea,select')" in h and "getSelection" in h
     # the old handler only existed with onContext - the selection logic stays tied to it
     assert "if (opt.onContext && opt.selectable && !st.sel.has(id))" in h
+
+
+@test("2.38.10 Audit: \"Verbindung testen\" only under a confirmed address; gpupdate deletes its folder without following junctions; notification sending without blocked .NET calls (SIDs, rights check, cleanup)")
+def _():
+    from fastapi import HTTPException as _HE
+    from app import gpupdate, main as _m, remote, toast
+    # 1) Test connection: computer marked as foreign by the identity check -> no login with the service account
+    old = db.setting("identity_check")
+    cid = db.ex("INSERT INTO computers(name, dns_name, addr_problem, addr_detail) VALUES('PC-AUD3810', 'fs01.firma.local', 'other', "
+                "'Unter 10.0.10.7 antwortet „FS01“ statt PC-AUD3810')")
+    called = []
+    orig = remote.test_connection
+    remote.test_connection = lambda h: called.append(h) or {"host": h}
+    try:
+        db.set_setting("identity_check", 1)
+        try:
+            _m.api_test(cid, {"username": "haupt", "role": "admin"})
+            raise AssertionError("test: no error")
+        except _HE as e:
+            assert e.status_code == 400 and "FS01" in str(e.detail), e.detail
+        assert called == [], "no connection to the foreign device"
+        db.ex("UPDATE computers SET addr_problem=NULL, addr_detail=NULL WHERE id=?", (cid,))
+        assert _m.api_test(cid, {"username": "haupt", "role": "admin"}) == {"host": "fs01.firma.local"} and called == ["fs01.firma.local"]
+    finally:
+        remote.test_connection = orig
+        db.set_setting("identity_check", old if old is not None else 1)
+        db.ex("DELETE FROM computers WHERE id=?", (cid,))
+    # 2) gpupdate: no recursive Remove-Item (follows junctions in Windows PowerShell 5.1); rd /s /q, only own folder names,
+    #    no reparse points
+    g = gpupdate.script("abc123")
+    gc = "\n".join(ln for ln in g.splitlines() if not ln.lstrip().startswith("#"))
+    assert "Remove-Item" not in gc and "-Recurse" not in gc, "never delete recursively with Remove-Item"
+    assert "function PK-GpRemove($p) { & (Join-Path $sys 'cmd.exe') /d /c ('rd /s /q \"' + $p + '\"')" in g
+    assert g.index("$sys = Join-Path") < g.index("function PK-GpRemove")
+    assert "$_.Name -match '^pk_gp_[0-9a-zA-Z]+$'" in g and "-notmatch 'ReparsePoint'" in g and "  PK-GpRemove $dir\n" in g
+    # 3) Notification: SID via GetOwnerSid, rights check from the SDDL, value names via Get-ItemProperty
+    ps = toast.build_send_script([("installed", "7-Zip", "26.00")])[0]
+    code = "\n".join(ln.split("  # ")[0].split("   # ")[0] for ln in ps.splitlines() if not ln.lstrip().startswith("#"))
+    for bad in (".Translate(", "NTAccount", "GetValueNames", "IdentityReference"):
+        assert bad not in code, bad
+    assert "-MethodName GetOwnerSid" in ps and "$sids[$n] = [string]$usid[$u]" in ps
+    assert "([string]$acl.Sddl) -split 'D:'" in ps and "-band 0x500C0156" in ps and "throw ('Rechte auf '" in ps
+    # The SDDL evaluation as Python replica: write rights of Users/Everyone/Domain Users are found, read rights and admins are not
+    import re as _re
+
+    def weak(sddl):
+        out = []
+        for ace in sddl.split("D:", 1)[1].split("("):
+            m = _re.match(r"^A;[^;]*;([^;]*);[^;]*;[^;]*;([^)]*)\)", ace)
+            if not m:
+                continue
+            r, sid = m.group(1), m.group(2)
+            if not (sid in ("WD", "BU", "AU", "IU", "DU", "S-1-1-0", "S-1-5-32-545", "S-1-5-11", "S-1-5-4") or _re.match(r"^S-1-5-21-.+-513$", sid)):
+                continue
+            if _re.match(r"^0x[0-9a-fA-F]+$", r):
+                w = int(r, 16) & 0x500C0156 != 0
+            else:
+                w = any(r[i:i + 2] in ("FA", "FW", "GA", "GW", "WD", "WO", "DC", "LC", "RP", "DT", "CR") for i in range(0, len(r), 2))
+            if w:
+                out.append(sid)
+        return out
+    pf = "O:BAG:SYD:AI(A;OICIID;FA;;;SY)(A;OICIID;FA;;;BA)(A;OICIID;0x1200a9;;;BU)(A;OICIIOID;GA;;;CO)(A;OICIID;0x1200a9;;;AC)"
+    assert weak(pf) == [], "Programme default: users read only"
+    assert weak(pf + "(A;OICI;0x1301bf;;;BU)") == ["BU"], "Modify for users"
+    assert weak("O:BAD:(A;;FA;;;WD)(A;;GR;;;AU)") == ["WD"]
+    assert weak("O:BAD:(A;;CCDCLC;;;S-1-5-21-1-2-3-513)") == ["S-1-5-21-1-2-3-513"] and weak("O:BAD:(D;;FA;;;BU)") == []
+    assert "foreach ($vn in @($it.PSObject.Properties | ForEach-Object { $_.Name }))" in ps
 
 
 def main():

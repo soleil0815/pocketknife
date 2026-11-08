@@ -1367,10 +1367,14 @@ def api_scan(data: dict = Body(...), user=U):
 
 @app.post("/api/computers/{cid}/test")
 def api_test(cid: int, user=U):
-    c = db.q1("SELECT name, dns_name FROM computers WHERE id=?", (cid,))
+    c = db.q1("SELECT id, name, dns_name, addr_problem, addr_detail FROM computers WHERE id=?", (cid,))
     if not c:
         raise HTTPException(404)
-    return remote.test_connection(c["dns_name"] or c["name"])
+    try:
+        host = presence.direct_host(c)  # 2.38.10 (Audit): log in/write to ADMIN$ only under a confirmed address
+    except ValueError as e:
+        _err(e)
+    return remote.test_connection(host)
 
 
 def server_role(c):

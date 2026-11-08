@@ -132,9 +132,16 @@ Done 2
 
 # Runs as the service account via WinRM
 SEND_PS = r"""$ErrorActionPreference = 'Stop'
+# 2.38.10 (Audit): the SID comes from the process itself (GetOwnerSid) - NTAccount.Translate() is a .NET call that is
+# blocked in Constrained Language Mode (every user would end up as "account not resolvable")
+$usid = @{}
 $users = @(Get-CimInstance Win32_Process -Filter "Name='explorer.exe'" | ForEach-Object {
   $o = Invoke-CimMethod -InputObject $_ -MethodName GetOwner -ErrorAction SilentlyContinue
-  if ($o.User) { $o.Domain + '\' + $o.User } } | Sort-Object -Unique)
+  if ($o.User) {
+    $nm = $o.Domain + '\' + $o.User
+    if (-not $usid[$nm]) { $os = Invoke-CimMethod -InputObject $_ -MethodName GetOwnerSid -ErrorAction SilentlyContinue; if ($os.Sid) { $usid[$nm] = [string]$os.Sid } }
+    $nm
+  } } | Sort-Object -Unique)
 if (-not $users) { 'PK_TOAST:nouser'; return }
 # Icon under "Program Files" (only administrators may write - no user can swap it beforehand)
 $dir = Join-Path $env:ProgramFiles 'PocketKnife'
@@ -146,11 +153,21 @@ $ica = Join-Path $env:SystemRoot 'System32\icacls.exe'
 & $ica $dir /reset /T /C /Q | Out-Null
 $acl = Get-Acl $dir
 # Write permission for normal users (Everyone, Users, Authenticated/Interactive Users, Domain Users) → abort
-$weak = @($acl.Access | Where-Object { $_.AccessControlType -eq 'Allow' -and
-  ("$($_.FileSystemRights)" -match 'FullControl|Modify|Write|ChangePermissions|TakeOwnership') -and
-  $(try { $sid = $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value } catch { $sid = '' }
-    @('S-1-1-0', 'S-1-5-32-545', 'S-1-5-11', 'S-1-5-4') -contains $sid -or $sid -match '^S-1-5-21-.+-513$') })
-if ($weak) { throw ('Unsichere Rechte auf ' + $dir + ': ' + (($weak | ForEach-Object { $_.IdentityReference }) -join ', ')) }
+# 2.38.10 (Audit): read from the SDDL text (SIDs/aliases) - IdentityReference.Translate() is blocked in Constrained
+# Language Mode, the check then silently let everything pass
+$weak = @()
+$dacl = @(([string]$acl.Sddl) -split 'D:')
+if ($dacl.Count -lt 2) { throw ('Rechte auf ' + $dir + ' nicht lesbar') }
+foreach ($ace in ($dacl[1] -split '\(')) {
+  if ($ace -notmatch '^A;[^;]*;([^;]*);[^;]*;[^;]*;([^)]*)\)') { continue }
+  $aceR = $Matches[1]; $aceS = $Matches[2]
+  if (-not (@('WD', 'BU', 'AU', 'IU', 'DU', 'S-1-1-0', 'S-1-5-32-545', 'S-1-5-11', 'S-1-5-4') -contains $aceS -or $aceS -match '^S-1-5-21-.+-513$')) { continue }
+  $aceW = $false
+  if ($aceR -match '^0x[0-9a-fA-F]+$') { $aceW = (([int64]$aceR) -band 0x500C0156) -ne 0 }
+  else { foreach ($t in @($aceR -split '(..)' | Where-Object { $_ })) { if (@('FA', 'FW', 'GA', 'GW', 'WD', 'WO', 'DC', 'LC', 'RP', 'DT', 'CR') -contains $t) { $aceW = $true } } }
+  if ($aceW) { $weak += $aceS }
+}
+if ($weak) { throw ('Unsichere Rechte auf ' + $dir + ': ' + ($weak -join ', ')) }
 $ico = Join-Path $dir 'pk-ok.png'
 # 2.38: without .NET calls (Constrained Language Mode): compare via the checksum, write with Set-Content
 $hv = $null
@@ -202,7 +219,7 @@ $n = 0; $ok = 0; $sids = @{}
 try {
   foreach ($u in $users) {
     $n++
-    try { $sids[$n] = (New-Object Security.Principal.NTAccount($u)).Translate([Security.Principal.SecurityIdentifier]).Value } catch { $sids[$n] = '' }
+    $sids[$n] = [string]$usid[$u]
     try {
       $act = Action $sids[$n] ('PK' + $id + '_' + $n)
       $pr = New-ScheduledTaskPrincipal -UserId $u -LogonType Interactive -RunLevel Limited
@@ -252,9 +269,9 @@ try {
   foreach ($k in 1..$n) {
     if (-not $sids[$k]) { continue }
     $rp = 'Registry::HKEY_USERS\' + $sids[$k] + '\Software\PocketKnife\Toast'
-    $it = Get-Item -Path $rp -ErrorAction SilentlyContinue
+    $it = Get-ItemProperty -Path $rp -ErrorAction SilentlyContinue   # 2.38.10: value names without .NET (GetValueNames)
     if ($it) {
-      foreach ($vn in $it.GetValueNames()) {
+      foreach ($vn in @($it.PSObject.Properties | ForEach-Object { $_.Name })) {
         if ($vn -match '^PK(\d{10})' -and $Matches[1] -lt $old) { Remove-ItemProperty -Path $rp -Name $vn -ErrorAction SilentlyContinue }
       }
     }
