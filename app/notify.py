@@ -322,7 +322,7 @@ ALERTS = [
     {"key": "breakglass", "title": "Notfallzugang benutzt",
      "desc": "Jede Anmeldung über den Notfallzugang (PK_BREAKGLASS_USER) und gehäufte Fehlversuche dafür.",
      "params": [], "resolvable": False},
-    # 2.38.10: a changed or missing repository file stops every deployment of the package until a main admin confirms
+    # 2.38.11: a changed or missing repository file stops every deployment of the package until a main admin confirms
     # it ("Neuen Stand übernehmen") - easy to forget after replacing a file yourself
     {"key": "repo_break", "title": "Bruch im Repository",
      "desc": "Eine Datei eines Pakets hat sich geändert oder fehlt – Bereitstellungen und Zeitpläne des Pakets sind unterbrochen, bis der neue Stand übernommen wird.",
@@ -560,7 +560,7 @@ def _check_backup_failed(p, cfg):
 
 
 def _check_repo_break(p, cfg):
-    """2.38.10: packages whose repository files broke (integrity check). One case per package; resolved when the new
+    """2.38.11: packages whose repository files broke (integrity check). One case per package; resolved when the new
     state is confirmed or the file is back."""
     from . import integrity  # late import: integrity is not needed for the other notifications
     states = ("broken", "warn") if str(p.get("warn", "0")) == "1" else ("broken",)

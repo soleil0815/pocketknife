@@ -7706,7 +7706,7 @@ def _():
 
 
 
-@test("2.38.10 Notification \"Bruch im Repository\": one case per broken package, all-clear after confirming, deviations optional")
+@test("2.38.11 Notification \"Bruch im Repository\": one case per broken package, all-clear after confirming, deviations optional")
 def _():
     import json as _json
     from app import notify
