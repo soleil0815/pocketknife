@@ -234,7 +234,7 @@ Der Quellcode liegt auf GitHub; GitHub baut die Images. Ablauf für eine neue Ve
 
 1. `VERSION` erhöhen, in `CHANGELOG.md` einen Abschnitt `## pocketknife-<Version> (Datum)` anlegen und in `app/news.json` die Neuigkeiten der Version (kurz, Deutsch und Englisch; Art `security`/`new`/`improved`/`fixed`) – fehlt eins davon, bricht der Bau ab.
 2. Committen und pushen – `Test` baut das Image (amd64) und führt den Selbsttest darin aus.
-3. Tag setzen: `git tag v<Version> && git push origin v<Version>`. `Release` baut dann für **amd64 und arm64**, führt den Selbsttest in beiden aus (arm64 emuliert, dauert länger), lädt das Image als `ghcr.io/<besitzer>/pocketknife:<Version>` und `:latest` hoch, veröffentlicht guacd als `…/pocketknife-guacd` und legt ein Release an – mit `docker-compose.yml`, `.env.example`, `update.sh`, je Plattform einem Archiv beider Images für Installationen ohne Internet, Prüfsummen und Image-Digests (keine Programm-ZIP mehr). Schlägt ein Schritt fehl, wird nichts veröffentlicht.
+3. Tag setzen: `git tag v<Version> && git push origin v<Version>`. `Release` baut dann für **amd64 und arm64**, führt Selbsttest und Trivy in beiden aus (jede Plattform auf ihrem eigenen Rechner, gleichzeitig), lädt das Image als `ghcr.io/<besitzer>/pocketknife:<Version>` und `:latest` hoch, veröffentlicht guacd als `…/pocketknife-guacd` und legt ein Release an – mit `docker-compose.yml`, `.env.example`, `update.sh`, je Plattform einem Archiv beider Images für Installationen ohne Internet, Prüfsummen und Image-Digests (keine Programm-ZIP mehr). Schlägt ein Schritt fehl, wird nichts veröffentlicht.
 
 Bei einem privaten Repository ist auch das Image privat; die Docker-Hosts melden sich einmal mit `docker login ghcr.io` an (Token mit `read:packages`).
 

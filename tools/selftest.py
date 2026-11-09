@@ -4165,8 +4165,15 @@ def _():
             assert _re.search(r"@[0-9a-f]{40}$", use), f"{f}: action not pinned to a commit: {use}"
         assert "aquasecurity/" not in t, f"{f}: Trivy only via tools/trivy-scan.sh (no action)"
     rel = wfs["release.yml"]
-    assert rel.index("tools/trivy-scan.sh pocketknife-test:amd64 pocketknife-test:arm64") < rel.index("Build and push"), \
+    assert rel.index('tools/trivy-scan.sh "pocketknife-test:$ARCH"') < rel.index("Build and push"), \
         "Trivy scans BEFORE uploading"
+    # each platform natively on its own runner (no emulation); the tags only when both platforms passed
+    plat = rel[rel.index("\n  platform:"):rel.index("\n  release:")]
+    assert "- { arch: amd64, runner: ubuntu-24.04 }" in plat and "- { arch: arm64, runner: ubuntu-24.04-arm }" in plat
+    assert "qemu" not in rel.lower().replace("under qemu", ""), "arm64 builds on an ARM runner"
+    assert "push-by-digest=true" in plat and "tags:" not in plat.split("- name: Build and push")[1], "pushed untagged"
+    assert "needs: [version, platform]" in rel and "No checked $arch image from this run" in rel
+    assert rel.index("- name: Tag both checked platforms") < rel.index("- name: Provenance attestation")
     assert "tools/trivy-scan.sh" in wfs["test.yml"]
     assert "schedule:" in wfs["security.yml"] and ":latest" in wfs["security.yml"] and "packages: read" in wfs["security.yml"]
     assert "pin-versions.sh --update" in wfs["update-pins.yml"] and "gh pr create" in wfs["update-pins.yml"]

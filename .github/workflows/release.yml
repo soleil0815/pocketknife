@@ -1,4 +1,5 @@
-# POCKET KNIFE – Release: build the image for amd64 and arm64, self-test, upload to the GitHub Container Registry
+# POCKET KNIFE – Release: build the image for amd64 and arm64 (each natively on its own runner, both at the same time),
+# self-test, upload to the GitHub Container Registry
 # (ghcr.io), publish guacd under its own name and create a release (2.33: without a program ZIP - the program
 # lives entirely in the image; for installations without internet one archive of both images per platform for docker load).
 #
@@ -24,14 +25,19 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release:
+  version:
     runs-on: ubuntu-24.04
-    timeout-minutes: 150
+    timeout-minutes: 15
     permissions:
-      contents: write     # create the release
-      packages: write     # image to ghcr.io
-      id-token: write     # 2.37: sign the provenance attestation
-      attestations: write
+      contents: read
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      image: ${{ steps.v.outputs.image }}
+      tags: ${{ steps.v.outputs.tags }}
+      latest: ${{ steps.v.outputs.latest }}
+      guacd_image: ${{ steps.v.outputs.guacd_image }}
+      guacd_tags: ${{ steps.v.outputs.guacd_tags }}
+      guacd_src: ${{ steps.v.outputs.guacd_src }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -78,52 +84,50 @@ jobs:
           [ -n "$G" ] || { echo "::error::docker/guacd.txt contains no guacd image with a digest"; exit 1; }
           echo "guacd_src=$G" >> "$GITHUB_OUTPUT"
 
-      - name: QEMU (arm64 auf amd64)
-        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1  # v4.4.0
+  # Each platform on its own hardware, both at the same time (no emulation - arm64 under QEMU was the slow part):
+  # test build, self-test and Trivy of exactly this image, then push it WITHOUT a tag (by digest). The tags are set in
+  # the release job only when both platforms passed.
+  platform:
+    needs: version
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { arch: amd64, runner: ubuntu-24.04 }
+          - { arch: arm64, runner: ubuntu-24.04-arm }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write     # image to ghcr.io (untagged until both platforms passed)
+    env:
+      ARCH: ${{ matrix.arch }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
-          platforms: arm64
+          persist-credentials: false   # do not leave the token in the working folder (build, self-test)
 
       - name: Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069  # v4.4.1
 
-      - name: Test build amd64
+      - name: Test build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc  # v7.4.0
         with:
           context: .
-          platforms: linux/amd64
+          platforms: linux/${{ matrix.arch }}
           load: true
-          tags: pocketknife-test:amd64
-          cache-from: type=gha,scope=amd64
-          cache-to: type=gha,scope=amd64,mode=max
+          tags: pocketknife-test:${{ matrix.arch }}
+          cache-from: type=gha,scope=${{ matrix.arch }}
+          cache-to: type=gha,scope=${{ matrix.arch }},mode=max
 
-      - name: Self-test amd64
+      - name: Self-test
         run: |
           # Show failed tests as a notice directly on the run (annotation)
-          if ! docker run --rm --platform linux/amd64 -e PK_SELFTEST_TRACE=1 pocketknife-test:amd64 python3 tools/selftest.py > selftest.txt 2>&1; then
+          if ! docker run --rm -e PK_SELFTEST_TRACE=1 "pocketknife-test:$ARCH" python3 tools/selftest.py > selftest.txt 2>&1; then
             tail -n 120 selftest.txt
             msg=$( (grep -A14 "✗" selftest.txt || tail -n 60 selftest.txt) | head -n 150 | sed -e ':a' -e 'N' -e '$!ba' -e 's/%/%25/g' -e 's/\r/%0D/g' -e 's/\n/%0A/g')
-            echo "::error title=Self-test amd64::${msg:-Self-test failed (see log)}"
-            exit 1
-          fi
-          tail -n 1 selftest.txt
-
-      - name: Test build arm64
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc  # v7.4.0
-        with:
-          context: .
-          platforms: linux/arm64
-          load: true
-          tags: pocketknife-test:arm64
-          cache-from: type=gha,scope=arm64
-          cache-to: type=gha,scope=arm64,mode=max
-
-      - name: Self-test arm64 (emulated)
-        run: |
-          # Show failed tests as a notice directly on the run (annotation)
-          if ! docker run --rm --platform linux/arm64 -e PK_SELFTEST_TRACE=1 pocketknife-test:arm64 python3 tools/selftest.py > selftest.txt 2>&1; then
-            tail -n 120 selftest.txt
-            msg=$( (grep -A14 "✗" selftest.txt || tail -n 60 selftest.txt) | head -n 150 | sed -e ':a' -e 'N' -e '$!ba' -e 's/%/%25/g' -e 's/\r/%0D/g' -e 's/\n/%0A/g')
-            echo "::error title=Self-test arm64 (emulated)::${msg:-Self-test failed (see log)}"
+            echo "::error title=Self-test $ARCH::${msg:-Self-test failed (see log)}"
             exit 1
           fi
           tail -n 1 selftest.txt
@@ -133,12 +137,12 @@ jobs:
           PK_TRIVY_REPORT: trivy.md
         run: |
           # Known vulnerabilities HIGH/CRITICAL with an available fix → no release (see tools/trivy-scan.sh)
-          rc=0; sh tools/trivy-scan.sh pocketknife-test:amd64 pocketknife-test:arm64 || rc=$?
+          rc=0; sh tools/trivy-scan.sh "pocketknife-test:$ARCH" || rc=$?
           if [ -f trivy.md ]; then cat trivy.md >> "$GITHUB_STEP_SUMMARY"; fi
           if [ "$rc" = 1 ]; then
-            echo "::error title=Trivy::Vulnerabilities with an available fix in the image – nothing will be published. Remedy: Actions → Update versions → Run workflow."
+            echo "::error title=Trivy ($ARCH)::Vulnerabilities with an available fix in the image – nothing will be published. Remedy: Actions → Update versions → Run workflow."
           elif [ "$rc" != 0 ]; then
-            echo "::error title=Trivy::Scan not possible (exit code $rc) – no release without a scan. Run again later."
+            echo "::error title=Trivy ($ARCH)::Scan not possible (exit code $rc) – no release without a scan. Run again later."
           fi
           exit "$rc"
 
@@ -149,23 +153,97 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push (amd64 + arm64)
+      # same layers as the checked test build (cache of this platform), with the labels - pushed without a tag
+      - name: Build and push (untagged)
         id: push
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc  # v7.4.0
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.v.outputs.tags }}
+          platforms: linux/${{ matrix.arch }}
+          outputs: type=image,name=${{ needs.version.outputs.image }},push-by-digest=true,name-canonical=true,push=true
           labels: |
             org.opencontainers.image.title=POCKET KNIFE
             org.opencontainers.image.licenses=AGPL-3.0-only
-            org.opencontainers.image.version=${{ steps.v.outputs.version }}
+            org.opencontainers.image.version=${{ needs.version.outputs.version }}
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-          cache-from: |
-            type=gha,scope=amd64
-            type=gha,scope=arm64
+          cache-from: type=gha,scope=${{ matrix.arch }}
+
+      - name: Hand over the digest
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          case "$DIGEST" in sha256:*) ;; *) echo "::error::No digest for the $ARCH image"; exit 1 ;; esac
+          mkdir -p digest && printf '%s\n' "$DIGEST" > "digest/$ARCH"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: digest-${{ matrix.arch }}
+          path: digest/${{ matrix.arch }}
+          retention-days: 1
+
+  release:
+    needs: [version, platform]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: write     # create the release
+      packages: write     # image to ghcr.io
+      id-token: write     # 2.37: sign the provenance attestation
+      attestations: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Version (from the version job)
+        id: v
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          IMAGE: ${{ needs.version.outputs.image }}
+          LATEST: ${{ needs.version.outputs.latest }}
+          GUACD_IMAGE: ${{ needs.version.outputs.guacd_image }}
+          GUACD_TAGS: ${{ needs.version.outputs.guacd_tags }}
+          GUACD_SRC: ${{ needs.version.outputs.guacd_src }}
+        run: |
+          { echo "version=$VERSION"; echo "image=$IMAGE"; echo "latest=$LATEST"
+            echo "guacd_image=$GUACD_IMAGE"; echo "guacd_tags=$GUACD_TAGS"; echo "guacd_src=$GUACD_SRC"; } >> "$GITHUB_OUTPUT"
+
+      - name: Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069  # v4.4.1
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6  # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          pattern: digest-*
+          path: digest
+          merge-multiple: true
+
+      - name: Tag both checked platforms (amd64 + arm64)
+        id: push
+        env:
+          TAGS: ${{ needs.version.outputs.tags }}
+          IMAGE: ${{ needs.version.outputs.image }}
+          VER: ${{ needs.version.outputs.version }}
+        run: |
+          set --
+          for t in $(printf '%s' "$TAGS" | tr ',' ' '); do set -- "$@" -t "$t"; done
+          for arch in amd64 arm64; do
+            d=$(cat "digest/$arch" 2>/dev/null) || { echo "::error::No checked $arch image from this run"; exit 1; }
+            case "$d" in sha256:*) set -- "$@" "$IMAGE@$d" ;; *) echo "::error::Invalid $arch digest"; exit 1 ;; esac
+          done
+          docker buildx imagetools create "$@"
+          D=$(docker buildx imagetools inspect "$IMAGE:$VER" --format '{{ .Manifest.Digest }}')
+          P=$(docker buildx imagetools inspect "$IMAGE:$VER" --format '{{ json .Manifest }}' \
+            | python3 -c 'import json, sys; print(" ".join(sorted({m["platform"]["architecture"] for m in json.load(sys.stdin)["manifests"] if m.get("platform", {}).get("os") == "linux"})))')
+          [ "$P" = "amd64 arm64" ] || { echo "::error::$IMAGE:$VER contains '$P' instead of amd64 and arm64"; exit 1; }
+          echo "digest=$D" >> "$GITHUB_OUTPUT"
 
       - name: Provenance attestation for the image
         # 2.37: signed by GitHub - proves that exactly this image was built from this repository and commit.
