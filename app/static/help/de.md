@@ -364,7 +364,7 @@ PK_GID=100
 
 Ab 2.33 aktualisiert man POCKET KNIFE wie jeden anderen Container – das Programm steckt komplett im Image, auf dem Host liegen nur `docker-compose.yml`, `.env` und die Daten. **Vor dem Start einer neuen Version sichert POCKET KNIFE seine Datenbank selbst** (Sicherung „vor-<Version>“, siehe [Sicherung](#backup)) und erweitert sie danach bei Bedarf – egal, wer das Image getauscht hat.
 
-**Mit einer Container-Verwaltung (empfohlen):** Dockhand, Watchtower, Tugtainer & Co. aktualisieren beide Container (`pocketknife` und `pocketknife-guacd`), sobald ein neues Image da ist. Stellen Sie die Update-Zeit möglichst **nachts** ein – ein Neustart mitten in einer Verteilung unterbricht sie (POCKET KNIFE räumt danach auf, siehe [Neustart während einer Bereitstellung](#deploy-restart)). Jeden Montag erscheint ein Sicherheitsupdate (`<Version>-s<n>`: gleiches Programm, aktualisierte Pakete).
+**Mit einer Container-Verwaltung (empfohlen):** Dockhand, Watchtower, Tugtainer & Co. aktualisieren beide Container (`pocketknife` und `pocketknife-guacd`), sobald ein neues Image da ist. Stellen Sie die Update-Zeit möglichst **nachts** ein – ein Neustart mitten in einer Verteilung unterbricht sie (POCKET KNIFE räumt danach auf, siehe [Neustart während einer Bereitstellung](#deploy-restart)). Einmal im Monat am Patchday (zweiter Dienstag) erscheint ein Sicherheitsupdate (`<Version>-s<n>`: gleiches Programm, aktualisierte Pakete).
 
 **Von Hand** im Ordner mit der `docker-compose.yml`:
 
@@ -384,7 +384,7 @@ sudo sh update.sh latest        # wieder „immer die neueste“
 
 **Private Registry:** einmal auf dem Docker-Host als der Benutzer, der die Updates ausführt (bei `sudo` root, bei einer Container-Verwaltung deren Benutzer), anmelden: `docker login ghcr.io -u <GitHub-Benutzer>`, Kennwort = **persönliches Zugriffstoken** mit `read:packages`. Das Token steht nicht in der `.env`.
 
-**Woher die Images kommen:** Bei jeder Version baut GitHub (Workflow `.github/workflows/release.yml`) das Image für amd64 und arm64, lässt den Selbsttest in beiden laufen, prüft beide mit **Trivy** auf bekannte Schwachstellen und veröffentlicht es nur dann – zusammen mit guacd unter eigenem Namen; zusätzlich montags mit aktualisierten Paketen („Wöchentliches Sicherheitsupdate“).
+**Woher die Images kommen:** Bei jeder Version baut GitHub (Workflow `.github/workflows/release.yml`) das Image für amd64 und arm64, lässt den Selbsttest in beiden laufen, prüft beide mit **Trivy** auf bekannte Schwachstellen und veröffentlicht es nur dann – zusammen mit guacd unter eigenem Namen; zusätzlich einmal im Monat am Patchday (zweiter Dienstag) mit aktualisierten Paketen („Security update (patch day)“).
 
 ### Umstieg von einer Installation mit der Programm-ZIP (bis 2.32) {#update-migrate}
 

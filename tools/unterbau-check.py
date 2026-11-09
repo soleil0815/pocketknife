@@ -2,7 +2,7 @@
 """POCKET KNIFE – check the base platform: how much longer will the image's Python series and Debian version
 receive security updates? (Data: endoflife.date)
 
-The weekly security update keeps everything current within the Python series (e.g. 3.12) and the Debian version
+The monthly security update (patch day) keeps everything current within the Python series (e.g. 3.12) and the Debian version
 (e.g. 13 "trixie"). Nobody raises the base platform silently - this script reports when it is time to do so:
   - less than WARN_DAYS (default 365) days: notice
   - less than FAIL_DAYS (default 180) days or already over: exit code 1 (run turns red → mail from GitHub)
