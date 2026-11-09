@@ -4219,6 +4219,33 @@ def _():
         assert _sp.run(["sh", sh, bad], capture_output=True).returncode == 2, bad
 
 
+@test("ZAP scan in the monthly code audit: only in the week before patch day or by hand, read-only, pinned, no login, alerts in the log")
+def _():
+    import re as _re
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+    wf = os.path.join(root, ".github", "workflows", "zap-scan.yml")
+    sc = os.path.join(root, "tools", "zap-scan.sh")
+    if not os.path.exists(wf) or not os.path.exists(sc):
+        return  # workflows and tools are not in the container
+    y = open(wf, encoding="utf-8").read()
+    s = open(sc, encoding="utf-8").read()
+    assert _re.search(r"cron: '\d+ [0-5] \* \* 2'", y), "Tuesdays at night"
+    assert "sh tools/patchday.sh \"$(date -u -d '+7 days' +%F)\"" in y, "only one week before patch day"
+    assert "workflow_dispatch:" in y
+    paths = y.split("pull_request:")[1].split("\npermissions:")[0]
+    for p in _re.findall(r"- (\S+)", paths):
+        assert "zap" in p.lower(), "pull requests only when the scan itself changes: " + p
+    assert "\npermissions: {}\n" in y and ": write" not in y, "read-only"
+    for u in _re.findall(r"uses: (\S+)", y):
+        assert _re.search(r"@[0-9a-f]{40}$", u), u
+    assert _re.search(r"ZAP_IMAGE: ghcr\.io/zaproxy/zaproxy:stable@sha256:[0-9a-f]{64}\n", y), "ZAP image pinned"
+    assert s.startswith("#!/bin/sh"), "POSIX sh"
+    assert '-t "$scheme://$APP:$APP_PORT"' in s and 'OUT="$(cd "$OUT" && pwd)"' in s
+    assert "scanner.maxScanDurationInMins=$MINUTES" in s
+    assert not _re.search(r"(?i)--auth|password=", s), "no login"
+    assert "ZAP-ALERTS-BEGIN" in s and "ZAP-ALERTS-END" in s
+
+
 @test("2.29.3 Security update (on patch day, the second Tuesday): update packages, rebuild, self-test and Trivy – only on success new version and release (latest); nothing without a change; version number, CHANGELOG and news automatic")
 def _():
     import shutil as _sh
