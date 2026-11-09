@@ -1,4 +1,4 @@
-# POCKET KNIFE – for pull requests and on main: build the image (amd64) and run the self-test in it.
+# POCKET KNIFE – for pull requests and on main: build the image (amd64 and arm64, each on its own runner) and run the self-test in it.
 # Nothing is published (for that: release.yml with a tag v<VERSION>).
 #
 # Saving Actions minutes (private repository, 2000 free minutes per month):
@@ -43,7 +43,15 @@ jobs:
           "$RUNNER_TEMP/mypy/bin/python" tools/typcheck.py
 
   test:
-    runs-on: ubuntu-24.04
+    # amd64 and arm64 at the same time, each on its own runner: an ARM-only problem shows up here already (and the
+    # build cache of both platforms is warm for the release)
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: amd64, runner: ubuntu-24.04 }
+          - { arch: arm64, runner: ubuntu-24.04-arm }
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     steps:
       - name: Checkout
@@ -54,23 +62,23 @@ jobs:
       - name: Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069  # v4.4.1
 
-      - name: Build (amd64)
+      - name: Build (${{ matrix.arch }})
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc  # v7.4.0
         with:
           context: .
-          platforms: linux/amd64
+          platforms: linux/${{ matrix.arch }}
           load: true
-          tags: pocketknife-test:amd64
-          cache-from: type=gha,scope=amd64
-          cache-to: type=gha,scope=amd64,mode=max
+          tags: pocketknife-test:${{ matrix.arch }}
+          cache-from: type=gha,scope=${{ matrix.arch }}
+          cache-to: type=gha,scope=${{ matrix.arch }},mode=max
 
       - name: Image size
-        run: docker image inspect -f 'pocketknife-test:amd64 {{.Size}} bytes' pocketknife-test:amd64 | awk '{printf "%s %.1f MB\n", $1, $2/1000000}'
+        run: docker image inspect -f 'pocketknife-test:${{ matrix.arch }} {{.Size}} bytes' pocketknife-test:${{ matrix.arch }} | awk '{printf "%s %.1f MB\n", $1, $2/1000000}'
 
       - name: Self-test in the image
         run: |
           # Show failed tests as a notice directly on the run (annotation)
-          if ! docker run --rm -e PK_SELFTEST_TRACE=1 pocketknife-test:amd64 python3 tools/selftest.py > selftest.txt 2>&1; then
+          if ! docker run --rm -e PK_SELFTEST_TRACE=1 pocketknife-test:${{ matrix.arch }} python3 tools/selftest.py > selftest.txt 2>&1; then
             tail -n 120 selftest.txt
             msg=$( (grep -A14 "✗" selftest.txt || tail -n 60 selftest.txt) | head -n 150 | sed -e ':a' -e 'N' -e '$!ba' -e 's/%/%25/g' -e 's/\r/%0D/g' -e 's/\n/%0A/g')
             echo "::error title=Self-test in the image::${msg:-Self-test failed (see log)}"
@@ -85,7 +93,7 @@ jobs:
           # HOME/TMPDIR as on a normal machine (in the image they point to /nonexistent and /data/tmp - scripts like
           # trivy-scan.sh and update.sh create cache and temporary files there)
           if ! docker run --rm -e PK_SELFTEST_TRACE=1 -e HOME=/tmp -e TMPDIR=/tmp -v "$PWD:/src:ro" -w /src --entrypoint python3 \
-               pocketknife-test:amd64 -I tools/selftest.py > selftest-repo.txt 2>&1; then
+               pocketknife-test:${{ matrix.arch }} -I tools/selftest.py > selftest-repo.txt 2>&1; then
             tail -n 120 selftest-repo.txt
             msg=$( (grep -A14 "✗" selftest-repo.txt || tail -n 60 selftest-repo.txt) | head -n 150 | sed -e ':a' -e 'N' -e '$!ba' -e 's/%/%25/g' -e 's/\r/%0D/g' -e 's/\n/%0A/g')
             echo "::error title=Self-test on the checkout::${msg:-Self-test failed (see log)}"
@@ -98,7 +106,7 @@ jobs:
         env:
           PK_TRIVY_REPORT: trivy.md
         run: |
-          rc=0; sh tools/trivy-scan.sh pocketknife-test:amd64 || rc=$?
+          rc=0; sh tools/trivy-scan.sh pocketknife-test:${{ matrix.arch }} || rc=$?
           if [ -f trivy.md ]; then cat trivy.md >> "$GITHUB_STEP_SUMMARY"; fi
           [ "$rc" = 1 ] && echo "::error title=Trivy::Vulnerabilities with an available fix – a release would be rejected. Remedy: Actions → Update versions."
           exit "$rc"
