@@ -8,6 +8,8 @@ Webseite: [helfi.space](https://helfi.space)
 
 Webanwendung zur **Inventarisierung** und **Softwareverteilung** für Windows-Computer in einer Active-Directory-Domäne (Microsoft AD oder Samba AD).
 
+> **Für den eigenen Einsatz gebaut – Nutzung in eigener Verantwortung.** Ich habe POCKET KNIFE in erster Linie für mich selbst entwickelt, weil ich genau so ein Programm in meiner eigenen Umgebung einsetzen wollte. Ich nutze es selbst im Betrieb; Fehler fallen mir dadurch meist schnell auf und werden zügig behoben. Wenn Sie POCKET KNIFE ebenfalls einsetzen möchten: gern – aber in eigener Verantwortung. Es gibt keine Gewährleistung und keine Haftung (Abschnitte 15 und 16 der [Lizenz](LICENSE)). Probieren Sie es zuerst in einer Testumgebung aus und legen Sie Sicherungen an. Fehlerberichte und Verbesserungsvorschläge sind willkommen – am besten als [Issue](https://github.com/soleil0815/pocketknife/issues); Sicherheitslücken bitte nicht öffentlich, sondern über [„Report a vulnerability“](https://github.com/soleil0815/pocketknife/security/advisories/new) melden. Support oder feste Antwortzeiten kann ich nicht zusagen.
+
 - Läuft als Docker-Container, Daten (SQLite, Logs, Zertifikat, winget-Index) liegen unter `/data`
 - Anmeldung mit Domänenkonten über **LDAPS**; nur Mitglieder einer festgelegten AD-Gruppe haben Zugriff
 - Das LDAPS-Zertifikat der DCs wird **automatisch vertraut**; der SHA-256-Fingerabdruck wird gespeichert und eine Änderung protokolliert
