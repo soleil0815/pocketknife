@@ -1532,13 +1532,16 @@ def _():
     db.ex("DELETE FROM version_history")
     db.ex("DELETE FROM logs")
     db.ex("DELETE FROM deployment_targets")
-    # Startup messages of older versions in the log -> are added on first run (duplicate starts merged)
-    for ts, msg, lvl in (("2026-10-15 08:00:00", "POCKET KNIFE 2.19 gestartet.", "INFO"),
-                         ("2026-10-16 09:00:00", "Alter Fehler XYZ", "ERROR"),
-                         ("2026-10-17 08:00:00", "POCKET KNIFE 2.19 gestartet.", "INFO"),
-                         ("2026-10-18 08:00:00", "POCKET KNIFE 2.20 gestartet.", "INFO"),
-                         ("2026-10-18 10:00:00", "Fehler unter 2.20", "ERROR"),
-                         ("2026-10-10 10:00:00", "Ganz alter Eintrag", "WARN")):
+    # Startup messages of older versions in the log -> are added on first run (duplicate starts merged).
+    # Timestamps relative to today: the package covers at most the last 30 days (fixed dates broke the test
+    # as soon as they fell out of that window).
+    t_old, t_219, t_err19, t_219b, t_220, t_err20 = (util.ago(days=d) for d in (28, 27, 26, 25, 24, 23))
+    for ts, msg, lvl in ((t_219, "POCKET KNIFE 2.19 gestartet.", "INFO"),
+                         (t_err19, "Alter Fehler XYZ", "ERROR"),
+                         (t_219b, "POCKET KNIFE 2.19 gestartet.", "INFO"),
+                         (t_220, "POCKET KNIFE 2.20 gestartet.", "INFO"),
+                         (t_err20, "Fehler unter 2.20", "ERROR"),
+                         (t_old, "Ganz alter Eintrag", "WARN")):
         db.ex("INSERT INTO logs(ts, level, category, message) VALUES(?,?,?,?)", (ts, lvl, "system", msg))
     diagnostics.record_start()
     h = [(x["version"]) for x in diagnostics.history()]
@@ -1546,10 +1549,10 @@ def _():
     diagnostics.record_start()
     assert len(diagnostics.history()) == 3, "restart of the same version does not count twice"
     vat = diagnostics._VersionAt(diagnostics.history())
-    assert vat("2026-10-16 09:00:00") == "2.19" and vat("2026-10-18 10:00:00") == "2.20" and vat("2026-10-10 00:00:00") == "vor 2.19"
-    did = db.ex("INSERT INTO deployments(name, status, created_at) VALUES('Alt', 'failed', '2026-10-16 09:00:00')")
+    assert vat(t_err19) == "2.19" and vat(t_err20) == "2.20" and vat(util.ago(days=29)) == "vor 2.19"
+    did = db.ex("INSERT INTO deployments(name, status, created_at) VALUES('Alt', 'failed', ?)", (t_err19,))
     db.ex("INSERT INTO deployment_targets(deployment_id, computer_name, status, message, started_at, finished_at) "
-          "VALUES(?, 'PC-1', 'failed', 'kaputt', '2026-10-16 09:00:00', '2026-10-16 09:01:00')", (did,))
+          "VALUES(?, 'PC-1', 'failed', 'kaputt', ?, ?)", (did, t_err19, t_err19))
     z = _zf.ZipFile(_io.BytesIO(diagnostics.build(30, True)[0]))
     assert {"versionen.json", "aenderungen.md", "behobene_fehler.txt"} <= set(z.namelist())
     rows = list(_csv.DictReader(_io.StringIO(z.read("protokoll.csv").decode("utf-8-sig")), delimiter=";"))
@@ -5237,6 +5240,7 @@ def _():
 def _():
     from app import db, rebootmsg, main
     import inspect
+    import re
     old = {k: db.setting(rebootmsg.KEYS[k]) for k in ("restart", "shutdown")}
     try:
         for k in ("restart", "shutdown"):
@@ -6042,6 +6046,7 @@ def _():
     assert "c.outdated && (wingetOk(c) || wcHas(sw.winget_id))" in sd[:sd.index("modal(sw.name")] and sd.index("await wcReady();") < sd.index("const t = table(")
     from app import main as _m
     import inspect
+    import re
     assert "c.os_build" in inspect.getsource(_m.api_software_detail), "build for display"
     # Kiosk: do not offer a winget package on Server 2016, own package yes
     db.set_setting("kiosk_enabled", 1)
@@ -7826,6 +7831,16 @@ def _():
     assert weak("O:BAD:(A;;FA;;;WD)(A;;GR;;;AU)") == ["WD"]
     assert weak("O:BAD:(A;;CCDCLC;;;S-1-5-21-1-2-3-513)") == ["S-1-5-21-1-2-3-513"] and weak("O:BAD:(D;;FA;;;BU)") == []
     assert "foreach ($vn in @($it.PSObject.Properties | ForEach-Object { $_.Name }))" in ps
+
+
+@test("2.22 Self-test: diagnostic package test does not use fixed dates (time bomb once outside the 30-day window)")
+def _():
+    import inspect
+    import re
+    src = inspect.getsource(sys.modules[__name__])
+    start = src.index('@test("2.22 Diagnostic package: every line with version')
+    body = src[start:src.index("@test(", start + 10)]
+    assert not re.search(r"20\d\d-\d\d-\d\d \d\d:\d\d", body), "fixed timestamps in a test that depends on 'last N days'"
 
 
 def main():
