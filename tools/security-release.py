@@ -71,7 +71,7 @@ def main(old_dir):
     ch = changes(old_dir)
     today = datetime.date.today()
     lines = [f"## pocketknife-{new} ({today.strftime('%d.%m.%Y')})",
-             "- **Weekly security update** (built automatically): base image, Debian and Python packages brought up to "
+             "- **Security update (patch day)** (built automatically): base image, Debian and Python packages brought up to "
              "date, rebuilt without cache, self-test and vulnerability scan (Trivy) passed. "
              f"The program itself is unchanged (program state {new.split('-s')[0]})"]
     if ch:
@@ -88,9 +88,9 @@ def main(old_dir):
     d = json.load(open(nf, encoding="utf-8"))
     d["versions"].insert(0, {"version": new, "date": today.isoformat(), "items": [{
         "kind": "security", "audience": "admin",
-        "de": f"Wöchentliches Sicherheitsupdate: Basis-Image und Pakete aktualisiert ({len(ch)} Änderungen), geprüft mit "
+        "de": f"Sicherheitsupdate (Patchday): Basis-Image und Pakete aktualisiert ({len(ch)} Änderungen), geprüft mit "
               "Selbsttest und Trivy. Keine Änderung am Programm.",
-        "en": f"Weekly security update: base image and packages updated ({len(ch)} changes), checked with self-test and "
+        "en": f"Security update (patch day): base image and packages updated ({len(ch)} changes), checked with self-test and "
               "Trivy. No change to the program."}]})
     with open(nf, "w", encoding="utf-8") as fh:
         json.dump(d, fh, indent=1, ensure_ascii=False)

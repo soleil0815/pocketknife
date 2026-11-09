@@ -4200,7 +4200,23 @@ def _():
     assert "CVE-2026-1111" in t and "libssl3t64" in t and "No vulnerabilities" in t, t
 
 
-@test("2.29.3 Weekly security update: Mondays update packages, rebuild, self-test and Trivy – only on success new version and release (latest); nothing without a change; version number, CHANGELOG and news automatic")
+@test("Patch day: tools/patchday.sh is true exactly on the second Tuesday of every month")
+def _():
+    import datetime as _dt
+    import subprocess as _sp
+    sh = os.path.join(os.path.dirname(os.path.abspath(__file__)), "patchday.sh")
+    if not os.path.exists(sh):
+        return  # tools are not in the container
+    start = _dt.date(2026, 11, 1)
+    days = [start + _dt.timedelta(n) for n in range(400)]
+    got = [d for d in days if _sp.run(["sh", sh, d.isoformat()]).returncode == 0]
+    assert got == [d for d in days if d.weekday() == 1 and 8 <= d.day <= 14], got
+    assert got[0] == _dt.date(2026, 11, 10), "the first one"
+    for bad in ("2026-13-01", "morgen"):
+        assert _sp.run(["sh", sh, bad], capture_output=True).returncode == 2, bad
+
+
+@test("2.29.3 Security update (on patch day, the second Tuesday): update packages, rebuild, self-test and Trivy – only on success new version and release (latest); nothing without a change; version number, CHANGELOG and news automatic")
 def _():
     import shutil as _sh
     import subprocess as _sp
@@ -4210,7 +4226,9 @@ def _():
     if not os.path.exists(wf) or not os.path.exists(tool):
         return  # workflows and tools are not in the container
     t = open(wf, encoding="utf-8").read()
-    assert '"23 3 * * 1"' in t, "Mondays"
+    assert '"23 3 * * 2"' in t and "sh tools/patchday.sh" in t, "Tuesdays, only patch day (2nd Tuesday) goes on"
+    assert "needs.patchday.outputs.due == 'true'" in t.split("  stand:")[1].split("steps:")[0], "stand waits for patch day"
+    assert "github.event.schedule == '23 3 * * 1'" in t.split("  unterbau:")[1], "base check stays on Mondays"
     order = ["pin-versions.sh --update", "git diff --quiet", "tools/trivy-scan.sh pocketknife:local", "tools/security-release.py",
              'git switch -c "$BR"', 'git push', "gh pr create"]
     pos = [t.index(x) for x in order]
