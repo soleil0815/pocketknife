@@ -8,8 +8,7 @@
 # guacd as …/pocketknife-guacd.
 #
 # If nothing has changed, nothing happens. If a step fails, NOTHING is published - GitHub sends
-# a mail to the owner. By hand (any day): Actions → Security update (patch day) → Run workflow. The daily security scan
-# also starts it at once when the published image has a vulnerability with an available fix (job remedy).
+# a mail to the owner. By hand (any day, e.g. for an urgent fix): Actions → Security update (patch day) → Run workflow.
 # Note: GitHub pauses scheduled runs after 60 days without a change in the repository. For the pull request,
 # "Allow GitHub Actions to create and approve pull requests" must be enabled under Settings → Actions → General -
 # otherwise only the branch is created (link in the run).
@@ -31,8 +30,7 @@ concurrency:
 
 jobs:
   patchday:
-    # Scheduled: only the Tuesday run on patch day goes on (a cron line cannot say "second Tuesday"); by hand or
-    # started by the security scan (remedy): any day.
+    # Scheduled: only the Tuesday run on patch day goes on (a cron line cannot say "second Tuesday"); by hand: any day.
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
