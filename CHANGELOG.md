@@ -9,6 +9,10 @@ New entries are in English. Entries up to and including 2.38.4-s1 (November 2026
 - **Migration:** on the first start all packages that ran as service account or Local System get "Wie in den Einstellungen", steps "Wie Paket"; "Angemeldeter Benutzer" stays, winget steps get their real account. Waiting deployments are converted too, finished ones stay as history. Packages whose own commands open a network path (`\\server\share`) are listed in the log - as Local System the computer account accesses it
 - **Self-test:** model and resolution, migration (once, waiting deployments, history unchanged, network paths reported), password only as a parameter and the task removed afterwards, setting only via its own endpoint with confirmation and log, editor options
 
+## pocketknife-2.38.11-s1 (10.11.2026)
+- **Security update (patch day)** (built automatically): base image, Debian and Python packages brought up to date, rebuilt without cache, self-test and vulnerability scan (Trivy) passed. The program itself is unchanged (program state 2.38.11)
+- Changed (1): `base image` previous state → new state (security updates from Debian/Python)
+
 ## pocketknife-2.38.11 (08.11.2026)
 - **New - notification "Bruch im Repository":** mail when a file of a package changed or is missing (integrity check). Deployments and schedules of the package stop until a main admin clicks "Neuen Stand übernehmen" - easy to forget after replacing a file yourself. One case per package with the findings; all-clear once the new state is accepted (or the file is back). Optionally also deviations (other files in the package folder changed, deployments continue)
 - **Self-test:** cases per package, deviations only on request, resolved after confirming
