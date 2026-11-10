@@ -163,8 +163,8 @@ def package_for(sw, command=None, run_as=None, cleanup=False):
     if not cmd and not cleanup:
         raise ValueError(f"Für „{sw['name']}“ ist kein Deinstallationsbefehl bekannt.")
     name = f"Deinstallation: {sw['name']}"
-    run_as = run_as if run_as in ("system", "user", "deploy") else info["run_as"]
-    if run_as == "deploy" and not command:
+    run_as = run_as if run_as in ("system", "user", "deploy", "service") else info["run_as"]
+    if run_as in ("deploy", "service") and not command:
         # Command from the client's registry (UninstallString) - never as the domain-wide service account
         run_as = "system"
     forced = False

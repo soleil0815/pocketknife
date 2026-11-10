@@ -2162,12 +2162,7 @@ def _pkg_values(data, pid=None, user=None):
                         _err(f"Zentrale Pakete dürfen keine Dateien aus dem Ordner von Mandant „{tn}“ benutzen ({pth}) – "
                              "bitte die Dateien in einen zentralen Ordner legen oder das Paket dem Mandanten zuordnen.")
     if access.scoped(user):
-        # Code of an OU admin never runs as the domain-wide service account - "Local System" instead of "Dienstkonto"
-        if p.get("run_as") == "deploy":
-            p["run_as"] = "system"
-        for _k, st in steps.iter_steps(p):
-            if st.get("run_as") == "deploy":
-                st["run_as"] = "system"
+        # 2.39: the account comes from the settings for everyone (main admins and OU admins alike) - see steps.RUN_AS
         # 2.29.1: custom code (command, PowerShell, custom uninstall command) only if allowed for the tenant -
         # steps taken over unchanged (e.g. written by a main admin) remain possible
         if not access.may_script(user, p.get("tenant_id")):
@@ -2235,7 +2230,7 @@ def _pkg_out(r, stats=None, names=None):
     p["step_count"] = len(all_steps)
     p["step_types"] = sorted({s["type"] for s in all_steps})
     p["conditions_text"] = steps.describe_conditions(steps.clean_conditions(p["conditions"]))
-    p["run_as_label"] = steps.RUN_AS.get(p["run_as"], p["run_as"])
+    p["run_as_label"] = steps.pkg_run_as_label(p["run_as"])
     p["tenant_name"] = (names or {}).get(p.get("tenant_id"))
     p["ou_edit"] = 1 if r.get("ou_edit") else 0  # 2.30: OU admins of the tenant may change
     # Windows notification on the client: same rule as toast.classify (checkbox in the package list)
@@ -2283,7 +2278,7 @@ def api_packages(user=U):
 def api_packages_meta(user=U):
     return {"os": steps.OS_KEYS, "arch": steps.ARCH_KEYS, "logon": steps.LOGON, "ps_versions": steps.PS_VERSIONS,
             "file_modes": steps.FILE_MODES, "reg_modes": steps.REG_MODES, "run_as": steps.RUN_AS,
-            "step_run_as": steps.STEP_RUN_AS, "step_types": steps.STEP_TYPES, "phases": steps.PHASES,
+            "step_run_as": steps.STEP_RUN_AS, "winget_run_as": steps.WINGET_RUN_AS, "pkg_run_as": db.setting("pkg_run_as"), "step_types": steps.STEP_TYPES, "phases": steps.PHASES,
             "default_conditions": steps.default_conditions(), "service_login": config.service_login() if not access.scoped(user) else "verborgen",
             "tenants": ([{"id": t["id"], "name": t["name"], "repo_folder": t["repo_folder"]} for t in access.build_tenants(user)]
                         if access.scoped(user) else db.q("SELECT id, name, repo_folder FROM tenants ORDER BY name COLLATE NOCASE")),
@@ -2506,7 +2501,7 @@ def api_packages_merge(data: dict = Body(...), user=U):
     name = str(data.get("name") or "").strip() or " + ".join(r["name"] for r in rows)[:200]
     new = {"name": name[:200], "version": "", "description": str(data.get("description") or "").strip()[:2000]
            or "Zusammengefasst aus: " + ", ".join(r["name"] for r in rows),
-           "run_as": "deploy" if not access.scoped(user) else "system", "tenant_id": tid, "steps": st,
+           "run_as": "default", "tenant_id": tid, "steps": st,
            "conditions": steps.default_conditions(),
            # as with schedules with several packages: the strongest restart setting applies to the whole package
            "reboot": deploy.strongest_reboot(p.get("reboot") for p in pkgs),
@@ -2569,7 +2564,7 @@ def api_repository_test(user=U):
 @app.post("/api/packages/preview")
 def api_package_preview(data: dict = Body(...), user=U):
     """What a step actually executes on the client."""
-    pkg = {"run_as": data.get("run_as") or "deploy", "version": data.get("version") or ""}
+    pkg = {"run_as": steps.pkg_run_as(data.get("run_as")), "version": data.get("version") or ""}
     try:
         st = steps.clean_step(data.get("step") or {})
     except ValueError as e:
@@ -3567,7 +3562,8 @@ INTERNAL_SETTINGS = {"ldap_cert_fingerprint", "ldap_cert_fingerprints", "ldap_ce
                      "update_check_enabled", "update_repo", "winget_cache_all",
                      # 2.35: winget cache only via /api/wingetcache/settings (folder checked: own, empty folder)
                      "winget_cache_folder", "winget_cache_locale", "winget_cache_max_mb", "winget_cache_auto",
-                     "winget_bootstrap_tag"}  # 2.28: only via /api/system/updates (checked)  # Proxy: only via /api/system/proxy (checked, password in the vault)
+                     "winget_bootstrap_tag",
+                     "pkg_run_as"}  # 2.39: only via /api/settings/pkg-run-as (confirmation, log)  # 2.28: only via /api/system/updates (checked)  # Proxy: only via /api/system/proxy (checked, password in the vault)
 def rebootmsg_clean(v, limit):
     from . import rebootmsg
     return rebootmsg.clean(v, limit)
@@ -4159,6 +4155,38 @@ def api_toast_test(data: dict = Body(...), user=U):
 def api_proxy_get(user=U):
     from . import proxy
     return proxy.settings()
+
+
+@app.get("/api/settings/pkg-run-as")
+def api_pkg_run_as(user=U):
+    """2.39: account for packages ("Wie in den Einstellungen") and what the warning has to mention."""
+    n_build = db.val("SELECT COUNT(*) FROM tenants WHERE allow_packages=1", default=0)
+    return {"value": db.setting("pkg_run_as"), "options": steps.PKG_RUN_AS_SETTING,
+            "service_login": config.service_login(), "service_password": bool(config.service_password()),
+            "tenants_build": n_build}
+
+
+@app.put("/api/settings/pkg-run-as")
+def api_pkg_run_as_save(data: dict = Body(...), user=U):
+    v = data.get("value")
+    if v not in steps.PKG_RUN_AS_SETTING:
+        _err("Pakete ausführen als: system oder deploy.")
+    old = db.setting("pkg_run_as")
+    if v == old:
+        return {"value": v, "changed": False}
+    if v == "deploy":
+        if not data.get("confirm"):
+            _err("Bitte den Sicherheitshinweis bestätigen.")
+        if not config.service_password():
+            _err("Für das Dienstkonto ist kein Kennwort hinterlegt (Einstellungen → Verbindung & Konten).")
+    db.ex("INSERT OR REPLACE INTO settings(key, value) VALUES('pkg_run_as', ?)", (v,))
+    if v == "deploy":
+        pklog.warn("system", f"Pakete laufen jetzt als Dienstkonto ({config.service_login() or '?'}) – während jedes "
+                   "Schritts liegt dessen Kennwort in einer geplanten Aufgabe auf dem Zielcomputer. Empfohlen ist "
+                   "„Lokales System“.", user=user["username"])
+    else:
+        pklog.info("system", "Pakete laufen jetzt als Lokales System.", user=user["username"])
+    return {"value": v, "changed": True}
 
 
 @app.put("/api/system/proxy")

@@ -2,6 +2,30 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.39.0",
+   "date": "2026-11-10",
+   "items": [
+    {
+     "kind": "improved",
+     "audience": "admin",
+     "de": "Pakete laufen jetzt standardmäßig als „Lokales System“ – damit funktionieren auch Windows Update per PowerShell und Installer, die eine lokale Anmeldung verlangen. Bestehende Pakete wurden automatisch umgestellt.",
+     "en": "Packages now run as \"Local System\" by default – so Windows Update via PowerShell and installers that require a local logon work too. Existing packages were switched automatically."
+    },
+    {
+     "kind": "new",
+     "audience": "admin",
+     "de": "Neue Einstellung „Ausführung der Pakete“ (Einstellungen → Repository & winget): Lokales System (empfohlen) oder Dienstkonto – mit Sicherheitshinweis vor dem Umstellen.",
+     "en": "New setting \"Package execution\" (Settings → Repository & winget): Local System (recommended) or service account – with a security notice before switching."
+    },
+    {
+     "kind": "improved",
+     "audience": "admin",
+     "de": "„Ausführen als“ zeigt immer das Konto, das wirklich läuft – winget-Schritte bieten nur noch Lokales System oder den angemeldeten Benutzer.",
+     "en": "\"Run as\" always shows the account that really runs – winget steps only offer Local System or the logged-on user."
+    }
+   ]
+  },
+  {
    "version": "2.38.11",
    "date": "2026-11-08",
    "items": [

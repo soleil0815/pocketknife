@@ -271,6 +271,9 @@ DEFAULT_SETTINGS = {
     "scan_concurrency": 6,
     "deploy_concurrency": 8,
     "deploy_timeout_minutes": 60,
+    # 2.39: account for packages ("Wie in den Einstellungen"): "system" (Local System, standard) or "deploy" (service
+    # account through a short-lived scheduled task with its password) - only via PUT /api/settings/pkg-run-as
+    "pkg_run_as": "system",
     "rescan_after_deploy": 1,
     # 2.24: Windows notification for logged-on users after a successful installation/update
     "reboot_sender": "", "reboot_msg_restart": "", "reboot_msg_shutdown": "", "reboot_msg_deploy": "", "reboot_msg_step": "",
@@ -643,6 +646,8 @@ def init():
     schedules.migrate_rules()
     schedules.ensure_baselines()
     _migrate_ownership()
+    from . import steps
+    steps.migrate_run_as()
 
 
 def _migrate_ownership():

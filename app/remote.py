@@ -1480,12 +1480,19 @@ if ($pkRunAs -eq 'user') {
   $u = $sess[0].Name
   & icacls.exe $dir /grant ($u + ':(OI)(CI)M') /T /Q | Out-Null
   $p = New-ScheduledTaskPrincipal -UserId $u -LogonType Interactive -RunLevel Highest
-} else {
+} elseif ($pkRunAs -ne 'service') {
   $p = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
 }
 $s = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes __TIMEOUT__) -MultipleInstances IgnoreNew
-# Never with a password: principal SYSTEM or the logged-on user (Interactive) - nothing is stored on the client
-Register-ScheduledTask -TaskName '__TASK__' -TaskPath '\POCKETKNIFE\' -Action $a -Principal $p -Settings $s -Force | Out-Null
+if ($pkRunAs -eq 'service') {
+  # 2.39: service account with a local logon (only if chosen in the settings). Windows keeps the password while the
+  # task exists; POCKET KNIFE deletes the task right after the step (also on abort). User name and password come as
+  # parameters, never in the script text (script block logging).
+  Register-ScheduledTask -TaskName '__TASK__' -TaskPath '\POCKETKNIFE\' -Action $a -Settings $s -User $PkUser -Password $PkPw -RunLevel Highest -Force | Out-Null
+} else {
+  # Without a password: principal SYSTEM or the logged-on user (Interactive) - nothing is stored on the client
+  Register-ScheduledTask -TaskName '__TASK__' -TaskPath '\POCKETKNIFE\' -Action $a -Principal $p -Settings $s -Force | Out-Null
+}
 Start-ScheduledTask -TaskName '__TASK__' -TaskPath '\POCKETKNIFE\'
 'PK_STARTED'
 """
@@ -1744,10 +1751,16 @@ def gone_message(out, direct):
     return msg
 
 
+SERVICE_HINT = (" – Das Dienstkonto braucht auf dem Computer das Recht „Als Batchauftrag anmelden“ (Administratoren haben es "
+                "standardmäßig) und ein gültiges Kennwort. Alternativ in den Einstellungen „Pakete ausführen als: Lokales System“.")
+
+
 def run_as_system(host, body, name, timeout_s=3600, cancel=None, extra_ps="", run_as="system", run_user_sid=None):
     """Starts body (PowerShell) on the client - as the service account (run_as="deploy": directly as a process, without a
     scheduled task), as SYSTEM (default) or as the logged-on user (run_as="user", optionally only the
-    user with run_user_sid) via a temporary scheduled task without a password. Returns (exitcode, output)."""
+    user with run_user_sid) via a temporary scheduled task without a password. run_as="service" (2.39): the service
+    account through a temporary scheduled task with its password (local logon - Windows Update and installers that
+    refuse a network logon work). Returns (exitcode, output)."""
     sid = run_user_sid or ""
     if sid and not re.match(r"^S-1-5-21(-\d+)+$", sid):
         sid = ""
@@ -1760,12 +1773,20 @@ def run_as_system(host, body, name, timeout_s=3600, cancel=None, extra_ps="", ru
 
     direct = run_as == "deploy"
     reg = fill(START_DIRECT if direct else REGISTER).replace("__TIMEOUT__", str(max(5, int(timeout_s / 60) + 5))) \
-        .replace("__EXTRA__", extra_ps or "").replace("__RUNAS__", run_as if run_as in ("user", "deploy") else "system") \
+        .replace("__EXTRA__", extra_ps or "").replace("__RUNAS__", run_as if run_as in ("user", "deploy", "service") else "system") \
         .replace("__RUNSID__", sid)
     reg = reg.replace("__CONTENT__", util.psq(wrapper), 1)  # last: the content itself is not replaced any more
+    service = run_as == "service"
     try:
         secure_workdir(host)
-        out, err, _ = ps(host, reg)
+        if service:
+            login, pw = config.service_login(), config.service_password()
+            if not login or not pw:
+                raise RemoteError("Für das Dienstkonto ist kein Kennwort hinterlegt – Pakete können so nicht als Dienstkonto "
+                                  "laufen (Einstellungen → Verbindung & Konten).")
+            out, err, _ = ps_params(host, "param([string]$PkUser, [string]$PkPw)\n" + reg, {"PkUser": login, "PkPw": pw})
+        else:
+            out, err, _ = ps(host, reg)
         if "PK_NOUSER:" in out:
             who = util.first_line(out.split("PK_NOUSER:", 1)[1], "")
             raise RemoteError(f"Kein angemeldeter Benutzer{(' ' + who) if who else ''} – die Aktion muss im Benutzerkontext "
@@ -1774,6 +1795,8 @@ def run_as_system(host, body, name, timeout_s=3600, cancel=None, extra_ps="", ru
             why = (err or out).strip()[:1500]
             if direct:
                 raise RemoteError("Prozess als Dienstkonto konnte nicht gestartet werden: " + why + hard_hint(why, start=True))
+            if service:
+                raise RemoteError("Geplante Aufgabe als Dienstkonto konnte nicht angelegt werden: " + why + SERVICE_HINT)
             raise RemoteError("Geplante Aufgabe konnte nicht gestartet werden: " + why + hard_hint(why, start=True))
     except BaseException:
         # Even if registration/start fails: remove the task and working folder

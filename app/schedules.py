@@ -334,7 +334,7 @@ def composite_package(s):
                      "timeout_min": 0, "conditions": steps.default_conditions()})
     from . import deploy
     reb = deploy.strongest_reboot(db.val("SELECT reboot FROM packages WHERE id=?", (pid,)) for pid in s["packages"])
-    return {"name": s["name"], "version": "", "run_as": "deploy", "rescan": 1, "reboot": reb, "composite": True,
+    return {"name": s["name"], "version": "", "run_as": "default", "rescan": 1, "reboot": reb, "composite": True,
             "timeout_min": db.setting("deploy_timeout_minutes"), "conditions": steps.default_conditions(),
             "steps": {"pre": [], "main": main, "post": []}, "tenant_id": s.get("tenant_id")}
 

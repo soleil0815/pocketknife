@@ -448,8 +448,9 @@ def _():
         sent.clear()
         polls[:] = ["PK_PROC:gone", "PK_PROC:gone"]
         must_fail(remote.run_as_system, "pc1.firma.local", "x", "1_2_4_ab", 3600, None, "", "deploy", contains="ohne Ergebnis")
-        # SYSTEM/user: scheduled task, but never with a password
-        assert "-Password" not in remote.REGISTER and "PKPass" not in remote.REGISTER
+        # SYSTEM/user: scheduled task, never with a password; 2.39: only the opt-in service account mode passes one -
+        # as a parameter, never in the script text
+        assert remote.REGISTER.count("-Password") == 1 and "-Password $PkPw" in remote.REGISTER and "PKPass" not in remote.REGISTER
     finally:
         remote.ps, remote.secure_workdir, remote.time.sleep = old
     from app import inventory
@@ -2200,12 +2201,13 @@ def _():
     swrow = db.q1("SELECT * FROM software WHERE id=?", (sw_in,))
     assert _un.package_for(swrow, None, "deploy")["run_as"] != "deploy", "also for main admins: registry command never as service account"
     stsrc = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "steps.py"), encoding="utf-8").read()
-    assert 'if ra == "deploy" and not (st.get("command") or "").strip():' in stsrc
+    assert 'if ra in ("deploy", "service") and not (st.get("command") or "").strip():' in stsrc
     st, r = _asgi("POST", "/api/packages", ou, {"name": "Als Dienstkonto (Test)", "run_as": "deploy",
                                                  "steps": {"main": [{"type": "command", "command": "whoami", "run_as": "deploy"}]}})
     assert st == 200, (st, r)
     row = db.q1("SELECT run_as, steps FROM packages WHERE id=?", (r["id"],))
-    assert row["run_as"] == "system" and '"deploy"' not in row["steps"], "code of an OU admin never as service account"
+    # 2.39: no explicit service account any more - the account comes from the settings (standard Local System)
+    assert row["run_as"] == "default" and '"deploy"' not in row["steps"], "no explicit service account in packages"
     st, r = _asgi("POST", "/api/packages", ou, {"name": "Ausbruch (Test)", "steps": {"main": [
         {"type": "install", "source": "file", "folder": "Kunden\\Nord\\..\\Sued", "install_file": "x.msi"}]}})
     assert st == 400, ("\"..\" in the package folder", st, r)
@@ -2949,7 +2951,7 @@ def _():
         assert r["items"][0]["status"] == "new", r
         row = db.q1("SELECT * FROM packages WHERE name='Exp-OU'")
         created.append(row["id"])
-        assert row["tenant_id"] == tid and row["run_as"] == "system", row
+        assert row["tenant_id"] == tid and row["run_as"] == "default", row
         db.ex("UPDATE tenants SET allow_packages=0 WHERE id=?", (tid,))
         try:
             pkgexport.run_import(ou, one, dry_run=True, pkg_values=_m._pkg_values)
@@ -3871,9 +3873,9 @@ def _():
         assert integrity.guard(ipkg)["state"] == "warn", "folder files do not block"
     finally:
         integrity.evaluate = real_ev
-    # Tenant packages never as service account – even if a main admin saved them that way
+    # 2.39: one rule for everyone - the account from the settings (standard Local System), also for tenant packages
     assert stp.effective_run_as({"type": "command", "run_as": "inherit"}, {"run_as": "deploy", "tenant_id": 3})[0] == "system"
-    assert stp.effective_run_as({"type": "command", "run_as": "deploy"}, {"run_as": "deploy"})[0] == "deploy"
+    assert stp.effective_run_as({"type": "command", "run_as": "deploy"}, {"run_as": "default"})[0] == "system"
 
 
 @test("2.29 Audit clients: file explorer follows no links when deleting/copying, working folder is checked after creation (CLM-compatible), marker in HKLM, winget only signed, message/variables/registry safe, no CredSSP")
@@ -4967,7 +4969,7 @@ def _():
         "INSERT INTO packages(name, version, steps, conditions, run_as, reboot, tenant_id, created_at) VALUES(?,?,?,?,?,?,?,?)",
         (name, "1", json.dumps({"main": st}), conds, run_as, reboot, tenant, util.now()))
     a = mk("PM A", [{"id": "a1", "type": "command", "command": "echo a"}], run_as="system", reboot="if_required")
-    b = mk("PM B", [{"id": "b1", "type": "command", "command": "echo b"}], run_as="deploy")
+    b = mk("PM B", [{"id": "b1", "type": "command", "command": "echo b"}], run_as="user")
     cnd = mk("PM Bedingung", [{"id": "c1", "type": "command", "command": "echo c"}],
              conds=json.dumps({"os": ["win11"], "arch": ["x64"], "ps_min": "", "logged_on": "always", "files": [], "registry": [], "collections": []}))
     tid = db.ex("INSERT INTO tenants(name, created_at) VALUES('PM Mandant', ?)", (util.now(),))
@@ -4986,7 +4988,7 @@ def _():
         made.append(r["id"])
         p = steps.normalize(deploy.row_to_package(db.q1("SELECT * FROM packages WHERE id=?", (r["id"],))))
         cmds = [(x["command"], x["run_as"], x["on_error"]) for x in p["steps"]["main"]]
-        assert cmds == [("echo a", "system", "continue"), ("echo b", "deploy", "continue")], cmds
+        assert cmds == [("echo a", "default", "continue"), ("echo b", "user", "continue")], cmds
         assert p["name"] == "PM A + PM B" and len({x["id"] for x in p["steps"]["main"]}) == 2
         st, r = _asgi("POST", "/api/packages/merge", tok, {"ids": [a, cnd], "mode": "copy"})
         assert st == 400 and "Bedingungen" in str(r), (st, r)
@@ -7858,6 +7860,141 @@ def _():
     assert weak("O:BAD:(A;;FA;;;WD)(A;;GR;;;AU)") == ["WD"]
     assert weak("O:BAD:(A;;CCDCLC;;;S-1-5-21-1-2-3-513)") == ["S-1-5-21-1-2-3-513"] and weak("O:BAD:(D;;FA;;;BU)") == []
     assert "foreach ($vn in @($it.PSObject.Properties | ForEach-Object { $_.Name }))" in ps
+
+
+@test("2.39 Packages run as Local System by default (setting: service account through a short-lived task with its password, only after confirmation); existing packages migrated; the shown account is the one that runs")
+def _():
+    import hashlib
+    import secrets
+    import time as _t
+    from app import access, auth, config, remote, steps
+    # --- Model: package "default"/"user", step "inherit"/"default"/"user", winget only "system"/"user" ---
+    assert set(steps.RUN_AS) == {"default", "user"} and set(steps.STEP_RUN_AS) == {"inherit", "default", "user"}
+    assert set(steps.WINGET_RUN_AS) == {"system", "user"}
+    wg = {"type": "install", "source": "winget", "winget_id": "Mozilla.Firefox"}
+    cmd = {"type": "command", "command": "whoami"}
+    assert db.setting("pkg_run_as") == "system", "standard: Local System"
+    assert steps.effective_run_as(dict(cmd, run_as="inherit"), {"run_as": "default"})[0] == "system"
+    assert steps.effective_run_as(dict(cmd, run_as="inherit"), {"run_as": "user"})[0] == "user"
+    assert steps.effective_run_as(dict(cmd, run_as="default"), {"run_as": "user"})[0] == "system"
+    assert steps.effective_run_as(dict(wg, run_as="inherit"), {"run_as": "default"}) == ("system", ""), "winget: no note, no switch"
+    db.set_setting("pkg_run_as", "deploy")
+    try:
+        assert steps.effective_run_as(dict(cmd, run_as="inherit"), {"run_as": "default"})[0] == "service"
+        assert steps.effective_run_as(dict(cmd, run_as="deploy"), {"run_as": "system"})[0] == "service", "old snapshot value follows the setting"
+        assert steps.effective_run_as(dict(cmd, run_as="inherit"), {"run_as": "default", "tenant_id": 3})[0] == "service", "same rule for tenants"
+        assert steps.effective_run_as(dict(wg, run_as="system"), {"run_as": "default"})[0] == "system", "winget never as service account"
+        pv = steps.preview(steps.clean_step(dict(cmd)), {"run_as": "default"})
+        assert pv["run_as"] == "service" and pv["run_as_label"].startswith("Dienstkonto") and "Kurzlebige geplante Aufgabe" in pv["command"]
+        assert steps.pkg_run_as_label("default") == "Dienstkonto"
+    finally:
+        db.set_setting("pkg_run_as", "system")
+    pv = steps.preview(steps.clean_step(dict(cmd)), {"run_as": "default"})
+    assert pv["run_as_label"].startswith("Lokales System") and "ohne Kennwort" in pv["command"]
+    assert steps.pkg_run_as_label("default") == "Lokales System" and steps.pkg_run_as_label("user") == "Angemeldeter Benutzer"
+    # clean_package: winget steps get their real account, old values are mapped
+    v = steps.clean_package({"name": "RA-Test", "run_as": "deploy", "steps": {"main": [dict(wg), dict(cmd, run_as="system"), dict(cmd, run_as="user")]}})
+    assert v["run_as"] == "default" and [x["run_as"] for x in v["steps"]["main"]] == ["system", "default", "user"], v["steps"]
+    v = steps.clean_package({"name": "RA-Test", "run_as": "user", "steps": {"main": [dict(wg)]}})
+    assert v["steps"]["main"][0]["run_as"] == "user", "winget in a user package: as the user"
+    # --- Migration: once, packages and waiting deployments, network paths reported ---
+    mkp = lambda name, ra, st: db.ex("INSERT INTO packages(name, version, steps, conditions, run_as, created_at, updated_at) VALUES(?,?,?,?,?,?,?)",  # noqa: E731
+                                     (name, "1", json.dumps({"pre": [], "main": st, "post": []}), "{}", ra, util.now(), "2020-01-01 00:00:00"))
+    a = mkp("Mig-Dienstkonto", "deploy", [dict(cmd, id="m1", run_as="inherit"), dict(cmd, id="m2", run_as="system"),
+                                          dict(wg, id="m3", run_as="inherit"), {"id": "m4", "type": "powershell", "script": "Copy-Item \\\\fs01\\PAKETE\\x.txt C:\\x", "run_as": "deploy"}])
+    b = mkp("Mig-Benutzer", "user", [dict(cmd, id="u1", run_as="deploy"), dict(wg, id="u2", run_as="inherit")])
+    c = mkp("Mig-System", "system", [dict(cmd, id="s1", run_as="inherit")])
+    d = db.ex("INSERT INTO deployments(name, package_id, package_json, status, created_at) VALUES(?,?,?,?,?)",
+              ("Mig-wartend", a, json.dumps({"name": "x", "run_as": "deploy", "steps": {"main": [dict(cmd, id="w1", run_as="deploy")]}}), "scheduled", util.now()))
+    e = db.ex("INSERT INTO deployments(name, package_id, package_json, status, created_at) VALUES(?,?,?,?,?)",
+              ("Mig-fertig", a, json.dumps({"name": "x", "run_as": "deploy", "steps": {"main": [dict(cmd, id="f1", run_as="deploy")]}}), "success", util.now()))
+    try:
+        db.ex("DELETE FROM settings WHERE key='run_as_migrated'")
+        steps.migrate_run_as()
+        ra = lambda pid: (db.val("SELECT run_as FROM packages WHERE id=?", (pid,)), [x["run_as"] for x in json.loads(db.val("SELECT steps FROM packages WHERE id=?", (pid,)))["main"]])  # noqa: E731
+        assert ra(a) == ("default", ["inherit", "inherit", "system", "inherit"]), ra(a)
+        assert ra(b) == ("user", ["default", "user"]), ra(b)
+        assert ra(c) == ("default", ["inherit"]), ra(c)
+        assert db.val("SELECT updated_at FROM packages WHERE id=?", (a,)) == "2020-01-01 00:00:00", "no 'package changed' for every deployment"
+        pj = json.loads(db.val("SELECT package_json FROM deployments WHERE id=?", (d,)))
+        assert pj["run_as"] == "default" and pj["steps"]["main"][0]["run_as"] == "inherit", "waiting deployments too"
+        assert json.loads(db.val("SELECT package_json FROM deployments WHERE id=?", (e,)))["run_as"] == "deploy", "history stays"
+        msg = db.val("SELECT message FROM logs WHERE message LIKE 'Umstellung 2.39: Diese Pakete%' ORDER BY id DESC LIMIT 1") or ""
+        assert "Mig-Dienstkonto" in msg and "\\\\fs01\\PAKETE\\x.txt" in msg, msg
+        db.ex("UPDATE packages SET run_as='deploy' WHERE id=?", (c,))
+        steps.migrate_run_as()
+        assert db.val("SELECT run_as FROM packages WHERE id=?", (c,)) == "deploy", "only once"
+    finally:
+        db.ex("DELETE FROM deployments WHERE id IN (?,?)", (d, e))
+        db.ex("DELETE FROM packages WHERE id IN (?,?,?)", (a, b, c))
+    # --- Service account mode on the client: task with the password as a parameter, never in the script text ---
+    calls = []
+
+    def fake_params(host, script, params, timeout=300):
+        calls.append(("params", script, dict(params)))
+        return "PK_STARTED", "", False
+
+    def fake_ps(host, script, timeout=None):
+        calls.append(("ps", script, None))
+        if "Register-ScheduledTask" in script and "'PK_STARTED'" in script:
+            return "PK_STARTED", "", False
+        return ("PK_DONE:0\n---PKLOG---\nok" if "PK_DONE" in script else ""), "", False
+    old = (remote.ps, remote.ps_params, remote.secure_workdir, remote.time.sleep, config.service_login, config.service_password)
+    remote.ps, remote.ps_params, remote.secure_workdir, remote.time.sleep = fake_ps, fake_params, (lambda *a, **k: None), (lambda s: None)
+    config.service_login, config.service_password = (lambda: "FIRMA\\svc-pocketknife"), (lambda: "Geheim-123'x")
+    try:
+        code, out = remote.run_as_system("pc-0001.firma.local", "Write-Output 1", "9_9_1_ab", run_as="service")
+        assert code == 0 and out == "ok"
+        kind, script, params = calls[0]
+        assert kind == "params" and params == {"PkUser": "FIRMA\\svc-pocketknife", "PkPw": "Geheim-123'x"}
+        assert script.startswith("param([string]$PkUser, [string]$PkPw)") and "Geheim" not in script and "$pkRunAs = 'service'" in script
+        assert all("Geheim" not in (x[1] or "") for x in calls), "password never in a script text"
+        assert any(x[0] == "ps" and "Unregister-ScheduledTask" in x[1] for x in calls[-1:]), "task (and with it the password) removed afterwards"
+        calls.clear()
+        config.service_password = lambda: ""
+        must_fail(remote.run_as_system, "pc-0001.firma.local", "x", "9_9_2_ab", 3600, None, "", "service", contains="kein Kennwort")
+        assert not any(x[0] == "params" for x in calls)
+        calls.clear()
+        remote.run_as_system("pc-0001.firma.local", "Write-Output 1", "9_9_3_ab", run_as="system")
+        assert calls[0][0] == "ps" and "$pkRunAs = 'system'" in calls[0][1], "Local System: no password involved"
+    finally:
+        remote.ps, remote.ps_params, remote.secure_workdir, remote.time.sleep, config.service_login, config.service_password = old
+    # --- Setting: only via its own endpoint, service account only with confirmation, logged; main admins only ---
+    assert "pkg_run_as" not in __import__("app.main", fromlist=["x"]).EDITABLE
+    assert ("PUT", "/api/settings/pkg-run-as") not in access.ROUTES and ("GET", "/api/settings/pkg-run-as") not in access.ROUTES
+    tok = secrets.token_urlsafe(16)
+    th = hashlib.sha256(tok.encode()).hexdigest()
+    db.ex("INSERT INTO sessions(token_hash, username, display_name, created, expires, ip, last_active, role, scope) VALUES(?,?,?,?,?,?,?,?,?)",
+          (th, "ra-haupt", "Test", util.now(), "2099-01-01 00:00:00", "127.0.0.1", util.now(), "admin", None))
+    auth._checked[th] = _t.time() + 10 ** 6
+    oldpw = config.service_password
+    config.service_password = lambda: "x"
+    try:
+        st, r = _asgi("PUT", "/api/settings", tok, {"pkg_run_as": "deploy"})
+        assert db.setting("pkg_run_as") == "system", "not via the general settings"
+        st, r = _asgi("PUT", "/api/settings/pkg-run-as", tok, {"value": "deploy"})
+        assert st == 400 and db.setting("pkg_run_as") == "system", (st, r)
+        st, r = _asgi("PUT", "/api/settings/pkg-run-as", tok, {"value": "deploy", "confirm": True})
+        assert st == 200 and r["changed"] and db.setting("pkg_run_as") == "deploy", (st, r)
+        assert db.val("SELECT 1 FROM logs WHERE level='WARN' AND message LIKE 'Pakete laufen jetzt als Dienstkonto%' AND username='ra-haupt'")
+        st, r = _asgi("GET", "/api/settings/pkg-run-as", tok)
+        assert st == 200 and r["value"] == "deploy" and "tenants_build" in r
+        st, r = _asgi("PUT", "/api/settings/pkg-run-as", tok, {"value": "system"})
+        assert st == 200 and db.setting("pkg_run_as") == "system"
+        st, r = _asgi("PUT", "/api/settings/pkg-run-as", tok, {"value": "egal"})
+        assert st == 400
+        st, r = _asgi("GET", "/api/packages/meta", tok)
+        assert r["pkg_run_as"] == "system" and r["winget_run_as"] and set(r["run_as"]) == {"default", "user"}
+    finally:
+        config.service_password = oldpw
+        db.set_setting("pkg_run_as", "system")
+    # --- UI: card in the settings, editor offers only what really runs ---
+    js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
+    assert "'Ausführung der Pakete'" in js and "/api/settings/pkg-run-as" in js and "confirmDlg(txt, 'Trotzdem auf Dienstkonto umstellen', true)" in js
+    assert "Object.entries(meta.winget_run_as)" in js and "run_as: 'default', timeout_min: 60" in js
+    assert "Standard ist das Dienstkonto" not in js
+    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "steps.py"), encoding="utf-8").read()
+    assert "Mandantenpaket – läuft als Lokales System" not in src and "winget läuft als Lokales System, weil" not in src, "no silent switching"
 
 
 @test("2.22 Self-test: diagnostic package test does not use fixed dates (time bomb once outside the 30-day window)")
