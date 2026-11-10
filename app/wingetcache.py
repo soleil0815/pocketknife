@@ -690,7 +690,7 @@ def _save_package(e, man, p, folder, file):
     data = {"name": f"{name} (winget-Cache)", "version": str(man.get("PackageVersion") or ""),
             "description": f"Automatisch aus dem winget-Katalog ({e['winget_id']}) – wird bei jeder neuen Version neu "
                            "erzeugt; Änderungen hier gehen dabei verloren.",
-            "steps": {"pre": [], "main": [step], "post": []}, "reboot": "never", "rescan": 1, "run_as": "deploy"}
+            "steps": {"pre": [], "main": [step], "post": []}, "reboot": "never", "rescan": 1, "run_as": "default"}
     v = steps.clean_package(data)
     v["type"] = "custom"
     v["winget_id"] = e["winget_id"]  # for schedules: "already running / last failed" per winget ID

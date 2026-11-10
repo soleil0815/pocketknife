@@ -17,8 +17,16 @@ PS_VERSIONS = ["", "3.0", "4.0", "5.0", "5.1", "7.0"]
 FILE_MODES = {"exists": "existiert", "not_exists": "existiert nicht", "version_ge": "Version ≥", "version_lt": "Version <"}
 REG_MODES = {"exists": "existiert", "not_exists": "existiert nicht", "equals": "Wert =", "not_equals": "Wert ≠",
              "contains": "Wert enthält", "version_ge": "Version ≥", "version_lt": "Version <"}
-RUN_AS = {"deploy": "Dienstkonto (Deploy-Benutzer)", "system": "Lokales System", "user": "Angemeldeter Benutzer"}
+# 2.39: packages run with the account chosen in the settings ("default": Local System as standard, or the service
+# account through a short-lived scheduled task with a local logon) or as the logged-on user. What the editor shows is
+# exactly what runs - no silent switching. Internal values: "system", "user", "service" (service account, local logon)
+# and "deploy" (service account, directly over WinRM - tools and very old deployment snapshots only).
+RUN_AS = {"default": "Wie in den Einstellungen", "user": "Angemeldeter Benutzer"}
 STEP_RUN_AS = {"inherit": "Wie Paket", **RUN_AS}
+# winget never runs as the service account (the App Installer is not registered for it): only these two
+WINGET_RUN_AS = {"system": "Lokales System", "user": "Angemeldeter Benutzer"}
+PKG_RUN_AS_SETTING = {"system": "Lokales System", "deploy": "Dienstkonto"}
+ENGINE_RUN_AS = ("system", "user", "service", "deploy")
 STEP_TYPES = {"install": "Installieren", "uninstall": "Deinstallieren", "command": "Befehl", "powershell": "PowerShell",
               "nested": "Verschachteltes Paket", "filecopy": "Dateikopie", "registry": "Registry", "scan": "Scannen", "reboot": "Neustart",
               "sleep": "Warten", "message": "Nachricht", "logoff": "Abmelden"}
@@ -208,13 +216,136 @@ def _int(v, lo, hi, default):
     return max(lo, min(hi, n))
 
 
+def _is_winget(s):
+    return s.get("type") == "install" and s.get("source") == "winget"
+
+
+def _step_run_as(s):
+    """Run as of a step in the 2.39 model. winget: only "system"/"user" ("inherit" stays and is resolved against the
+    package in clean_package). Others: "inherit", "default" or "user"; older values ("system"/"deploy") mean
+    "not as the user" = "default"."""
+    ra = s.get("run_as")
+    if _is_winget(s):
+        return ra if ra in ("system", "user") else "inherit"
+    if ra in STEP_RUN_AS:
+        return ra
+    return "default" if ra in ("system", "deploy") else "inherit"
+
+
+def pkg_run_as(v):
+    """Run as of a package in the 2.39 model: "user" or "default"."""
+    return "user" if v == "user" else "default"
+
+
+def pkg_run_as_label(ra):
+    """What a package really runs as - for lists and the deployment view."""
+    if ra == "user":
+        return "Angemeldeter Benutzer"
+    if ra == "system":
+        return "Lokales System"
+    return PKG_RUN_AS_SETTING.get(db.setting("pkg_run_as"), "Lokales System")
+
+
+def setting_run_as():
+    """Engine value for "Wie in den Einstellungen": "system" (standard) or "service" (service account, local logon)."""
+    return "service" if db.setting("pkg_run_as") == "deploy" else "system"
+
+
+UNC_RX = re.compile(r"\\\\[A-Za-z0-9][A-Za-z0-9._$-]*\\[^\s\"'<>|]+")
+
+
+def migrate_steps_run_as(pkg_ra, steps_):
+    """2.39: steps of one package into the new model (see migrate_run_as). Returns (steps, changed)."""
+    changed = False
+    for key, _l in PHASES:
+        for st in (steps_ or {}).get(key) or []:
+            if not isinstance(st, dict):
+                continue
+            ra = st.get("run_as") or "inherit"
+            if _is_winget(st):
+                new = ra if ra in ("system", "user") else ("user" if ra == "inherit" and pkg_ra == "user" else "system")
+            elif ra in ("system", "deploy"):
+                new = "default" if pkg_ra == "user" else "inherit"
+            else:
+                new = ra if ra in STEP_RUN_AS else "inherit"
+            if new != st.get("run_as"):
+                st["run_as"] = new
+                changed = True
+    return steps_, changed
+
+
+def unc_hints(steps_):
+    """Places in own commands that open a network path themselves - as Local System the computer account
+    (e.g. PC-0001$) accesses it, not the service account."""
+    out = []
+    for key, _l in PHASES:
+        for st in (steps_ or {}).get(key) or []:
+            if not isinstance(st, dict) or st.get("type") not in ("command", "powershell", "install", "uninstall"):
+                continue
+            text = " ".join(str(st.get(k) or "") for k in ("command", "script", "arguments"))
+            m = UNC_RX.search(text)
+            if m:
+                out.append(f"{step_title(st)}: {m.group(0)[:80]}")
+    return out
+
+
+def migrate_run_as():
+    """2.39 (one-time): packages run with the account from the settings (standard: Local System). Packages that ran as
+    the service account or as Local System get "Wie in den Einstellungen"; "Angemeldeter Benutzer" stays. Steps:
+    explicit service account/Local System -> "Wie Paket" (in user packages "Wie in den Einstellungen"), winget steps
+    explicitly Local System or user. Waiting deployments are converted the same way, finished ones stay as history.
+    Packages whose own commands open a network path are listed in the log."""
+    if db.val("SELECT value FROM settings WHERE key='run_as_migrated'"):
+        return
+    n_pkg, hints = 0, []
+    with db.tx():
+        for r in db.q("SELECT id, name, run_as, steps FROM packages"):
+            pra = "user" if r["run_as"] == "user" else "default"
+            try:
+                st = json.loads(r["steps"]) if r["steps"] else None
+            except ValueError:
+                st = None
+            changed = pra != r["run_as"]
+            if isinstance(st, dict):
+                st, ch = migrate_steps_run_as(pra, st)
+                changed = changed or ch
+                if r["run_as"] != "user":
+                    hints += [f"„{r['name']}“ – {x}" for x in unc_hints(st)]
+            if changed:
+                db.ex("UPDATE packages SET run_as=?, steps=? WHERE id=?",
+                      (pra, json.dumps(st, ensure_ascii=False) if isinstance(st, dict) else r["steps"], r["id"]))
+                n_pkg += 1
+        for d in db.q("SELECT id, package_json FROM deployments WHERE status IN ('queued','scheduled')"):
+            try:
+                pj = json.loads(d["package_json"] or "{}")
+            except ValueError:
+                continue
+            if not isinstance(pj, dict) or not isinstance(pj.get("steps"), dict):
+                continue
+            pra = "user" if pj.get("run_as") == "user" else "default"
+            st, ch = migrate_steps_run_as(pra, pj["steps"])
+            if ch or pra != pj.get("run_as"):
+                pj.update(run_as=pra, steps=st)
+                db.ex("UPDATE deployments SET package_json=? WHERE id=?", (json.dumps(pj, ensure_ascii=False), d["id"]))
+        db.ex("INSERT OR REPLACE INTO settings(key, value) VALUES('run_as_migrated', '1')")
+    from . import pklog
+    if n_pkg:
+        pklog.info("system", f"Umstellung 2.39: {n_pkg} Paket(e) laufen jetzt mit dem Konto aus den Einstellungen "
+                             f"(Standard: Lokales System).")
+    if hints:
+        pklog.warn("system", "Umstellung 2.39: Diese Pakete öffnen in eigenen Befehlen selbst einen Netzwerkpfad. Als Lokales "
+                             "System greift dabei das Computerkonto zu (z. B. PC-0001$) – bitte Leserecht für „Domänencomputer“ "
+                             "auf der Freigabe prüfen oder die Datei über einen Repository-Schritt kopieren: " + "; ".join(hints[:30])
+                   + (f" … und {len(hints) - 30} weitere" if len(hints) > 30 else ""))
+
+
 def clean_step(s, label="Schritt"):
     typ = s.get("type")
     if typ not in STEP_TYPES:
         raise ValueError(f"{label}: unbekannter Schritttyp.")
     o = {"id": str(s.get("id") or _id())[:16], "type": typ, "title": (s.get("title") or "").strip()[:200],
          "enabled": bool(s.get("enabled", True)),
-         "run_as": s.get("run_as") if s.get("run_as") in STEP_RUN_AS else "inherit",
+         "run_as": _step_run_as(s),
          "on_error": "continue" if s.get("on_error") == "continue" else "stop",
          "timeout_min": _int(s.get("timeout_min"), 0, 1440, 0),
          "conditions": clean_conditions(s.get("conditions"), label)}
@@ -472,7 +603,9 @@ def normalize(p):
             if isinstance(st, dict):
                 seen.add(p["steps"][k][i]["id"])
     p["conditions"] = conds or default_conditions()
-    p["run_as"] = p.get("run_as") if p.get("run_as") in RUN_AS else "deploy"
+    # 2.39: "default"/"user"; "system" stays as it was (internal packages, old snapshots - shown truthfully);
+    # "deploy" (before 2.39 the standard) and empty values follow the setting
+    p["run_as"] = p.get("run_as") if p.get("run_as") in ("default", "user", "system") else "default"
     return p
 
 
@@ -521,7 +654,7 @@ def clean_package(data):
                                              f"liegen ({base}), nicht in „{pth or '(Hauptordner)'}“.")
     p = {"name": name[:200], "version": (data.get("version") or "").strip()[:60],
          "description": (data.get("description") or "").strip()[:2000],
-         "run_as": data.get("run_as") if data.get("run_as") in RUN_AS else "deploy",
+         "run_as": pkg_run_as(data.get("run_as")),
          "timeout_min": _int(data.get("timeout_min"), 1, 1440, db.setting("deploy_timeout_minutes")),
          "reboot": data.get("reboot") if data.get("reboot") in ("never", "if_required", "always") else "never",
          "rescan": 1 if data.get("rescan", 1) else 0,
@@ -530,6 +663,11 @@ def clean_package(data):
          "notify_user": data.get("notify_user") if data.get("notify_user") in ("on", "off") else "",
          "conditions": clean_conditions(data.get("conditions"), "Paket-Bedingungen"),
          "steps": steps, "tenant_id": tenant, "folder_name": (data.get("folder_name") or "").strip()[:120]}
+    for key, _label in PHASES:
+        for s in steps[key]:
+            if _is_winget(s) and s["run_as"] == "inherit":
+                # 2.39: winget steps always show their real account: the user of a user package, otherwise Local System
+                s["run_as"] = "user" if p["run_as"] == "user" else "system"
     # Compatibility fields from the first install step (package list, rules, version display)
     first = next((s for k, _ in PHASES for s in steps[k] if s["type"] == "install"), None)
     legacy = {"type": "custom", "winget_id": None, "winget_action": None, "winget_version": None, "winget_scope": None,
@@ -592,22 +730,32 @@ def iter_steps(p):
 
 # --- Run as and preview --------------------------------------------------------------------
 def effective_run_as(st, pkg):
+    """Account a step really runs with: (engine value, note). Engine values: see ENGINE_RUN_AS."""
     ra = st.get("run_as") or "inherit"
     if ra == "inherit":
-        ra = pkg.get("run_as") or "deploy"
-    note = ""
-    if st["type"] == "install" and st.get("source") == "winget" and ra == "deploy":
-        # winget is usually not registered for the service account - it runs reliably as SYSTEM
-        ra, note = "system", "winget läuft als Lokales System, weil der App-Installer für das Dienstkonto nicht registriert ist."
-    elif ra == "deploy" and pkg.get("tenant_id"):
-        # Audit 2.29: tenant packages never as the domain-wide service account - the OU admin can swap their files (tenant folder)
-        # no matter who saved the package. POCKET KNIFE copies the files itself; SYSTEM is enough.
-        ra, note = "system", "Mandantenpaket – läuft als Lokales System statt als Dienstkonto."
-    return ra, note
+        ra = pkg.get("run_as") or "default"
+    if _is_winget(st):
+        # winget never as the service account - the editor offers only Local System and the logged-on user
+        return ("user" if ra == "user" else "system"), ""
+    if ra in ("default", "deploy"):
+        # "deploy": very old snapshots (before 2.39) - like the packages, they follow the setting
+        ra = setting_run_as()
+    return (ra if ra in ENGINE_RUN_AS else "system"), ""
+
+
+def uninstall_run_as(st):
+    """Account chosen in an uninstall step: "user", the setting's account for "default" (and older "system"/"deploy"),
+    None for "Wie Paket" (automatic: Local System, entries in a user profile as that user)."""
+    ra = st.get("run_as")
+    if ra == "user":
+        return "user"
+    if ra in ("default", "system", "deploy"):
+        return setting_run_as()
+    return None
 
 
 def run_as_label(ra):
-    if ra == "deploy":
+    if ra in ("deploy", "service"):
         return f"Dienstkonto {config.service_login() or '(nicht eingerichtet)'}"
     if ra == "user":
         return "Angemeldeter Benutzer"
@@ -722,12 +870,14 @@ def preview(st, pkg):
     elif t == "logoff":
         lines.append("logoff.exe <Sitzung> für jede " + ("getrennte " if st.get("only_disconnected") else "") + "Benutzersitzung (ermittelt mit quser.exe)")
     if t == "uninstall":
-        acct = run_as_label(st["run_as"]) if st.get("run_as") in RUN_AS else \
+        ura = uninstall_run_as(st)
+        acct = run_as_label(ura) if ura and (ura == "user" or (st.get("command") or "").strip()) else \
             "Lokales System – bei Benutzer-Installationen als der jeweilige Benutzer"
         lines.insert(0, f"Je Treffer als {acct}:")
     elif t in ("install", "command", "powershell", "filecopy", "registry"):
         acct = run_as_label(ra)
         lines.insert(0, f"Direkt als {acct} (eigener Prozess, keine geplante Aufgabe):" if ra == "deploy"
+                     else f"Kurzlebige geplante Aufgabe als {acct} (lokale Anmeldung, Kennwort nur während des Schritts):" if ra == "service"
                      else f"Geplante Aufgabe (ohne Kennwort) als {acct}:")
     else:
         lines.insert(0, "Direkt über WinRM (Dienstkonto):" if t in ("message", "logoff", "reboot") else "Auf dem POCKET KNIFE-Server:")
@@ -1208,22 +1358,20 @@ $out = foreach ($r in $roots) { Get-ChildItem -Path $r | ForEach-Object {
         if not st.get("all_matches", True):
             hits = hits[:1]
         results, outs = [], []
-        explicit = st.get("run_as") if st.get("run_as") in ("system", "user", "deploy") else None
+        explicit = uninstall_run_as(st)
         for sw in hits:
             self._check_cancel()
             p2 = uninstall.package_for(sw, st.get("command") or None, explicit, bool(st.get("cleanup")))
             # User entries always run in the context of this user (see uninstall.package_for)
             ra = p2.get("run_as") if p2.get("run_as_forced") else (explicit or p2.get("run_as") or "system")
             if p2.get("type") == "winget":
-                ra = "system" if ra == "deploy" else ra
-            if ra == "deploy" and not (st.get("command") or "").strip():
+                ra = "system" if ra in ("deploy", "service") else ra
+            if ra in ("deploy", "service") and not (st.get("command") or "").strip():
                 # The command comes from the client's registry (UninstallString) - whoever is administrator there (e.g. an
                 # OU admin) determines it. Never run it as the domain-wide service account, but as Local System.
                 ra = "system"
             # 2.32.5: body matching the kind (winget uninstall or command) - the two were swapped before
             body = deploy.build_body(p2)
-            if ra == "deploy" and pkg.get("tenant_id"):
-                ra = "system"  # Audit 2.29: tenant packages never as the service account (see effective_run_as)
             self.n += 1
             name = f"{self.did}_{self.tid}_{self.n}_{self.token}"
             self.set_status(f"Schritt: deinstalliere {sw['name']} …")

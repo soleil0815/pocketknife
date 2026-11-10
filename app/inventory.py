@@ -43,7 +43,8 @@ try {
   Get-ScheduledTask -TaskPath '\POCKETKNIFE\' -ErrorAction SilentlyContinue | Where-Object {
     $i = $_ | Get-ScheduledTaskInfo -ErrorAction SilentlyContinue; $_.State -ne 'Running' -and $i -and $i.LastRunTime -lt $pkOld } |
     Unregister-ScheduledTask -Confirm:$false -ErrorAction SilentlyContinue
-  # Remove tasks of older versions (up to 2.13) with the service account's stored password immediately if they are not running
+  # Remove tasks with the service account's stored password immediately if they are not running (older versions up to 2.13;
+  # 2.39 service account tasks left over after an interrupted run)
   Get-ScheduledTask -TaskPath '\POCKETKNIFE\' -ErrorAction SilentlyContinue | Where-Object {
     $_.State -ne 'Running' -and "$($_.Principal.LogonType)" -eq 'Password' } |
     Unregister-ScheduledTask -Confirm:$false -ErrorAction SilentlyContinue

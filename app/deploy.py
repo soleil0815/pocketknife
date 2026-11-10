@@ -508,7 +508,7 @@ def composite(package_ids, stop_on_fail=True):
     main = [{"id": f"p{n}", "type": "nested", "package_id": pid, "title": "", "enabled": True, "run_as": "inherit",
              "on_error": "stop" if stop_on_fail else "continue", "timeout_min": 0, "conditions": steps.default_conditions()}
             for n, pid in enumerate(ids)]
-    return {"name": label[:200], "version": "", "run_as": "deploy", "rescan": 1 if any(rows[i]["rescan"] for i in ids) else 0,
+    return {"name": label[:200], "version": "", "run_as": "default", "rescan": 1 if any(rows[i]["rescan"] for i in ids) else 0,
             "reboot": strongest_reboot(rows[i]["reboot"] for i in ids), "composite": True,
             "timeout_min": db.setting("deploy_timeout_minutes"), "conditions": steps.default_conditions(),
             "steps": {"pre": [], "main": main, "post": []}, "tenant_id": tenants.pop()}

@@ -2,6 +2,13 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.39.0 (10.11.2026)
+- **Changed - packages run as Local System by default:** the account for packages is now one setting for everyone (Settings → Repository & winget → "Ausführung der Pakete"): **Local System** (default) or the **service account**. In packages "Ausführen als" offers "Wie in den Einstellungen (…)" and "Angemeldeter Benutzer", steps additionally "Wie Paket (…)"; the brackets always name the account that really runs. Up to 2.38 the service account ran directly over WinRM (network logon) - Windows Update (e.g. PSWindowsUpdate) failed there with "Zugriff verweigert" (0x80070005). As Local System (scheduled task without a password) it works
+- **New - service account with a local logon (opt-in):** if "Dienstkonto" is chosen, every step runs in a short-lived scheduled task with the service account and its password (local logon, so Windows Update works as well). The task is deleted right after the step (also on abort, leftovers by the next scan); the password goes to the client as a parameter, never in the script text. Switching asks for confirmation with a security warning (the password is on the client while the step runs; tenants with own packages are named) and is logged
+- **Changed - no silent switching any more:** winget steps only offer Local System or the logged-on user (winget never ran as the service account; the editor showed "Dienstkonto" anyway). Tenant packages follow the same setting as all packages instead of being switched to Local System in the background
+- **Migration:** on the first start all packages that ran as service account or Local System get "Wie in den Einstellungen", steps "Wie Paket"; "Angemeldeter Benutzer" stays, winget steps get their real account. Waiting deployments are converted too, finished ones stay as history. Packages whose own commands open a network path (`\\server\share`) are listed in the log - as Local System the computer account accesses it
+- **Self-test:** model and resolution, migration (once, waiting deployments, history unchanged, network paths reported), password only as a parameter and the task removed afterwards, setting only via its own endpoint with confirmation and log, editor options
+
 ## pocketknife-2.38.11-s1 (10.11.2026)
 - **Security update (patch day)** (built automatically): base image, Debian and Python packages brought up to date, rebuilt without cache, self-test and vulnerability scan (Trivy) passed. The program itself is unchanged (program state 2.38.11)
 - Changed (1): `base image` previous state → new state (security updates from Debian/Python)

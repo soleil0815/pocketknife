@@ -3708,7 +3708,7 @@ async function packageDlg(pidOrPkg, preset = {}) {
     command: { command: '', success_codes: '0' }, powershell: { script: '', success_codes: '0' }, nested: { package_id: (meta.packages.find((x) => !x.cache && (!p || x.id !== p.id)) || {}).id },
     filecopy: { source: '', target: '%ProgramData%\\', overwrite: true }, registry: { view: '64', success_codes: '0', entries: [{ action: 'set', path: 'HKLM\\SOFTWARE\\', name: '', kind: 'REG_SZ', data: '' }] }, scan: { profile_id: null }, reboot: { delay_sec: 60, wait_minutes: 20, message: '' },
     sleep: { seconds: 30 }, message: { text: '', timeout_sec: 0 }, logoff: { only_disconnected: false } })[type], ...extra });
-  p = p ? JSON.parse(JSON.stringify(p)) : { name: '', version: '', description: '', run_as: 'deploy', timeout_min: 60, reboot: 'never', rescan: 1, tenant_id: preset.tenant_id || null,
+  p = p ? JSON.parse(JSON.stringify(p)) : { name: '', version: '', description: '', run_as: 'default', timeout_min: 60, reboot: 'never', rescan: 1, tenant_id: preset.tenant_id || null,
     conditions: JSON.parse(JSON.stringify(meta.default_conditions)),
     steps: { pre: [], main: [preset.uninstall ? newStep('uninstall', { match_name: preset.uninstall.pattern, match_version: preset.uninstall.version || '' })
       : newStep('install', preset.winget_id ? { source: 'winget', winget_id: preset.winget_id } : {})], post: [] } };
@@ -3759,7 +3759,7 @@ async function packageDlg(pidOrPkg, preset = {}) {
         const key = { phase: ph, idx: i };
         const el = item(key, stepLabel(st), STEP_ICON[st.type] || 'box', [
           condSummary(st.conditions || {}).length ? h('span.badge.info', { title: 'Schritt hat Bedingungen' }, '⚑') : null,
-          st.run_as && st.run_as !== 'inherit' ? h('span.badge', { title: meta.step_run_as[st.run_as] }, { system: 'SYSTEM', user: 'Benutzer', deploy: 'Dienstkonto' }[st.run_as]) : null,
+          st.run_as && st.run_as !== 'inherit' ? h('span.badge', { title: runAsOpts(st).find((x) => x[0] === st.run_as)?.[1] || '' }, { system: 'SYSTEM', user: 'Benutzer', default: 'Einstellung' }[st.run_as] || '') : null,
           st.on_error === 'continue' ? h('span.badge', { title: 'Bei Fehler weitermachen' }, '↷') : null,
           h('span.pkg-acts', h('button.ghost.small', { type: 'button', title: 'Nach oben', onclick: (e) => { e.stopPropagation(); moveStep(key, ph, i - 1); } }, '↑'),
             h('button.ghost.small', { type: 'button', title: 'Nach unten', onclick: (e) => { e.stopPropagation(); moveStep(key, ph, i + 2); } }, '↓'),
@@ -3809,6 +3809,13 @@ async function packageDlg(pidOrPkg, preset = {}) {
   const ta = (o, k, rows, attrs = {}) => h('textarea.mono', { rows, value: o[k] || '', oninput: (e) => { o[k] = e.target.value; changed(); }, spellcheck: false, ...attrs });
   const chk = (o, k, label) => h('label.chk', h('input', { type: 'checkbox', checked: !!o[k], onchange: (e) => { o[k] = e.target.checked; changed(); } }), label);
   const sl = (o, k, opts, num = false) => sel(opts, o[k] ?? '', { onchange: (e) => { o[k] = num ? (e.target.value === '' ? null : Number(e.target.value)) : e.target.value; changed(); } });
+  // 2.39: "Ausführen als" with the real account in brackets – Local System by default, the service account if chosen in the settings
+  const settingRunAsName = () => (meta.pkg_run_as === 'deploy' ? 'Dienstkonto' : 'Lokales System');
+  const isWingetStep = (st) => st.type === 'install' && st.source === 'winget';
+  const pkgRunAsOpts = () => [['default', fmtT('Wie in den Einstellungen ({0})', tr(settingRunAsName())), true], ['user', 'Angemeldeter Benutzer']];
+  const runAsOpts = (st) => (isWingetStep(st) ? Object.entries(meta.winget_run_as)
+    : [['inherit', fmtT('Wie Paket ({0})', p.run_as === 'user' ? tr('Angemeldeter Benutzer') : tr(settingRunAsName())), true],
+      ['default', fmtT('Wie in den Einstellungen ({0})', tr(settingRunAsName())), true], ['user', 'Angemeldeter Benutzer']]);
   let pvTimer = null; let pvBox = null; let curStep = null;
   function changed() {
     drawTreeSoon();
@@ -3939,10 +3946,15 @@ async function packageDlg(pidOrPkg, preset = {}) {
     return h('div');
   }
   function stepOptions(st) {
+    const opts = runAsOpts(st);
+    // 2.39: the selection always shows the account that really runs (winget: only Local System or the user)
+    if (!opts.some((x) => x[0] === st.run_as)) st.run_as = isWingetStep(st) ? (p.run_as === 'user' ? 'user' : 'system') : 'inherit';
     return h('div.form',
       field('Titel', inp(st, 'title', { placeholder: 'leer = automatisch' })),
       field('Aktiv', chk(st, 'enabled', 'Schritt ausführen')),
-      field('Ausführen als', sl(st, 'run_as', Object.entries(meta.step_run_as)), `„Wie Paket“ = ${meta.run_as[p.run_as]}.`),
+      field('Ausführen als', sl(st, 'run_as', opts), isWingetStep(st)
+        ? 'winget läuft nie als Dienstkonto: „Lokales System“ installiert für alle Benutzer, „Angemeldeter Benutzer“ nur im Profil des angemeldeten Benutzers.'
+        : 'Gilt nur für diesen Schritt.'),
       field('Bei Fehler', sl(st, 'on_error', [['stop', 'Paket anhalten (Abschluss-Schritte laufen trotzdem)'], ['continue', 'Mit dem nächsten Schritt weitermachen']])),
       field('Zeitlimit (Min.)', inp(st, 'timeout_min', { type: 'number', min: 0, style: { maxWidth: '120px' } }), '0 = Zeitlimit des Pakets.'));
   }
@@ -3958,7 +3970,7 @@ async function packageDlg(pidOrPkg, preset = {}) {
         meta.tenants.length ? field('Mandant', sl(p, 'tenant_id', [['', '— keiner (global) —'], ...meta.tenants.map((x) => [x.id, x.name])], true)) : null,
         !isOU() && meta.tenants.length ? field('OU-Admins dürfen ändern', h('label.chk', h('input', { type: 'checkbox', checked: !!p.ou_edit, onchange: (e) => { p.ou_edit = e.target.checked ? 1 : 0; changed(); } }),
           'OU-Admins des Mandanten dürfen dieses Paket ändern und löschen'), 'Nur bei Paketen eines Mandanten. Aus: Sie sehen es, verteilen es und können es als Vorlage kopieren. Von OU-Admins angelegte Pakete sind immer an.') : null,
-        field('Ausführen als', sl(p, 'run_as', Object.entries(meta.run_as)), `Standard ist das Dienstkonto (${meta.service_login || 'nicht eingerichtet'}). „Lokales System“ und „Angemeldeter Benutzer“ bei Bedarf; einzelne Schritte können abweichen.`),
+        field('Ausführen als', sl(p, 'run_as', pkgRunAsOpts()), fmtT('Das Konto für „Wie in den Einstellungen“ ist zurzeit: {0} (Einstellungen → Repository & winget → „Ausführung der Pakete“). „Angemeldeter Benutzer“ für Programme und Einstellungen im Benutzerprofil; einzelne Schritte können abweichen.', tr(settingRunAsName()))),
         field('Zeitlimit (Min.)', inp(p, 'timeout_min', { type: 'number', min: 1, style: { maxWidth: '120px' } }), 'Je Schritt.'),
         field('Neustart am Ende', sl(p, 'reboot', [['never', 'Nie'], ['if_required', 'Wenn erforderlich (3010/1641)'], ['always', 'Immer']])),
         field('Benachrichtigung', sl(p, 'notify_user', [['', 'wie in den Einstellungen'], ['on', 'immer'], ['off', 'nie']]),
@@ -4655,7 +4667,7 @@ async function viewDeployment(parts) {
   const ok = d.targets.filter((t) => t.status === 'success').length;
   const failed = d.targets.filter((t) => t.status === 'failed').length;
   const allSteps = p.steps ? ['pre', 'main', 'post'].flatMap((k) => (p.steps[k] || []).map((x) => x.title || x.type)) : [];
-  const src = p.steps ? `${allSteps.length} Schritt(e)${p.run_as ? ' · ' + ({ deploy: 'Dienstkonto', system: 'Lokales System', user: 'Angemeldeter Benutzer' })[p.run_as] : ''}`
+  const src = p.steps ? `${allSteps.length} Schritt(e)${p.run_as ? ' · ' + tr(({ deploy: 'Dienstkonto', default: 'wie in den Einstellungen', system: 'Lokales System', user: 'Angemeldeter Benutzer' })[p.run_as] || '') : ''}`
     : p.type === 'winget' ? `winget ${p.winget_action} ${p.winget_id}${p.winget_version ? ' ' + p.winget_version : ''}`
       : p.install_type === 'script' ? 'PowerShell-Skript' : `${p.folder ? `${p.folder}\\` : ''}${p.install_file || ''} ${p.arguments || ''}`;
   const info = h('div.card', h('div.card-b', h('div.grid.two',
@@ -6147,6 +6159,35 @@ async function viewSettings() {
     : 'Noch keine Ausnahmen.')).catch(() => {});
   const exclCard = h('div.card', h('div.card-h', h('h2', 'Ausnahmen der Aktualitätsprüfung'), btn('Liste bearbeiten …', () => exclusionsDlg(), { cls: 'small', icon: 'list' })),
     h('div.card-b', h('p.muted.small', { style: { marginTop: 0 } }, 'Eigene Liste von Programmen, die nie als „veraltet“ gelten – z. B. Laufzeitbibliotheken oder Fachanwendungen mit vorgegebener Version. Muster mit * und ?, nach Name, Hersteller oder winget-ID.'), exclInfo));
+  // 2.39: account for packages – Local System by default, the service account only after a security warning
+  const runBody = h('div.card-b', h('p.muted', 'Wird geladen …'));
+  const runCard = h('div.card', h('div.card-h', h('h2', 'Ausführung der Pakete')), runBody);
+  (async () => {
+    let d;
+    try { d = await GET('/api/settings/pkg-run-as'); } catch (e) { runBody.replaceChildren(h('p.muted', e.message || String(e))); return; }
+    const pick = sel(Object.entries(d.options), d.value, { style: { maxWidth: '260px' } });
+    const warn = h('div');
+    const drawWarn = () => warn.replaceChildren(d.value === 'deploy' ? h('div.news-up', { style: { margin: '8px 0 0' } },
+      h('b', 'Sicherheitshinweis: '), fmtT('Während jedes Paketschritts liegt das Kennwort von {0} in einer geplanten Aufgabe auf dem Zielcomputer. Empfohlen ist „Lokales System“.', d.service_login || tr('Dienstkonto'))) : '');
+    const saveB = btn('Speichern', async () => {
+      const v = pick.value;
+      if (v === d.value) { toast(tr('Keine Änderungen'), 'ok'); return; }
+      let confirm = false;
+      if (v === 'deploy') {
+        const txt = fmtT('Sicherheitskritisch: Während jedes Paketschritts liegt das Kennwort des Dienstkontos {0} in einer geplanten Aufgabe auf dem Zielcomputer. Wer dort Administrator ist, kann es in dieser Zeit auslesen – und ist damit überall Administrator, wo es das Dienstkonto ist. Empfohlen ist „Lokales System“: Das funktioniert genauso (auch für Windows Update) und legt nie ein Kennwort auf einen Computer.', d.service_login || tr('Dienstkonto'))
+          + (d.tenants_build ? ' ' + fmtT('{0} Mandant(en) dürfen eigene Pakete bauen – deren Pakete laufen dann ebenfalls als Dienstkonto.', d.tenants_build) : '');
+        confirm = await confirmDlg(txt, 'Trotzdem auf Dienstkonto umstellen', true);
+        if (!confirm) { pick.value = d.value; return; }
+      }
+      const r = await run(() => PUT('/api/settings/pkg-run-as', { value: v, confirm }), 'Gespeichert');
+      if (r) { d.value = r.value; drawWarn(); } else pick.value = d.value;
+    }, { cls: 'small' });
+    runBody.replaceChildren(
+      h('p.muted.small', { style: { marginTop: 0 } }, 'Mit diesem Konto laufen alle Pakete, deren „Ausführen als“ auf „Wie in den Einstellungen“ steht – für Hauptadmins und Mandanten gleich. Angezeigt wird immer das Konto, das wirklich läuft. Scans und Tools laufen weiter über das Dienstkonto.'),
+      h('div.form', field('Pakete ausführen als', pick, 'Lokales System (empfohlen): geplante Aufgabe ohne Kennwort – funktioniert auch für Windows Update und Installer, die eine lokale Anmeldung verlangen. Dienstkonto: kurzlebige geplante Aufgabe mit dem Kennwort des Dienstkontos, die nach jedem Schritt wieder gelöscht wird. winget-Schritte laufen nie als Dienstkonto.'),
+        field('', h('div.row', saveB))), warn);
+    drawWarn();
+  })();
   // Sections as in a control panel: the list on the left, the section's settings on the right
   const SECTIONS = [
     ['conn', 'Verbindung & Konten', 'net', [conn, accountsCard(), authCard(sys)], false],
@@ -6154,7 +6195,7 @@ async function viewSettings() {
     ['sched', 'Zeitpläne & Leistung', 'clock', [sched, toastCard, rebootCard], true],
     ['dns', 'Namensauflösung', 'net', [dnsCard], true],
     ['wol', 'Wake-on-LAN', 'play', [wolCard], true],
-    ['software', 'Repository & winget', 'box', [repo, upCard, integCard, wg, proxyCard(), exclCard], true],
+    ['software', 'Repository & winget', 'box', [runCard, repo, upCard, integCard, wg, proxyCard(), exclCard], true],
     ['remote', 'Fernsitzungen', 'monitor', [rdCard], true],
     ['tls', 'Zertifikat (HTTPS)', 'shield', [tlsCard()], false],
     ['backup', 'Sicherung', 'download', [bkCard], true],
