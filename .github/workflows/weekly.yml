@@ -2,16 +2,16 @@
 # same day in all programs; the schedule starts every Tuesday, tools/patchday.sh only lets the second one through): bring the base image, Debian and Python packages and guacd to the
 # latest state (tools/pin-versions.sh --update), rebuild without cache, self-test, vulnerability scan
 # (Trivy) - and ONLY if everything passes: security update number (e.g. 2.29.7 → 2.29.7-s1 - same program, only new packages), entry in CHANGELOG and
-# news - as its own branch with a pull request (2.37: nothing lands on main without review, no release by itself).
-# After merging, the owner starts the release (Actions → Release → Run workflow); the release workflow then builds
-# amd64 and arm64, tests and scans both once more and publishes under <version> and :latest - together with
-# guacd as …/pocketknife-guacd.
+# news - saved on main (normal push, never force) and published straight away, like in all other programs of the
+# owner: this workflow then starts the release workflow, which builds amd64 and arm64, tests and scans both once more
+# and publishes under <version> and :latest - together with guacd as …/pocketknife-guacd. (From 2.37 until patch day
+# 2026-12 the update came as a pull request; the owner decided that security updates publish themselves on patch day
+# in all programs - program changes still only come via pull request and are published by hand.)
 #
 # If nothing has changed, nothing happens. If a step fails, NOTHING is published - GitHub sends
 # a mail to the owner. By hand (any day, e.g. for an urgent fix): Actions → Security update (patch day) → Run workflow.
-# Note: GitHub pauses scheduled runs after 60 days without a change in the repository. For the pull request,
-# "Allow GitHub Actions to create and approve pull requests" must be enabled under Settings → Actions → General -
-# otherwise only the branch is created (link in the run).
+# Note: GitHub pauses scheduled runs after 60 days without a change in the repository. If main changes while the
+# update runs, the push is refused and nothing is published (start it again by hand).
 name: Security update (patch day)
 
 on:
@@ -96,8 +96,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 150
     permissions:
-      contents: write        # create the branch (never main)
-      pull-requests: write   # open the pull request
+      contents: write        # save version, CHANGELOG, news and the new pins on main (normal push, never force)
+      actions: write         # start the release workflow (only release.yml publishes images)
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -157,7 +157,7 @@ jobs:
           if [ -f trivy-guacd.md ]; then cat trivy-guacd.md >> "$GITHUB_STEP_SUMMARY"; fi
           [ "$rc" = 0 ] || echo "::warning title=guacd::$G has findings (or could not be scanned) – can only be fixed by the Guacamole project."
 
-      - name: Record the new version – branch and pull request
+      - name: Record the new version on main and publish
         id: ver
         if: steps.diff.outputs.changed == 'true'
         env:
@@ -166,23 +166,22 @@ jobs:
         run: |
           VER=$(python3 tools/security-release.py "$RUNNER_TEMP/vorher")
           echo "version=$VER" >> "$GITHUB_OUTPUT"
-          BR="sicherheitsupdate-$VER"
-          git switch -c "$BR"
           git add -A Dockerfile requirements.lock requirements.caps build-requirements.txt docker/apt-build.txt docker/apt-runtime.txt \
             docker/guacd.txt VERSION CHANGELOG.md app/news.json README.md README.en.md
           git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
             commit -qm "pocketknife $VER: security update (base image and packages)"
-          git push -q "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$BR"
+          # Normal push (never forced): if main changed in the meantime, GitHub refuses it and nothing is published
+          if ! git push -q "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/$BASE"; then
+            echo "::error title=Security update::main changed during the update – nothing published. Start Actions → Security update (patch day) → Run workflow again."
+            exit 1
+          fi
+          # Only release.yml publishes: it checks VERSION, CHANGELOG and news again, builds amd64/arm64, self-test and Trivy
+          gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref "$BASE"
           {
-            echo "Security update **$VER**: base image and packages updated, build without cache, self-test and Trivy passed."
+            echo "Security update **$VER** saved on $BASE – the release workflow publishes it now (Actions → Release)."
             echo
             [ -f trivy.md ] && cat trivy.md
-            echo
-            echo "After merging, start the release (Actions → Release → Run workflow)."
-          } > pr.md
-          gh pr create --base "$BASE" --head "$BR" --title "$VER: security update (patch day)" --body-file pr.md \
-            || echo "::warning::Pull request not created (setting \"Allow GitHub Actions to create … pull requests\"?). Branch: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/tree/$BR"
-          echo "Security update **$VER** submitted as a pull request – no release without merging." >> "$GITHUB_STEP_SUMMARY"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   unterbau:
     # Own job: reports in good time when the Python series or Debian version stops receiving updates (red from 180

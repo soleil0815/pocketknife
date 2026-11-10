@@ -4248,7 +4248,7 @@ def _():
     assert "ZAP-ALERTS-BEGIN" in s and "ZAP-ALERTS-END" in s
 
 
-@test("2.29.3 Security update (on patch day, the second Tuesday): update packages, rebuild, self-test and Trivy – only on success new version and release (latest); nothing without a change; version number, CHANGELOG and news automatic")
+@test("2.29.3 Security update (on patch day, the second Tuesday): update packages, rebuild, self-test and Trivy – only on success new version on main and release via release.yml (latest); nothing without a change; version number, CHANGELOG and news automatic")
 def _():
     import shutil as _sh
     import subprocess as _sp
@@ -4262,13 +4262,17 @@ def _():
     assert "needs.patchday.outputs.due == 'true'" in t.split("  stand:")[1].split("steps:")[0], "stand waits for patch day"
     assert "github.event.schedule == '23 3 * * 1'" in t.split("  unterbau:")[1], "base check stays on Mondays"
     order = ["pin-versions.sh --update", "git diff --quiet", "tools/trivy-scan.sh pocketknife:local", "tools/security-release.py",
-             'git switch -c "$BR"', 'git push', "gh pr create"]
+             'git push', "gh workflow run release.yml"]
     pos = [t.index(x) for x in order]
-    assert pos == sorted(pos), "order: update/build/test -> Trivy -> version -> branch -> pull request"
+    assert pos == sorted(pos), "order: update/build/test -> Trivy -> version -> main -> release"
     assert t.count("if: steps.diff.outputs.changed == 'true'") >= 3, "no new version without a change"
-    # 2.37: never directly onto main, no release by itself – only branch + pull request (release after merging)
-    assert "gh workflow run" not in t and "actions: write" not in t and "HEAD:${{" not in t, "no push to main, no release"
-    assert "pull-requests: write" in t and "contents: write" in t and "packages: write" not in t, "only release.yml publishes"
+    # Patch day 2026-12: security updates publish themselves (same in all programs) - but only via release.yml,
+    # never with force and only after self-test and Trivy; program changes still only via pull request
+    assert '"HEAD:refs/heads/$BASE"' in t and "--force" not in t and "+HEAD" not in t, "normal push, never force"
+    assert "gh pr create" not in t and "pull-requests: write" not in t, "no pull request any more"
+    assert "contents: write" in t and "actions: write" in t and "packages: write" not in t and "id-token" not in t, "only release.yml publishes"
+    up = t.split("  update:")[1].split("\n  unterbau:")[0]
+    assert "secrets.GITHUB_TOKEN" in up and "PAT" not in up, "only the run's own token"
     # 2.32.5: own group (otherwise GitHub discards a waiting release) and only for a published state
     assert "group: weekly-security" in t and "group: release" in open(os.path.join(root, ".github", "workflows", "release.yml"), encoding="utf-8").read()
     assert 'gh release view "v$VER"' in t and "needs: stand" in t and "if: needs.stand.outputs.released == 'true'" in t
