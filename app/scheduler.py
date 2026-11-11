@@ -190,8 +190,10 @@ def tick():
     state["last_tick"] = util.now()
     try:  # 2.31: load peaks with what was running at the time (Einstellungen → Wartung)
         from . import inventory, loadstats
+        from . import remote_desktop
         loadstats.sample(running(), len(inventory.scanning_ids()),
-                         db.val("SELECT COUNT(*) FROM deployments WHERE status='running'", (), 0))
+                         db.val("SELECT COUNT(*) FROM deployments WHERE status='running'", (), 0),
+                         remote=len(remote_desktop.active()))
     except Exception:
         pass
     if _due("idle", 1):

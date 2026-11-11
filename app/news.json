@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.44.1",
+   "date": "2026-11-11",
+   "items": [
+    {
+     "kind": "fixed",
+     "audience": "all",
+     "de": "Vergessene Fernsitzungen bremsen POCKET KNIFE nicht mehr: Ohne Tastatur- oder Mauseingabe endet eine RDP/VNC-Sitzung nach 30 Minuten (einstellbar). Offene Sitzungen erscheinen bei den Lastspitzen.",
+     "en": "Forgotten remote sessions no longer slow POCKET KNIFE down: without keyboard or mouse input an RDP/VNC session ends after 30 minutes (adjustable). Open sessions appear in the load peaks."
+    }
+   ]
+  },
+  {
    "version": "2.44.0",
    "date": "2026-11-11",
    "items": [

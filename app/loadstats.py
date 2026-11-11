@@ -55,7 +55,7 @@ def request(path):
         _req[_NUM.sub("/{id}", path or "")] += 1
 
 
-def sample(running, scans=0, deployments=0):
+def sample(running, scans=0, deployments=0, remote=0):
     """Called by the scheduler on every tick: load since the previous tick; from PEAK_PCT on, record it with context."""
     global _last
     now, c = time.time(), cpu()
@@ -69,7 +69,8 @@ def sample(running, scans=0, deployments=0):
     if pct >= PEAK_PCT:
         with _lock:
             _peaks.append({"at": util.now(), "pct": pct, "tasks": sorted(running), "scans": scans,
-                           "deployments": deployments, "requests": [f"{p} ×{n}" for p, n in req]})
+                           "deployments": deployments, "remote": remote,  # 2.44.1: open remote sessions relay the screen
+                           "requests": [f"{p} ×{n}" for p, n in req]})
     return pct
 
 
