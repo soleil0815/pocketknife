@@ -2,6 +2,11 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.41.2 (11.11.2026)
+- **Fix - false "veraltet" for Notepad++ and Adobe Acrobat Reader (since 2.40.1):** both register a "sparse" MSIX package for the Windows 11 context menu ("Notepad++" 1.0.0.0, "Adobe Acrobat Reader" 26.0.0.1). The MSIX scan listed it as a separate program, the winget matching assigned it by name to Notepad++/Acrobat Reader and it counted as outdated - "Aktualisieren" then found no update. Now sparse packages (AllowExternalContent, or manifest outside WindowsApps) are skipped, MSIX apps are only matched via their package family name, and existing assignments are corrected once after the update; the entries disappear with the next applications scan
+- **Manual as PDF up to date again:** "POCKET-KNIFE-Handbuch.pdf" and "POCKET-KNIFE-Manual.pdf" were last built with 2.32.8 and lacked everything since 2.33. They are now rebuilt from the current help (de/en) - including package execution as Local System, PowerShell errors, "Ausgeführt als", VNC, hidden items, update status, MSIX apps and update packages
+- **No more outdated PDFs:** `tools/build_manual.py` records which help text each PDF was built from (`app/static/help/manual-stamp.json`); the self-test fails when the help changes without rebuilding the PDFs
+
 ## pocketknife-2.41.1 (11.11.2026)
 - **New - "Für Updates verwenden" in the package editor:** under "Paket-Eigenschaften", main admins see and edit the winget IDs whose updates run with this package - add via the winget catalog search or with one click from the package's own winget steps, remove with ×; takes effect when saving. It is the same setting as "Update-Paket" in the software details, so both places always show the same state. A package can serve several winget IDs; adding a winget ID to another package moves it there. Not for tenant packages (checked before saving); OU admins neither see nor change it
 - **Fix:** a double-click on a name link (package, schedule, scan profile, scanner, tenant …) opened its dialog twice on top of each other - the second click of a double-click is now ignored for these links (2.41.0 only fixed the software list)

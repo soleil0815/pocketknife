@@ -46,6 +46,10 @@ async def lifespan(_app):
     uninstall.init()
     wingetcache.init()
     winget.load()
+    if winget.status()["loaded"] and not db.val("SELECT value FROM settings WHERE key='msix_rematch_2412'"):
+        # 2.41.2: MSIX entries only via package family name - correct the assignments once (e.g. "Notepad++" 1.0.0.0)
+        db.ex("INSERT OR REPLACE INTO settings(key, value) VALUES('msix_rematch_2412', '1')")
+        scheduler.run_now("rematch")
     deploy.recover()
     if config.HTTPS:
         tls.startup_check()

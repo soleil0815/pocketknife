@@ -268,8 +268,10 @@ def _score(p, name, pub, via_pc):
     return sc
 
 
-def match(name, publisher, key):
-    """Returns (winget_id, latest, comparison version, safe) or None."""
+def match(name, publisher, key, msix=False):
+    """Returns (winget_id, latest, comparison version, safe) or None.
+    msix (2.41.2): MSIX apps only via their package family name - a name match would compare e.g. the
+    context-menu package "Notepad++" 1.0.0.0 with Notepad++ 8.x and report it as outdated."""
     ov = overrides().get((name or "").lower())
     if ov:
         if ov["ignore"]:
@@ -279,7 +281,7 @@ def match(name, publisher, key):
     if not _idx["loaded"]:
         return None
     by_pc = _idx["by_pc"].get(key.lower().strip("{}"), set()) if key else set()
-    cands = set(by_pc) | set(_idx["by_name"].get(norm(name), set()))
+    cands = set(by_pc) if msix else set(by_pc) | set(_idx["by_name"].get(norm(name), set()))
     if not cands:
         return None
     pkgs = _idx["pkgs"]
@@ -297,7 +299,7 @@ def _apply(rows):
     memo, upd = {}, []
     rules = exclusions()
     for r in rows:
-        k = (r["name"], r["publisher"], r["product_code"])
+        k = (r["name"], r["publisher"], r["product_code"], r.get("hive") == "MSIX")
         if k not in memo:
             m = match(*k)
             ex = 1 if rules and excluded_by(r["name"], r["publisher"], m[0] if m else None, rules) else 0
@@ -316,14 +318,14 @@ def _apply(rows):
 
 def match_computer(cid):
     with _lock:
-        return _apply(db.q("SELECT id, name, publisher, product_code, version FROM software WHERE computer_id=?", (cid,)))
+        return _apply(db.q("SELECT id, name, publisher, product_code, version, hive FROM software WHERE computer_id=?", (cid,)))
 
 
 def rematch_all():
     overrides(reload=True)
     exclusions(reload=True)
     with _lock:
-        return _apply(db.q("SELECT id, name, publisher, product_code, version FROM software"))
+        return _apply(db.q("SELECT id, name, publisher, product_code, version, hive FROM software"))
 
 
 def search(q, limit=50):

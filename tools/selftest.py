@@ -8355,13 +8355,24 @@ def _():
     pw = os.environ.get("PK_PWSH")
     if pw and os.path.exists(pw):
         pre = src[src.index("# @prelude"):src.index("# @module active_directory")]
-        mf = os.path.join(TMP, "pk-msix-ps.xml")
-        fw = os.path.join(TMP, "pk-msix-fw.xml")
+        wa = os.path.join(TMP, "WindowsApps")
+        os.makedirs(wa, exist_ok=True)
+        mf = os.path.join(wa, "pk-msix-ps.xml")
+        fw = os.path.join(wa, "pk-msix-fw.xml")
+        # 2.41.2: sparse packages - context-menu identity of a normal program
+        sp_in = os.path.join(wa, "pk-msix-sparse.xml")
+        sp_out = os.path.join(TMP, "Notepad++", "contextMenu", "AppxManifest.xml")
+        os.makedirs(os.path.dirname(sp_out), exist_ok=True)
         ns = 'xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"'
         open(mf, "w", encoding="utf-8").write(f'<?xml version="1.0" encoding="utf-8"?><Package {ns}><Identity Name="Microsoft.PowerShell" Version="7.5.4.0"/>'
                                               '<Properties><DisplayName>PowerShell</DisplayName><PublisherDisplayName>Microsoft Corporation</PublisherDisplayName></Properties></Package>')
         open(fw, "w", encoding="utf-8").write(f'<?xml version="1.0" encoding="utf-8"?><Package {ns}><Properties><DisplayName>ms-resource:x</DisplayName>'
                                               '<Framework>true</Framework></Properties></Package>')
+        open(sp_in, "w", encoding="utf-8").write(f'<?xml version="1.0" encoding="utf-8"?><Package {ns} xmlns:uap10="http://schemas.microsoft.com/appx/manifest/uap/windows10/10">'
+                                                 '<Properties><DisplayName>Adobe Acrobat Reader</DisplayName><PublisherDisplayName>Adobe Acrobat Reader</PublisherDisplayName>'
+                                                 '<uap10:AllowExternalContent>true</uap10:AllowExternalContent></Properties></Package>')
+        open(sp_out, "w", encoding="utf-8").write(f'<?xml version="1.0" encoding="utf-8"?><Package {ns}><Properties><DisplayName>Notepad++</DisplayName>'
+                                                  '<PublisherDisplayName>Notepad++</PublisherDisplayName></Properties></Package>')
         mocks = ("$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'\n"
                  "function Get-ChildItem { param($Path, $ErrorAction)\n"
                  "  $p = '' + $Path\n"
@@ -8371,7 +8382,9 @@ def _():
                  "    @{ PSChildName = 'Microsoft.VCLibs.140.00_14.0.33519.0_x64__8wekyb3d8bbwe'; PSPath = 'A2' },\n"
                  "    @{ PSChildName = 'Microsoft.PowerShell_7.5.4.0_neutral_split.scale-100_8wekyb3d8bbwe'; PSPath = 'A3' },\n"
                  "    @{ PSChildName = 'Contoso.Framework_1.0.0.0_x64__abcdefghjkmnp'; PSPath = 'A4' },\n"
-                 "    @{ PSChildName = 'Microsoft.WindowsCalculator_11.2502.2.0_x64__8wekyb3d8bbwe'; PSPath = 'A5' }) }\n"
+                 "    @{ PSChildName = 'Microsoft.WindowsCalculator_11.2502.2.0_x64__8wekyb3d8bbwe'; PSPath = 'A5' },\n"
+                 "    @{ PSChildName = 'AdobeAcrobatReaderCoreApp_26.0.0.1_x64__pc75e8sa7ep4e'; PSPath = 'A6' },\n"
+                 "    @{ PSChildName = 'NotepadPlusPlus_1.0.0.0_neutral__7njy0v32s6xk6'; PSPath = 'A7' }) }\n"
                  "  if ($p -eq 'I') { return @(@{ PSChildName = 'Microsoft.Windows.Search_1.14.0.0_neutral_neutral_cw5n1h2txyewy'; PSPath = 'I1' }) }\n"
                  "  if ($p -eq 'S') { return @(@{ PSChildName = 'Staged.App_1.0.0.0_x64__abcdefghjkmnp'; PSPath = 'S1' }) }\n"
                  "  if ($p -eq 'U') { return @(@{ PSChildName = 'Microsoft.PowerShell_7.5.4.0_x64__8wekyb3d8bbwe'; PSPath = 'U1' },\n"
@@ -8380,6 +8393,8 @@ def _():
                  "function Get-ItemProperty { param($LiteralPath, $Path, $ErrorAction)\n"
                  f"  if ($LiteralPath -eq 'A1') {{ return @{{ Path = '{mf}' }} }}\n"
                  f"  if ($LiteralPath -eq 'A4') {{ return @{{ Path = '{fw}' }} }}\n"
+                 f"  if ($LiteralPath -eq 'A6') {{ return @{{ Path = '{sp_in}' }} }}\n"
+                 f"  if ($LiteralPath -eq 'A7') {{ return @{{ Path = '{sp_out}' }} }}\n"
                  "  return $null }\n")
         sf = os.path.join(TMP, "pk-msix.ps1")
         with open(sf, "w", encoding="utf-8-sig") as fh:
@@ -8389,7 +8404,7 @@ def _():
         assert line, r.stdout + r.stderr
         sw = json.loads(line[0])
         by = {x["name"]: x for x in sw}
-        assert set(by) == {"PowerShell", "Microsoft.WindowsCalculator", "Fabrikam.Tool"}, (sorted(by), r.stdout[-400:])
+        assert set(by) == {"PowerShell", "Microsoft.WindowsCalculator", "Fabrikam.Tool"}, (sorted(by), r.stdout[-400:])  # no sparse packages
         ps7 = by["PowerShell"]
         assert (ps7["version"], ps7["publisher"], ps7["key"], ps7["arch"], ps7["scope"], ps7["hive"]) == \
             ("7.5.4.0", "Microsoft Corporation", "Microsoft.PowerShell_8wekyb3d8bbwe", "x64", "Computer", "MSIX"), ps7
@@ -8437,6 +8452,11 @@ def _():
         row = db.q("SELECT * FROM software WHERE computer_id=? AND name='PowerShell'", (cid,))[0]
         assert row["winget_id"] == "Microsoft.PowerShell" and row["outdated"] == 1 and row["winget_sure"] == 1, dict(row)
         assert winget.match("Other", "", "{11111111-2222-3333-4444-555555555555}")[0] == "Fabrikam.Other", "product codes still work"
+        # 2.41.2: MSIX entries only via the package family name - not via the name (sparse "Notepad++" 1.0.0.0 was "outdated")
+        assert winget.match("Other", "", "Other_abc", msix=True) is None and winget.match("Other", "", "Other_abc")[0] == "Fabrikam.Other"
+        db.ex("INSERT INTO software(computer_id, name, version, product_code, hive) VALUES(?, 'Other', '1.0.0.0', 'Other_abc', 'MSIX')", (cid,))
+        winget.match_computer(cid)
+        assert db.q("SELECT winget_id, outdated FROM software WHERE computer_id=? AND name='Other'", (cid,))[0] == {"winget_id": None, "outdated": 0}
         # uninstall: Remove-AppxPackage for all users as Local System, no registry key to wait for
         uninstall.init()
         info = uninstall.command_for(dict(row))
@@ -8457,6 +8477,21 @@ def _():
         winget.load()
     js = open(os.path.join(root, "static", "app.js"), encoding="utf-8").read()
     assert "c('msix_hide_builtin')" in js
+    # 2.41.2: existing wrong assignments are corrected once after the update
+    msrc = open(os.path.join(root, "main.py"), encoding="utf-8").read()
+    assert "key='msix_rematch_2412'" in msrc and 'scheduler.run_now("rematch")' in msrc[msrc.index("msix_rematch_2412"):][:500]
+
+
+@test("2.41.2 Manual PDFs match the help: built from the current de.md/en.md (stamp from tools/build_manual.py)")
+def _():
+    import hashlib
+    hp = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "help")
+    st = json.load(open(os.path.join(hp, "manual-stamp.json"), encoding="utf-8"))
+    for lang, pdf in (("de", "POCKET-KNIFE-Handbuch.pdf"), ("en", "POCKET-KNIFE-Manual.pdf")):
+        h = hashlib.sha256(open(os.path.join(hp, f"{lang}.md"), "rb").read()).hexdigest()
+        assert st.get(lang, {}).get("help_sha256") == h, \
+            f"{pdf} is outdated - the help ({lang}.md) changed: run python3 tools/build_manual.py"
+        assert os.path.getsize(os.path.join(hp, pdf)) > 500_000, pdf
 
 
 @test("2.41 Own update package per winget ID: Auto-Update, \"Aktualisieren\" and deploying an upgrade use it (current state, all steps), tenant packages and deleting are refused")

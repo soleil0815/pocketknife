@@ -250,13 +250,17 @@ try {
       $mp = ''
       if ($pv -and $pv.Path) { $mp = ("" + $pv.Path).Trim() }
       if (-not $mp) { $mp = $env:ProgramFiles + '\WindowsApps\' + $fn + '\AppxManifest.xml' }
+      # 2.41.2: manifest outside WindowsApps/SystemApps = sparse package or registered from a folder - not a separate program
+      if ($mp -notmatch '[\\/](WindowsApps|SystemApps)[\\/]') { continue }
       $dn = $nm; $pub = ''; $fw = $false
       try {
         if (Test-Path -LiteralPath $mp) {
           $xm = [xml]((Get-Content -LiteralPath $mp -ErrorAction Stop) -join "`n")
           $pp = $xm.Package.Properties
           if ($pp) {
-            $fw = ("" + $pp.Framework) -eq 'true' -or ("" + $pp.ResourcePackage) -eq 'true'
+            # 2.41.2: sparse packages (AllowExternalContent) are only an identity of a normal program for the Windows 11
+            # context menu (Notepad++ 1.0.0.0, Adobe Acrobat Reader 26.0.0.1 ...) - the program itself is in the uninstall registry
+            $fw = ("" + $pp.Framework) -eq 'true' -or ("" + $pp.ResourcePackage) -eq 'true' -or ("" + $pp.AllowExternalContent) -eq 'true'
             $d = ("" + $pp.DisplayName).Trim(); if ($d -and $d -notmatch '^ms-resource:') { $dn = $d }
             $d = ("" + $pp.PublisherDisplayName).Trim(); if ($d -and $d -notmatch '^ms-resource:') { $pub = $d }
           }

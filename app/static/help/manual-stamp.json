@@ -1,0 +1,10 @@
+{
+ "de": {
+  "help_sha256": "f24d0630d3b4a2a9691e947fab9a6d87120421a1192a49646905617afdadfc48",
+  "version": "2.41.2"
+ },
+ "en": {
+  "help_sha256": "8193dca32e8f809ca3f412e151442be78be45ed3ceae1decb5ea42d1cdb90909",
+  "version": "2.41.2"
+ }
+}
