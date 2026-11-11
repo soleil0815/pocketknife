@@ -5875,5 +5875,6 @@
  "View": null,
  "Zusatzdaten von {0} bereinigt: {1} KB → {2} KB ({3}). Der nächste Scan füllt fehlende Werte wieder.": "Extra data of {0} cleaned up: {1} KB → {2} KB ({3}). The next scan fills in missing values again.",
  "Zusatzdaten zu groß und verworfen: {0}": "Extra data too large and discarded: {0}",
- "Zusatzdaten nicht bereinigt: {0}": "Extra data not cleaned up: {0}"
+ "Zusatzdaten nicht bereinigt: {0}": "Extra data not cleaned up: {0}",
+ "PRAGMA table_info(computers)": null
 }

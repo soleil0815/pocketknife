@@ -563,6 +563,84 @@ def _stats(since, an):
     }
 
 
+def _performance(an):
+    """2.44.3: where does time go? Load peaks, duration of the main queries, sizes of the large columns - only names
+    of fields and counts, never their contents."""
+    import time as _t
+    from . import collections_, loadstats, main
+    out: dict = {}
+    try:
+        out["load"] = loadstats.view()
+    except Exception as e:  # noqa: BLE001
+        out["load"] = str(e)
+    adm = {"username": "diagnose", "scope": None, "role": "admin"}
+    q: dict = {}
+    for name, fn in (("dashboard", lambda: main.api_dashboard(adm)), ("computers", lambda: main.api_computers(0, adm)),
+                     ("collections", lambda: main.api_collections(adm)), ("software", lambda: main.api_software(0, adm))):
+        a = _t.time()
+        try:
+            fn()
+            q[name] = round((_t.time() - a) * 1000)
+        except Exception as e:  # noqa: BLE001
+            q[name] = f"Fehler: {an(str(e))[:200]}"
+    out["queries_ms"] = q
+    tim = []
+    for r in db.q("SELECT id, name, type, builtin FROM collections WHERE type='dynamic'"):
+        a = _t.time()
+        try:
+            collections_.count(r["id"])
+        except Exception:  # noqa: BLE001
+            pass
+        tim.append((round((_t.time() - a) * 1000, 1), r["name"] if r["builtin"] else an(r["name"])))
+    tim.sort(reverse=True)
+    out["collections_ms"] = {"count": len(tim), "total": round(sum(x[0] for x in tim)), "slowest": tim[:10]}
+    cols = [r["name"] for r in db.q("PRAGMA table_info(computers)")]
+    sizes = sorted(((db.val(f'SELECT SUM(length("{c}")) FROM computers', default=0) or 0, c) for c in cols), reverse=True)
+    out["computer_columns_kb"] = {c: round(n / 1024) for n, c in sizes[:10]}
+    big = []
+    for r in db.q("SELECT name, length(extra) n, extra FROM computers ORDER BY n DESC LIMIT 5"):
+        try:
+            d = json.loads(r["extra"] or "{}")
+        except ValueError:
+            d = {}
+        keys = sorted(((len(json.dumps(v, default=str)), k) for k, v in d.items()) if isinstance(d, dict) else [], reverse=True)[:8]
+        big.append({"computer": an.alias("computer", r["name"]) if an.enabled else r["name"], "kb": round((r["n"] or 0) / 1024),
+                    "keys_kb": {k: round(n / 1024, 1) for n, k in keys}})
+    out["largest_extras"] = big
+    out["inventory_data_kb"] = {r["category"] if not str(r["category"]).startswith("custom:") else "custom": round((r["s"] or 0) / 1024)
+                                for r in db.q("SELECT category, SUM(length(json)) s FROM inventory_data GROUP BY category ORDER BY s DESC LIMIT 15")}
+    return out
+
+
+def _update_status():
+    """2.44.3: update status at a glance - Microsoft data, statuses, Office channels/versions (no computer names)."""
+    from . import updstatus
+    st = lambda k: db.val("SELECT value FROM settings WHERE key=?", (k,))  # noqa: E731
+    out = {"grace_days": db.setting("update_grace_days"), "microsoft": bool(db.setting("update_msrc")),
+           "at": st("update_status_at"), "msrc_builds": st("update_status_msrc"), "office_channels": st("update_status_office"),
+           "windows": {str(r["s"]): r["n"] for r in db.q("SELECT win_update s, COUNT(*) n FROM computers GROUP BY 1")},
+           "office": {str(r["s"]): r["n"] for r in db.q("SELECT office_update s, COUNT(*) n FROM computers GROUP BY 1")},
+           "windows_builds": {f"{r['os_build']}": r["n"] for r in db.q(
+               "SELECT os_build, COUNT(*) n FROM computers WHERE os_build IS NOT NULL GROUP BY 1 ORDER BY n DESC LIMIT 20")}}
+    inst: dict = {}
+    for c in db.q("SELECT id, extra FROM computers"):
+        try:
+            for o in updstatus.office_installs(c):
+                k = f"{o['product']} | {o['channel']} | {o['version']}"
+                inst[k] = inst.get(k, 0) + 1
+        except Exception:  # noqa: BLE001
+            pass
+    out["office_installations"] = dict(sorted(inst.items(), key=lambda x: -x[1])[:30])
+    try:
+        ms = json.loads(st("update_office_ms") or "{}")
+        out["office_microsoft"] = {ch: e.get("latest") for ch, e in (ms.get("channels") or {}).items()}
+    except ValueError:
+        pass
+    out["refs"] = db.q("SELECT kind, key, MAX(value) top, COUNT(*) n, MAX(released) last, GROUP_CONCAT(DISTINCT source) src "
+                       "FROM update_refs GROUP BY kind, key ORDER BY kind, key LIMIT 60")
+    return out
+
+
 def _per_version(logs, targets):
     """Per version: warnings/errors in the log and results of the deployments."""
     out = collections.OrderedDict()
@@ -599,6 +677,9 @@ Dateien
   umgebung.json        Version, Umgebung, Zähler, Zustand der Hintergrundaufgaben (ohne Kennwörter/Schlüssel)
   einstellungen.json   Einstellungen (ohne Kennwörter, Keytab, Schlüssel)
   statistik.json       Bereitstellungen und Scans im Zeitraum: Ergebnisse, Exitcodes, häufigste Fehler, Dauer
+  leistung.json        Rechenlast und Lastspitzen, Dauer der wichtigsten Abfragen, langsamste Sammlungen, größte Felder
+                       (nur Feldnamen und Größen, keine Inhalte)
+  update_status.json   Update-Status: Microsoft-Abgleich, Stände je Status, Office-Installationen je Produkt/Kanal/Version
   protokoll.csv        Protokoll des Zeitraums (höchstens {MAX_LOG_ROWS} Einträge, neueste zuerst)
   fehler.txt           Warnungen und Fehler mit technischen Details
   bereitstellungen.csv Ziele der Bereitstellungen im Zeitraum
@@ -696,6 +777,11 @@ def _build(days, anonymize, user):
         z.writestr("umgebung.json", json.dumps(_environment(an), ensure_ascii=False, indent=1, default=str))
         z.writestr("einstellungen.json", json.dumps(_settings(an), ensure_ascii=False, indent=1, default=str))
         z.writestr("statistik.json", json.dumps(stats, ensure_ascii=False, indent=1, default=str))
+        for fname, fn in (("leistung.json", lambda: _performance(an)), ("update_status.json", _update_status)):
+            try:
+                z.writestr(fname, json.dumps(fn(), ensure_ascii=False, indent=1, default=str))
+            except Exception as e:  # noqa: BLE001 - the package itself must always work
+                z.writestr(fname, json.dumps({"error": an(str(e))[:500]}, ensure_ascii=False))
         z.writestr("protokoll.csv", _csv(logs, ["ts", "version", "level", "category", "computer", "username", "message"]))
         z.writestr("fehler.txt", "\n".join(errors) or "Keine Warnungen oder Fehler im Zeitraum.\n")
         z.writestr("bereitstellungen.csv", _csv(targets, ["version", "deployment_id", "deployment", "source", "created_by", "computer_name",

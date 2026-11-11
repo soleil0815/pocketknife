@@ -81,6 +81,15 @@ CHANNELS = {
     "5030841d-c919-4594-8d2d-84ae4f96e58e": "Office LTSC 2021 (PerpetualVL2021)",
     "7983bac0-e531-40cf-be00-fd24fe66619c": "Office LTSC 2024 (PerpetualVL2024)",
 }
+# 2.44.3: AudienceData ("Production::LTSC2024") -> channel name; and the only channel of a perpetual volume product
+AUDIENCE = {"cc": "Current Channel", "ccpreview": "Current Channel (Preview)", "frcc": "Current Channel (Preview)",
+            "mec": "Monthly Enterprise Channel", "dc": "Semi-Annual Enterprise Channel", "saec": "Semi-Annual Enterprise Channel",
+            "frdc": "Semi-Annual Enterprise Channel (Preview)", "saecpreview": "Semi-Annual Enterprise Channel (Preview)",
+            "devmain": "Beta Channel", "beta": "Beta Channel", "ltsc": "Office 2019 Perpetual (PerpetualVL2019)",
+            "ltsc2019": "Office 2019 Perpetual (PerpetualVL2019)", "ltsc2021": "Office LTSC 2021 (PerpetualVL2021)",
+            "ltsc2024": "Office LTSC 2024 (PerpetualVL2024)"}
+PERPETUAL_VL = {"2019": "Office 2019 Perpetual (PerpetualVL2019)", "2021": "Office LTSC 2021 (PerpetualVL2021)",
+                "2024": "Office LTSC 2024 (PerpetualVL2024)"}
 GUID_RX = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 MSI_OFFICE_RX = re.compile(r"^Microsoft (Office|Visio|Project)\b(?!.*(Proof|MUI|Language|Sprach|Shared|Components|Komponenten|"
                            r"Click-to-Run|Klick-und-Los|Viewer|Web Components|Live Meeting|Interop|Runtime|Access database engine))"
@@ -201,20 +210,35 @@ def _office_product(rid):
     return (f"Office LTSC {year}" if ltsc else f"Office {year}"), year
 
 
+def c2r_channel(c2r):
+    """Channel name of a Click-to-Run installation or None (unknown): GUID in UpdateChannel, CDNBaseUrl or AudienceId
+    (UpdateChannel can be a network share), otherwise AudienceData ("Production::LTSC2024")."""
+    for k in ("channel", "cdn", "audience_id"):
+        g = GUID_RX.search(str(c2r.get(k) or ""))
+        if g:
+            return CHANNELS.get(g.group(0).lower(), "Kanal " + g.group(0).lower())
+    aud = str(c2r.get("audience") or "").split("::")[-1]
+    return AUDIENCE.get(re.sub(r"[^a-z0-9]", "", aud.lower())) if aud else None
+
+
 def office_installs(c, software=None):
     """Office installations of a computer: [{product, version, channel, kind, year}] - Click-to-Run from the scan,
     MSI from the software list."""
     out = []
     c2r = _extra(c).get("office_c2r") or {}
     if isinstance(c2r, dict) and c2r.get("version"):
-        g = GUID_RX.search(str(c2r.get("channel") or ""))
-        ch = CHANNELS.get(g.group(0).lower(), "Kanal " + g.group(0).lower()) if g else "unbekannter Kanal"
+        ch = c2r_channel(c2r)
         seen = set()
         for rid in str(c2r.get("products") or "").split(","):
             name, year = _office_product(rid)
             if name and name not in seen:
                 seen.add(name)
-                out.append({"product": name, "version": str(c2r["version"]), "channel": ch, "kind": "Klick-und-Los", "year": year})
+                pch = ch
+                if pch is None:
+                    # 2.44.3: a volume product of Office 2019/LTSC 2021/2024 has exactly one channel
+                    pch = PERPETUAL_VL.get(year or "") if "volume" in rid.lower() else None
+                out.append({"product": name, "version": str(c2r["version"]), "channel": pch or "unbekannter Kanal",
+                            "kind": "Klick-und-Los", "year": year})
     if software is None:
         software = db.q("SELECT name, version FROM software WHERE computer_id=?", (c["id"],))
     have = {o["product"] for o in out}

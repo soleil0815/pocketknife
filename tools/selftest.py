@@ -8907,6 +8907,76 @@ def _():
             compile(code, f, "exec")
 
 
+@test("2.44.3 Office channel also without a GUID in UpdateChannel (network share/empty): CDNBaseUrl, AudienceId, AudienceData, perpetual volume product - LTSC 2024 16.0.17932.21056 is outdated against Microsoft's 21140")
+def _():
+    import datetime as _dt
+    from app import updstatus as us
+    ltsc = "Office LTSC 2024 (PerpetualVL2024)"
+    g24 = "7983bac0-e531-40cf-be00-fd24fe66619c"
+    ch = us.c2r_channel
+    assert ch({"channel": "http://officecdn.microsoft.com/pr/" + g24.upper()}) == ltsc
+    assert ch({"channel": "\\\\fs01\\Office", "cdn": "http://officecdn.microsoft.com/pr/" + g24}) == ltsc, "UNC update path"
+    assert ch({"channel": "", "audience_id": "{" + g24 + "}"}) == ltsc
+    assert ch({"audience": "Production::LTSC2024"}) == ltsc and ch({"audience": "Production::MEC"}) == "Monthly Enterprise Channel"
+    assert ch({"audience": "Production::DC"}) == "Semi-Annual Enterprise Channel" and ch({"audience": "Production::CC"}) == "Current Channel"
+    assert ch({}) is None and ch({"channel": "\\\\fs01\\Office"}) is None
+    rows = lambda c2r: us.office_installs({"id": 0, "extra": json.dumps({"office_c2r": c2r})}, software=[])  # noqa: E731
+    r = rows({"version": "16.0.17932.21056", "channel": "", "products": "ProPlus2024Volume,VisioPro2024Volume"})
+    assert {x["channel"] for x in r} == {ltsc}, r
+    assert rows({"version": "16.0.14334.1", "products": "ProPlus2021Volume"})[0]["channel"] == "Office LTSC 2021 (PerpetualVL2021)"
+    assert rows({"version": "16.0.1.1", "products": "O365ProPlusRetail"})[0]["channel"] == "unbekannter Kanal", "M365 without channel stays unknown"
+    # the user's case: Microsoft has 21140 (10.11.), grace period 0 -> 21056 outdated
+    old_refs = db.q("SELECT * FROM update_refs")
+    old_ms = db.val("SELECT value FROM settings WHERE key='update_office_ms'")
+    y = (_dt.date.today() - _dt.timedelta(days=1)).isoformat()
+    try:
+        db.ex("DELETE FROM update_refs")
+        db.ex("INSERT OR REPLACE INTO settings(key, value) VALUES('update_grace_days', '0')")
+        db.ex("INSERT OR REPLACE INTO settings(key, value) VALUES('update_msrc', '1')")
+        us.fetch_office(get=lambda u: [{"channelId": "PerpetualVL2024", "latestVersion": "16.0.17932.21140",
+                                        "officeVersions": [{"releaseVersion": "2409", "legacyVersion": "16.0.17932.21140", "availabilityDate": y}]}])
+        assert us._compare_office(r[0]["channel"], "16.0.17932.21056") == ("veraltet", "16.0.17932.21140")
+        assert us._compare_office(r[0]["channel"], "16.0.17932.21140")[0] == "aktuell"
+    finally:
+        db.ex("DELETE FROM settings WHERE key='update_grace_days'")
+        if old_ms is None:
+            db.ex("DELETE FROM settings WHERE key='update_office_ms'")
+        else:
+            db.ex("INSERT OR REPLACE INTO settings(key, value) VALUES('update_office_ms', ?)", (old_ms,))
+        db.ex("DELETE FROM update_refs")
+        for x in old_refs:
+            db.ex("INSERT INTO update_refs(kind, key, value, released, source) VALUES(?,?,?,?,?)", (x["kind"], x["key"], x["value"], x["released"], x["source"]))
+    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "scan_modules.ps1"), encoding="utf-8").read()
+    assert "audience_id = \"\" + $o.AudienceId; audience = \"\" + $o.AudienceData" in src and "cdn = \"\" + $o.CDNBaseUrl" in src
+
+
+@test("2.44.3 Diagnostic package: leistung.json (load, query times, slowest collections, largest fields - names and sizes only) and update_status.json (Microsoft data, statuses, Office per product/channel/version) - anonymized")
+def _():
+    import io as _io
+    import zipfile as _zf
+    from app import diagnostics
+    ids = []
+    try:
+        ids.append(db.ex("INSERT INTO computers(name, extra) VALUES('GEHEIM-PC-77', ?)", (json.dumps({
+            "office_c2r": {"version": "16.0.17932.21056", "channel": "", "products": "ProPlus2024Volume"}, "winget": "1.9", "secret_note": "GEHEIMWERT-123"}),)))
+        z = _zf.ZipFile(_io.BytesIO(diagnostics.build(days=1, anonymize=True)[0]))
+        names = set(z.namelist())
+        assert {"leistung.json", "update_status.json"} <= names, names
+        perf = json.loads(z.read("leistung.json"))
+        assert "error" not in perf, perf
+        assert set(perf["queries_ms"]) == {"dashboard", "computers", "collections", "software"} and all(isinstance(v, int) for v in perf["queries_ms"].values()), perf["queries_ms"]
+        assert "extra" in perf["computer_columns_kb"] and perf["largest_extras"]
+        upd = json.loads(z.read("update_status.json"))
+        assert "error" not in upd, upd
+        assert any("Office LTSC 2024 (PerpetualVL2024) | 16.0.17932.21056" in k for k in upd["office_installations"]), upd["office_installations"]
+        raw = z.read("leistung.json").decode() + z.read("update_status.json").decode()
+        assert "GEHEIM-PC-77" not in raw and "GEHEIMWERT-123" not in raw, "names anonymized, field contents never included"
+        assert "leistung.json" in z.read("LIESMICH.txt").decode()
+    finally:
+        for i in ids:
+            db.ex("DELETE FROM computers WHERE id=?", (i,))
+
+
 @test("2.22 Self-test: diagnostic package test does not use fixed dates (time bomb once outside the 30-day window)")
 def _():
     import inspect
