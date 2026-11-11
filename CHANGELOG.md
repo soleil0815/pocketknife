@@ -11,6 +11,7 @@ New entries are in English. Entries up to and including 2.38.4-s1 (November 2026
 - **Scan:** the computer module also reads the PowerShell language mode (ConstrainedLanguage = software restriction/AppLocker)
 - Help (de/en) and manual PDFs updated
 - **Self-test:** request durations, task errors, scan sizes with warning, remote session history, all new parts of the package present and anonymized
+- **Self-test:** 2.25.4 (repository index) no longer depends on timing - on a fast machine the background index of the test files could already be finished on the first search (release build arm64)
 
 ## pocketknife-2.44.3 (11.11.2026)
 - **Fix - Office LTSC 2024 stayed "aktuell" although Microsoft has a newer build:** the scan only recognised the update channel by a GUID in UpdateChannel (or CDNBaseUrl if empty). With Office updating from a network share or without UpdateChannel, the installation landed in "unbekannter Kanal" and was only compared with the own environment (e.g. 16.0.17932.21056 "aktuell" although 16.0.17932.21140 is out since 10.11.)

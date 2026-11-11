@@ -2810,7 +2810,9 @@ def _():
     remote.repo_cache_clear()
     try:
         r = remote.repo_search("", "7z")
-        assert r["cached"] is False and len(files(r)) == 2, r  # first call: direct, index is read in
+        # first call: direct, the index is read in the background - on a fast machine it can already be finished for
+        # these three files (CI arm64, 11.11.2026), so only the hits count here, not where they came from
+        assert len(files(r)) == 2, r
         wait()
         r = remote.repo_search("", "7z")
         assert r["cached"] is True and files(r) == {"7z2408-x64.msi", "7zPortable.zip"} and "7zip" in {x["name"] for x in r["items"]}, r
