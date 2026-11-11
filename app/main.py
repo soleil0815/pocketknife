@@ -4289,6 +4289,7 @@ def api_updstatus(user=U):
                 "GROUP BY kind, key ORDER BY CAST(key AS INTEGER) DESC LIMIT 20")
     return {"grace_days": db.setting("update_grace_days"), "msrc": bool(db.setting("update_msrc")), "tree": bool(db.setting("update_tree")),
             "at": db.val("SELECT value FROM settings WHERE key='update_status_at'"), "msrc_builds": db.val("SELECT value FROM settings WHERE key='update_status_msrc'"),
+            "office_channels": db.val("SELECT value FROM settings WHERE key='update_status_office'"),
             "windows": counts, "office": ocounts, "builds": refs, "running": updstatus._lock.locked()}
 
 

@@ -2,6 +2,15 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.44.0 (11.11.2026)
+- **New - Office against Microsoft's update channels:** with "Microsoft-Abgleich" switched on, the server also fetches Microsoft's release data of the Microsoft 365 Apps / Office LTSC update channels once a day (current build of every supported version per channel, release date, end of support of the version)
+  - every Click-to-Run installation is compared within **its own version** - on Semi-Annual two versions are supported at the same time and both count as current with their newest build
+  - a version Microsoft no longer supports in its channel is "veraltet" (target: newest version of the channel)
+  - the grace period applies as for Windows; channels without Microsoft data and servers without internet keep the comparison with the own environment
+  - the settings show "Microsoft: N Builds, M Office-Kanäle" after the download; a failed download is logged and does not stop the Windows comparison
+- Help (de/en) and manual PDFs updated
+- **Self-test:** tolerant feed parsing (ISO and day-first dates, unknown channels, broken entries), Semi-Annual with two versions plus an expired one, Current Channel, LTSC with grace period, fallback without Microsoft data
+
 ## pocketknife-2.43.0 (11.11.2026)
 - **New - Windows 10 with ESU in the update status:** Windows 10 22H2 PCs with Extended Security Updates no longer count as "ohne Support" across the board. They count as supported until the end of their ESU year and are compared like any build (aktuell/veraltet). Detection:
   - the scan reads the licensed ESU year via Microsoft's ESU activation IDs (years 1-3, query filtered by ID; only on Windows 10 outside LTSC)
