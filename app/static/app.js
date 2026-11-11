@@ -1427,6 +1427,9 @@ async function viewDashboard() {
 // winget only runs from Windows 10 1809 / Windows Server 2019 (build 17763) – like deploy.WINGET_MIN_BUILD
 const WINGET_MIN_BUILD = 17763;
 const WINGET_NA = 'winget gibt es erst ab Windows 10 1809 / Windows Server 2019 – veraltete Programme hier über den winget-Cache (Software → winget-Cache …) oder ein eigenes Paket aktualisieren.';
+// 2.40: update status badge (Windows and Office)
+const UPD_CLS = { aktuell: 'ok', veraltet: 'warn', 'ohne Support': 'err', unbekannt: '', 'kein Office': '' };
+const updBadge = (st) => h('span.badge', { class: UPD_CLS[st] ?? '' }, st);
 const wingetOk = (c) => !c || !c.os_build || !(Number(c.os_build) < WINGET_MIN_BUILD);
 
 async function updateOutdated(wid, computerIds = null) {
@@ -1716,6 +1719,8 @@ async function viewComputers(_parts, params) {
     { key: 'os', label: 'Betriebssystem' },
     { key: 'os_display_version', label: 'Version' },
     { key: 'os_build', label: 'Build' },
+    { key: 'win_update', label: 'Update-Status', hidden: true, render: (r) => (r.win_update ? updBadge(r.win_update) : ''), value: (r) => r.win_update || '' },
+    { key: 'office_update', label: 'Office', hidden: true, render: (r) => (r.office_update ? updBadge(r.office_update) : ''), value: (r) => r.office_update || '' },
     { key: 'uptime', label: 'Betriebszeit', value: (r) => (r.online ? uptime(r.last_boot) : ''), sort: (r) => (r.online && r.last_boot ? r.last_boot : ''), hidden: true },
     { key: 'current_user', label: 'Benutzer', render: (r) => usersEl(r.current_user, r.user_states), value: (r) => usersText(r.current_user, r.user_states) },
     { key: 'manufacturer', label: 'Hersteller', hidden: true },
@@ -2071,7 +2076,7 @@ const INV_COLL = {
   nics: ['nics', 'name', { speed: 'speed_mbit' }], printers: ['printers', 'name'], processes: ['processes', 'name'],
   product_keys: ['product_keys', 'product'], services: ['services', 'name'], shares: ['shares', 'name'],
   features: ['features', 'name'], tasks: ['tasks', 'name'], disks: ['disks', 'drive'], disks_physical: ['disks_physical', 'model', { size: 'size_gb' }],
-  admins: ['admins', 'name'],
+  admins: ['admins', 'name'], office: ['office', 'product'],
 };
 // Columns of the computer list -> filter column of the table "Computer"
 const LIST_COLL = { os: 'os', os_display_version: 'os_display_version', os_build: 'os_build', current_user: 'current_user',
@@ -2259,6 +2264,7 @@ const PC_CATS = [
   ['local_users', 'Lokale Benutzer', 'user', 'local_users'],
   ['memory', 'Speichermodule', 'mem', 'memory'],
   ['nics', 'Netzwerkkarten', 'net', 'nics'],
+  ['office', 'Office', 'apps', 'office'],  // 2.40: installations with update status
   ['powershell', 'PowerShell', 'terminal'],
   ['printers', 'Drucker (lokal)', 'print', 'printers'],
   ['processes', 'Prozesse', 'list', 'processes'],
@@ -2316,6 +2322,9 @@ const PC_COLS = {
     ['network', 'Netzwerk', R.bool('network')], ['shared', 'Freigegeben', R.bool('shared')], ['share_name', 'Freigabename'], ['location', 'Standort']],
   processes: [['name', 'Prozess'], ['pid', 'PID'], ['user', 'Benutzer'], ['memory', 'Arbeitsspeicher', R.bytes('memory')],
     ['cpu_s', 'CPU (s)'], ['start', 'Gestartet', R.date('start')], ['company', 'Firma'], ['path', 'Pfad', null, 'trunc']],
+  office: [['product', 'Produkt'], ['version', 'Version', null, 'mono'], ['channel', 'Update-Kanal'], ['kind', 'Art'],
+    ['status', 'Update-Status', (r) => (r.status ? updBadge(r.status) : '')], ['current', 'Aktueller Stand', null, 'mono'],
+    ['support_end', 'Support bis', R.date('support_end')]],
   product_keys: [['product', 'Produkt', null, 'wrap'], ['key', 'Schlüssel', null, 'mono'], ['channel', 'Kanal'],
     ['status', 'Status', (r) => (r.status ? h('span.badge', { class: r.status === 'Lizenziert' ? 'ok' : 'warn' }, r.status) : '')]],
   shares: [['name', 'Freigabe'], ['path', 'Pfad'], ['description', 'Beschreibung'], ['type', 'Typ'], ['admin', 'Administrativ', R.bool('admin')]],
@@ -2582,6 +2591,10 @@ function pcOverview(c, link) {
       fRow('SMBv1-Server aktiviert', warnBool(e.smb1_server)), fRow('SMBv1-Client aktiviert', warnBool(e.smb1_client)),
       fRow('IE-Version', e.ie_version), fRow('Architektur', c.os_arch, null, ['os_arch', c.os_arch]), fRow('.NET-Versionen', e.dotnet),
       fRow('BIOS-Modus', e.bios_mode, null, ['bios_mode', e.bios_mode]), fRow('Secure Boot', bool(e.secure_boot)),
+      fRow('Edition', e.os_edition, null, ['os_edition', e.os_edition]),
+      // 2.40: update status – compared with the latest state of this Windows build (Microsoft or own environment)
+      fRow('Update-Status', c.win_update ? h('span', { title: tr(c.win_update_info || '') }, updBadge(c.win_update), c.win_update_info ? h('span.muted.small', ' ', c.win_update_info) : null) : '', null, ['win_update', c.win_update]),
+      fRow('Office', c.office_update ? updBadge(c.office_update) : '', link('office'), ['office_update', c.office_update]),
       fRow('Letztes Windows-Update', fmtDate(e.last_wu_install), link('hotfixes')),
       fRow('Neustart erforderlich', e.pending_reboot ? h('span.badge.warn', 'Ja') : (c.last_scan ? 'Nein' : ''))]));
 
@@ -6214,6 +6227,32 @@ async function viewSettings() {
         field('', h('div.row', saveB))), warn);
     drawWarn();
   })();
+  // 2.40: update status for Windows and Office – grace period, Microsoft data, ready-made collections
+  const updBody = h('div.card-b', h('p.muted', 'Wird geladen …'));
+  const updCard = h('div.card', h('div.card-h', h('h2', 'Update-Status (Windows & Office)')), updBody);
+  const drawUpd = async () => {
+    let d;
+    try { d = await GET('/api/updstatus'); } catch (e) { updBody.replaceChildren(h('p.muted', e.message || String(e))); return; }
+    const days = h('input', { type: 'number', min: 0, max: 60, value: d.grace_days, style: { width: '90px' } });
+    const ms = h('input', { type: 'checkbox', checked: d.msrc });
+    const tree = h('input', { type: 'checkbox', checked: d.tree });
+    const cnt = (o) => ['aktuell', 'veraltet', 'ohne Support', 'unbekannt', 'kein Office'].filter((k) => o[k]).map((k) => h('span', updBadge(k), ' ', num(o[k]), '  '));
+    updBody.replaceChildren(
+      h('p.muted.small', { style: { marginTop: 0 } }, 'Jede Installation wird mit dem neuesten Stand ihres eigenen Windows-Builds bzw. Office-Kanals verglichen – ohne feste Vorgabe. Grundlage: die von Microsoft veröffentlichten Patchstände (falls eingeschaltet) und der neueste Stand in der eigenen Umgebung. Die fertigen Sammlungen „Windows Updates“ und „Microsoft Office“ füllen sich aus dem Inventar.'),
+      h('div.form',
+        field('Karenzzeit (Tage)', days, 'Ein neuer Patch zählt erst nach so vielen Tagen (ab Veröffentlichung bzw. erstem Auftauchen in der Umgebung) – bis dahin gelten Computer mit dem vorherigen Stand noch als aktuell.'),
+        field('Microsoft-Abgleich', h('label.chk', ms, tr('Patchstände von Microsoft abrufen (MSRC, einmal täglich durch den Server)')), 'Ohne Internet am Server wird nur mit dem neuesten Stand der eigenen Umgebung verglichen.'),
+        field('Fertige Sammlungen', h('label.chk', tree, tr('„Windows Updates“ und „Microsoft Office“ anlegen und aktuell halten'))),
+        field('', h('div.row', btn('Speichern', async () => {
+          if (await run(() => PUT('/api/updstatus', { grace_days: Number(days.value), msrc: ms.checked, tree: tree.checked }), 'Gespeichert') !== undefined) drawUpd();
+        }, { cls: 'small' }), btn('Jetzt neu berechnen', async () => {
+          if (await run(() => POST('/api/updstatus/refresh'), 'Neuberechnung gestartet') !== undefined) setTimeout(drawUpd, 4000);
+        }, { cls: 'small ghost', icon: 'refresh' }))),
+        field('Stand', h('span.small', d.running ? tr('wird gerade aktualisiert …') : (d.at ? fmtDate(d.at) : tr('noch nicht berechnet')),
+          d.msrc && d.at ? ' · ' + fmtT('Microsoft: {0} Builds', d.msrc_builds || 0) : '')),
+        field('Windows', h('div.small', cnt(d.windows))), field('Office', h('div.small', cnt(d.office)))));
+  };
+  drawUpd();
   // Sections as in a control panel: the list on the left, the section's settings on the right
   const SECTIONS = [
     ['conn', 'Verbindung & Konten', 'net', [conn, accountsCard(), authCard(sys)], false],
@@ -6226,7 +6265,7 @@ async function viewSettings() {
     ['tls', 'Zertifikat (HTTPS)', 'shield', [tlsCard()], false],
     ['backup', 'Sicherung', 'download', [bkCard], true],
     ['mail', 'E-Mail & Benachrichtigungen', 'mail', [mailCard(), alertsCard()], false],
-    ['inventory', 'Inventar & Felder', 'db', [scCard, fCard], false],
+    ['inventory', 'Inventar & Felder', 'db', [scCard, updCard, fCard], false],
     ['tenants', 'Mandanten', 'user', [tenantsCard()], false],
     ['maint', 'Wartung', 'gear', [maint, updatesCard(), diagCard], false],
   ];

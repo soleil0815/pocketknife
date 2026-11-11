@@ -69,6 +69,10 @@ COMPUTER_COLS = [
     ("os_build", "OS-Build", "version", "c.os_build"),
     ("os_arch", "Architektur", "text", "c.os_arch"),
     ("os_install_date", "OS installiert", "date", "c.os_install_date"),
+    # 2.40: update status (updstatus.py) - compared with the latest state of the computer's own Windows build
+    ("win_update", "Windows-Update-Status (aktuell/veraltet/ohne Support/unbekannt)", "text", "c.win_update"),
+    ("os_edition", "Windows-Edition (z. B. Professional, Enterprise, EnterpriseS = LTSC)", "text", _x("os_edition")),
+    ("office_update", "Office-Update-Status (aktuell/veraltet/ohne Support/unbekannt/kein Office)", "text", "c.office_update"),
     ("ou", "Distinguished Name / OU", "text", "c.dn"),
     ("location", "AD-Standort", "text", "c.ad_location"),
     ("domain", "Domäne", "text", _x("domain")),
@@ -215,6 +219,11 @@ JSON_TABLES = {
     "shares": ("Freigaben", [("name", "Freigabe", "text"), ("path", "Pfad", "text"), ("type", "Typ", "text"), ("admin", "Administrativ", "bool")]),
     "features": ("Windows-Features", [("name", "Name", "text"), ("caption", "Bezeichnung", "text"),
                                       ("state", "Status (Aktiviert/Deaktiviert)", "text"), ("kind", "Art", "text")]),
+    # 2.40: Office installations with their update status (computed by updstatus.py)
+    "office": ("Office-Installationen", [("product", "Produkt (z. B. Microsoft 365 Apps, Office LTSC 2024)", "text"),
+                                         ("version", "Version", "version"), ("channel", "Update-Kanal", "text"),
+                                         ("status", "Update-Status (aktuell/veraltet/ohne Support/unbekannt)", "text"),
+                                         ("kind", "Art (Klick-und-Los/MSI)", "text"), ("support_end", "Support bis", "date")]),
     "tasks": ("Geplante Aufgaben", [("name", "Aufgabe", "text"), ("path", "Ordner", "text"), ("state", "Status", "text"),
                                     ("run_as", "Ausführen als", "text"), ("action", "Aktion", "text"),
                                     ("last_run", "Letzte Ausführung", "date"), ("last_result", "Ergebnis", "number"),
@@ -225,7 +234,7 @@ JSON_CATEGORY = {"disks_physical": "physical_disks"}  # table name -> category i
 # order as in the list in the computer view
 TABLE_ORDER = ["computer", "ad_groups", "software", "cpus", "custom_fields", "deployments", "disks", "disks_physical",
                "displays", "environment", "devices", "hotfixes", "local_groups", "local_users", "admins", "memory", "nics",
-               "printers", "processes", "product_keys", "services", "shares", "changes", "features", "tasks"]
+               "printers", "processes", "product_keys", "services", "shares", "changes", "features", "tasks", "office"]
 
 MAX_SQL = 200_000  # characters – nested collection references are inlined completely
 COL_RE = re.compile(r"^[A-Za-z0-9_ .\-]{1,80}$")

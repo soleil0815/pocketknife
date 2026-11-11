@@ -6,6 +6,7 @@ import shutil
 import sqlite3
 import re
 import os
+import threading
 import time
 import urllib.parse
 from contextlib import asynccontextmanager
@@ -581,7 +582,7 @@ def api_computer_category(cid: int, cat: str, user=U):
                         "extra": json.loads(sc["extra"] or "{}"),
                         "updated": upd, "profile_id": prof["id"] if prof else None, "profile": prof["name"] if prof else None})
         return out
-    if cat in inventory.CATEGORIES or cat == "ad_groups":
+    if cat in inventory.CATEGORIES or cat in ("ad_groups", "office"):
         return _inv(cid, cat)
     _err("Unbekannte Kategorie")
 
@@ -3570,8 +3571,10 @@ INTERNAL_SETTINGS = {"ldap_cert_fingerprint", "ldap_cert_fingerprints", "ldap_ce
                      "update_check_enabled", "update_repo", "winget_cache_all",
                      # 2.35: winget cache only via /api/wingetcache/settings (folder checked: own, empty folder)
                      "winget_cache_folder", "winget_cache_locale", "winget_cache_max_mb", "winget_cache_auto",
-                     "winget_bootstrap_tag",
-                     "pkg_run_as"}  # 2.39: only via /api/settings/pkg-run-as (confirmation, log)  # 2.28: only via /api/system/updates (checked)  # Proxy: only via /api/system/proxy (checked, password in the vault)
+                     "winget_bootstrap_tag",  # 2.28: only via /api/system/updates (checked)
+                     "pkg_run_as",  # 2.39: only via /api/settings/pkg-run-as (confirmation, log)
+                     # 2.40: only via /api/updstatus. Proxy: only via /api/system/proxy (checked, password in the vault)
+                     "update_grace_days", "update_msrc", "update_tree"}
 def rebootmsg_clean(v, limit):
     from . import rebootmsg
     return rebootmsg.clean(v, limit)
@@ -4163,6 +4166,44 @@ def api_toast_test(data: dict = Body(...), user=U):
 def api_proxy_get(user=U):
     from . import proxy
     return proxy.settings()
+
+
+@app.get("/api/updstatus")
+def api_updstatus(user=U):
+    """2.40: settings and state of the update status (Windows/Office)."""
+    from . import updstatus
+    counts = {r["s"] or "unbekannt": r["n"] for r in db.q("SELECT win_update s, COUNT(*) n FROM computers GROUP BY win_update")}
+    ocounts = {r["s"] or "unbekannt": r["n"] for r in db.q("SELECT office_update s, COUNT(*) n FROM computers GROUP BY office_update")}
+    refs = db.q("SELECT kind, key, MAX(CAST(value AS INTEGER)) top, COUNT(*) n, MAX(source) src FROM update_refs WHERE kind='win' "
+                "GROUP BY kind, key ORDER BY CAST(key AS INTEGER) DESC LIMIT 20")
+    return {"grace_days": db.setting("update_grace_days"), "msrc": bool(db.setting("update_msrc")), "tree": bool(db.setting("update_tree")),
+            "at": db.val("SELECT value FROM settings WHERE key='update_status_at'"), "msrc_builds": db.val("SELECT value FROM settings WHERE key='update_status_msrc'"),
+            "windows": counts, "office": ocounts, "builds": refs, "running": updstatus._lock.locked()}
+
+
+@app.put("/api/updstatus")
+def api_updstatus_save(data: dict = Body(...), user=U):
+    try:
+        days = int(str(data.get("grace_days", "")))
+    except (TypeError, ValueError):
+        _err("Karenzzeit in Tagen angeben (0–60).")
+    if not 0 <= days <= 60:
+        _err("Karenzzeit in Tagen angeben (0–60).")
+    for k, v in (("update_grace_days", str(days)), ("update_msrc", "1" if data.get("msrc") else "0"),
+                 ("update_tree", "1" if data.get("tree") else "0")):
+        db.ex("INSERT OR REPLACE INTO settings(key, value) VALUES(?, ?)", (k, v))
+    pklog.info("system", f"Update-Status: Karenzzeit {days} Tage, Microsoft-Abgleich {'an' if data.get('msrc') else 'aus'}, "
+                         f"fertige Sammlungen {'an' if data.get('tree') else 'aus'}.", user=user["username"])
+    return {"ok": True}
+
+
+@app.post("/api/updstatus/refresh")
+def api_updstatus_refresh(user=U):
+    from . import updstatus
+    if updstatus._lock.locked():
+        return {"running": True}
+    threading.Thread(target=lambda: updstatus.refresh(user["username"]), name="updstatus", daemon=True).start()
+    return {"started": True}
 
 
 @app.get("/api/settings/pkg-run-as")

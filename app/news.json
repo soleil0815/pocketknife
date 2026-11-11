@@ -2,6 +2,24 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.40.0",
+   "date": "2026-11-11",
+   "items": [
+    {
+     "kind": "new",
+     "audience": "all",
+     "de": "Update-Status für Windows und Office: Jede Installation wird mit dem neuesten Stand ihres eigenen Windows-Builds bzw. Office-Kanals verglichen – aktuell, veraltet oder ohne Support.",
+     "en": "Update status for Windows and Office: every installation is compared with the newest state of its own Windows build or Office channel – current, outdated or out of support."
+    },
+    {
+     "kind": "new",
+     "audience": "all",
+     "de": "Fertige Sammlungen „Windows Updates“ und „Microsoft Office“ – je Version bzw. Produkt mit „Aktuell“ und „Veraltet“, füllen sich automatisch aus dem Inventar.",
+     "en": "Ready-made collections \"Windows Updates\" and \"Microsoft Office\" – per version or product with \"Current\" and \"Outdated\", filled automatically from the inventory."
+    }
+   ]
+  },
+  {
    "version": "2.39.6",
    "date": "2026-11-11",
    "items": [

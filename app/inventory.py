@@ -69,7 +69,8 @@ MODULE_EXTRA = {
     "computer": ["winget", "pending_reboot", "timezone", "ps_version", "chassis", "chassis_name", "bios_manufacturer",
                  "asset_tag", "family", "product_version", "sku", "uuid", "domain", "os_serial", "system_drive",
                  "product_type", "locale", "bios_mode", "secure_boot", "smb1_server", "smb1_client", "ie_version",
-                 "domain_controller", "dotnet", "last_wu_install", "user_states", "virtual"],
+                 "domain_controller", "dotnet", "last_wu_install", "user_states", "virtual",
+                 "os_edition", "os_install_type", "office_c2r"],  # 2.40: update status
     "security": ["defender", "bitlocker", "tpm", "firewall", "antivirus"],
     "memory": ["memory_slots", "memory_max"],
     "nics": ["fast_startup"],  # 2.31: Wake-on-LAN readiness
@@ -259,6 +260,8 @@ def scan(cid, user=None, prof=None):
             if "applications" in modules:
                 from . import winget
                 winget.match_computer(cid)
+            if "computer" in modules or "applications" in modules:
+                _update_status(cid)
         if do_disk:
             from . import diskusage
             warn_list += diskusage.scan_fixed(cid, user=user or "Zeitplan", host=host)
@@ -282,6 +285,21 @@ def scan(cid, user=None, prof=None):
         db.ex("DELETE FROM scan_history WHERE computer_id=? AND id NOT IN "
               "(SELECT id FROM scan_history WHERE computer_id=? ORDER BY id DESC LIMIT 200)", (cid, cid))
         profiles.record(cid, prof["id"], status, now)
+
+
+def _update_status(cid):
+    """2.40: update status after a scan; a Windows version/Office product not known yet gets its collection right away."""
+    from . import updstatus
+    try:
+        before = {r["name"] for r in db.q("SELECT name FROM collections WHERE builtin=1")}
+        res = updstatus.evaluate(cid) or {}
+        w = res.get("windows") or {}
+        names = ({f"{w.get('family')} {w.get('version')}"} if w and not w.get("server") and w.get("version") else set()) \
+            | {o["product"] for o in res.get("office_rows") or []}
+        if names - before:
+            updstatus.sync_tree()
+    except Exception as e:  # noqa: BLE001 - the scan itself stays successful
+        pklog.warn("scan", f"Update-Status nicht berechnet: {e}", computer_id=cid)
 
 
 _dn_cache = {}
