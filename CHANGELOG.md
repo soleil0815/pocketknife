@@ -2,6 +2,12 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.39.4 (11.11.2026)
+- **Fixed - interface "hangs" after double-clicking a collection:** while the collection dialog was still loading (filter schema, collections, computer list - slow with many computers), another double-click opened the same dialog again; several identical dialogs lay on top of each other, and closing one left the others (Esc each time with a "Dialog schließen?" question). Now there is one dialog per collection, further double-clicks while it loads are ignored, and the mouse pointer shows that it is loading
+- **Changed:** Esc closes the collection dialog directly if nothing was changed (the question only comes after changes)
+- **Changed - OU admins:** double-clicking a collection of the main admin no longer creates a copy by itself each time; right click → "Als Kopie für Ihren Bereich" does
+- **Self-test:** guard while loading and open, no blocking after an error, Esc without changes, no automatic copies
+
 ## pocketknife-2.39.3 (11.11.2026)
 - **Fixed - PowerShell step "Erfolgreich" despite errors:** if PowerShell reported an error (e.g. `Get-WindowsUpdate : Zugriff verweigert`) and the script still ended with exit code 0, the step counted as successful and the restart ran afterwards. Now the step fails ("PowerShell hat N Fehler gemeldet …"). Only errors PowerShell really outputs count (error records on the error stream); deliberately suppressed errors do not. New step option "Fehlermeldungen von PowerShell ignorieren – nur der Exitcode zählt" for scripts where error messages are normal
 - **Changed - no restart after a failed step:** completion steps still run after an error (clean-up, scan), a restart step there no longer does

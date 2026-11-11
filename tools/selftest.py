@@ -8152,6 +8152,19 @@ def _():
         __import__("shutil").rmtree(d, ignore_errors=True)
 
 
+@test("2.39.4 Double-click on a collection: one dialog per collection (also while it is still loading), Esc without changes closes directly, no automatic copies")
+def _():
+    js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
+    dlg = js.split("async function collectionDlg(c, opt = {}) {", 1)[1].split("async function collectionDlgOpen", 1)[0]
+    assert 'COLL_DLG_LOADING.has(dlgKey) || document.querySelector(`#modal-root [data-dlg="${dlgKey}"]`))) return;' in dlg
+    assert "finally { COLL_DLG_LOADING.delete(dlgKey);" in dlg, "a failed load must not block the dialog forever"
+    assert "key: dlgKey, dirty: () => snap() !== start" in js and "if (opt.key) bd.dataset.dlg = opt.key;" in js
+    assert "if (!opt.sticky || (opt.dirty && !opt.dirty())) { close(); return; }" in js
+    assert "it.addEventListener('dblclick', () => openEdit(c, true));" in js and "if (canNew && !viaDblClick) return duplicate(c);" in js
+    css = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.css"), encoding="utf-8").read()
+    assert "body.pk-busy, body.pk-busy * { cursor: progress !important; }" in css
+
+
 @test("2.22 Self-test: diagnostic package test does not use fixed dates (time bomb once outside the 30-day window)")
 def _():
     import inspect

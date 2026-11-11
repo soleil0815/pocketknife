@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.39.4",
+   "date": "2026-11-11",
+   "items": [
+    {
+     "kind": "fixed",
+     "audience": "all",
+     "de": "Doppelklick auf eine Sammlung öffnet den Dialog nur noch einmal – auch wenn er etwas länger lädt. Esc schließt ihn ohne Rückfrage, wenn nichts geändert wurde.",
+     "en": "Double-clicking a collection opens the dialog only once – even if it takes a little longer to load. Esc closes it without asking if nothing was changed."
+    }
+   ]
+  },
+  {
    "version": "2.39.3",
    "date": "2026-11-11",
    "items": [
