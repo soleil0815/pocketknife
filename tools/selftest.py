@@ -8340,6 +8340,124 @@ def _():
     assert db.setting("update_grace_days") == 7 and db.setting("update_msrc") == 1
 
 
+@test("2.40.1 MSIX apps (PowerShell 7 from winget) are inventoried from AppxAllUserStore: no frameworks/resources/inbox, built-in apps hidden, winget ID via package family name, uninstall via Remove-AppxPackage")
+def _():
+    import sqlite3 as _sq
+    import subprocess
+    from app import db, inventory, uninstall, util as _u, winget
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app")
+    src = open(os.path.join(root, "scan_modules.ps1"), encoding="utf-8").read()
+    apps = src[src.index("# @module applications"):src.index("# @module cpu")]
+    assert "AppxAllUserStore" in apps and "Get-AppxPackage" not in apps, "registry, not the Appx module (CLM, terminal servers)"
+    assert "-match '^(Applications|S-1-.*)$'" in apps.split("MSIX apps")[1], "inbox apps are not read"
+    sw = None
+    pw = os.environ.get("PK_PWSH")
+    if pw and os.path.exists(pw):
+        pre = src[src.index("# @prelude"):src.index("# @module active_directory")]
+        mf = os.path.join(TMP, "pk-msix-ps.xml")
+        fw = os.path.join(TMP, "pk-msix-fw.xml")
+        ns = 'xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"'
+        open(mf, "w", encoding="utf-8").write(f'<?xml version="1.0" encoding="utf-8"?><Package {ns}><Identity Name="Microsoft.PowerShell" Version="7.5.4.0"/>'
+                                              '<Properties><DisplayName>PowerShell</DisplayName><PublisherDisplayName>Microsoft Corporation</PublisherDisplayName></Properties></Package>')
+        open(fw, "w", encoding="utf-8").write(f'<?xml version="1.0" encoding="utf-8"?><Package {ns}><Properties><DisplayName>ms-resource:x</DisplayName>'
+                                              '<Framework>true</Framework></Properties></Package>')
+        mocks = ("$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'\n"
+                 "function Get-ChildItem { param($Path, $ErrorAction)\n"
+                 "  $p = '' + $Path\n"
+                 "  if ($p -like '*AppxAllUserStore') { return @(@{ PSChildName = 'Applications'; PSPath = 'A' }, @{ PSChildName = 'InboxApplications'; PSPath = 'I' },\n"
+                 "    @{ PSChildName = 'Staged'; PSPath = 'S' }, @{ PSChildName = 'S-1-5-21-1-2-3-1001'; PSPath = 'U' }) }\n"
+                 "  if ($p -eq 'A') { return @(@{ PSChildName = 'Microsoft.PowerShell_7.5.4.0_x64__8wekyb3d8bbwe'; PSPath = 'A1' },\n"
+                 "    @{ PSChildName = 'Microsoft.VCLibs.140.00_14.0.33519.0_x64__8wekyb3d8bbwe'; PSPath = 'A2' },\n"
+                 "    @{ PSChildName = 'Microsoft.PowerShell_7.5.4.0_neutral_split.scale-100_8wekyb3d8bbwe'; PSPath = 'A3' },\n"
+                 "    @{ PSChildName = 'Contoso.Framework_1.0.0.0_x64__abcdefghjkmnp'; PSPath = 'A4' },\n"
+                 "    @{ PSChildName = 'Microsoft.WindowsCalculator_11.2502.2.0_x64__8wekyb3d8bbwe'; PSPath = 'A5' }) }\n"
+                 "  if ($p -eq 'I') { return @(@{ PSChildName = 'Microsoft.Windows.Search_1.14.0.0_neutral_neutral_cw5n1h2txyewy'; PSPath = 'I1' }) }\n"
+                 "  if ($p -eq 'S') { return @(@{ PSChildName = 'Staged.App_1.0.0.0_x64__abcdefghjkmnp'; PSPath = 'S1' }) }\n"
+                 "  if ($p -eq 'U') { return @(@{ PSChildName = 'Microsoft.PowerShell_7.5.4.0_x64__8wekyb3d8bbwe'; PSPath = 'U1' },\n"
+                 "    @{ PSChildName = 'Fabrikam.Tool_2.1.0.0_neutral_~_q1w2e3r4t5y6u'; PSPath = 'U2' }) }\n"
+                 "  return @() }\n"
+                 "function Get-ItemProperty { param($LiteralPath, $Path, $ErrorAction)\n"
+                 f"  if ($LiteralPath -eq 'A1') {{ return @{{ Path = '{mf}' }} }}\n"
+                 f"  if ($LiteralPath -eq 'A4') {{ return @{{ Path = '{fw}' }} }}\n"
+                 "  return $null }\n")
+        sf = os.path.join(TMP, "pk-msix.ps1")
+        with open(sf, "w", encoding="utf-8-sig") as fh:
+            fh.write(mocks + pre + apps + "\nConvertTo-Json -InputObject @($r.software) -Compress\n'ERR:' + ($r.errors -join ' | ') + '|' + $r.software_error\n")
+        r = subprocess.run([pw, "-NoLogo", "-NoProfile", "-NonInteractive", "-File", sf], capture_output=True, text=True, timeout=120)
+        line = [x for x in r.stdout.splitlines() if x.startswith("[")]
+        assert line, r.stdout + r.stderr
+        sw = json.loads(line[0])
+        by = {x["name"]: x for x in sw}
+        assert set(by) == {"PowerShell", "Microsoft.WindowsCalculator", "Fabrikam.Tool"}, (sorted(by), r.stdout[-400:])
+        ps7 = by["PowerShell"]
+        assert (ps7["version"], ps7["publisher"], ps7["key"], ps7["arch"], ps7["scope"], ps7["hive"]) == \
+            ("7.5.4.0", "Microsoft Corporation", "Microsoft.PowerShell_8wekyb3d8bbwe", "x64", "Computer", "MSIX"), ps7
+        assert ps7["location"] == mf[:-len("\\AppxManifest.xml")] or ps7["location"] == "", ps7
+        assert by["Fabrikam.Tool"]["scope"] == "Benutzer" and by["Fabrikam.Tool"]["arch"] == "neutral"
+        assert r.stdout.rstrip().endswith("ERR:|"), r.stdout[-300:]
+    if sw is None:  # without PowerShell: what the module delivers
+        sw = [{"name": "PowerShell", "version": "7.5.4.0", "publisher": "Microsoft Corporation", "key": "Microsoft.PowerShell_8wekyb3d8bbwe",
+               "arch": "x64", "scope": "Computer", "hive": "MSIX", "reg_path": "Applications\\Microsoft.PowerShell_7.5.4.0_x64__8wekyb3d8bbwe"},
+              {"name": "Microsoft.WindowsCalculator", "version": "11.2502.2.0", "key": "Microsoft.WindowsCalculator_8wekyb3d8bbwe",
+               "arch": "x64", "scope": "Computer", "hive": "MSIX"},
+              {"name": "Fabrikam.Tool", "version": "2.1.0.0", "key": "Fabrikam.Tool_q1w2e3r4t5y6u", "arch": "neutral", "scope": "Benutzer", "hive": "MSIX"}]
+    # built-in apps: hidden by default, Windows Terminal and third-party apps are not
+    assert inventory.msix_builtin("Microsoft.WindowsCalculator_8wekyb3d8bbwe") and inventory.msix_builtin("Microsoft.DesktopAppInstaller_8wekyb3d8bbwe")
+    assert inventory.msix_builtin("Anything_cw5n1h2txyewy") and inventory.msix_builtin("Microsoft.HEVCVideoExtension_8wekyb3d8bbwe")
+    assert not inventory.msix_builtin("Microsoft.WindowsTerminal_8wekyb3d8bbwe") and not inventory.msix_builtin("Microsoft.PowerShell_8wekyb3d8bbwe")
+    assert not inventory.msix_builtin("Fabrikam.Tool_q1w2e3r4t5y6u")
+    assert db.DEFAULT_SETTINGS["msix_hide_builtin"] == 1
+    cid = db.ex("INSERT INTO computers(name, created_at) VALUES('PC-MSIX', ?)", (_u.now(),))
+    ip = winget.index_path()
+    old_idx = open(ip, "rb").read() if os.path.exists(ip) else None
+    try:
+        inventory._save_software(cid, {"software": sw}, None, _u.now())
+        names = {r["name"] for r in db.q("SELECT name FROM software WHERE computer_id=?", (cid,))}
+        assert names == {"PowerShell", "Fabrikam.Tool"}, names
+        db.set_setting("msix_hide_builtin", 0)
+        inventory._save_software(cid, {"software": sw}, None, _u.now())
+        assert db.val("SELECT COUNT(*) FROM software WHERE computer_id=?", (cid,)) == 3
+        db.set_setting("msix_hide_builtin", 1)
+        # winget: index with package family names (pfns2) -> PowerShell 7 is matched and outdated
+        os.makedirs(os.path.dirname(ip), exist_ok=True)
+        if os.path.exists(ip):
+            os.remove(ip)
+        con = _sq.connect(ip)
+        con.execute("CREATE TABLE packages(rowid INTEGER PRIMARY KEY, id TEXT, name TEXT, moniker TEXT, latest_version TEXT, arp_min_version TEXT, arp_max_version TEXT, hash BLOB)")
+        con.execute("CREATE TABLE pfns2(pfn TEXT, package INT64)")
+        con.execute("CREATE TABLE productcodes2(productcode TEXT, package INT64)")
+        con.execute("INSERT INTO packages(rowid, id, name, latest_version) VALUES(1, 'Microsoft.PowerShell', 'PowerShell 7-x64', '7.5.5.0')")
+        con.execute("INSERT INTO packages(rowid, id, name, latest_version) VALUES(2, 'Fabrikam.Other', 'Other', '1.0')")
+        con.execute("INSERT INTO pfns2 VALUES('Microsoft.PowerShell_8wekyb3d8bbwe', 1)")
+        con.execute("INSERT INTO productcodes2 VALUES('{11111111-2222-3333-4444-555555555555}', 2)")
+        con.commit(); con.close()
+        assert winget.load()
+        winget.match_computer(cid)
+        row = db.q("SELECT * FROM software WHERE computer_id=? AND name='PowerShell'", (cid,))[0]
+        assert row["winget_id"] == "Microsoft.PowerShell" and row["outdated"] == 1 and row["winget_sure"] == 1, dict(row)
+        assert winget.match("Other", "", "{11111111-2222-3333-4444-555555555555}")[0] == "Fabrikam.Other", "product codes still work"
+        # uninstall: Remove-AppxPackage for all users as Local System, no registry key to wait for
+        uninstall.init()
+        info = uninstall.command_for(dict(row))
+        assert info["method"] == "MSIX-Paket (Remove-AppxPackage)" and info["run_as"] == "system" and not info["review"], info
+        assert "Get-AppxPackage -AllUsers -Name 'Microsoft.PowerShell' | Remove-AppxPackage -AllUsers" in info["command"]
+        pkg = uninstall.package_for(dict(row))
+        assert pkg["run_as"] == "system" and "$key = ''" in pkg["script"], pkg["script"][:300]
+        evil = {**dict(row), "product_code": "a';calc;'_x"}
+        assert uninstall.command_for(evil)["command"] == "", "never a command from an unsafe package name"
+    finally:
+        db.set_setting("msix_hide_builtin", 1)
+        db.ex("DELETE FROM software WHERE computer_id=?", (cid,))
+        db.ex("DELETE FROM computers WHERE id=?", (cid,))
+        if os.path.exists(ip):
+            os.remove(ip)
+        if old_idx is not None:
+            open(ip, "wb").write(old_idx)
+        winget.load()
+    js = open(os.path.join(root, "static", "app.js"), encoding="utf-8").read()
+    assert "c('msix_hide_builtin')" in js
+
+
 @test("2.22 Self-test: diagnostic package test does not use fixed dates (time bomb once outside the 30-day window)")
 def _():
     import inspect

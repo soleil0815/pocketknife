@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.40.1",
+   "date": "2026-11-11",
+   "items": [
+    {
+     "kind": "new",
+     "audience": "all",
+     "de": "MSIX-Apps im Inventar: Programme, die als MSIX-Paket installiert sind (z. B. PowerShell 7 aus winget), erscheinen jetzt in der Softwareliste – mit winget-Zuordnung, „veraltet“ und Deinstallation. Mitgelieferte Windows-Apps bleiben ausgeblendet.",
+     "en": "MSIX apps in the inventory: programs installed as an MSIX package (e.g. PowerShell 7 from winget) now appear in the software list – with winget matching, \"outdated\" and uninstall. Apps that ship with Windows stay hidden."
+    }
+   ]
+  },
+  {
    "version": "2.40.0",
    "date": "2026-11-11",
    "items": [

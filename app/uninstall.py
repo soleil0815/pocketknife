@@ -86,6 +86,16 @@ def _known(un):
     return None
 
 
+MSIX_REMOVE = (util.PS_EXE + " " + util.PS_FLAGS + " -Command \"Get-AppxPackage -AllUsers -Name '{0}' | "
+               "Remove-AppxPackage -AllUsers -ErrorAction Stop\"")
+
+
+def msix_name(pfn):
+    """Package name from the package family name (Name_PublisherId) - only safe characters."""
+    n = (pfn or "").split("_")[0]
+    return n if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.\-]{0,99}", n) else None
+
+
 def command_for(sw):
     """Determines the silent uninstall. Returns: dict(method, command, review, run_as, override_id)."""
     un = (sw.get("uninstall_string") or "").strip()
@@ -101,6 +111,13 @@ def command_for(sw):
         if o["run_as"] in ("system", "user"):
             r["run_as"] = o["run_as"]
         return r
+    # 2.40.1: MSIX package (AppxAllUserStore) - removed for all users with the Appx cmdlets
+    if (sw.get("hive") or "") == "MSIX":
+        pkg = msix_name(code)
+        if not pkg:
+            return {**base, "method": "kein Deinstallationsbefehl", "command": "", "review": True}
+        return {**base, "run_as": "system", "user_sid": None, "method": "MSIX-Paket (Remove-AppxPackage)",
+                "command": MSIX_REMOVE.format(pkg), "review": False}
     # 2) MSI
     m = MSI_IN_STR.search(un)
     if GUID_RE.match(code) and (not un or "msiexec" in un.lower()):
@@ -128,7 +145,7 @@ def command_for(sw):
 
 
 def _script(command, hive, reg_path, cleanup):
-    key = f"Registry::{hive}\\{reg_path}" if hive and reg_path else ""
+    key = f"Registry::{hive}\\{reg_path}" if hive and reg_path and hive != "MSIX" else ""
     return f"""$cmd = {util.psq(command)}
 $key = {util.psq(key)}
 $cleanup = {'$true' if cleanup else '$false'}

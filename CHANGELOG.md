@@ -2,6 +2,13 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.40.1 (11.11.2026)
+- **New - MSIX apps in the inventory:** programs that Windows installs as an MSIX package (e.g. PowerShell 7 from winget, which now only ships as MSIX; Windows Terminal) are not in the uninstall registry and were missing from the software list. The applications scan now also reads the installed packages from AppxAllUserStore (registry: fast on terminal servers, CLM-safe, no Appx module); version, publisher and display name come from the package manifest. Resource packages, frameworks (VCLibs, UI.Xaml, App Runtime …) and inbox apps are skipped
+- **Built-in Windows apps hidden:** apps that ship with Windows (Calculator, Photos, Xbox, Store, codecs …) are not listed by default; setting "Integrierte Windows-Apps" under "Zeitpläne & Leistung"
+- **winget:** MSIX apps are matched to their winget ID via the package family name (index table pfns2) - "veraltet", collections and "Aktualisieren" work for them too
+- **Uninstall:** MSIX apps are removed with `Remove-AppxPackage -AllUsers` as Local System (package name only from safe characters)
+- **Self-test:** module in real PowerShell (Constrained Language Mode) with mocked registry and manifests, built-in filter, winget matching via package family name, uninstall command
+
 ## pocketknife-2.40.0 (11.11.2026)
 - **New - update status for Windows and Office:** every installation is compared with the newest state of its own Windows build or Office channel - no fixed version or channel. Windows: build and patch level (UBR) from the scan against the patched builds Microsoft published on the last patch days (MSRC security update guide, fetched by the server once a day, optional) and the newest state in the own environment. Office Click-to-Run (Microsoft 365 Apps, LTSC 2024/2021, 2024/2021, Visio/Project): version and update channel from the registry against the newest version of the same channel; MSI Office from the software list. Grace period (default 7 days) before a new patch counts. Microsoft lifecycle dates give "ohne Support" (Windows 10, Windows 11 up to 23H2/24H2 Home/Pro, Office 2016/2019/2021 …)
 - **New - ready-made collections "Windows Updates" and "Microsoft Office":** Workstations → Windows 11/10 → per version, Server → per version, each with "Aktuell"/"Veraltet", plus "Ohne Support" and "Neustart ausstehend"; Office per product with "Aktuell"/"Veraltet", "Office ohne Support", "Kein Office installiert". They fill themselves from the inventory; a new version or product gets its node at the first scan; known versions are shown with (0)

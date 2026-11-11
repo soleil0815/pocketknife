@@ -231,7 +231,46 @@ $sw = foreach ($x in $paths) {
                 hive = $parts[0]; reg_path = $(if ($parts.Count -gt 1) { $parts[1] } else { '' })
                 no_remove = [bool]($pv.NoRemove -eq 1) } } }
 } catch { $r.software_error = $_.Exception.Message }
-$r.software = @($sw)
+# 2.40.1: MSIX apps (e.g. PowerShell 7 installed by winget) are not in the Uninstall registry. The installed packages
+# are listed under AppxAllUserStore – fast (no walk through the user profiles) and CLM-safe (no Appx module needed).
+# Skipped: resource packages, frameworks (VCLibs, UI.Xaml ...) and inbox apps (InboxApplications).
+$mx = @()
+try {
+  $au = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Appx\AppxAllUserStore'
+  $mxSeen = @{}
+  $mx = foreach ($grp in @(Get-ChildItem $au -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -match '^(Applications|S-1-.*)$' })) {
+    foreach ($k in @(Get-ChildItem $grp.PSPath -ErrorAction SilentlyContinue)) {
+      $fn = $k.PSChildName
+      if ($fn -notmatch '^([A-Za-z0-9.\-]+)_(\d+(?:\.\d+){1,3})_([A-Za-z0-9]*)_~?_([a-z0-9]+)$') { continue }
+      $nm = $matches[1]; $ver = $matches[2]; $ar = $matches[3]; $pubId = $matches[4]
+      if ($nm -match '^Microsoft\.(VCLibs|NET\.|UI\.Xaml|WindowsAppRuntime|WinAppRuntime|Services\.Store\.Engagement|Advertising\.|DirectXRuntime)') { continue }
+      if ($mxSeen.ContainsKey($nm + '_' + $ver)) { continue }
+      $mxSeen[$nm + '_' + $ver] = 1
+      $pv = Get-ItemProperty -LiteralPath $k.PSPath -ErrorAction SilentlyContinue
+      $mp = ''
+      if ($pv -and $pv.Path) { $mp = ("" + $pv.Path).Trim() }
+      if (-not $mp) { $mp = $env:ProgramFiles + '\WindowsApps\' + $fn + '\AppxManifest.xml' }
+      $dn = $nm; $pub = ''; $fw = $false
+      try {
+        if (Test-Path -LiteralPath $mp) {
+          $xm = [xml]((Get-Content -LiteralPath $mp -ErrorAction Stop) -join "`n")
+          $pp = $xm.Package.Properties
+          if ($pp) {
+            $fw = ("" + $pp.Framework) -eq 'true' -or ("" + $pp.ResourcePackage) -eq 'true'
+            $d = ("" + $pp.DisplayName).Trim(); if ($d -and $d -notmatch '^ms-resource:') { $dn = $d }
+            $d = ("" + $pp.PublisherDisplayName).Trim(); if ($d -and $d -notmatch '^ms-resource:') { $pub = $d }
+          }
+        }
+      } catch {}
+      if ($fw) { continue }
+      [ordered]@{ name = $dn; version = $ver; publisher = $pub; install_date = ''; key = ($nm + '_' + $pubId)
+                  arch = $(if ($ar) { $ar } else { 'neutral' }); scope = $(if ($grp.PSChildName -eq 'Applications') { 'Computer' } else { 'Benutzer' })
+                  uninstall = ''; quiet = ''; modify = ''; location = $(if ($mp -match '\\AppxManifest\.xml$') { $mp -replace '\\AppxManifest\.xml$', '' } else { '' })
+                  size_kb = $null; modified = $null; hive = 'MSIX'; reg_path = ($grp.PSChildName + '\' + $fn); no_remove = $false }
+    }
+  }
+} catch { $r.errors += ('msix: ' + $_.Exception.Message) }
+$r.software = @($sw) + @($mx)
 } catch { $r.errors += ('applications: ' + $_.Exception.Message) }
 
 # @module cpu | CPU

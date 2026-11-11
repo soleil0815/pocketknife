@@ -283,6 +283,7 @@ DEFAULT_SETTINGS = {
     # 2.40: update status for Windows and Office (updstatus.py)
     "update_grace_days": 7,    # a newer patch counts only after this many days (release or first sighting)
     "update_msrc": 1,          # fetch the patched builds of the last patch days from Microsoft (MSRC), server-side
+    "msix_hide_builtin": 1,    # 2.40.1: built-in Windows apps (MSIX) are not listed as software
     "update_tree": 1,          # ready-made collections "Windows Updates" / "Microsoft Office"
     "rescan_after_deploy": 1,
     # 2.24: Windows notification for logged-on users after a successful installation/update

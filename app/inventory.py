@@ -95,6 +95,30 @@ def build_script(modules=None, custom_ids=None):
     return "\n".join([PRELUDE] + [MODULES[m][1] for m in mods] + [scanners.script(custom_ids), SCAN_END])
 
 
+# 2.40.1: MSIX packages that come with Windows (calculator, photos, Xbox, Store, codecs ...) - hidden by default,
+# otherwise every computer lists dozens of entries nobody manages. Matched against the package family name.
+MSIX_BUILTIN = re.compile(
+    r"^(windows\.|microsoftwindows\.|microsoft\.windows(?!terminal)|microsoft\.xbox|microsoft\.bing|microsoft\.zune|"
+    r"microsoft\.microsoftedge|microsoft\.edge\.|microsoft\.gaming|microsoft\.gethelp|microsoft\.getstarted|"
+    r"microsoft\.people|microsoft\.microsoftsolitairecollection|microsoft\.microsoftstickynotes|microsoft\.paint|"
+    r"microsoft\.mspaint|microsoft\.screensketch|microsoft\.yourphone|microsoft\.storepurchaseapp|"
+    r"microsoft\.microsoftofficehub|microsoft\.office\.onenote|microsoft\.todos|microsoft\.powerautomatedesktop|"
+    r"microsoft\.sechealthui|microsoft\.(heif|vp9|webmedia|webp|raw|av1|hevc|mpeg2)[a-z]*extension|"
+    r"microsoft\.copilot|microsoft\.outlookforwindows|microsoft\.549981c3f5f10|microsoft\.wallet|"
+    r"microsoft\.mixedreality|microsoft\.microsoft3dviewer|microsoft\.messaging|microsoft\.oneconnect|"
+    r"microsoft\.print3d|microsoft\.skypeapp|microsoft\.applicationcompatibilityenhancements|"
+    r"microsoft\.desktopappinstaller|microsoft\.languageexperiencepack|microsoft\.ink\.|"
+    r"microsoft\.widgetsplatformruntime|microsoft\.startexperiencesapp|microsoft\.microsoftjournal|"
+    r"microsoft\.family|microsoftcorporationii\.|clipchamp\.|microsoft\.devhome|microsoft\.aad\.|"
+    r"microsoft\.accountscontrol|microsoft\.lockapp|microsoft\.ecapp|microsoft\.creddialoghost|"
+    r"microsoft\.asynctextservice|microsoft\.bioenrollment|ncsiuwpapp|"
+    r"[^_]*_cw5n1h2txyewy$)", re.I)
+
+
+def msix_builtin(pfn):
+    return bool(MSIX_BUILTIN.match((pfn or "").strip()))
+
+
 def _L(x):
     if x is None:
         return []
@@ -428,9 +452,12 @@ def save(cid, data, modules=None):
 def _save_software(cid, data, old_sw, now):
     db.ex("DELETE FROM software WHERE computer_id=?", (cid,))
     seen, sw_rows = set(), []
+    hide_builtin = bool(db.setting("msix_hide_builtin"))
     for x in _L(data.get("software")):
         name = _s(x.get("name"), 400)
         if not name:
+            continue
+        if x.get("hive") == "MSIX" and hide_builtin and msix_builtin(x.get("key")):
             continue
         key = (name.lower(), (x.get("version") or "").lower(), x.get("arch"), x.get("scope"))
         if key in seen:

@@ -62,7 +62,7 @@ def load():
         con = sqlite3.connect(f"file:{p}?mode=ro", uri=True)
         tables = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         pkgs = {}
-        maps = {"pc": [], "name": [], "pub": []}
+        maps = {"pc": [], "name": [], "pub": []}  # pc: product codes and (2.40.1) MSIX package family names
         if "packages" in tables and "latest_version" in _cols(con, "packages"):
             schema = "v2"
             pc = _cols(con, "packages")
@@ -70,7 +70,7 @@ def load():
             for rowid, pid, name, latest, arpmax in con.execute(
                     f"SELECT rowid, id, name, latest_version, {arp} FROM packages"):
                 pkgs[rowid] = {"id": pid, "name": name, "latest": latest, "arp": arpmax, "pub": ""}
-            for tbl, key in (("productcodes2", "pc"), ("norm_names2", "name"), ("norm_publishers2", "pub")):
+            for tbl, key in (("productcodes2", "pc"), ("pfns2", "pc"), ("norm_names2", "name"), ("norm_publishers2", "pub")):
                 if tbl not in tables:
                     continue
                 cols = _cols(con, tbl)
@@ -79,7 +79,7 @@ def load():
                 vcol = [c for c in cols if c not in ("rowid", "package")]
                 if not vcol:
                     continue
-                maps[key] = list(con.execute(f"SELECT {vcol[0]}, package FROM {tbl}"))
+                maps[key] += list(con.execute(f"SELECT {vcol[0]}, package FROM {tbl}"))
         elif "manifest" in tables:
             schema = "v1"
             q = ("SELECT i.id, n.name, v.version FROM manifest m JOIN ids i ON m.id=i.rowid "
