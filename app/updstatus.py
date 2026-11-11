@@ -44,6 +44,8 @@ WIN_CLIENT_END = {
     ("Windows 10", "22H2"): ("2025-10-14", "2025-10-14"),
 }
 WIN10_LAST = "2025-10-14"          # every Windows 10 feature update (non-LTSC) ended at the latest with 22H2
+# 2.43: Windows 10 Extended Security Updates (commercial ESU, up to 3 years; consumer ESU = year 1 only)
+ESU_END = {1: "2026-10-13", 2: "2027-10-12", 3: "2028-10-10"}
 # LTSC/LTSB (EditionID EnterpriseS/IoTEnterpriseS) by build: (Enterprise LTSC, IoT Enterprise LTSC)
 LTSC_END = {10240: ("2025-10-14", "2025-10-14"), 14393: ("2026-10-13", "2026-10-13"), 17763: ("2029-01-09", "2029-01-09"),
             19044: ("2027-01-12", "2032-01-13"), 26100: ("2029-10-09", "2034-10-10")}
@@ -109,10 +111,37 @@ def windows_info(c):
     else:
         fm = re.search(r"Windows (11|10|8\.1|8|7)\b", name)
         family = f"Windows {fm.group(1)}" if fm else "Windows"
-    return {"family": family, "version": str(c.get("os_display_version") or "").upper(), "build": int(m.group(1)),
+    try:
+        esu = int(x.get("os_esu") or 0)
+    except (TypeError, ValueError):
+        esu = 0
+    return {"family": family, "version": str(c.get("os_display_version") or "").upper(), "build": int(m.group(1)), "esu": esu,
             "ubr": int(m.group(2)) if m.group(2) else None, "server": server, "edition": edition,
             "ltsc": bool(re.search(r"(?i)enterprises(n|eval)?$", edition)),  # EnterpriseS, IoTEnterpriseS, EnterpriseSN
             "enterprise": bool(re.match(r"(?i)(enterprise|education|iotenterprise|servers?)", edition)) or not edition}
+
+
+def esu_info(w):
+    """2.43: (ESU year, end) for a Windows 10 (non-LTSC) past its support end, else (0, None).
+    1. licensed ESU year from the scan (activation IDs, commercial ESU);
+    2. otherwise the patch level: a build Microsoft released after the end of support only comes with ESU
+       (also consumer ESU or ESU via Windows 365/Intune) - it covers the ESU year in which the build was released."""
+    if w["server"] or w["ltsc"] or w["family"] != "Windows 10" or w.get("build", 0) < 19044:
+        return 0, None
+    yr = int(w.get("esu") or 0)
+    if yr in ESU_END:
+        return yr, ESU_END[yr]
+    if w.get("ubr") is None:
+        return 0, None
+    # only Microsoft's release date counts - "first seen in the environment" would make every old build look new
+    rel = db.val("SELECT released FROM update_refs WHERE kind='win' AND key=? AND value=? AND source='msrc'",
+                 (str(w["build"]), str(w["ubr"])))
+    if rel and rel > WIN10_LAST:
+        for y in sorted(ESU_END):
+            if rel <= ESU_END[y]:
+                return -y, ESU_END[y]   # negative = recognised by the patch level, not by the license
+        return -max(ESU_END), ESU_END[max(ESU_END)]
+    return 0, None
 
 
 def windows_end(w):
@@ -126,6 +155,10 @@ def windows_end(w):
     if w["ltsc"]:
         e = LTSC_END.get(w["build"])
         return (e[1] if "iot" in w["edition"].lower() else e[0]) if e else None
+    if fam == "Windows 10":
+        yr, esu_end = esu_info(w)
+        if yr:
+            return esu_end
     e = WIN_CLIENT_END.get((fam, w["version"]))
     if e:
         return e[1] if w["enterprise"] else e[0]
@@ -247,12 +280,30 @@ def evaluate(cid):
         end = windows_end(w)
         if w["ubr"] is not None:
             note_ref("win", w["build"], w["ubr"])
+        yr, _esu_end = esu_info(w)
+        de_end = ".".join(reversed(end.split("-"))) if end else ""
+        # whole sentences (one template each) - so the interface can translate them
         if end and end < today:
-            win, info = "ohne Support", f"Support endete am {'.'.join(reversed(end.split('-')))}"
+            win = "ohne Support"
+            if yr > 0:
+                info = f"ESU Jahr {yr} bis {de_end} – abgelaufen"
+            elif yr < 0:
+                info = f"ESU (am Patchstand erkannt) bis {de_end} – abgelaufen"
+            else:
+                info = f"Support endete am {de_end}"
         else:
             win, tgt = _compare("win", w["build"], w["ubr"])
             if tgt:
-                info = f"{w['build']}.{w['ubr']} – aktuell ist {w['build']}.{tgt}"
+                if yr > 0:
+                    info = f"ESU Jahr {yr} bis {de_end}; {w['build']}.{w['ubr']} – aktuell ist {w['build']}.{tgt}"
+                elif yr < 0:
+                    info = f"ESU (am Patchstand erkannt) bis {de_end}; {w['build']}.{w['ubr']} – aktuell ist {w['build']}.{tgt}"
+                else:
+                    info = f"{w['build']}.{w['ubr']} – aktuell ist {w['build']}.{tgt}"
+            elif yr > 0:
+                info = f"ESU Jahr {yr} bis {de_end}"
+            elif yr < 0:
+                info = f"ESU (am Patchstand erkannt) bis {de_end}"
     rows = []
     for o in office_installs(c):
         end = office_end(o)
