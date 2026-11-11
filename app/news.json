@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.39.2",
+   "date": "2026-11-11",
+   "items": [
+    {
+     "kind": "new",
+     "audience": "admin",
+     "de": "In den Details einer Bereitstellung zeigt die neue Spalte „Ausgeführt als“ für jeden Schritt, mit welchem Konto er auf dem Computer wirklich lief.",
+     "en": "In the details of a deployment, the new column \"Run as\" shows for every step which account it really ran with on the computer."
+    }
+   ]
+  },
+  {
    "version": "2.39.1",
    "date": "2026-11-11",
    "items": [

@@ -4338,9 +4338,12 @@ function targetDetails(r, did = null, canRetry = false) {
   try { steps = JSON.parse(r.steps || '[]'); } catch (e) { steps = []; }
   const top = (x) => (x.depth ?? Math.floor(((x.title || '').length - (x.title || '').trimStart().length) / 2)) === 0;
   const retryable = canRetry && did && r.computer_id && steps.some((x) => x.status === 'failed' && top(x) && x.sid);
-  const tb = steps.length ? h('table', h('thead', h('tr', h('th', '#'), h('th', 'Abschnitt'), h('th', 'Schritt'), h('th', 'Status'), h('th', 'Exitcode'), h('th', 'Meldung'), retryable ? h('th', '') : null)),
+  // 2.39.2: "Ausgeführt als" – the account that really ran the step on the client (empty: nothing ran there)
+  const RAN_AS = { system: 'Lokales System', service: 'Dienstkonto', deploy: 'Dienstkonto (WinRM)', user: 'Angemeldeter Benutzer', mixed: 'verschiedene' };
+  const tb = steps.length ? h('table', h('thead', h('tr', h('th', '#'), h('th', 'Abschnitt'), h('th', 'Schritt'), h('th', 'Status'), h('th', 'Ausgeführt als'), h('th', 'Exitcode'), h('th', 'Meldung'), retryable ? h('th', '') : null)),
     h('tbody', steps.map((x) => h('tr', h('td', x.n), h('td.muted', { pre: 'Vorbereitung', main: 'Schritte', post: 'Abschluss' }[x.phase] || x.phase),
       h('td', { style: { whiteSpace: 'pre' } }, x.title), h('td', h('span.badge', { class: (STEP_STATUS[x.status] || ['', ''])[1] }, (STEP_STATUS[x.status] || [x.status])[0])),
+      h('td', { title: x.run_as_label || '', style: { whiteSpace: 'nowrap' } }, x.run_as ? (RAN_AS[x.run_as] || x.run_as) : h('span.muted', '–')),
       h('td.mono', x.exit ?? ''), h('td.wrap', x.message),
       retryable ? h('td', x.status === 'failed' && top(x) && x.sid ? btn('Wiederholen ▾', (e) => retryMenu(e, did, x.sid, x.title.trim(), [r.id], [r.computer_name]),
         { cls: 'small', icon: 'refresh', title: 'Diesen Schritt auf diesem Computer erneut ausführen' }) : '') : null)))) : null;
