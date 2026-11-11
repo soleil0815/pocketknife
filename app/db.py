@@ -131,6 +131,10 @@ CREATE TABLE IF NOT EXISTS update_rules(
 CREATE TABLE IF NOT EXISTS winget_overrides(
   name TEXT PRIMARY KEY COLLATE NOCASE, winget_id TEXT, ignore INTEGER DEFAULT 0);
 
+-- 2.41: eigenes Paket für Updates einer winget-ID (statt winget upgrade / winget-Cache)
+CREATE TABLE IF NOT EXISTS winget_update_packages(
+  winget_id TEXT PRIMARY KEY COLLATE NOCASE, package_id INTEGER NOT NULL, set_by TEXT, set_at TEXT);
+
 -- 2.35: winget-Cache (aktuelle Installer ausgewählter winget-Pakete im Repository, für Computer ohne winget)
 CREATE TABLE IF NOT EXISTS winget_cache(
   id INTEGER PRIMARY KEY, winget_id TEXT NOT NULL UNIQUE COLLATE NOCASE, arch TEXT DEFAULT 'x64',

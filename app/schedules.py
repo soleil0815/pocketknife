@@ -435,11 +435,21 @@ def _fire_winget(s, cids, reason, user):
     for wid, ids in sorted(winget_candidates(s, [c for c in targets if c in online]).items()):
         # 2.35: computers without winget from the winget cache (same winget ID in the package – "already running"/failed attempts count too)
         wg, cache, _skip, ce = wingetcache.split(wid, ids)
+        up = deploy.update_package(wid)
+        if up:
+            # 2.41: own update package for this winget ID - all computers, current state with all steps
+            # (winget steps in it use the winget cache by themselves where winget is missing)
+            wg, cache = list(ids), []
         for kind, part in (("cache", cache), ("winget", wg)):
             if not part:
                 continue
             try:
-                if kind == "cache":
+                if up:
+                    did = deploy.update_with_package(up, wid, part, user or "Zeitplan", pkg_name=None, source="schedule",
+                                                     name=f"{s['name']}: {wid}", schedule_id=s["id"], start_now=False,
+                                                     target_label=target_label(s))
+                    what = f"Paket „{up['name']}“ für"
+                elif kind == "cache":
                     row, pkg = wingetcache.package_for(ce)
                     pkg = dict(pkg, name=f"Auto-Update {wid} (winget-Cache)", tenant_id=s.get("tenant_id"))
                     pid, what = row["id"], f"Cache {ce['version']}"
@@ -448,8 +458,9 @@ def _fire_winget(s, cids, reason, user):
                     pkg["name"] = f"Auto-Update {wid}"
                     pkg["tenant_id"] = s.get("tenant_id")
                     pid, what = None, "winget upgrade"
-                did = deploy.create(pkg, part, user or "Zeitplan", source="schedule", name=f"{s['name']}: {wid}",
-                                    schedule_id=s["id"], start_now=False, target_label=target_label(s), package_id=pid)
+                if not up:
+                    did = deploy.create(pkg, part, user or "Zeitplan", source="schedule", name=f"{s['name']}: {wid}",
+                                        schedule_id=s["id"], start_now=False, target_label=target_label(s), package_id=pid)
                 for r in db.q("SELECT computer_id FROM deployment_targets WHERE deployment_id=?", (did,)):
                     db.ex("""INSERT INTO schedule_targets(schedule_id, computer_id, status, deployment_id, pending, message)
                              VALUES(?,?,?,?,0,?) ON CONFLICT(schedule_id, computer_id) DO UPDATE SET status=excluded.status,

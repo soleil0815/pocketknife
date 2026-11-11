@@ -1,4 +1,4 @@
-# Ausgangsstand der Typprüfung (tools/typcheck.py) – je Zeile ein Fund ohne Zeilennummer
+# Baseline of the type check (tools/typcheck.py) – one finding per line, without line number
 app/access.py [arg-type] Argument 1 to "int" has incompatible type "Any | None"; expected "str | Buffer | SupportsInt | SupportsIndex | SupportsTrunc"
 app/access.py [arg-type] Argument 1 to "int" has incompatible type "Any | None"; expected "str | Buffer | SupportsInt | SupportsIndex | SupportsTrunc"
 app/access.py [var-annotated] Need type annotation for "_cache" (hint: "_cache: dict[<type>, <type>] = ...")
@@ -138,7 +138,6 @@ app/mailer.py [var-annotated] Need type annotation for "_sent" (hint: "_sent: li
 app/mailer.py [var-annotated] Need type annotation for "log" (hint: "log: list[<type>] = ...")
 app/main.py [arg-type] Argument 1 to "int" has incompatible type "Any | None"; expected "str | Buffer | SupportsInt | SupportsIndex | SupportsTrunc"
 app/main.py [arg-type] Argument 1 to "int" has incompatible type "Any | None"; expected "str | Buffer | SupportsInt | SupportsIndex | SupportsTrunc"
-app/main.py [assignment] Incompatible types in assignment (expression has type "int", variable has type "str")
 app/main.py [call-overload] No overload variant of "max" matches argument types "object", "int"
 app/main.py [call-overload] No overload variant of "sorted" matches argument types "object", "Callable[[Any], tuple[bool, Any]]"
 app/main.py [index] Invalid index type "Any | None" for "dict[str, Any]"; expected type "str"
@@ -148,7 +147,6 @@ app/main.py [misc] Assignment to variable "e" outside except: block
 app/main.py [misc] Assignment to variable "e" outside except: block
 app/main.py [misc] Trying to read deleted variable "e"
 app/main.py [misc] Trying to read deleted variable "e"
-app/main.py [operator] Unsupported operand types for + ("str" and "int")
 app/main.py [operator] Unsupported right operand type for in ("Any | None")
 app/main.py [union-attr] Item "bool" of "bool | Any | str" has no attribute "lower"
 app/main.py [var-annotated] Need type annotation for "_PAGES" (hint: "_PAGES: dict[<type>, <type>] = ...")

@@ -2,6 +2,12 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.41.0 (11.11.2026)
+- **New - own update package per winget ID:** in a program's details (double-click), "Update-Paket" lets main admins choose an own package. Updates of this winget ID - Auto-Update schedules, "Aktualisieren", "Veraltete aktualisieren" and deploying with action "upgrade" - then run with this package instead of `winget upgrade` or the winget cache: all steps in their current state (e.g. first `winget uninstall … --all-versions`, then install cleanly). Without a selection the standard applies again
+- **Rules:** only packages without a tenant; a package used this way cannot be deleted until it is switched back; if it later belongs to a tenant, the standard applies and the details say so. Changes are logged
+- **Fix:** a double-click on a program name in "Software" opened its details twice (link and row) - now only once
+- **Self-test:** software list, deploying an upgrade (not install), Auto-Update schedule, tenant packages, delete lock, case-insensitive winget IDs, main admins only
+
 ## pocketknife-2.40.1 (11.11.2026)
 - **New - MSIX apps in the inventory:** programs that Windows installs as an MSIX package (e.g. PowerShell 7 from winget, which now only ships as MSIX; Windows Terminal) are not in the uninstall registry and were missing from the software list. The applications scan now also reads the installed packages from AppxAllUserStore (registry: fast on terminal servers, CLM-safe, no Appx module); version, publisher and display name come from the package manifest. Resource packages, frameworks (VCLibs, UI.Xaml, App Runtime …) and inbox apps are skipped
 - **Built-in Windows apps hidden:** apps that ship with Windows (Calculator, Photos, Xbox, Store, codecs …) are not listed by default; setting "Integrierte Windows-Apps" under "Zeitpläne & Leistung"
