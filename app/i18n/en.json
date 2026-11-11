@@ -5861,5 +5861,19 @@
  "Ohne Eingabe": "Without input",
  "{0} Fernsitzung(en) offen": "{0} remote session(s) open",
  "{0}-Sitzung zu {1} nach {2} Minuten ohne Eingabe beendet.": "{0} session to {1} ended after {2} minutes without input.",
- "POCKET KNIFE nach {0} Minuten ohne Eingabe": "POCKET KNIFE after {0} minutes without input"
+ "POCKET KNIFE nach {0} Minuten ohne Eingabe": "POCKET KNIFE after {0} minutes without input",
+ "Handle": null,
+ "PSChildName": null,
+ "PSDrive": null,
+ "PSIsContainer": null,
+ "PSParentPath": null,
+ "PSPath": null,
+ "PSProvider": null,
+ "Property": null,
+ "SubKeyCount": null,
+ "ValueCount": null,
+ "View": null,
+ "Zusatzdaten von {0} bereinigt: {1} KB → {2} KB ({3}). Der nächste Scan füllt fehlende Werte wieder.": "Extra data of {0} cleaned up: {1} KB → {2} KB ({3}). The next scan fills in missing values again.",
+ "Zusatzdaten zu groß und verworfen: {0}": "Extra data too large and discarded: {0}",
+ "Zusatzdaten nicht bereinigt: {0}": "Extra data not cleaned up: {0}"
 }

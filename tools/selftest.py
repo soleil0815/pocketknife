@@ -8408,7 +8408,8 @@ def _():
                  "  return $null }\n")
         sf = os.path.join(TMP, "pk-msix.ps1")
         with open(sf, "w", encoding="utf-8-sig") as fh:
-            fh.write(mocks + pre + apps + "\nConvertTo-Json -InputObject @($r.software) -Compress\n'ERR:' + ($r.errors -join ' | ') + '|' + $r.software_error\n")
+            fh.write(mocks + pre + apps + "\nConvertTo-Json -InputObject @($r.software) -Compress\n'EXTRA:' + ($e -is [System.Collections.Specialized.OrderedDictionary])\n"
+                     "'ERR:' + ($r.errors -join ' | ') + '|' + $r.software_error\n")
         r = subprocess.run([pw, "-NoLogo", "-NoProfile", "-NonInteractive", "-File", sf], capture_output=True, text=True, timeout=120)
         line = [x for x in r.stdout.splitlines() if x.startswith("[")]
         assert line, r.stdout + r.stderr
@@ -8422,6 +8423,7 @@ def _():
         assert ps7["location"] == mf[:-len("\\AppxManifest.xml")] or ps7["location"] == "", ps7
         assert by["Fabrikam.Tool"]["scope"] == "Benutzer" and by["Fabrikam.Tool"]["arch"] == "neutral"
         assert r.stdout.rstrip().endswith("ERR:|"), r.stdout[-300:]
+        assert "EXTRA:True" in r.stdout, "2.44.2: the module must not overwrite $e (the extras of the whole scan)"
     if sw is None:  # without PowerShell: what the module delivers
         sw = [{"name": "PowerShell", "version": "7.5.4.0", "publisher": "Microsoft Corporation", "key": "Microsoft.PowerShell_8wekyb3d8bbwe",
                "arch": "x64", "scope": "Computer", "hive": "MSIX", "reg_path": "Applications\\Microsoft.PowerShell_7.5.4.0_x64__8wekyb3d8bbwe"},
@@ -8860,6 +8862,49 @@ def _():
     assert "remote=len(remote_desktop.active())" in open(sch.__file__, encoding="utf-8").read()
     js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
     assert "n('remote_idle_minutes', { min: 0, max: 1440 })" in js and "fmtT('{0} Fernsitzung(en) offen', p.remote)" in js and "key: 'idle_seconds'" in js
+
+
+@test("2.44.2 Extras: never a PowerShell object (2.41.3 stored a 35 MB registry key per computer - every computer query slow), repaired once at start, oversized values dropped; scan modules never reuse $e; no Python file with warnings")
+def _():
+    import re as _re
+    import warnings
+    from app import inventory
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app")
+    src = open(os.path.join(root, "scan_modules.ps1"), encoding="utf-8").read()
+    body = src.split("\n", 9)[-1]
+    assert not _re.search(r"(?i)foreach\s*\(\s*\$e\s+in|\$e\s*=(?!=)", body.replace("$e = [ordered]@{}", "", 1)), \
+        "$e is the extras hashtable of the scan - never use it as a loop variable or assign it again"
+    # PowerShell object / oversized values out, normal extras stay
+    big = "x" * (inventory.EXTRA_VALUE_MAX + 10)
+    d = {"PSProvider": {"a": 1}, "PSPath": "x", "Name": "HKEY", "SubKeyCount": 3, "winget": "1.9", "os_esu": 2, "huge": big}
+    assert sorted(inventory.clean_extra(d)) == ["Name", "PSPath", "PSProvider", "SubKeyCount", "huge"] and d == {"winget": "1.9", "os_esu": 2}
+    ids = []
+    try:
+        bad = {"PSProvider": {"ImplementingType": "x" * 2000, "Drives": ["y" * 1000] * 400}, "PSDrive": {"Root": "HKLM"}, "PSChildName": "S-1-5-21",
+               "pending_reboot": True, "winget": "1.9.25200"}
+        ids.append(db.ex("INSERT INTO computers(name, extra) VALUES('EXTRA-KAPUTT', ?)", (json.dumps(bad),)))
+        ids.append(db.ex("INSERT INTO computers(name, extra) VALUES('EXTRA-OK', ?)", (json.dumps({"winget": "1.9", "Name2": 1}),)))
+        assert inventory.repair_extras() == 1
+        assert json.loads(db.val("SELECT extra FROM computers WHERE id=?", (ids[0],))) == {"pending_reboot": True, "winget": "1.9.25200"}
+        assert json.loads(db.val("SELECT extra FROM computers WHERE id=?", (ids[1],))) == {"winget": "1.9", "Name2": 1}
+        assert inventory.repair_extras() == 0, "only once - nothing left to do"
+        # a scan merge also cleans old garbage that is not in MODULE_EXTRA
+        db.ex("UPDATE computers SET extra=? WHERE id=?", (json.dumps({"PSPath": "x", "winget": "1"}), ids[1]))
+        m = inventory._merge_extra(ids[1], {"extra": {"PSProvider": {}, "timezone": "W. Europe"}}, {"computer"})
+        assert "PSPath" not in m and "PSProvider" not in m and m.get("timezone") == "W. Europe", m
+    finally:
+        for i in ids:
+            db.ex("DELETE FROM computers WHERE id=?", (i,))
+    msrc = open(os.path.join(root, "main.py"), encoding="utf-8").read()
+    assert "if inventory.repair_extras():" in msrc
+    # 2.44.2: no SyntaxWarning (e.g. "\C" in a docstring) - compiled with warnings as errors
+    import glob
+    for f in sorted(glob.glob(os.path.join(root, "*.py")) + glob.glob(os.path.join(root, "..", "tools", "*.py"))):
+        with open(f, encoding="utf-8") as fh:
+            code = fh.read()
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            compile(code, f, "exec")
 
 
 @test("2.22 Self-test: diagnostic package test does not use fixed dates (time bomb once outside the 30-day window)")

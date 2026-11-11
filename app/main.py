@@ -45,6 +45,11 @@ async def lifespan(_app):
     tools.init()
     uninstall.init()
     wingetcache.init()
+    try:  # 2.44.2: repair extras that 2.41.3 blew up (every computer query read them)
+        if inventory.repair_extras():
+            db.ex("PRAGMA wal_checkpoint(TRUNCATE)")
+    except Exception as e:  # noqa: BLE001
+        pklog.warn("system", f"Zusatzdaten nicht bereinigt: {e}")
     winget.load()
     if winget.status()["loaded"] and not db.val("SELECT value FROM settings WHERE key='msix_rematch_2412'"):
         # 2.41.2: MSIX entries only via package family name - correct the assignments once (e.g. "Notepad++" 1.0.0.0)
