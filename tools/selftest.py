@@ -8824,6 +8824,44 @@ def _():
     assert "n_off = fetch_office()" in src and "except Exception as e:  # noqa: BLE001 - offline/proxy/format changed" in src
 
 
+@test("2.44.1 Forgotten remote session: ends after N minutes without keyboard/mouse input (sync/ping/size do not count), shown in the session list and in the load peaks")
+def _():
+    from app import loadstats, remote_desktop as rd
+    assert db.DEFAULT_SETTINGS["remote_idle_minutes"] == 30
+    assert rd.is_input("5.mouse,3.100,3.200,1.0;") and rd.is_input("3.key,5.65307,1.1;") and rd.is_input("9.clipboard,1.1,10.text/plain;")
+    for ins in ("4.sync,8.12345678;", "4.size,4.1024,3.768;", "3.ack,1.1,2.OK,1.0;", "0.,4.ping,13.1700000000000;", "kaputt", "x.mouse;"):
+        assert not rd.is_input(ins), ins
+    try:
+        db.ex("INSERT OR REPLACE INTO settings(key, value) VALUES('remote_idle_minutes', '45')")
+        assert rd.idle_limit() == 2700
+        db.ex("INSERT OR REPLACE INTO settings(key, value) VALUES('remote_idle_minutes', '0')")
+        assert rd.idle_limit() == 0
+    finally:
+        db.ex("DELETE FROM settings WHERE key='remote_idle_minutes'")
+    assert rd.idle_limit() == 1800
+    s = rd.Session({"user": "u", "computer": "PC-0001", "computer_id": 1, "protocol": "rdp", "login": ""}, None)
+    s.last_input -= 125
+    assert s.info()["idle_seconds"] >= 125
+    src = open(rd.__file__, encoding="utf-8").read()
+    wd = src[src.index("    async def watchdog():"):src.index("    tasks = [asyncio.ensure_future(guacd_to_browser())")]
+    assert "time.time() - sess.last_input > lim" in wd and "await sess._kill(" in wd and "ohne Eingabe" in wd
+    b2g = src[src.index("    async def browser_to_guacd():"):src.index("    async def watchdog():")]
+    assert "if is_input(ins):\n                    sess.last_input = time.time()" in b2g, "only real input resets the timer"
+    # load peaks name open remote sessions
+    o = loadstats._last
+    try:
+        loadstats._last = (__import__("time").time() - 10, loadstats.cpu() - 100)   # forces a peak
+        loadstats.sample([], 0, 0, remote=1)
+        assert loadstats._peaks[-1]["remote"] == 1
+    finally:
+        loadstats._last = o
+        loadstats._peaks.pop()
+    import app.scheduler as sch
+    assert "remote=len(remote_desktop.active())" in open(sch.__file__, encoding="utf-8").read()
+    js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
+    assert "n('remote_idle_minutes', { min: 0, max: 1440 })" in js and "fmtT('{0} Fernsitzung(en) offen', p.remote)" in js and "key: 'idle_seconds'" in js
+
+
 @test("2.22 Self-test: diagnostic package test does not use fixed dates (time bomb once outside the 30-day window)")
 def _():
     import inspect

@@ -3888,7 +3888,7 @@
  "{0} Installationen werden still deinstalliert:": "{0} installations will be silently uninstalled:",
  "{0} MB": "{0} MB",
  "{0} Mbit/s": null,
- "{0} Min.": "{0} min",
+ "{0} Min.": "{0} min.",
  "{0} Name(n) kopiert": "{0} name(s) copied",
  "{0} OK": "{0} OK",
  "{0} PCs": "{0} PCs",
@@ -5855,5 +5855,11 @@
  "Microsoft: {0} Builds, {1} Office-Kanäle": "Microsoft: {0} builds, {1} Office channels",
  "Update-Status: Office-Kanäle von Microsoft nicht abrufbar ({0}) – Vergleich mit dem Stand der eigenen Umgebung.": "Update status: Office channels not available from Microsoft ({0}) – comparison with the state of the own environment.",
  "Office – {0}": "Office – {0}",
- "{0}; Office – {1}": "{0}; Office – {1}"
+ "{0}; Office – {1}": "{0}; Office – {1}",
+ "Ohne Eingabe beenden nach (Min.)": "End without input after (min.)",
+ "Eine Sitzung ohne Tastatur- oder Mauseingabe wird nach dieser Zeit beendet – eine vergessene Sitzung reicht sonst ständig das Bild durch und bremst POCKET KNIFE für alle. 0 = nie. Standard 30.": "A session without keyboard or mouse input ends after this time – otherwise a forgotten session keeps relaying the picture and slows POCKET KNIFE down for everyone. 0 = never. Default 30.",
+ "Ohne Eingabe": "Without input",
+ "{0} Fernsitzung(en) offen": "{0} remote session(s) open",
+ "{0}-Sitzung zu {1} nach {2} Minuten ohne Eingabe beendet.": "{0} session to {1} ended after {2} minutes without input.",
+ "POCKET KNIFE nach {0} Minuten ohne Eingabe": "POCKET KNIFE after {0} minutes without input"
 }

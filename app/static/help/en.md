@@ -1208,6 +1208,8 @@ In the example the domain is `firma.local` (NetBIOS `FIRMA`), the kiosk `pocketk
 
 # Remote Sessions {#remote}
 
+**Forgotten sessions (from 2.44.1):** the picture of a remote session runs through POCKET KNIFE, so an open but unused session slows the interface down for everyone. It ends after **30 minutes without keyboard or mouse input** (adjustable under **Settings → Network & remote access → Remote sessions**, 0 = never); the list of active sessions shows how long there has been no input. The load peaks under **Settings → Maintenance** show how many remote sessions were open.
+
 Computer → **Remote Desktop** (or Tools → VNC in browser) opens the session in a separate tab – no plugin required. You can sign in with your own POCKET KNIFE credentials (the password is kept only encrypted in memory), with different credentials, or on the computer itself. When credentials are passed, POCKET KNIFE only connects with **NLA** (Network Level Authentication, from 2.37) – Windows checks the sign-in before a desktop is created. If the computer belongs to a tenant with OU admins, the dialog warns before using your own sign-in: others are administrators there too and could capture a password that is sent – better use an account that is only valid there. For **VNC** there are “Without password / server prompts”, “With password” and – if stored under **Settings → Network & remote access → Remote sessions** – the **central VNC password** (stored encrypted and then preselected in the dialog; classic VNC only uses the first 8 characters). Within the session: Ctrl+Alt+Del, Windows key, clipboard, full screen, fit to window. This requires the `pocketknife-guacd` container, which starts automatically with `docker compose`.
 
 # Reports and Log {#reports}

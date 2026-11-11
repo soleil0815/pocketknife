@@ -6224,6 +6224,7 @@ async function viewSettings() {
       { key: 'computer', label: 'Computer' }, { key: 'protocol', label: 'Art', render: (r) => r.protocol.toUpperCase() },
       { key: 'user', label: 'Bediener' }, { key: 'login', label: 'Angemeldet als' },
       { key: 'started', label: 'Seit', render: (r) => fmtDate(r.started) },
+      { key: 'idle_seconds', label: 'Ohne Eingabe', render: (r) => fmtT('{0} Min.', Math.floor((r.idle_seconds || 0) / 60)) },
       { key: 'x', label: '', nosort: true, render: (r) => btn('Beenden', async () => {
         if (await confirmDlg(`Sitzung von ${r.user} zu ${r.computer} beenden?`, 'Beenden', true)) { await run(() => DEL(`/api/remote/sessions/${r.id}`), 'Beendet'); route(); }
       }, { cls: 'small danger' }) },
@@ -6234,6 +6235,8 @@ async function viewSettings() {
       field('Eigene Anmeldung', h('label.chk', c('remote_sso'), 'RDP mit den Anmeldedaten des POCKET KNIFE-Benutzers'),
         'Das Kennwort wird bei der Anmeldung verschlüsselt nur im Arbeitsspeicher gehalten (nie in der Datenbank) und beim Abmelden, Sitzungsende oder Neustart verworfen. Wirkt ab der nächsten Anmeldung.'),
       field('Tastaturlayout', inputs.remote_keyboard, 'Standard für neue Sitzungen; im Verbindungsdialog änderbar.'),
+      field('Ohne Eingabe beenden nach (Min.)', n('remote_idle_minutes', { min: 0, max: 1440 }),
+        'Eine Sitzung ohne Tastatur- oder Mauseingabe wird nach dieser Zeit beendet – eine vergessene Sitzung reicht sonst ständig das Bild durch und bremst POCKET KNIFE für alle. 0 = nie. Standard 30.'),
       field('Zentrales VNC-Kennwort', vncBox(st.vnc_password_set),
         'Optional. Ist ein Kennwort hinterlegt, bietet der VNC-Dialog „Zentrales VNC-Kennwort“ an und wählt es vor. Es wird verschlüsselt gespeichert und nie angezeigt. Klassisches VNC wertet nur die ersten 8 Zeichen aus.')),
     h('h3', { style: { margin: '14px 0 6px' } }, 'Aktive Sitzungen'), sesT.el);
@@ -6521,6 +6524,7 @@ function loadBox(l) {
     h('thead', h('tr', h('th', 'Spitze'), h('th.right', 'Last'), h('th', 'lief gerade'))),
     h('tbody', l.peaks.map((p) => h('tr', h('td', fmtDate(p.at)), h('td.right', `${p.pct} %`),
       h('td.wrap.small', [p.tasks.join(', '), p.scans ? `${p.scans} Scan(s)` : '', p.deployments ? `${p.deployments} Bereitstellung(en)` : '',
+        p.remote ? fmtT('{0} Fernsitzung(en) offen', p.remote) : '',
         p.requests.length ? `Anfragen: ${p.requests.join(', ')}` : ''].filter((x) => x).join(' · ') || '—'))))) : h('div.muted.small', 'Noch keine Spitzen.');
   return h('div', h('div', `Durchschnitt ${l.avg_pct} %`), tasks, peaks);
 }

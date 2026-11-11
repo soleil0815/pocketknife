@@ -304,12 +304,14 @@ class Session:
         self.closed_by = None
         self.bytes_in = 0
         self.bytes_out = 0
+        self.last_input = time.time()   # 2.44.1: last keyboard/mouse input of the operator
 
     def info(self):
         return {"id": self.id, "user": self.t["user"], "computer": self.t["computer"], "computer_id": self.t["computer_id"],
                 "protocol": self.t["protocol"], "login": self.t["login"], "started": util.fmt(
                     __import__("datetime").datetime.fromtimestamp(self.started)),
-                "seconds": int(time.time() - self.started), "bytes": self.bytes_in + self.bytes_out}
+                "seconds": int(time.time() - self.started), "bytes": self.bytes_in + self.bytes_out,
+                "idle_seconds": int(time.time() - self.last_input)}
 
     async def _kill(self, by):
         self.closed_by = by
@@ -320,6 +322,27 @@ class Session:
             pass
         if self.writer:
             self.writer.close()
+
+
+INPUT_OPCODES = ("mouse", "key", "touch", "clipboard")   # real operator input (not sync/ping/size)
+
+
+def is_input(ins):
+    """'5.mouse,...;' - an instruction caused by the operator?"""
+    dot = ins.find(".")
+    try:
+        n = int(ins[:dot])
+    except ValueError:
+        return False
+    return ins[dot + 1:dot + 1 + n] in INPUT_OPCODES
+
+
+def idle_limit():
+    """Seconds without input after which a remote session ends (0 = never)."""
+    try:
+        return max(0, int(db.setting("remote_idle_minutes") or 0)) * 60
+    except (TypeError, ValueError):
+        return 0
 
 
 def active():
@@ -464,6 +487,8 @@ async def tunnel(ws, token_hash):
                     if len(el) >= 2 and el[1] == "ping":
                         await ws.send_text(ins)
                     continue
+                if is_input(ins):
+                    sess.last_input = time.time()
                 fwd.append(ins)
             if fwd:
                 raw = "".join(fwd).encode()
@@ -478,6 +503,14 @@ async def tunnel(ws, token_hash):
             await asyncio.sleep(60)
             if not await asyncio.get_running_loop().run_in_executor(None, auth.session_valid, token_hash):
                 await sess._kill("Sitzungsende (abgemeldet oder abgelaufen)")
+                return
+            # 2.44.1: a forgotten session (no keyboard/mouse input) ends - it keeps relaying the screen and
+            # slows POCKET KNIFE down for everyone
+            lim = await asyncio.get_running_loop().run_in_executor(None, idle_limit)
+            if lim and time.time() - sess.last_input > lim:
+                pklog.info("remote", f"{PROTOCOLS[t['protocol']]}-Sitzung zu {t['computer']} nach {lim // 60} Minuten ohne "
+                           "Eingabe beendet.", user=t["user"], computer_id=t["computer_id"])
+                await sess._kill(f"POCKET KNIFE nach {lim // 60} Minuten ohne Eingabe")
                 return
 
     tasks = [asyncio.ensure_future(guacd_to_browser()), asyncio.ensure_future(browser_to_guacd()),

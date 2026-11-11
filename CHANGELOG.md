@@ -2,6 +2,13 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.44.1 (11.11.2026)
+- **Fix - forgotten remote session slowed POCKET KNIFE down:** the picture of an RDP/VNC session in the browser is relayed by POCKET KNIFE in the same part that answers every page request. An open but unused session (e.g. a forgotten tab) kept it busy (about 70 % of a core) and every page, e.g. the computer overview, loaded more slowly
+  - a remote session now ends after **30 minutes without keyboard or mouse input** (sync, ping and resizing do not count); setting "Ohne Eingabe beenden nach (Min.)" under Einstellungen → Netzwerk & Fernzugriff → Fernsitzungen, 0 = never; the end is logged and the operator sees the reason in the session tab
+  - the list of active sessions shows "Ohne Eingabe" (minutes)
+  - the load peaks under Einstellungen → Wartung show how many remote sessions were open - such a peak no longer shows "—"
+- **Self-test:** input detection, setting, idle time in the session list, watchdog, load peaks
+
 ## pocketknife-2.44.0 (11.11.2026)
 - **New - Office against Microsoft's update channels:** with "Microsoft-Abgleich" switched on, the server also fetches Microsoft's release data of the Microsoft 365 Apps / Office LTSC update channels once a day (current build of every supported version per channel, release date, end of support of the version)
   - every Click-to-Run installation is compared within **its own version** - on Semi-Annual two versions are supported at the same time and both count as current with their newest build
