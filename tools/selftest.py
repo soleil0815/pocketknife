@@ -6773,9 +6773,12 @@ def _():
     js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
     i = js.index("async function viewFiles(")
     v = js[i:js.index("\nasync function ", i + 10)]
-    assert "showHidden ? d0.items : d0.items.filter((x) => !x.hidden" in v, "hidden entries not filtered"
+    assert "showHidden ? d0.items : d0.items.filter((x) => !hiddenish(x)" in v, "hidden entries not filtered"
     assert "x.name.toLowerCase() === fl" in v, "targeted opened entry (focus) must stay visible"
-    assert "localStorage.setItem('pk-files-hidden'" in v and "'Versteckte anzeigen'" in v, "toggle missing"
+    # 2.39.5: one switch "Ausgeblendete Elemente" (also entries without access), off by default
+    assert "localStorage.setItem('pk-files-hidden'" in v and "tr('Ausgeblendete Elemente')" in v, "toggle missing"
+    assert "const hiddenish = (x) => x.hidden || x.denied;" in v and "let showHidden = false;" in v
+    assert "opacity: hiddenish(r) ? 0.55 : 1" in v and "fmtT('{0} ausgeblendet', nHid)" in v
     # Upload checks against ALL names (also hidden) – otherwise a hidden file would be overwritten without asking
     assert "curNames = new Set((d.items || d.entries || []).map(" in v
     assert v.index("curNames = new Set((d.items") < v.index("lastList = d;")

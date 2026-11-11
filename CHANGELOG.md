@@ -2,6 +2,10 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.39.5 (11.11.2026)
+- **Changed - file explorer: "Ausgeblendete Elemente" as in the Windows Explorer:** one checkbox in the toolbar (off by default, remembered by the browser) hides hidden folders and files and now also entries without access (pagefile.sys, hiberfil.sys, swapfile.sys, DumpStack.log.tmp …). Ticked, everything is shown, hidden entries dimmed. The number of hidden entries stays visible at the top right
+- **Self-test:** filter including entries without access, default off, dimmed display
+
 ## pocketknife-2.39.4 (11.11.2026)
 - **Fixed - interface "hangs" after double-clicking a collection:** while the collection dialog was still loading (filter schema, collections, computer list - slow with many computers), another double-click opened the same dialog again; several identical dialogs lay on top of each other, and closing one left the others (Esc each time with a "Dialog schließen?" question). Now there is one dialog per collection, further double-clicks while it loads are ignored, and the mouse pointer shows that it is loading
 - **Changed:** Esc closes the collection dialog directly if nothing was changed (the question only comes after changes)

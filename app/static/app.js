@@ -7678,12 +7678,15 @@ async function viewFiles(parts, params) {
         if (await run(() => POST(`/api/computers/${cid}/files/mkdir`, { path: cur, name: n }), 'Ordner angelegt') !== undefined) load(cur);
       }, { cls: 'small', icon: 'folder' }));
       els.push(uploadBtn());
-      els.push(btn(showHidden ? 'Versteckte ausblenden' : 'Versteckte anzeigen', () => {
-        showHidden = !showHidden;
-        try { localStorage.setItem('pk-files-hidden', showHidden ? '1' : '0'); } catch (e) { /* ignore */ }
-        drawTools();
+      // 2.39.5: like "Ansicht → Ausgeblendete Elemente" in the Windows Explorer – one switch for hidden entries and
+      // entries without access (pagefile.sys, hiberfil.sys …); off by default
+      els.push(h('label.small', { style: { display: 'inline-flex', alignItems: 'center', gap: '6px', cursor: 'pointer', userSelect: 'none' },
+        title: tr('Versteckte Ordner und Dateien (z. B. ProgramData, $Recycle.Bin, desktop.ini) und Einträge ohne Zugriff (z. B. pagefile.sys, hiberfil.sys) ein- oder ausblenden') },
+      h('input', { type: 'checkbox', checked: showHidden, onchange: (e) => {
+        showHidden = e.target.checked;
+        try { localStorage.setItem('pk-files-hidden', showHidden ? '1' : '0'); } catch (x) { /* ignore */ }
         if (lastList && !searching) drawList(lastList);
-      }, { cls: 'small ghost', title: tr('Versteckte Ordner und Dateien (z. B. ProgramData, $Recycle.Bin, desktop.ini) ein- oder ausblenden') }));
+      } }), tr('Ausgeblendete Elemente')));
       if (FILE_CLIP && FILE_CLIP.cid === cid && FILE_CLIP.names.length) {
         els.push(btn(`Einfügen (${FILE_CLIP.names.length}${FILE_CLIP.action === 'move' ? ', verschieben' : ''})`, () => paste(), { cls: 'small primary', icon: 'send' }));
       }
@@ -7753,14 +7756,15 @@ async function viewFiles(parts, params) {
   function drawList(d0) {
     // Only what is hidden gets hidden – the entry being looked for ("focus") always stays visible
     const fl = (focusName || '').toLowerCase();
-    const items = showHidden ? d0.items : d0.items.filter((x) => !x.hidden || (fl && x.name.toLowerCase() === fl));
+    const hiddenish = (x) => x.hidden || x.denied;  // 2.39.5: entries without access count as hidden as well
+    const items = showHidden ? d0.items : d0.items.filter((x) => !hiddenish(x) || (fl && x.name.toLowerCase() === fl));
     const nHid = d0.items.length - items.length;
     const d = { ...d0, items };
     info.textContent = `${d.items.length} ${d.items.length === 1 ? 'Eintrag' : 'Einträge'}`
-      + (nHid ? ` · ${fmtT('{0} versteckt', nHid)}` : '');
+      + (nHid ? ` · ${fmtT('{0} ausgeblendet', nHid)}` : '');
     const open = (r) => { if (r.dir) load(cur.replace(/\\+$/, '') + '\\' + r.name); else if (!r.denied) download(r); };
     const t = table([
-      { key: 'name', label: 'Name', render: (r) => h('span.row', { style: { gap: '6px', flexWrap: 'nowrap' } },
+      { key: 'name', label: 'Name', render: (r) => h('span.row', { style: { gap: '6px', flexWrap: 'nowrap', opacity: hiddenish(r) ? 0.55 : 1 } },
         h('span.ic', { 'data-ic': r.dir ? 'folder' : 'file', style: { color: r.dir ? 'var(--accent)' : 'var(--muted)' } }, icon(r.dir ? 'folder' : 'file')),
         r.denied ? h('span.raw', r.name) : h('a.raw', { href: '#', onclick: (e) => { e.preventDefault(); open(r); } }, r.name),
         r.reparse ? h('span.badge', { title: r.dir ? 'Verknüpfung (Junction/Symlink) – Öffnen springt zum Ziel' : 'Verknüpfung (Symlink)' }, '↗') : null,
@@ -7770,7 +7774,7 @@ async function viewFiles(parts, params) {
       { key: 'modified', label: 'Geändert', render: (r) => fmtDate(r.modified), sort: (r) => r.modified || '' },
     ], d.items, { key: null, noun: 'Einträge', sort: 'name', selectable: true, id: (r) => r.name, ...fxTableOpts(''),
       // Nothing found in the folder → offer the search in the subfolders right away
-      empty: nHid ? fmtT('Nur versteckte Einträge ({0}) – „Versteckte anzeigen“', nHid) : 'Leerer Ordner',
+      empty: nHid ? fmtT('Nur ausgeblendete Einträge ({0}) – „Ausgeblendete Elemente“ anhaken', nHid) : 'Leerer Ordner',
       onRow: (r) => open(r),
       onSelect: (sx) => { selected = new Set(sx.map((x) => x.name)); },
       onContext: (r, e, selRows) => {

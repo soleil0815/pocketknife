@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.39.5",
+   "date": "2026-11-11",
+   "items": [
+    {
+     "kind": "improved",
+     "audience": "all",
+     "de": "Datei-Explorer: „Ausgeblendete Elemente“ wie im Windows-Explorer – versteckte Dateien und Ordner sowie Dateien ohne Zugriff (z. B. pagefile.sys) sind standardmäßig ausgeblendet und lassen sich per Häkchen einblenden.",
+     "en": "File explorer: \"Hidden items\" as in Windows Explorer – hidden files and folders and files without access (e.g. pagefile.sys) are hidden by default and can be shown with a checkbox."
+    }
+   ]
+  },
+  {
    "version": "2.39.4",
    "date": "2026-11-11",
    "items": [
