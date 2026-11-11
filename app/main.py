@@ -144,7 +144,10 @@ async def security(request: Request, call_next):
     if request.url.path.startswith("/api/") and request.method not in ("GET", "HEAD", "OPTIONS"):
         if request.headers.get("x-pk-request") != "1":
             return JSONResponse({"detail": "CSRF-Prüfung fehlgeschlagen"}, status_code=403)
+    t_req = time.perf_counter()
     resp = await call_next(request)
+    if request.url.path.startswith("/api/"):  # 2.44.4: duration per path (diagnostic package)
+        loadstats.request_done(f"{request.method} {request.url.path}", (time.perf_counter() - t_req) * 1000)
     if request.method not in ("GET", "HEAD", "OPTIONS") and request.url.path.startswith(("/api/collections", "/api/computers", "/api/fields")):
         collections_.invalidate()  # recompute memberships immediately
     if request.url.path.startswith("/api/mail/view/"):

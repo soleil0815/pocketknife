@@ -1468,6 +1468,8 @@ Unter **Einstellungen → Wartung → Diagnosepaket** erstellt POCKET KNIFE ein 
 | `statistik.json` | Erfolgsquote je Paket, Exitcodes, häufigste Fehler, Scan-Dauer, Warnungen, Kiosk-Anfragen |
 | `leistung.json` (ab 2.44.3) | Rechenlast und Lastspitzen, Dauer von Dashboard, Computerliste, Sammlungen und Softwareliste, langsamste Sammlungen, größte Felder der Computer-Tabelle (nur Feldnamen und Größen, keine Inhalte) |
 | `update_status.json` (ab 2.44.3) | Update-Status: Microsoft-Abgleich (Builds, Office-Kanäle), Anzahl je Status, Office-Installationen je Produkt, Kanal und Version |
+| `leistung.json` – Ergänzungen ab 2.44.4 | Dauer jeder Seite/Abfrage seit dem Start (Median, 95 %, Maximum), Größe der Scan-Ergebnisse je Bereich (ein Bereich über 5 MB steht zusätzlich als Warnung im Protokoll), Datenbank je Tabelle und Begleitdatei (WAL), Fernsitzungen (Dauer, Datenmenge, wodurch beendet), Hintergrundaufgaben mit Fehlern, letzte tägliche Läufe |
+| `inventar.json` (ab 2.44.4) | Scan-Fehler je Bereich, winget-Zuordnung (sicher/unsicher, veraltet, MSIX), Clients je PowerShell-Version, Sprachmodus (ConstrainedLanguage = Softwareeinschränkung) und winget |
 | `protokoll.csv`, `fehler.txt` | Protokoll des Zeitraums, Warnungen und Fehler gesondert |
 | `bereitstellungen.csv`, `fehlgeschlagen.json` | Bereitstellungen; bei Fehlschlägen das Ende der Ausgabe (höchstens 3000 Zeichen je Schritt) |
 | `scans.csv` | Scan-Läufe mit Dauer und Ergebnis |

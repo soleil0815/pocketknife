@@ -609,7 +609,79 @@ def _performance(an):
     out["largest_extras"] = big
     out["inventory_data_kb"] = {r["category"] if not str(r["category"]).startswith("custom:") else "custom": round((r["s"] or 0) / 1024)
                                 for r in db.q("SELECT category, SUM(length(json)) s FROM inventory_data GROUP BY category ORDER BY s DESC LIMIT 15")}
+    # 2.44.4: what really happened since start - not only the measurement while the package is built
+    out["requests_since_start_ms"] = loadstats.durations(25)
+    from . import inventory, remote_desktop, scheduler
+    out["scan_sizes_since_start"] = {k: dict(v, max_computer=an.alias("computer", v["max_computer"]) if an.enabled and v.get("max_computer")
+                                             else v.get("max_computer")) for k, v in list(inventory.scan_sizes().items())[:25]}
+    out["database"] = _db_info()
+    out["remote_sessions"] = remote_desktop.history()
+    tasks = {}
+    with loadstats._lock:
+        raw = {k: dict(v) for k, v in loadstats._tasks.items()}
+    for k, v in raw.items():
+        tasks[k] = {"runs": v.get("runs"), "last_at": v.get("last_at"), "last_seconds": v.get("last_wall"),
+                    "cpu_seconds": round(v.get("cpu") or 0, 1), "errors": v.get("errors", 0),
+                    "last_error": an(v.get("last_error")) if v.get("last_error") else None}
+    out["background_tasks"] = tasks
+    st = lambda k: db.setting_raw(k)  # noqa: E731
+    out["daily"] = {"update_status": st("update_status_at"), "db_maintenance": st("db_maintenance_last"),
+                    "backup": an(st("backup_last")), "backup_auto": st("backup_last_auto"),
+                    "scheduler_last": {k: util.fmt(__import__("datetime").datetime.fromtimestamp(v)) for k, v in
+                                       dict(getattr(scheduler, "_last", {})).items() if isinstance(v, (int, float)) and v > 0}}
     return out
+
+
+def _db_info():
+    """Size per table (dbstat, if available), log file (WAL), free space."""
+    info: dict = {}
+    try:
+        info.update(db.stats())
+    except Exception as e:  # noqa: BLE001
+        info["error"] = str(e)[:200]
+    try:
+        info["tables_kb"] = {r["name"]: round(r["s"] / 1024) for r in db.q(
+            "SELECT name, SUM(pgsize) s FROM dbstat GROUP BY name ORDER BY s DESC LIMIT 25")}
+    except Exception:  # noqa: BLE001 - SQLite without dbstat: number of rows instead
+        cnt = {}
+        for t in [r["name"] for r in db.q("SELECT name FROM sqlite_master WHERE type='table'")][:80]:
+            try:
+                cnt[t] = db.val(f'SELECT COUNT(*) FROM "{t}"', default=0)
+            except Exception:  # noqa: BLE001
+                pass
+        info["table_rows"] = dict(sorted(cnt.items(), key=lambda x: -(x[1] or 0))[:25])
+    return info
+
+
+def _inventory_info(since, an):
+    """2.44.4: scan errors per area, winget assignment, clients (PowerShell version/language mode, winget) - counts only."""
+    errs: dict = {}
+    for r in db.q("SELECT warnings FROM scan_history WHERE ts >= ? AND warnings IS NOT NULL", (since,)):
+        for part in str(r["warnings"]).split("; "):
+            m = re.match(r"^\s*([A-Za-z_][\w ]{0,30}):\s*(.*)$", part)
+            area = m.group(1) if m else "sonstige"
+            msg = _norm_msg(an(m.group(2) if m else part))[:160]
+            e = errs.setdefault(area, {"count": 0, "top": collections.Counter()})
+            e["count"] += 1
+            e["top"][msg] += 1
+    scan_errors = {k: {"count": v["count"], "top": v["top"].most_common(5)} for k, v in sorted(errs.items(), key=lambda x: -x[1]["count"])}
+    v = lambda sql: db.val(sql, default=0)  # noqa: E731
+    from . import winget
+    st = winget.status()
+    wg = {"index_entries": st.get("count"), "index_updated": st.get("updated"), "index_error": st.get("error"),
+          "software_rows": v("SELECT COUNT(*) FROM software"), "assigned": v("SELECT COUNT(*) FROM software WHERE winget_id IS NOT NULL"),
+          "assigned_sure": v("SELECT COUNT(*) FROM software WHERE winget_id IS NOT NULL AND winget_sure=1"),
+          "outdated": v("SELECT COUNT(*) FROM software WHERE outdated=1"),
+          "msix": v("SELECT COUNT(*) FROM software WHERE hive='MSIX'"),
+          "msix_builtin_hidden": bool(db.setting("msix_hide_builtin")),
+          "overrides": v("SELECT COUNT(*) FROM winget_overrides"),
+          "update_packages": v("SELECT COUNT(*) FROM winget_update_packages")}
+    cl = lambda expr: {str(r["k"]): r["n"] for r in db.q(  # noqa: E731
+        f"SELECT {expr} k, COUNT(*) n FROM computers WHERE last_scan IS NOT NULL GROUP BY 1 ORDER BY n DESC LIMIT 15")}
+    clients = {"powershell": cl("json_extract(extra, '$.ps_version')"), "language_mode": cl("json_extract(extra, '$.ps_language')"),
+               "winget": cl("CASE WHEN COALESCE(json_extract(extra, '$.winget'), '') = '' THEN 'fehlt' ELSE 'vorhanden' END"),
+               "os_build": cl("os_build")}
+    return {"since": since, "scan_errors_by_area": scan_errors, "winget": wg, "clients": clients}
 
 
 def _update_status():
@@ -680,6 +752,9 @@ Dateien
   leistung.json        Rechenlast und Lastspitzen, Dauer der wichtigsten Abfragen, langsamste Sammlungen, größte Felder
                        (nur Feldnamen und Größen, keine Inhalte)
   update_status.json   Update-Status: Microsoft-Abgleich, Stände je Status, Office-Installationen je Produkt/Kanal/Version
+                       leistung.json enthält außerdem: Dauer jeder Seite seit dem Start, Größe der Scan-Ergebnisse je Bereich,
+                       Datenbank je Tabelle, Fernsitzungen, Hintergrundaufgaben und tägliche Läufe (mit Fehlern)
+  inventar.json        Scan-Fehler je Bereich, winget-Zuordnung, Clients (PowerShell-Version, Sprachmodus, winget)
   protokoll.csv        Protokoll des Zeitraums (höchstens {MAX_LOG_ROWS} Einträge, neueste zuerst)
   fehler.txt           Warnungen und Fehler mit technischen Details
   bereitstellungen.csv Ziele der Bereitstellungen im Zeitraum
@@ -777,7 +852,8 @@ def _build(days, anonymize, user):
         z.writestr("umgebung.json", json.dumps(_environment(an), ensure_ascii=False, indent=1, default=str))
         z.writestr("einstellungen.json", json.dumps(_settings(an), ensure_ascii=False, indent=1, default=str))
         z.writestr("statistik.json", json.dumps(stats, ensure_ascii=False, indent=1, default=str))
-        for fname, fn in (("leistung.json", lambda: _performance(an)), ("update_status.json", _update_status)):
+        for fname, fn in (("leistung.json", lambda: _performance(an)), ("update_status.json", _update_status),
+                          ("inventar.json", lambda: _inventory_info(since, an))):
             try:
                 z.writestr(fname, json.dumps(fn(), ensure_ascii=False, indent=1, default=str))
             except Exception as e:  # noqa: BLE001 - the package itself must always work

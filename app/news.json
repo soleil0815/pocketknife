@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.44.4",
+   "date": "2026-11-12",
+   "items": [
+    {
+     "kind": "improved",
+     "audience": "all",
+     "de": "Diagnosepaket erweitert: Dauer jeder Seite, Größe der Scan-Ergebnisse, Datenbank je Tabelle, Fernsitzungen, Hintergrundaufgaben, Scan-Fehler je Bereich, winget-Zuordnung und Clients (PowerShell, Sprachmodus). Ungewöhnlich große Scan-Ergebnisse stehen als Warnung im Protokoll.",
+     "en": "Diagnostic package extended: duration of every page, size of scan results, database per table, remote sessions, background tasks, scan errors per area, winget assignment and clients (PowerShell, language mode). Unusually large scan results are logged as a warning."
+    }
+   ]
+  },
+  {
    "version": "2.44.3",
    "date": "2026-11-11",
    "items": [

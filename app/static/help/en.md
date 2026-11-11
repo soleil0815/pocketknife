@@ -1468,6 +1468,8 @@ Under **Settings → Maintenance → Diagnostics package**, POCKET KNIFE creates
 | `statistik.json` | success rate per package, exit codes, most frequent errors, scan duration, warnings, kiosk requests |
 | `leistung.json` (from 2.44.3) | CPU load and load peaks, duration of dashboard, computer list, collections and software list, slowest collections, largest fields of the computer table (field names and sizes only, no contents) |
 | `update_status.json` (from 2.44.3) | update status: Microsoft comparison (builds, Office channels), count per status, Office installations per product, channel and version |
+| `leistung.json` – additions from 2.44.4 | duration of every page/query since start (median, 95 %, maximum), size of the scan results per area (an area over 5 MB is also logged as a warning), database per table and log file (WAL), remote sessions (duration, data, how they ended), background tasks with errors, last daily runs |
+| `inventar.json` (from 2.44.4) | scan errors per area, winget assignment (sure/unsure, outdated, MSIX), clients per PowerShell version, language mode (ConstrainedLanguage = software restriction) and winget |
 | `protokoll.csv`, `fehler.txt` | log of the period, warnings and errors separately |
 | `bereitstellungen.csv`, `fehlgeschlagen.json` | deployments; for failures the end of the output (at most 3000 characters per step) |
 | `scans.csv` | scan runs with duration and result |

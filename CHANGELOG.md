@@ -2,6 +2,16 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.44.4 (12.11.2026)
+- **Diagnostic package - everything that would have shown this week's problems early:**
+  - `leistung.json` now also has: the duration of every page/query since start (median, 95 %, maximum per path), the size of the scan results per area (largest computer), the database per table plus log file (WAL), remote sessions (duration, data, ended by user/inactivity/logout), background tasks with errors and last duration, last daily runs (update status, database maintenance, backup, scheduler)
+  - new `inventar.json`: scan errors per area (e.g. "msix", "Software"), winget assignment (sure/unsure, outdated, MSIX, update packages), clients per PowerShell version, language mode and winget
+  - everything anonymized, field contents never included
+- **Early warning:** a scan result area larger than 5 MB is logged as a warning ("Ungewöhnlich große Scan-Ergebnisse")
+- **Scan:** the computer module also reads the PowerShell language mode (ConstrainedLanguage = software restriction/AppLocker)
+- Help (de/en) and manual PDFs updated
+- **Self-test:** request durations, task errors, scan sizes with warning, remote session history, all new parts of the package present and anonymized
+
 ## pocketknife-2.44.3 (11.11.2026)
 - **Fix - Office LTSC 2024 stayed "aktuell" although Microsoft has a newer build:** the scan only recognised the update channel by a GUID in UpdateChannel (or CDNBaseUrl if empty). With Office updating from a network share or without UpdateChannel, the installation landed in "unbekannter Kanal" and was only compared with the own environment (e.g. 16.0.17932.21056 "aktuell" although 16.0.17932.21140 is out since 10.11.)
   - the channel now also comes from CDNBaseUrl, AudienceId and AudienceData ("Production::LTSC2024", "Production::MEC" ...); the scan reads these values (next computer scan)

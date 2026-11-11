@@ -71,7 +71,8 @@ MODULE_EXTRA = {
                  "product_type", "locale", "bios_mode", "secure_boot", "smb1_server", "smb1_client", "ie_version",
                  "domain_controller", "dotnet", "last_wu_install", "user_states", "virtual",
                  "os_edition", "os_install_type", "office_c2r",  # 2.40: update status
-                 "os_esu"],  # 2.43: Windows 10 ESU year (0 = none)
+                 "os_esu",   # 2.43: Windows 10 ESU year (0 = none)
+                 "ps_language"],  # 2.44.4: PowerShell language mode on the client
     "security": ["defender", "bitlocker", "tpm", "firewall", "antivirus"],
     "memory": ["memory_slots", "memory_max"],
     "nics": ["fast_startup"],  # 2.31: Wake-on-LAN readiness
@@ -275,7 +276,9 @@ def scan(cid, user=None, prof=None):
             idx = out.find("PKJSON:")
             if idx < 0:
                 raise remote.RemoteError("Keine Inventardaten erhalten. " + err[:500])
-            data = json.loads(util.first_line(out[idx + 7:], "{}"))
+            raw_json = util.first_line(out[idx + 7:], "{}")
+            data = json.loads(raw_json)
+            note_scan_size(cid, c["name"], data, len(raw_json))
             warn_list = [str(x) for x in _L(data.get("errors"))]
             if data.get("software_error"):
                 warn_list.insert(0, "Software: " + str(data["software_error"]))
@@ -423,6 +426,43 @@ def repair_extras():
         pklog.info("system", f"Zusatzdaten von {r['name']} bereinigt: {before // 1024} KB → {len(json.dumps(d)) // 1024} KB "
                              f"({', '.join(sorted(gone))[:200]}). Der nächste Scan füllt fehlende Werte wieder.", computer_id=r["id"])
     return n
+
+
+# 2.44.4: size of the scan results per area since start (diagnostic package) - a part that suddenly becomes huge
+# (like the extras overwritten in 2.41.3) shows up here before everything gets slow
+_scan_sizes: dict = {}
+_scan_sizes_lock = threading.Lock()
+SCAN_PART_WARN = 5 * 1024 * 1024
+
+
+def note_scan_size(cid, name, data, total):
+    parts = {"_gesamt": total}
+    if isinstance(data, dict):
+        for k, v in data.items():
+            try:
+                parts[k] = len(json.dumps(v, ensure_ascii=False, default=str))
+            except (TypeError, ValueError):
+                continue
+    with _scan_sizes_lock:
+        for k, n in parts.items():
+            d = _scan_sizes.setdefault(k, {"n": 0, "total": 0, "max": 0, "max_computer": None})
+            d["n"] += 1
+            d["total"] += n
+            if n > d["max"]:
+                d["max"], d["max_computer"] = n, name
+    big = [k for k, n in parts.items() if k != "_gesamt" and n > SCAN_PART_WARN]
+    if big:
+        pklog.warn("scan", f"Ungewöhnlich große Scan-Ergebnisse: {', '.join(f'{k} {parts[k] // 1048576} MB' for k in big)}",
+                   computer_id=cid)
+
+
+def scan_sizes():
+    """{area: {n, avg_kb, max_kb, max_computer}} sorted by the largest value."""
+    with _scan_sizes_lock:
+        items = [(k, dict(v)) for k, v in _scan_sizes.items()]
+    items.sort(key=lambda x: -x[1]["max"])
+    return {k: {"n": v["n"], "avg_kb": round(v["total"] / v["n"] / 1024, 1) if v["n"] else 0,
+                "max_kb": round(v["max"] / 1024, 1), "max_computer": v["max_computer"]} for k, v in items}
 
 
 def _inv(cid, cat, rows, now):
