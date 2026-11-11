@@ -5698,5 +5698,14 @@
  "Ausgeführt als": "Run as",
  "Dienstkonto (WinRM)": "Service account (WinRM)",
  "verschiedene Konten (siehe Ausgabe)": "different accounts (see output)",
- "verschiedene": "different"
+ "verschiedene": "different",
+ " – Windows Update hat den Zugriff verweigert (0x80070005).": " – Windows Update denied access (0x80070005).",
+ " – Windows Update hat den Zugriff verweigert (0x80070005): Rechte des Kontos auf dem Computer prüfen oder als „Lokales System“ ausführen.": " – Windows Update denied access (0x80070005): check the account’s rights on the computer or run as “Local System”.",
+ " – Windows Update lehnt Herunterladen und Installieren über eine Netzwerkanmeldung (WinRM) ab: als „Lokales System“ ausführen.": " – Windows Update refuses downloading and installing over a network logon (WinRM): run as “Local System”.",
+ "POCKET KNIFE: PowerShell hat {0} Fehler gemeldet – das Skript endete trotzdem mit Exitcode 0.": "POCKET KNIFE: PowerShell reported {0} error(s) – the script still ended with exit code 0.",
+ "WindowsUpdate|Microsoft\\.Update|PSWindowsUpdate|WUApi|wuauclt|UsoClient": null,
+ "Fehlermeldungen": "Error messages",
+ "Fehlermeldungen von PowerShell ignorieren – nur der Exitcode zählt": "Ignore PowerShell error messages – only the exit code counts",
+ "Fehlgeschlagen – PowerShell hat {0} Fehler gemeldet, das Skript endete aber mit Exitcode {1} (im Skript $ErrorActionPreference = 'Stop' oder exit 1 verwenden; bewusst ignorieren: Option am Schritt)": "Failed – PowerShell reported {0} error(s), but the script ended with exit code {1} (use $ErrorActionPreference = 'Stop' or exit 1 in the script; to ignore deliberately: option on the step)",
+ "Nicht ausgeführt – kein Neustart nach einem fehlgeschlagenen Schritt": "Not run – no restart after a failed step"
 }

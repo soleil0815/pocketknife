@@ -1413,7 +1413,15 @@ function PK-Run([string]$File, [string]$Arguments) {
 # Windows refuses exactly this file (execution policy via GPO, signature, security zone: exit code 1, no output, error
 # "UnauthorizedAccess" with the file name), POCKET KNIFE loads its content - the script had not run yet, so it
 # never runs twice. Parameters are passed on, $PSScriptRoot/$PSCommandPath still point to the original file.
+# 2.39.3: PowerShell reports errors (error records on stderr) but the script ends with exit code 0 (e.g. Get-WindowsUpdate:
+# "Zugriff verweigert" without $ErrorActionPreference = 'Stop') -> marker line, POCKET KNIFE decides (steps.PS_ERR_RX)
 function PK-RunPs1([string]$Path, [string]$Arguments) {
+  PK-RunPs1Core $Path $Arguments
+  if ($global:PKExit -eq 0 -and $global:PKErrTxt -match 'FullyQualifiedErrorId') {
+    Write-Output ('PK_PSERR:' + (($global:PKErrTxt -split 'FullyQualifiedErrorId').Count - 1))
+  }
+}
+function PK-RunPs1Core([string]$Path, [string]$Arguments) {
   PK-Run "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" (('__PSFLAGS__ -File "' + $Path + '" ' + $Arguments).Trim())
   if ($global:PKExit -ne 1 -or $global:PKStdN -gt 0) { return }
   $pkE = $global:PKErrTxt -replace '\s', ''
@@ -1698,6 +1706,34 @@ def hard_hint(text, start=False):
         return (" Schon die WinRM-Sitzung läuft auf diesem Computer im eingeschränkten Sprachmodus (AppLocker/WDAC) – "
                 "POCKET KNIFE kann dort nichts einrichten. Den Computer von dieser Härtung ausnehmen.")
     return " Windows ist auf diesem Computer so eingestellt, dass es POCKET KNIFE blockiert: " + deploy.HARD_MESSAGES[code] + "."
+
+
+PS_ERR_RX = re.compile(r"^PK_PSERR:(\d+)\s*$", re.M)
+WU_DENIED_RX = re.compile(r"0x80070005|E_ACCESSDENIED", re.I)
+WU_RX = re.compile(r"WindowsUpdate|Microsoft\.Update|PSWindowsUpdate|WUApi|wuauclt|UsoClient", re.I)
+
+
+def ps_errors(out):
+    """2.39.3: (number of errors PowerShell reported although the script ended with exit code 0, output with the marker
+    line replaced by plain text)."""
+    m = PS_ERR_RX.search(out or "")
+    if not m:
+        return 0, out
+    n = int(m.group(1))
+    return n, PS_ERR_RX.sub(f"POCKET KNIFE: PowerShell hat {n} Fehler gemeldet – das Skript endete trotzdem mit Exitcode 0.", out)
+
+
+def wu_hint(out, run_as):
+    """2.39.3: Windows Update refuses download/installation from a network logon (WinRM) with 0x80070005."""
+    if not (WU_DENIED_RX.search(out or "") and WU_RX.search(out or "")):
+        return ""
+    if run_as == "deploy":
+        return (" – Windows Update lehnt Herunterladen und Installieren über eine Netzwerkanmeldung (WinRM) ab: "
+                "als „Lokales System“ ausführen.")
+    if run_as == "system":
+        return " – Windows Update hat den Zugriff verweigert (0x80070005)."
+    return (" – Windows Update hat den Zugriff verweigert (0x80070005): Rechte des Kontos auf dem Computer prüfen oder "
+            "als „Lokales System“ ausführen.")
 
 
 def apply_hard(code, out):

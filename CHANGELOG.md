@@ -2,6 +2,13 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.39.3 (11.11.2026)
+- **Fixed - PowerShell step "Erfolgreich" despite errors:** if PowerShell reported an error (e.g. `Get-WindowsUpdate : Zugriff verweigert`) and the script still ended with exit code 0, the step counted as successful and the restart ran afterwards. Now the step fails ("PowerShell hat N Fehler gemeldet …"). Only errors PowerShell really outputs count (error records on the error stream); deliberately suppressed errors do not. New step option "Fehlermeldungen von PowerShell ignorieren – nur der Exitcode zählt" for scripts where error messages are normal
+- **Changed - no restart after a failed step:** completion steps still run after an error (clean-up, scan), a restart step there no longer does
+- **New - hint for Windows Update:** "Zugriff verweigert" (0x80070005) from Windows Update is named as such in the message, with the remedy depending on the account
+- **Changed - tools as SYSTEM:** errors reported by PowerShell give exit code 1, like tools directly over WinRM
+- **Self-test:** wrapper with PowerShell (marker only for exit code 0 with real errors), step fails, no restart, option to ignore, hint, tools
+
 ## pocketknife-2.39.2 (11.11.2026)
 - **New - column "Ausgeführt als" in the step results:** "Details" of a target shows for every step the account it really ran with on the computer - Lokales System, Dienstkonto, Angemeldeter Benutzer, or "Dienstkonto (WinRM)" for what POCKET KNIFE does directly over WinRM (restart, message, log off, scan); uninstall steps with several hits on different accounts show "verschiedene". A dash: nothing ran on the computer (skipped, not run)
 - **Changed:** restart, message, log off and scan steps now also name the account in the log header ("… (als Dienstkonto …)")

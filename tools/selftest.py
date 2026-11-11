@@ -8057,6 +8057,101 @@ def _():
     assert "h('th', 'Ausgeführt als')" in js and "x.run_as ? (RAN_AS[x.run_as] || x.run_as) : h('span.muted', '–')" in js
 
 
+@test("2.39.3 PowerShell step: errors reported by PowerShell fail the step even with exit code 0 (option to ignore); no restart after a failure; hint for Windows Update 0x80070005")
+def _():
+    import subprocess
+    import tempfile
+    from app import remote, steps as stp, tools as tl
+    assert remote.ps_errors("a\nPK_PSERR:2\nb")[0] == 2 and "PK_PSERR" not in remote.ps_errors("PK_PSERR:2")[1]
+    assert remote.ps_errors("nichts")[0] == 0
+    out_wu = "Get-WindowsUpdate : Zugriff verweigert (Ausnahme von HRESULT: 0x80070005 (E_ACCESSDENIED))\n+ FullyQualifiedErrorId : System.UnauthorizedAccessException,PSWindowsUpdate.GetWindowsUpdate"
+    assert "Netzwerkanmeldung" in remote.wu_hint(out_wu, "deploy") and "Lokales System" in remote.wu_hint(out_wu, "service")
+    assert "Lokales System" not in remote.wu_hint(out_wu, "system"), "already Local System: no advice to switch"
+    assert remote.wu_hint("Zugriff verweigert 0x80070005 beim Kopieren", "deploy") == "", "only for Windows Update"
+    assert stp.clean_step({"type": "powershell", "script": "x"})["ignore_errors"] is False
+    assert stp.clean_step({"type": "powershell", "script": "x", "ignore_errors": True})["ignore_errors"] is True
+    # --- Runner: exit code 0 with reported errors -> failed, no restart in the completion steps ---
+    run = stp.Runner(1, 1, {"id": 2393, "name": "PC-2393", "dns_name": ""}, lambda: False, lambda *a: None)
+    old = (remote.run_as_system, remote.remove_package_copy, remote.ps, run.check)
+    calls = []
+    remote.remove_package_copy = lambda *a, **k: None
+    remote.ps = lambda host, script, timeout=None: (calls.append(script) or ("PK_RC:0", "", False))
+    run.check = lambda conds: (True, "")
+    try:
+        remote.run_as_system = lambda *a, **k: (0, "Accepted KB5131090\n" + out_wu + "\nPK_PSERR:1\nExitcode: 0")
+        ps = {"id": "p1", "type": "powershell", "script": "Get-WindowsUpdate -AcceptAll -Install"}
+        pkg = stp.clean_package({"name": "WU", "steps": {"main": [ps], "post": [{"id": "r1", "type": "reboot"}]}})
+        res, msg = run.run_package(pkg)
+        assert res == "failed" and "Fehlgeschlagen – PowerShell hat 1 Fehler gemeldet" in msg and msg.count("Fehlgeschlagen") == 1, msg
+        assert msg.endswith("Windows Update hat den Zugriff verweigert (0x80070005)."), msg
+        recs = {r["sid"]: r for r in run.results}
+        assert recs["p1"]["status"] == "failed" and recs["r1"]["status"] == "notrun", run.results
+        assert not any("shutdown.exe" in c for c in calls), "no restart after a failed step"
+        assert "POCKET KNIFE: PowerShell hat 1 Fehler gemeldet" in run.log[0] and "PK_PSERR" not in run.log[0]
+        # deliberately ignored -> success as before
+        run.results, run.log = [], []
+        pkg = stp.clean_package({"name": "WU", "steps": {"main": [dict(ps, ignore_errors=True)]}})
+        assert run.run_package(pkg)[0] == "success"
+        # exit code already not 0: unchanged message, plus the Windows Update hint
+        run.results, run.log = [], []
+        remote.run_as_system = lambda *a, **k: (1, out_wu)
+        pkg = stp.clean_package({"name": "WU", "steps": {"main": [ps]}})
+        res, msg = run.run_package(pkg)
+        assert res == "failed" and "Exitcode 1" in msg and "0x80070005" in msg, msg
+        # a successful step without errors: the restart in the completion runs
+        run.results, run.log = [], []
+        remote.run_as_system = lambda *a, **k: (0, "ok\nExitcode: 0")
+        calls.clear()
+        run._reboot = lambda st, phase, depth, t0: (run._record(phase, st, "success", "Neu gestartet", ra="deploy", depth=depth) and ("success", ""))
+        pkg = stp.clean_package({"name": "WU", "steps": {"main": [ps], "post": [{"id": "r1", "type": "reboot"}]}})
+        assert run.run_package(pkg)[0] == "success" and [r["status"] for r in run.results] == ["success", "success"], run.results
+    finally:
+        remote.run_as_system, remote.remove_package_copy, remote.ps, run.check = old
+    # Tools as SYSTEM: reported errors -> exit code 1 (like tools directly over WinRM)
+    o_rs = remote.run_as_system
+    remote.run_as_system = lambda *a, **k: (0, "> x\nfoo\nPK_PSERR:1\nExitcode: 0")
+    try:
+        r = tl._run({"script": "x", "type": "powershell", "run_as": "system", "success_codes": "0"}, {"id": 1, "name": "PC"}, "pc", "t_1", False)
+        assert r["exit"] == 1 and "PowerShell hat 1 Fehler gemeldet" in r["output"], r
+    finally:
+        remote.run_as_system = o_rs
+    js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
+    assert "chk(st, 'ignore_errors', 'Fehlermeldungen von PowerShell ignorieren – nur der Exitcode zählt')" in js
+    # --- Wrapper on the client (pwsh): marker only for exit code 0 with errors that PowerShell really output ---
+    pw = os.environ.get("PK_PWSH")
+    if not (pw and os.path.exists(pw)):
+        return
+    d = tempfile.mkdtemp(prefix="pk-pserr-")
+    exe = os.path.join(d, "sr", "System32", "WindowsPowerShell", "v1.0")
+    os.makedirs(exe)
+    with open(os.path.join(exe, "powershell.exe"), "w") as fh:
+        fh.write(f'#!/bin/sh\nexec "{pw}" "$@"\n')
+    os.chmod(os.path.join(exe, "powershell.exe"), 0o755)
+    run_d = os.path.join(d, "run")
+    os.makedirs(run_d)
+    env = {**os.environ, "SystemRoot": os.path.join(d, "sr"), "TERM": "dumb"}
+
+    def wrap(script):
+        for f in os.listdir(run_d):
+            os.remove(os.path.join(run_d, f))
+        # Windows PowerShell 5.1 writes errors in the "NormalView" (with FullyQualifiedErrorId) - pwsh 7 only with this setting
+        body = "$sf = Join-Path $PKDir 'c.ps1'\nSet-Content -LiteralPath $sf -Value " + util.psq("$ErrorView = 'NormalView'\n" + script) + "\nPK-RunPs1 $sf ''\n"
+        with open(os.path.join(run_d, "pk_run.ps1"), "w", encoding="utf-8-sig") as fh:
+            fh.write(remote.WRAPPER.replace("__DIR__", run_d).replace("__BODY__", body))
+        subprocess.run([pw, "-NoProfile", "-NonInteractive", "-Command", "& ./pk_run.ps1"], cwd=run_d, env=env, capture_output=True, text=True, timeout=180)
+        rd = lambda n: open(os.path.join(run_d, n), encoding="utf-8-sig").read() if os.path.exists(os.path.join(run_d, n)) else ""  # noqa: E731
+        return rd("pk_exit.txt").strip(), rd("pk_output.log")
+    try:
+        code, log = wrap("'vorher'\nGet-Item 'C:\\gibts\\nicht\\x' \nWrite-Error 'Zugriff verweigert'\n'nachher'")
+        assert code == "0" and "PK_PSERR:2" in log and "nachher" in log, log
+        code, log = wrap("Get-Item 'C:\\gibts\\nicht\\x' -ErrorAction SilentlyContinue\n'ok'")
+        assert code == "0" and "PK_PSERR" not in log, ("suppressed errors do not count", log)
+        code, log = wrap("Write-Error 'x'\nexit 2")
+        assert code == "2" and "PK_PSERR" not in log, ("exit code already reports the error", log)
+    finally:
+        __import__("shutil").rmtree(d, ignore_errors=True)
+
+
 @test("2.22 Self-test: diagnostic package test does not use fixed dates (time bomb once outside the 30-day window)")
 def _():
     import inspect
