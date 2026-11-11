@@ -175,7 +175,7 @@ Over HTTP (5985) the content is already encrypted. HTTPS additionally protects t
 | 3,000 – 5,000 | 8 | 16 GB | 80 GB | 20 – 30 / 25 – 40 | 15 min |
 | more than 5,000 | – | – | – | several instances (e.g. per site/tenant) | – |
 
-Parallel scans and installations and the heartbeat interval are set under **Settings → Schedules & Performance** (changes to parallelism take effect after restarting the container).
+Parallel scans and installations and the heartbeat interval are set under **Settings → Inventory** (scans, heartbeat) and **Settings → Packages & Repository → Installations** (changes to parallelism take effect after restarting the container).
 
 **What the resources are used for**
 
@@ -192,11 +192,11 @@ Parallel scans and installations and the heartbeat interval are set under **Sett
 
 - Stagger scans with **scan profiles**: the full profile e.g. weekly, "Applications" daily; "Scan age" instead of a fixed time spreads the load.
 - Schedules with a **time window** and heartbeat instead of all computers at once.
-- Adjust retention under **Settings → Schedules & Performance** (log, scan log, deployments).
+- Adjust retention under **Settings → Maintenance → Retention & database** (log, scan log, deployments).
 - Optionally limit resources in Compose, e.g. `mem_limit: 8g` and `cpus: 4` for the `pocketknife` service.
 - **Backup:** put the automatic backup (Settings → Backup) on another drive (`PK_BACKUP_PATH`) and plan about the database size (compressed usually much less) × number of versions.
 
-**Database cleanup:** Old entries are deleted every hour – log (default 90 days), scan log (14 days), deployments including output (180 days; the same period applies to decided kiosk requests with user name and computer), software changes (365 days), expired sessions and leftovers without a reference. The periods are set under **Settings → Schedules & Performance**. Once a day (default 3:00 AM) the **database maintenance** follows: update statistics, write back the WAL file and – if more than 20 % of the file is free – `VACUUM`, which shrinks the file. Size, free share and the last maintenance are shown under **Settings → Maintenance**; **Clean up now** starts the maintenance immediately. Deleted computers lose their inventory data at once, their kiosk requests at the next cleanup. The log files under `/data/logs` rotate at 10 MB (at most 10 files); no period in days applies to them.
+**Database cleanup:** Old entries are deleted every hour – log (default 90 days), scan log (14 days), deployments including output (180 days; the same period applies to decided kiosk requests with user name and computer), software changes (365 days), expired sessions and leftovers without a reference. The periods are set under **Settings → Maintenance → Retention & database**. Once a day (default 3:00 AM) the **database maintenance** follows: update statistics, write back the WAL file and – if more than 20 % of the file is free – `VACUUM`, which shrinks the file. Size, free share and the last maintenance are shown under **Settings → Maintenance**; **Clean up now** starts the maintenance immediately. Deleted computers lose their inventory data at once, their kiosk requests at the next cleanup. The log files under `/data/logs` rotate at 10 MB (at most 10 files); no period in days applies to them.
 
 ## Installation {#setup}
 
@@ -307,7 +307,7 @@ docker compose exec -T -e HOME=/nonexistent pocketknife \
 
 ### Step 5: First sign-in
 
-1. Open `https://pocketknife.firma.local:8443` in the browser (your `PK_PUBLIC_HOSTNAME` and `PK_PORT`). The first time, the browser warns about the self-signed certificate – confirm; upload your own certificate later under **Settings → Certificate (HTTPS)** (see [Your own certificate](#certificate)).
+1. Open `https://pocketknife.firma.local:8443` in the browser (your `PK_PUBLIC_HOSTNAME` and `PK_PORT`). The first time, the browser warns about the self-signed certificate – confirm; upload your own certificate later under **Settings → Security → Certificate (HTTPS)** (see [Your own certificate](#certificate)).
 2. Sign in with an AD account from the access group – as `user`, `FIRMA\user` or `user@firma.local`. DNS and LDAPS are enough for this; the service account is not needed yet.
 3. Continue with the [first steps](#firststeps): enter the service account, sync the AD, test the connection to a computer, set up the repository.
 
@@ -414,7 +414,7 @@ Only known program files of earlier versions are deleted (`app/`, `tools/`, `Doc
 1. **Settings → Connection & Accounts**: enter the service account and click "Check & save", then "Test LDAPS".
 2. **Settings → Active Directory**: include or exclude containers and click "Sync now".
 3. **Settings → Maintenance → Test connection** with a computer name (WinRM, administrator rights, ADMIN$).
-4. **Settings → Repository & winget**: enter the repository path and click "Load index now".
+4. **Settings → Packages & Repository**: enter the repository path; under **Settings → Updates & versions → winget** click "Load index now".
 5. Computers are now scanned automatically as soon as they are online (profile "Default").
 
 # Using the Interface {#ui}
@@ -482,7 +482,7 @@ Clearing "Scanning allowed" blocks automatic scans for a computer (e.g. for sens
 
 **Yellow dot – address not confirmed:** POCKET KNIFE only shows a computer as online if this very computer answers at its address. For a new address (and at the latest after 24 hours) it asks the computer via WinRM for its name and domain. If another device answers (e.g. because DHCP has meanwhile given a switched-off PC's address to a printer or phone), a device outside the domain, or – at a previously different address – a device without WinRM, the computer counts as offline. The dot turns yellow, the computer view names the reason (e.g. “At 10.0.10.77 ‘PRINTER-3F’ answers instead of PC-0004”) and offers “Check again now”. Scans and deployments do not run then – they would hit the wrong device. The built-in collection **“Wrong address”** lists all affected computers; the column “DNS address” (can be shown) displays the currently resolved address.
 
-The cause is almost always an outdated record in the domain's DNS. Remedy: switch the computer on (it registers again), correct the record and permanently enable **DNS scavenging** on the domain controllers. Settings: **Settings → Name resolution**:
+The cause is almost always an outdated record in the domain's DNS. Remedy: switch the computer on (it registers again), correct the record and permanently enable **DNS scavenging** on the domain controllers. Settings: **Settings → Network & remote access → Name resolution**:
 
 - **DNS cache (min.):** how long a resolved address is valid in POCKET KNIFE; **“Flush DNS cache”** discards all immediately (0 = resolve anew at every heartbeat).
 - **Query DNS directly:** ask the domain's DNS servers (default: the domain controllers) directly – bypassing caches on the Docker host. “Test resolution” shows the result and warns if the system returns a different address.
@@ -558,7 +558,7 @@ The normal collection dialog then opens with the finished filter – adjust name
 
 **Fields for own collections:** Computer → "Windows update status", "Windows edition", "Office update status"; table **Office installations** (product, version, update channel, update status, type, support until). On the computer page update status and Office are under "Operating system", the Office installations under **Office**.
 
-**Settings → Inventory & fields → Update status:** grace period, Microsoft comparison, ready-made collections on/off, **Recalculate now**. Computed after every scan and once a day. The lifecycle data (end of support) is built into the program and comes with updates.
+**Settings → Updates & versions → Update status:** grace period, Microsoft comparison, ready-made collections on/off, **Recalculate now**. Computed after every scan and once a day. The lifecycle data (end of support) is built into the program and comes with updates.
 
 ## AD Collections {#adcollections}
 
@@ -593,7 +593,7 @@ A scan profile defines **what** is scanned (scanners), **on which computers** (t
 - Built-in profiles cannot be deleted and their scanners cannot be changed; **triggers and targets** can be configured freely. For custom combinations, use **Duplicate**.
 - **Targets** (tab in the profile): **All computers**, any collections (including dynamic ones) and/or **individual computers**. The collections appear grouped by folder and in alphabetical order, like the tree on the left (Default, AD, your own folders); **Search collection** filters across all folders, **selected only** shows the selected ones, and they are listed at the top for removal. Collapsed folders show how many are selected inside. The same applies to the targets of schedules. Target computers are the members of the selected collections plus the individually selected ones. New profiles initially target "All computers". Without a target, a profile only runs manually (Scan → choose profile). The **Computers** tab shows which computers the profile currently covers.
 - **Default** contains all scanners except Files & Folders, PowerShell, Registry, WMI and Disk space. New computers are scanned with it the first time they come online.
-- **Disk space** (optional scanner): determines the folder sizes of the fixed drives as a chart – like the "Analyse disk space" tool, but schedulable. Deliberately **not** in the standard scan because it puts more load on the client; schedule it specifically with its own trigger (e.g. monthly, at night) and collections. The depth is set under **Settings → Schedules & performance**; results appear on the computer under **Disk space** and in the chart.
+- **Disk space** (optional scanner): determines the folder sizes of the fixed drives as a chart – like the "Analyse disk space" tool, but schedulable. Deliberately **not** in the standard scan because it puts more load on the client; schedule it specifically with its own trigger (e.g. monthly, at night) and collections. The depth is set under **Settings → Inventory**; results appear on the computer under **Disk space** and in the chart.
 - After every installation or uninstallation, the **Applications** profile runs automatically (can be changed in the package).
 
 **Triggers**
@@ -604,7 +604,7 @@ A scan profile defines **what** is scanned (scanners), **on which computers** (t
 | Interval | every n minutes/hours/days |
 | Daily / Weekly / Monthly | at a time of day on specific days |
 | Scan age | as soon as the last scan is older than a given period, optionally only within a time window |
-| Heartbeat | as soon as a computer is (back) online – from 2.32.8 only a few minutes later (default 3, **Settings → Schedules & performance → Scan after startup**), so that network, services and sign-in are ready. This applies to all automatic scans of a computer that has just started or woken up; manual scans run immediately |
+| Heartbeat | as soon as a computer is (back) online – from 2.32.8 only a few minutes later (default 3, **Settings → Inventory → Scan after startup**), so that network, services and sign-in are ready. This applies to all automatic scans of a computer that has just started or woken up; manual scans run immediately |
 
 "Catch up on offline computers" scans computers that were offline at the scheduled time as soon as they come online.
 
@@ -673,11 +673,11 @@ The software overview combines all installed programs on all computers and shows
 - **Update selected:** select programs (Ctrl/Shift) → button or right-click. For each winget ID, a `winget upgrade` deployment is created for all outdated installations.
 - **Detail view (double-click):** all computers with their version; update, deploy or uninstall the selection; set the winget mapping manually or ignore the program.
 - **Create uninstall package:** right-click a program. The package removes the program on any computers, collections or on a schedule (see the "Uninstall" step).
-- **MSIX apps (from 2.40.1):** programs that Windows installs as an MSIX package (e.g. PowerShell 7 from winget, Windows Terminal) are not in the uninstall registry. The scan additionally reads them from `AppxAllUserStore` – fast, without walking all user profiles, and also under software restriction. They appear with registry hive "MSIX", are matched to the winget ID by their package family name (so "outdated", collections and Update work too) and can be uninstalled (`Remove-AppxPackage -AllUsers`, as Local System). Frameworks, language packs and "sparse" packages (only the Windows 11 context-menu integration of a normal program, e.g. "Notepad++" 1.0.0.0 or "Adobe Acrobat Reader" 26.0.0.1 – from 2.41.2) as well as leftovers of removed apps (marked "EndOfLife" by Windows or package folder deleted, e.g. "MSTeams" 1.0.0.0 – from 2.41.3) are never listed; MSIX apps are matched to a winget ID only by their package family name, never by name; the apps that ship with Windows (Calculator, Photos, Xbox, Store, codecs …) only when the **Hide built-in Windows apps** box under **Settings → Schedules & Performance** is unchecked.
+- **MSIX apps (from 2.40.1):** programs that Windows installs as an MSIX package (e.g. PowerShell 7 from winget, Windows Terminal) are not in the uninstall registry. The scan additionally reads them from `AppxAllUserStore` – fast, without walking all user profiles, and also under software restriction. They appear with registry hive "MSIX", are matched to the winget ID by their package family name (so "outdated", collections and Update work too) and can be uninstalled (`Remove-AppxPackage -AllUsers`, as Local System). Frameworks, language packs and "sparse" packages (only the Windows 11 context-menu integration of a normal program, e.g. "Notepad++" 1.0.0.0 or "Adobe Acrobat Reader" 26.0.0.1 – from 2.41.2) as well as leftovers of removed apps (marked "EndOfLife" by Windows or package folder deleted, e.g. "MSTeams" 1.0.0.0 – from 2.41.3) are never listed; MSIX apps are matched to a winget ID only by their package family name, never by name; the apps that ship with Windows (Calculator, Photos, Xbox, Store, codecs …) only when the **Hide built-in Windows apps** box under **Settings → Inventory** is unchecked.
 - **Update package (from 2.41):** in a program's details (double-click), **Update package** lets you choose an own package. Updates of this winget ID – Auto-Update schedules, "Update", "Update outdated" and deploying with action "upgrade" – then run with this package instead of `winget upgrade` or the winget cache: with all steps in their current state, e.g. first `winget uninstall Microsoft.PowerShell --all-versions`, then the winget installation. This lets you step in when an update fails everywhere at the same point. Without a selection the standard applies again. Only packages without a tenant (they go to every computer); a package used this way can only be deleted after switching back to "Standard". The release delay for new winget versions only applies to `winget upgrade`, not to the own package. Main admins only.
   The same setting is in the package itself: **Package properties → Use for updates** (from 2.41.1) – add winget IDs (search the winget catalog, or click the IDs from the package's winget steps) or remove them with ×; takes effect when saving. Both places always show the same state; a package can serve several winget IDs, a winget ID has at most one update package (adding it to another package moves it there).
 
-**Update-check exclusions** (your own list): programs that should never count as "outdated" – e.g. runtime libraries, driver tools or line-of-business applications whose version the vendor prescribes. Found under **Software → Exclusions …** and **Settings → Repository & winget**; faster via right-click on one or more programs → *Exclude from update check*.
+**Update-check exclusions** (your own list): programs that should never count as "outdated" – e.g. runtime libraries, driver tools or line-of-business applications whose version the vendor prescribes. Found under **Software → Exclusions …** and **Settings → Updates & versions**; faster via right-click on one or more programs → *Exclude from update check*.
 
 | Field | Example pattern | Effect |
 |---|---|---|
@@ -695,7 +695,7 @@ The winget mapping takes variants such as ESR, beta or language versions into ac
 
 ## Deferring new winget versions {#winget-release}
 
-**Settings → Repository & winget → winget → New versions** determines when a new version from the winget catalog is distributed:
+**Settings → Updates & versions → winget → New versions** determines when a new version from the winget catalog is distributed:
 
 | Setting | Effect |
 |---|---|
@@ -768,9 +768,9 @@ Each step can be named in the **Label** field at the top (e.g. "Install Wazuh ag
 
 The **State** column in the package list shows the result (tooltip with the files), the **Overview** a tile "Packages with a break". In the package, **Repository files** lists every deviation with previous and current state. If the change was intended (e.g. a new version copied over), **Accept new state** confirms the current content – for an MSI, POCKET KNIFE points out when the version in the package no longer matches the file. Missing files are not fixed this way: if they were only moved, **Find file …** finds them by fingerprint ([repair](#repair)), otherwise adjust the package. OU admins see details only for files in their tenant folders; a central package with a break is "currently not available" for them and only a main admin can accept it. Kiosk users only see "currently not available".
 
-**Full check:** Once a week every used file is additionally read completely and its fingerprint compared – this also finds a replacement with the same size and the same date. It runs at night in the time window (default 1 to 6 am), throttled (default 50 MB/s) and one file after the other; if the window ends, it continues the next night. Configurable under **Settings → Repository & winget → Package break detection**. Load: roughly like copying the used package folders once (network and disks of the file server); the clients notice nothing.
+**Full check:** Once a week every used file is additionally read completely and its fingerprint compared – this also finds a replacement with the same size and the same date. It runs at night in the time window (default 1 to 6 am), throttled (default 50 MB/s) and one file after the other; if the window ends, it continues the next night. Configurable under **Settings → Packages & Repository → Package break detection**. Load: roughly like copying the used package folders once (network and disks of the file server); the clients notice nothing.
 
-**Moving the repository:** Packages only store the path **inside** the repository (e.g. `7zip\24.08`), never the server. If the repository moves to another server, just change the path under **Settings → Repository & winget** – all packages keep working, imported ones too. Only paths you wrote into a command or script yourself (`\\server\share\…`) stay as they are; the export points them out.
+**Moving the repository:** Packages only store the path **inside** the repository (e.g. `7zip\24.08`), never the server. If the repository moves to another server, just change the path under **Settings → Packages & Repository** – all packages keep working, imported ones too. Only paths you wrote into a command or script yourself (`\\server\share\…`) stay as they are; the export points them out.
 
 ## Step Types {#steps}
 
@@ -804,7 +804,7 @@ If a package condition is not met, the computer is **skipped**; for a step condi
 
 | Option | When |
 |---|---|
-| As in the settings (default) | almost always – with the account from **Settings → Repository & winget → Package execution**: **Local System** (default) or the **service account** |
+| As in the settings (default) | almost always – with the account from **Settings → Packages & Repository → Package execution**: **Local System** (default) or the **service account** |
 | Logged-on user | for programs and settings in the user profile (e.g. per-user installations, HKCU) |
 
 A step additionally has **Same as package**. The brackets always show the account that really runs – POCKET KNIFE never switches anything silently. In the deployment result it is shown in the header line of every step ("… (as Local System …)").
@@ -862,7 +862,7 @@ Right-click "Zotero" in Software → "Create uninstall package …". The step fi
 
 ## Proxy server {#proxy}
 
-For networks without direct internet access: **Settings → Repository & winget → Proxy server**.
+For networks without direct internet access: **Settings → Updates & versions → Proxy server**.
 
 | Field | Meaning |
 |---|---|
@@ -876,7 +876,7 @@ For networks without direct internet access: **Settings → Repository & winget 
 
 ## winget on Servers {#wingetbootstrap}
 
-Before every winget step, POCKET KNIFE checks whether winget is present. If it is missing (Windows Server, older Windows 10 builds), the App Installer and its dependencies are installed – **always from the repository**, never by a download on the client (from 2.37). POCKET KNIFE itself downloads the App Installer once into the **Offline source** folder (default `_winget`): when first needed, then once a day, but only for a new version (current release of microsoft/winget-cli, checksum from GitHub; Windows additionally checks the Microsoft signature). **Download now** in the settings fetches it immediately. Without internet: place the files `*.msixbundle`, `*License*.xml` and `DesktopAppInstaller_Dependencies.zip` in the folder yourself. winget is not available before Windows 10 1809 or Server 2019; winget steps are **skipped** there. You configure this under **Settings → Repository & winget**.
+Before every winget step, POCKET KNIFE checks whether winget is present. If it is missing (Windows Server, older Windows 10 builds), the App Installer and its dependencies are installed – **always from the repository**, never by a download on the client (from 2.37). POCKET KNIFE itself downloads the App Installer once into the **Offline source** folder (default `_winget`): when first needed, then once a day, but only for a new version (current release of microsoft/winget-cli, checksum from GitHub; Windows additionally checks the Microsoft signature). **Download now** in the settings fetches it immediately. Without internet: place the files `*.msixbundle`, `*License*.xml` and `DesktopAppInstaller_Dependencies.zip` in the folder yourself. winget is not available before Windows 10 1809 or Server 2019; winget steps are **skipped** there. You configure this under **Settings → Updates & versions → winget**.
 
 # Repository {#repository}
 
@@ -908,7 +908,7 @@ The view works like the file explorer for clients:
 
 New files in a used package folder are allowed (e.g. an additional configuration); the package then shows "new in package folder" until someone accepts the new state. **Who uses this?** shows the packages for each entry, the column **Used by** is right in the list. Every action is logged (category "Repository") with user and tenant.
 
-**Limits:** maximum file size (default 4096 MB) under **Settings → Repository & winget**; for OU admins additionally the allowed file types (MSI, MSP, MSU, MST, EXE, CMD/BAT, PS1, REG, ZIP, 7Z, CAB, MSIX/APPX, INI/INF, XML/JSON/TXT/CFG, certificates, ISO/WIM and similar) and a **storage quota** per tenant (on the tenant, empty = default from the settings, 0 = unlimited).
+**Limits:** maximum file size (default 4096 MB) under **Settings → Packages & Repository → Upload to the repository**; for OU admins additionally the allowed file types (MSI, MSP, MSU, MST, EXE, CMD/BAT, PS1, REG, ZIP, 7Z, CAB, MSIX/APPX, INI/INF, XML/JSON/TXT/CFG, certificates, ISO/WIM and similar) and a **storage quota** per tenant (on the tenant, empty = default from the settings, 0 = unlimited).
 
 **Tenants:** OU admins see and edit only their tenant's folder; they cannot rename, move or delete the folder itself. If a tenant may build its own packages and has no repository folder yet, POCKET KNIFE creates **`Mandanten\<Name>`** itself – one folder per tenant, shared by all its admins; below it they create their own subfolders. Two tenants can never share a folder (not even nested). The repository and its server stay hidden from OU admins.
 
@@ -970,7 +970,7 @@ After a **successful installation or update**, the signed-in user sees a Windows
 - **Installed** or **updated**: winget upgrades and programs that were already in the inventory (in an older version) count as "updated". For winget, POCKET KNIFE takes name and version from the output ("Found 7-Zip … Version 26.00"), otherwise from the package name and version.
 - **No notification** if nobody is signed in, if everything was already installed or up to date, for uninstallations and for pure script/registry packages.
 - Several signed-in users (e.g. terminal server) each see the notification in their session.
-- **Settings → Schedules & Performance → Notification on the client:** on/off, sender (a changed sender applies from the next notification), language (German/English), **Send test notification** to a computer. Per package under *Package properties → Notification*: as in the settings, always (also script packages) or never.
+- **Settings → On the client → Notification on the client:** on/off, sender (a changed sender applies from the next notification), language (German/English), **Send test notification** to a computer. Per package under *Package properties → Notification*: as in the settings, always (also script packages) or never.
 
 **Technology:** A short WinRM connection starts a scheduled task *as each signed-in user* (no password, no elevated rights, no visible window) – only this way does the notification appear in their session; as service account or SYSTEM nobody would see it. The display script is stored in `C:\Program Files\PocketKnife` (only administrators can write there); name and version are only passed as data, never as a command. Afterwards the script checks in the notification center whether Windows accepted the notification – if not, it shows it with the sender "Windows PowerShell", which Windows always knows. If the user has switched off notifications from this sender in the Windows settings, that is respected (no fallback). The script is started with `-File` from "Program Files", so it also runs under Software Restriction Policies (SRP), AppLocker or WDAC (constrained language mode) – as long as scripts from "Program Files" are allowed, as in the default rules. Only if a GPO sets the execution policy to AllSigned/Restricted does POCKET KNIFE start it via a short encoded command. The script reports its result itself; if there is no answer, the log says "display script did not start for the user"; POCKET KNIFE resets the folder permissions to the "Program Files" default with every notification. **The result per user is in the log** ("shown", "shown with sender Windows PowerShell", "not shown by Windows – notifications off/Do not disturb/policy" …), also for the test in the settings. The deployment does not wait for it.
 
@@ -978,7 +978,7 @@ After a **successful installation or update**, the signed-in user sees a Windows
 
 ## Message on restart and shutdown {#rebootmsg}
 
-Before POCKET KNIFE restarts or shuts down a computer, Windows shows the signed-in user a message. Its text is set under **Settings → Schedules & Performance → Message on restart and shutdown**:
+Before POCKET KNIFE restarts or shuts down a computer, Windows shows the signed-in user a message. Its text is set under **Settings → On the client → Message on restart and shutdown**:
 
 - **Sender** – e.g. "Your IT department" instead of "POCKET KNIFE".
 - A separate text per occasion: **Restart** and **Shutdown** from the computer menu, **Restart after deployment**, package step **"Restart"** and **Restart from the kiosk**. Empty field = default text (German); below each field an example shows what the message will look like.
@@ -1053,7 +1053,7 @@ Select computers → **Tools ▾** or right-click → Tools.
 | Ping & Ports | reachability and open ports |
 | Remote Desktop / VNC in browser | remote session in a separate tab |
 | Wake-on-LAN | via a reachable computer in the same subnet (relay), several times, checking whether it wakes up – see below |
-| Restart / Shut down … | from 2.32.3 in one dialog: choose restart or shutdown and enter the delay (seconds or minutes, 0 = immediately up to 24 hours, default 60 seconds). Signed-in users see the Windows message during that time; for longer delays the default text states minutes, a custom text under **Settings → Schedules & performance** applies unchanged. With "immediately" Windows closes open programs without asking. From 2.34: if servers or domain controllers are included, the dialog lists them with the number of signed-in users and only runs after ticking "Yes, the servers too" |
+| Restart / Shut down … | from 2.32.3 in one dialog: choose restart or shutdown and enter the delay (seconds or minutes, 0 = immediately up to 24 hours, default 60 seconds). Signed-in users see the Windows message during that time; for longer delays the default text states minutes, a custom text under **Settings → On the client** applies unchanged. With "immediately" Windows closes open programs without asking. From 2.34: if servers or domain controllers are included, the dialog lists them with the number of signed-in users and only runs after ticking "Yes, the servers too" |
 | Cancel restart/shutdown | stops an announced restart or shutdown while the delay is running |
 | gpupdate /force | refresh group policies: computer policy and – in the session of each signed-in user – their user policy (e.g. browser bookmarks, drives). The output shows each part separately. If nobody is signed in, user policy applies at the next sign-in |
 | Check / install winget | provides winget where it is missing |
@@ -1067,7 +1067,7 @@ Select computers → **Tools ▾** or right-click → Tools.
 
 - **Sent several times:** every packet 3× about a second apart (UDP can get lost), to all known MAC addresses – including wired adapters that had no IP at the last scan (e.g. docking station).
 - **Waits for the result:** POCKET KNIFE then checks the computer every 10 seconds. The window shows "waiting … 45 s", then "awake after 70 s" or "did not wake up"; after half the waiting time it sends once more – via other computers if there are any. The result is also logged; a computer that woke up triggers the heartbeat triggers at once (scans, schedules).
-- **Fixed relays (optional):** under **Settings → Wake-on-LAN** enter computers that always run (e.g. servers). They send first – so it also works when nobody else in the subnet is online. The number of packets and the waiting time can be set there too.
+- **Fixed relays (optional):** under **Settings → Network & remote access → Wake-on-LAN** enter computers that always run (e.g. servers). They send first – so it also works when nobody else in the subnet is online. The number of packets and the waiting time can be set there too.
 - **Readiness in the inventory:** the "Network adapters" scanner reads per adapter whether the magic packet is allowed, whether it may wake the computer and the WoL settings of the driver, plus Windows Fast Startup (many adapters do not wake from "shut down" with it). Shown with the computer under **Network adapters**, in the report **Wake-on-LAN readiness** and as the filter "Wake-on-LAN ready" for collections. Windows cannot read the BIOS/UEFI setting.
 - **Wake before schedules (optional, off by default):** in the schedule under Options → "wake switched-off targets when running". Applies at a scheduled time, in the time window and with "Run now", not with every heartbeat; woken computers are served as soon as they have started. They are not shut down afterwards.
 
@@ -1207,7 +1207,7 @@ In the example the domain is `firma.local` (NetBIOS `FIRMA`), the kiosk `pocketk
 
 # Remote Sessions {#remote}
 
-Computer → **Remote Desktop** (or Tools → VNC in browser) opens the session in a separate tab – no plugin required. You can sign in with your own POCKET KNIFE credentials (the password is kept only encrypted in memory), with different credentials, or on the computer itself. When credentials are passed, POCKET KNIFE only connects with **NLA** (Network Level Authentication, from 2.37) – Windows checks the sign-in before a desktop is created. If the computer belongs to a tenant with OU admins, the dialog warns before using your own sign-in: others are administrators there too and could capture a password that is sent – better use an account that is only valid there. For **VNC** there are “Without password / server prompts”, “With password” and – if stored under **Settings → Remote sessions** – the **central VNC password** (stored encrypted and then preselected in the dialog; classic VNC only uses the first 8 characters). Within the session: Ctrl+Alt+Del, Windows key, clipboard, full screen, fit to window. This requires the `pocketknife-guacd` container, which starts automatically with `docker compose`.
+Computer → **Remote Desktop** (or Tools → VNC in browser) opens the session in a separate tab – no plugin required. You can sign in with your own POCKET KNIFE credentials (the password is kept only encrypted in memory), with different credentials, or on the computer itself. When credentials are passed, POCKET KNIFE only connects with **NLA** (Network Level Authentication, from 2.37) – Windows checks the sign-in before a desktop is created. If the computer belongs to a tenant with OU admins, the dialog warns before using your own sign-in: others are administrators there too and could capture a password that is sent – better use an account that is only valid there. For **VNC** there are “Without password / server prompts”, “With password” and – if stored under **Settings → Network & remote access → Remote sessions** – the **central VNC password** (stored encrypted and then preselected in the dialog; classic VNC only uses the first 8 characters). Within the session: Ctrl+Alt+Del, Windows key, clipboard, full screen, fit to window. This requires the `pocketknife-guacd` container, which starts automatically with `docker compose`.
 
 # Reports and Log {#reports}
 
@@ -1288,17 +1288,20 @@ The settings are divided into sections (list on the left).
 
 | Section | Contents |
 |---|---|
-| Connection & Accounts | domain data, Test LDAPS, **sign out when idle**, **service account** and optionally a repository account (verified before saving, stored encrypted) |
+| Connection & Accounts | domain data, Test LDAPS, **service account** and optionally a repository account (checked before saving, stored encrypted), **authentication method** NTLM/Kerberos with test |
 | Active Directory | include/exclude containers (the closest rule wins), sync interval, handling of removed and disabled computers (deleted only once a computer has been missing from AD **for 7 days**; if no container is included or suddenly almost all computers are missing, nothing is changed), AD collections |
-| Schedules & Performance | heartbeat, parallel scans/installations, timeouts, retention of log and history, [notification on the client](#toast), [message on restart](#rebootmsg) |
-| Repository & winget | repository path and test, winget index, default scope, [deferring new versions](#winget-release), automatic installation of winget, offline sources, [proxy server](#proxy) |
-| Remote sessions | guacd status, own credentials, keyboard layout, active sessions |
-| Backup | automatic backup (daily and before updates), versions to keep, back up now, download |
+| Security | check the LDAPS certificate strictly, **sign out when idle**, web interface certificate (HTTPS): view, upload your own (PFX or PEM), create a request (CSR), backups, regenerate self-signed |
+| Network & remote access | name resolution & reachability, Wake-on-LAN, remote sessions (guacd status, own credentials, keyboard layout, central VNC password, active sessions) |
+| Inventory | heartbeat, scan after startup, parallel scans, scan after deployments, built-in Windows apps, "low disk" limit, disk usage depth, scan profiles, custom fields (e.g. asset number, room) – can also be created directly on a computer under **Custom fields**; free-text **notes** per computer are there too (stored only in POCKET KNIFE, never overwritten by the computer) |
+| Updates & versions | [update status](#updstatus) Windows & Office, winget index, default scope, [deferring new versions](#winget-release), automatic installation of winget, offline sources, [proxy server](#proxy), update-check exclusions |
+| Packages & Repository | package execution (Local System or service account), parallel installations, timeout, repository path and test, upload to the repository, package break detection |
+| On the client | [notification on the client](#toast), [message on restart and shutdown](#rebootmsg) |
 | E-mail & notifications | SMTP server with test e-mail, notifications on events (see [Notifications](#alerts)) |
-| Certificate (HTTPS) | web interface certificate: view, upload your own (PFX or PEM), create a request (CSR), backups, regenerate self-signed |
-| Inventory & Fields | scan profiles, custom fields (e.g. asset number, room) – can also be created directly on a computer under **Custom fields**; free-text **notes** per computer are there too (stored only in POCKET KNIFE, never overwritten by the computer) |
 | Tenants | tenants with their own collection, repository folder and optional [OU admins](#ou-admins) |
-| Maintenance | status, database size and "Clean up now", immediate AD sync and heartbeat, connection test, appearance, language, [diagnostics package](#diagnostics) |
+| Backup | automatic backup (daily and before updates), versions to keep, back up now, download |
+| Maintenance | status, database size and "Clean up now", immediate AD sync and heartbeat, connection test, appearance, language, **retention** of log and history, database maintenance, program updates, [diagnostic package](#diagnostics) |
+
+**Search (from 2.42):** the search field above the list searches all sections, e.g. "grace", "VNC" or "proxy" – every card containing the term is shown. Old links to former sections (e.g. "Schedules & Performance") lead to the new place automatically.
 
 **Tenants:** Packages and schedules can be assigned to a tenant. If the tenant has a collection, its packages are distributed only to the computers in that collection. If it has a repository folder, its packages may only use files from that folder (checked on save).
 
@@ -1378,7 +1381,7 @@ Scripts therefore belong **in the repository as files** – there the integrity 
 
 ## Your own certificate {#certificate}
 
-POCKET KNIFE serves HTTPS itself – no reverse proxy is needed. A self-signed certificate is generated on first start; replace it under **Settings → Certificate (HTTPS)**. A new certificate is **active immediately** (no restart); the previous one is backed up.
+POCKET KNIFE serves HTTPS itself – no reverse proxy is needed. A self-signed certificate is generated on first start; replace it under **Settings → Security → Certificate (HTTPS)**. A new certificate is **active immediately** (no restart); the previous one is backed up.
 
 **Option A – upload a finished certificate**
 
@@ -1551,7 +1554,7 @@ POCKET KNIFE runs entirely in your network; data is only stored under `/data` on
 | Software changes | history | default 365 days |
 | Sessions | sign-in | until they expire |
 
-The retention periods are under **Settings → Schedules & performance**. Passwords, keys, LAPS and BitLocker values are stored only encrypted in the database and never appear in the log or the [diagnostics package](#diagnostics).
+The retention periods are under **Settings → Maintenance → Retention & database**. Passwords, keys, LAPS and BitLocker values are stored only encrypted in the database and never appear in the log or the [diagnostics package](#diagnostics).
 
 **What leaves the network** – only what you enable: winget catalog and winget cache (`cdn.winget.microsoft.com` and the vendors), the App Installer for computers without winget (github.com), the notice about new versions (github.com, once a day, without data from your network) and e-mails to the configured recipients. The interface loads nothing from the internet. The diagnostics package is never sent – only downloaded, anonymized by default.
 

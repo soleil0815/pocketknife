@@ -1,4 +1,4 @@
-"""Optional proxy server for internet access (Einstellungen -> Repository & winget -> Proxyserver).
+"""Optional proxy server for internet access (Einstellungen -> Updates & Aktualität -> Proxyserver).
 
 - POCKET KNIFE itself: download of the winget catalog. Optionally with user and password (Basic authentication at the
   proxy); the password is stored encrypted in the vault (setting "proxy_password", never in plain text and never in the

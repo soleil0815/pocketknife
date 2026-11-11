@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.42.0",
+   "date": "2026-11-11",
+   "items": [
+    {
+     "kind": "improved",
+     "audience": "all",
+     "de": "Einstellungen neu gegliedert: Sicherheit, Netzwerk & Fernzugriff, Inventar, Updates & Aktualität, Pakete & Repository, Am Client, Wartung – plus Suchfeld, das eine Einstellung in allen Bereichen findet.",
+     "en": "Settings regrouped: security, network & remote access, inventory, updates & versions, packages & repository, on the client, maintenance – plus a search field that finds a setting in every section."
+    }
+   ]
+  },
+  {
    "version": "2.41.3",
    "date": "2026-11-11",
    "items": [

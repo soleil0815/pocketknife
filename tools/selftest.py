@@ -4912,7 +4912,7 @@ def _():
         if cl:
             assert cl["options"]["offline"] == "wait", "woken targets are noted"
         js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
-        assert "function wakeDialog(targets)" in js and "['wol', 'Wake-on-LAN', 'play', [wolCard], true]" in js and "o.wake_offline" in js
+        assert "function wakeDialog(targets)" in js and "['network', 'Netzwerk & Fernzugriff', 'monitor', [dnsCard, wolCard, rdCard], true]" in js and "o.wake_offline" in js
     finally:
         tools.remote.ps, presence.probe, tools.WAKE_POLL = orig_ps, orig_probe, orig_wait
         for k, v in old.items():
@@ -8650,6 +8650,46 @@ def _():
     assert "if (e.detail > 1 && e.target && e.target.closest && e.target.closest('a[href=\"#\"]')) { e.preventDefault(); e.stopPropagation(); }" in js, "double-click on dialog links"
     assert "}, true);\nwindow.addEventListener('hashchange', route);" in js, "capture phase - before the link's own onclick"
     assert "isOU() ? null : field('Für Updates verwenden', updateForBox()" in js and "if (!Array.isArray(p.update_for)) p.update_for = [];" in js
+
+
+@test("2.42 Settings grouped by topic: every former card still present exactly once, old section links redirect, search over all sections, help and in-app references use the new names")
+def _():
+    import re
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app")
+    js = open(os.path.join(root, "static", "app.js"), encoding="utf-8").read()
+    vs = js[js.index("async function viewSettings()"):js.index("function scannerDlg(")]
+    sec = vs[vs.index("  const SECTIONS = ["):vs.index("  ];", vs.index("  const SECTIONS = ["))]
+    keys = re.findall(r"^\s+\['([a-z]+)', '([^']+)'", sec, re.M)
+    assert [k for k, _ in keys] == ["conn", "ad", "security", "network", "inventory", "updates", "software", "client", "mail",
+                                    "tenants", "backup", "maint"], keys
+    cards = re.findall(r"\[([^\[\]]*)\], (?:true|false)\]", sec)
+    names = [c.strip() for grp in cards for c in grp.split(",")]
+    for c in ("conn", "accountsCard()", "authCard(sys)", "adCard()", "secCard", "tlsCard()", "dnsCard", "wolCard", "rdCard", "invCard",
+              "scCard", "fCard", "updCard", "wg", "proxyCard()", "exclCard", "runCard", "instCard", "repo", "upCard", "integCard",
+              "toastCard", "rebootCard", "mailCard()", "alertsCard()", "tenantsCard()", "bkCard", "maint", "retCard", "updatesCard()", "diagCard"):
+        assert names.count(c) == 1, (c, names)
+    assert len(names) == 31, names
+    # every setting of the former "Zeitpläne & Leistung" card is in exactly one of the new cards
+    for k in ("heartbeat_minutes", "scan_online_delay_minutes", "scan_concurrency", "deploy_concurrency", "deploy_timeout_minutes",
+              "rescan_after_deploy", "msix_hide_builtin", "log_retention_days", "scan_log_retention_days", "deployment_retention_days",
+              "software_changes_retention_days", "db_maintenance_hour", "low_disk_gb", "du_scan_depth", "ldap_cert_strict", "session_idle_minutes"):
+        assert vs.count(f"('{k}'") == 1, k
+    assert "'Zeitpläne & Leistung'" not in vs and "const sched = " not in vs
+    # sections whose cards use the common inputs have the save button
+    for k in ("network", "inventory", "updates", "software", "client", "backup", "maint"):
+        assert re.search(r"\['" + k + r"', [^\n]*\], true\],", sec), k
+    assert "const OLD_SEC = { sched: 'inventory', dns: 'network', wol: 'network', remote: 'network', tls: 'security' };" in vs
+    assert "k = OLD_SEC[k] || k;" in vs and "find.addEventListener('input', filter);" in vs and "x.type !== 'password'" in vs
+    for f in ("de.md", "en.md"):
+        hp = open(os.path.join(root, "static", "help", f), encoding="utf-8").read()
+        for old in ("→ Zeitpläne & Leistung", "→ Repository & winget", "→ Inventar & Felder", "→ Schedules & performance",
+                    "→ Schedules & Performance", "→ Inventory & fields", "→ Inventory & Fields"):
+            assert old not in hp, (f, old)
+    for f in ("app.js",):
+        assert "Einstellungen → Zeitpläne & Leistung" not in js and "Einstellungen → Repository & winget" not in js
+    for f in ("rebootmsg.py", "proxy.py", "integrity.py"):
+        src = open(os.path.join(root, f), encoding="utf-8").read()
+        assert "Zeitpläne & Leistung" not in src and "Repository & winget" not in src, f
 
 
 @test("2.22 Self-test: diagnostic package test does not use fixed dates (time bomb once outside the 30-day window)")

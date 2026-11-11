@@ -5828,5 +5828,20 @@
  "winget-ID hinzufügen …": "Add winget ID …",
  "{0} (aus den Schritten)": "{0} (from the steps)",
  "Für Updates verwenden: Liste von winget-IDs erwartet.": "Use for updates: a list of winget IDs is expected.",
- "Für Updates verwenden: ungültige winget-ID „{0}“.": "Use for updates: invalid winget ID \"{0}\"."
+ "Für Updates verwenden: ungültige winget-ID „{0}“.": "Use for updates: invalid winget ID \"{0}\".",
+ "Netzwerk & Fernzugriff": "Network & remote access",
+ "Inventar": "Inventory",
+ "Updates & Aktualität": "Updates & versions",
+ "Pakete & Repository": "Packages & Repository",
+ "Am Client": "On the client",
+ "Anmeldung & Sitzung": "Sign-in & session",
+ "Scans & Inventar": "Scans & inventory",
+ "Aufbewahrung & Datenbank": "Retention & database",
+ "Einstellung suchen …": "Search settings …",
+ "Nichts gefunden": "Nothing found",
+ "Verbindung, Sicherheit, Inventar, Updates, Pakete und Wartung": "Connection, security, inventory, updates, packages and maintenance",
+ "Noch keine Wartung gelaufen – sie läuft täglich automatisch (siehe „Aufbewahrung & Datenbank“ unten).": "No maintenance yet – it runs automatically every day (see \"Retention & database\" below).",
+ "Weiteres Feld für alle Computer anlegen (verwalten unter Einstellungen → Inventar):": "Create another field for all computers (manage under Settings → Inventory):",
+ "Angemeldete Benutzer sehen solange eine Meldung von Windows (Text unter Einstellungen → Am Client). 0 = sofort, dabei werden offene Programme ohne Rückfrage geschlossen. Bis zum Ablauf lässt es sich mit „Neustart/Herunterfahren abbrechen“ stoppen.": "Signed-in users see a Windows message during this time (text under Settings → On the client). 0 = immediately; open programs are closed without asking. Until then it can be stopped with \"Cancel restart/shutdown\".",
+ "Das Konto für „Wie in den Einstellungen“ ist zurzeit: {0} (Einstellungen → Pakete & Repository → „Ausführung der Pakete“). „Angemeldeter Benutzer“ für Programme und Einstellungen im Benutzerprofil; einzelne Schritte können abweichen.": "The account for “As in the settings” is currently: {0} (Settings → Packages & Repository → “Package execution”). “Logged-on user” for programs and settings in the user profile; individual steps can differ."
 }

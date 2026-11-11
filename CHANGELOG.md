@@ -2,6 +2,17 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.42.0 (11.11.2026)
+- **Settings grouped by topic:** 12 sections instead of 13, each setting where you look for it - no setting changes its value:
+  - "Zeitpläne & Leistung" is split up: scans/heartbeat/MSIX/low disk → **Inventar**, parallel installations/timeout → **Pakete & Repository**, retention/database maintenance → **Wartung**, client notification and restart message → new **Am Client**
+  - new **Sicherheit**: strict LDAPS check, sign-out when idle (formerly in the domain card) and the HTTPS certificate
+  - **Netzwerk & Fernzugriff**: name resolution, Wake-on-LAN and remote sessions (formerly three sections)
+  - **Updates & Aktualität**: update status, winget, proxy server, update-check exclusions; **Pakete & Repository**: package execution, repository, upload, break detection
+- **Search:** a search field above the list finds a setting in every section (e.g. "Karenz", "VNC", "Proxy") - all cards containing the term are shown
+- **Old links keep working:** links to former sections (help, bookmarks) open the new place
+- Help (de/en), manual PDFs and in-app references updated
+- **Self-test:** every former card exactly once, all settings of the split card present once, save buttons where common inputs are, old links, no old section names in help or code
+
 ## pocketknife-2.41.3 (11.11.2026)
 - **Fix - false "veraltet" for "MSTeams" 1.0.0.0 (MSIX leftovers):** apps removed from a profile can stay in AppxAllUserStore under the user's SID although they are no longer installed (Windows marks them under "EndOfLife", the package folder is gone). The MSIX scan listed them, e.g. "MSTeams" 1.0.0.0 without publisher, matched to Microsoft.Teams and "outdated". Now packages listed under EndOfLife and packages whose folder no longer exists are skipped. Only "not found" counts - with "access denied" the package is kept. The entry disappears with the next applications scan
 - **Self-test:** EndOfLife leftover and deleted package folder in the real scan module; both filters verified to fail without the fix
