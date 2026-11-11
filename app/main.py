@@ -1783,7 +1783,57 @@ def api_software_detail(name: str, user=U):
                              WHERE s.name=? AND {sw} ORDER BY c.name""", [name] + sp),
         "override": db.q1("SELECT * FROM winget_overrides WHERE name=?", (name,)),
         "exclusion": _exclusion_for(name),
+        "update_package": _update_pkg_info(_winget_of(name)),
     }
+
+
+def _winget_of(name):
+    ov = db.q1("SELECT winget_id, ignore FROM winget_overrides WHERE name=?", (name,))
+    if ov and (ov["ignore"] or ov["winget_id"]):
+        return None if ov["ignore"] else ov["winget_id"]
+    return db.val("SELECT MAX(winget_id) FROM software WHERE name=?", (name,))
+
+
+def _update_pkg_info(wid):
+    """2.41: own update package of a winget ID - {winget_id, package_id, package} (package None = standard)."""
+    if not wid:
+        return None
+    r = db.q1("""SELECT u.package_id, u.set_by, u.set_at, p.name, p.tenant_id FROM winget_update_packages u
+                 LEFT JOIN packages p ON p.id=u.package_id WHERE u.winget_id=?""", (wid,))
+    ok = bool(r and r["name"] is not None and r["tenant_id"] is None)
+    return {"winget_id": wid, "package_id": r["package_id"] if ok else None, "package": r["name"] if ok else None,
+            "set_by": r["set_by"] if ok else None, "set_at": r["set_at"] if ok else None,
+            "missing": bool(r and not ok)}
+
+
+@app.get("/api/winget/update-packages")
+def api_winget_update_packages(user=U):
+    return {"items": db.q("""SELECT u.winget_id, u.package_id, p.name package, u.set_by, u.set_at FROM winget_update_packages u
+                             LEFT JOIN packages p ON p.id=u.package_id ORDER BY u.winget_id COLLATE NOCASE""")}
+
+
+@app.post("/api/winget/update-package")
+def api_winget_update_package(data: dict = Body(...), user=U):
+    """2.41: updates of a winget ID (Auto-Update schedules, "Aktualisieren") with an own package instead of
+    winget upgrade / the winget cache - e.g. uninstall first, then install cleanly. package_id empty = standard."""
+    wid = str(data.get("winget_id") or "").strip()
+    if not util.WINGET_ID_RE.match(wid):
+        _err("Ungültige winget-ID")
+    pid = data.get("package_id")
+    if not pid:
+        db.ex("DELETE FROM winget_update_packages WHERE winget_id=?", (wid,))
+        pklog.info("winget", f"Updates für {wid}: wieder Standard (winget upgrade bzw. winget-Cache).", user=user["username"])
+        return {"ok": True}
+    row = db.q1("SELECT id, name, tenant_id FROM packages WHERE id=?", (int(pid),))
+    if not row:
+        _err("Paket nicht gefunden")
+    if row["tenant_id"] is not None:
+        _err("Pakete eines Mandanten können nicht für Updates aller Computer verwendet werden.")
+    db.ex("""INSERT INTO winget_update_packages(winget_id, package_id, set_by, set_at) VALUES(?,?,?,?)
+             ON CONFLICT(winget_id) DO UPDATE SET package_id=excluded.package_id, set_by=excluded.set_by, set_at=excluded.set_at""",
+          (wid, row["id"], user["username"], util.now()))
+    pklog.info("winget", f"Updates für {wid}: mit Paket „{row['name']}“ statt winget upgrade.", user=user["username"])
+    return {"ok": True}
 
 
 def _exclusion_for(name):
@@ -1802,17 +1852,26 @@ def api_software_update(data: dict = Body(...), user=U):
     if not names:
         _err("Keine Programme ausgewählt.")
     groups, skipped = {}, []
-    for n in names:
+    for nm in names:
         rows = db.q("""SELECT s.computer_id, s.winget_id FROM software s JOIN computers c ON c.id=s.computer_id
                        WHERE s.name=? AND s.winget_id IS NOT NULL AND (s.outdated=1 OR ?)""",
-                    (n, 1 if only else 0))
+                    (nm, 1 if only else 0))
         rows = [r for r in rows if (not only or r["computer_id"] in only) and (mine is None or r["computer_id"] in mine)]
         if not rows:
-            skipped.append(n)
+            skipped.append(nm)
         for r in rows:
             groups.setdefault(r["winget_id"], set()).add(r["computer_id"])
     out, n, no_wg = [], 0, 0
     for wid, cids in groups.items():
+        up = deploy.update_package(wid)
+        if up:
+            # 2.41: own update package for this winget ID (current state, all steps)
+            try:
+                out.append(deploy.update_with_package(up, wid, cids, user["username"]))
+            except ValueError as e:
+                _err(e)
+            n += len(cids)
+            continue
         # 2.35: without winget (before 1809 / Server 2019) from the winget cache, otherwise skip
         wg, cache, skip, ce = wingetcache.split(wid, sorted(cids))
         no_wg += len(skip)
@@ -2540,6 +2599,9 @@ def api_package_delete(pid: int, user=U):
     used = [r["name"] for r in db.q("SELECT name, packages FROM schedules") if pid in json.loads(r["packages"] or "[]")]
     if used:
         _err("Das Paket wird in Zeitplänen verwendet: " + ", ".join(used))
+    upd = [r["winget_id"] for r in db.q("SELECT winget_id FROM winget_update_packages WHERE package_id=?", (pid,))]
+    if upd:
+        _err("Das Paket wird für Updates verwendet: " + ", ".join(upd) + " – erst in der Software auf „Standard“ zurückstellen.")
     try:
         wingetcache.check_package_delete(pid)  # 2.35: is the cache folder still needed by a deployment?
     except wingetcache.CacheError as e:
@@ -2868,6 +2930,11 @@ def api_deploy(data: dict = Body(...), user=U):
             did = deploy.create(deploy.adhoc_bootstrap(), ids, user["username"], sched or None, target_label=label)
         elif data.get("winget_id"):
             wid, act = data["winget_id"].strip(), data.get("action") or "upgrade"
+            up = deploy.update_package(wid) if act == "upgrade" else None
+            if up:
+                # 2.41: own update package for this winget ID (current state, all steps)
+                return {"id": deploy.update_with_package(up, wid, ids, user["username"], scheduled_at=sched or None,
+                                                         target_label=label), "update_package": up["name"]}
             wg, cache, skip, ce = wingetcache.split(wid, sorted(set(ids))) if act == "upgrade" else (ids, [], [], None)
             did = None
             if cache:

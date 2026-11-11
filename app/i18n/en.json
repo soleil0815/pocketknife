@@ -5806,5 +5806,20 @@
  "Integrierte Windows-Apps": "Built-in Windows apps",
  "in der Softwareliste ausblenden": "hide in the software list",
  "MSIX-Apps (z. B. PowerShell 7 aus winget) werden mit inventarisiert. Die mit Windows ausgelieferten Apps (Rechner, Fotos, Xbox, Store, Codecs …) erscheinen nur, wenn dieser Haken fehlt. Wirksam ab dem nächsten Scan.": "MSIX apps (e.g. PowerShell 7 from winget) are inventoried as well. The apps that ship with Windows (Calculator, Photos, Xbox, Store, codecs …) only appear when this box is unchecked. Takes effect with the next scan.",
- "MSIX-Paket (Remove-AppxPackage)": "MSIX package (Remove-AppxPackage)"
+ "MSIX-Paket (Remove-AppxPackage)": "MSIX package (Remove-AppxPackage)",
+ "Update-Paket „{0}“ für {1}: keine passenden Computer.": "Update package \"{0}\" for {1}: no matching computers.",
+ " – erst in der Software auf „Standard“ zurückstellen.": " – first switch it back to \"Standard\" in the software details.",
+ "Das Paket wird für Updates verwendet: ": "The package is used for updates: ",
+ "Pakete eines Mandanten können nicht für Updates aller Computer verwendet werden.": "A tenant's packages cannot be used for updates of all computers.",
+ "Updates für {0}: mit Paket „{1}“ statt winget upgrade.": "Updates for {0}: with package \"{1}\" instead of winget upgrade.",
+ "Updates für {0}: wieder Standard (winget upgrade bzw. winget-Cache).": "Updates for {0}: standard again (winget upgrade or winget cache).",
+ "Paket „{0}“ für": "Package \"{0}\" for",
+ "Das gewählte Paket gibt es nicht mehr (oder es gehört einem Mandanten) – es gilt der Standard.": "The chosen package no longer exists (or belongs to a tenant) – the standard applies.",
+ "Für Updates von {0} (Auto-Update-Zeitpläne, „Aktualisieren“) dieses eigene Paket verwenden – mit allen Schritten im aktuellen Stand, z. B. erst deinstallieren, dann sauber installieren. Ohne Auswahl: winget upgrade bzw. winget-Cache.": "Use this own package for updates of {0} (Auto-Update schedules, \"Update\") – with all steps in their current state, e.g. uninstall first, then install cleanly. Without a selection: winget upgrade or winget cache.",
+ "Standard: winget upgrade bzw. winget-Cache": "Standard: winget upgrade or winget cache",
+ "Update-Paket": "Update package",
+ "Updates von {0} laufen jetzt mit „{1}“": "Updates of {0} now run with \"{1}\"",
+ "Wieder Standard": "Standard again",
+ "gesetzt von {0}, {1}": "set by {0}, {1}",
+ "{0} auf {1} Computer(n) mit dem Update-Paket „{2}“ aktualisieren?": "Update {0} on {1} computer(s) with the update package \"{2}\"?"
 }

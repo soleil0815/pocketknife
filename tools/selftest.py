@@ -6075,8 +6075,9 @@ def _():
     assert "const wok = wingetOk(c);" in sv and "const upOk = (r) => wok || wcHas(r.winget_id);" in sv
     assert "r.outdated && r.winget_id && upOk(r) ? btn('Aktualisieren'" in sv and "s.outdated && s.winget_id && upOk(s)" in sv
     assert "c.outdated && (wingetOk(c) || wcHas(wid))" in js[js.index("async function updateOutdated("):js.index("async function scanSubItems(")]
-    sd = js[js.index("async function softwareDlg(sw)"):]
-    assert "c.outdated && (wingetOk(c) || wcHas(sw.winget_id))" in sd[:sd.index("modal(sw.name")] and sd.index("await wcReady();") < sd.index("const t = table(")
+    sd = js[js.index("async function softwareDlgOpen(sw"):]
+    # 2.41: with an own update package all outdated computers (its winget steps use the cache themselves)
+    assert "c.outdated && (up?.package || wingetOk(c) || wcHas(sw.winget_id))" in sd[:sd.index("modal(sw.name")] and sd.index("await wcReady();") < sd.index("const t = table(")
     from app import main as _m
     import inspect
     import re
@@ -8456,6 +8457,100 @@ def _():
         winget.load()
     js = open(os.path.join(root, "static", "app.js"), encoding="utf-8").read()
     assert "c('msix_hide_builtin')" in js
+
+
+@test("2.41 Own update package per winget ID: Auto-Update, \"Aktualisieren\" and deploying an upgrade use it (current state, all steps), tenant packages and deleting are refused")
+def _():
+    from fastapi import HTTPException
+    from app import deploy, main as _m, schedules
+    adm = {"username": "haupt", "scope": None}
+    wid = "Microsoft.PowerShell"
+    cids = [db.ex("INSERT INTO computers(name, os_build, online, winrm, created_at) VALUES(?, '26100.1', 1, 1, ?)", (f"PC-UP{i}", util.now()))
+            for i in (1, 2)]
+    for c in cids:
+        db.ex("INSERT INTO software(computer_id, name, version, winget_id, winget_latest, outdated, winget_sure) VALUES(?,?,?,?,?,1,1)",
+              (c, "PowerShell", "7.5.3.0", wid, "7.5.4.0"))
+    stp = {"main": [{"id": "u1", "type": "command", "command": "winget uninstall --id Microsoft.PowerShell --all-versions"},
+                    {"id": "u2", "type": "winget", "winget_id": wid, "action": "install"}]}
+    pid = db.ex("INSERT INTO packages(name, version, steps, conditions, run_as, created_at) VALUES('PowerShell sauber','1',?,'{}','default',?)",
+                (json.dumps(stp), util.now()))
+    tid = db.ex("INSERT INTO tenants(name, created_at) VALUES('Mandant UP', ?)", (util.now(),))
+    tpid = db.ex("INSERT INTO packages(name, version, steps, conditions, run_as, tenant_id, created_at) VALUES('Mandant-PS','1',?,'{}','default',?,?)",
+                 (json.dumps(stp), tid, util.now()))
+    started, real_start = [], deploy.start
+    deploy.start = lambda d, checked=False: started.append(d)
+    dids = []
+
+    def err(fn, *a):
+        try:
+            fn(*a)
+        except HTTPException as e:
+            return str(e.detail)
+        raise AssertionError("no error")
+    try:
+        assert deploy.update_package(wid) is None and _m.api_software_detail("PowerShell", adm)["update_package"]["package"] is None
+        assert "Mandanten" in err(_m.api_winget_update_package, {"winget_id": wid, "package_id": tpid}, adm)
+        assert "winget-ID" in err(_m.api_winget_update_package, {"winget_id": "x;y", "package_id": pid}, adm)
+        _m.api_winget_update_package({"winget_id": wid, "package_id": pid}, adm)
+        assert deploy.update_package("microsoft.powershell")["id"] == pid, "winget IDs are case-insensitive"
+        info = _m.api_software_detail("PowerShell", adm)["update_package"]
+        assert info["package"] == "PowerShell sauber" and info["package_id"] == pid and info["set_by"] == "haupt", info
+        # "Aktualisieren" in the software list
+        r = _m.api_software_update({"names": ["PowerShell"]}, adm)
+        dids += r["deployments"]
+        d = db.q1("SELECT * FROM deployments WHERE id=?", (r["deployments"][0],))
+        pj = json.loads(d["package_json"])
+        assert d["package_id"] == pid and len(r["deployments"]) == 1 and r["computers"] == 2, (dict(d), r)
+        assert [x["id"] for x in pj["steps"]["main"]] == ["u1", "u2"], "all steps of the own package"
+        # deploying an upgrade of the winget ID (computer page / "Veraltete aktualisieren")
+        r2 = _m.api_deploy({"winget_id": wid, "action": "upgrade", "computer_ids": cids}, adm)
+        dids.append(r2["id"])
+        assert db.val("SELECT package_id FROM deployments WHERE id=?", (r2["id"],)) == pid and r2["update_package"] == "PowerShell sauber"
+        r3 = _m.api_deploy({"winget_id": wid, "action": "install", "computer_ids": cids[:1]}, adm)
+        dids.append(r3["id"])
+        assert db.val("SELECT package_id FROM deployments WHERE id=?", (r3["id"],)) is None, "only upgrades use the update package"
+        # Auto-Update schedule
+        o_mem, o_cand = schedules.members, schedules.winget_candidates
+        db.ex("INSERT INTO schedules(id, name) VALUES(990041, 'Auto-Update Test')")
+        schedules.members = lambda s_: set(cids)
+        schedules.winget_candidates = lambda s_, ids, online_only=True: {wid: sorted(ids)} if online_only else {}
+        try:
+            s_ = {"id": 990041, "name": "Auto-Update Test", "options": {"offline": "skip"}, "winget": {"scope": None},
+                  "tenant_id": None, "targets": {"collections": [], "computers": cids}}
+            fr = schedules._fire_winget(s_, None, "Test", "selftest")
+        finally:
+            schedules.members, schedules.winget_candidates = o_mem, o_cand
+        dids.append(fr["deployment_id"])
+        d4 = db.q1("SELECT * FROM deployments WHERE id=?", (fr["deployment_id"],))
+        assert fr["count"] == 1 and d4["package_id"] == pid and d4["schedule_id"] == 990041, (fr, dict(d4))
+        assert db.val("SELECT COUNT(*) FROM deployment_targets WHERE deployment_id=?", (d4["id"],)) == 2
+        assert "PowerShell sauber" in db.val("SELECT message FROM schedule_targets WHERE schedule_id=990041 LIMIT 1")
+        assert fr["deployment_id"] in started
+        # the package cannot be deleted while it is used; package of a tenant later -> standard again
+        assert "für Updates verwendet" in err(_m.api_package_delete, pid, adm)
+        db.ex("UPDATE packages SET tenant_id=? WHERE id=?", (tid, pid))
+        assert deploy.update_package(wid) is None and _m.api_software_detail("PowerShell", adm)["update_package"]["missing"] is True
+        db.ex("UPDATE packages SET tenant_id=NULL WHERE id=?", (pid,))
+        _m.api_winget_update_package({"winget_id": wid, "package_id": None}, adm)
+        assert deploy.update_package(wid) is None
+        assert ("POST", "/api/winget/update-package") not in __import__("app.access", fromlist=["x"]).ROUTES, "main admins only"
+    finally:
+        deploy.start = real_start
+        db.ex("DELETE FROM winget_update_packages WHERE winget_id=?", (wid,))
+        for did in [x for x in dids if x]:
+            db.ex("DELETE FROM deployment_targets WHERE deployment_id=?", (did,))
+            db.ex("DELETE FROM deployments WHERE id=?", (did,))
+        db.ex("DELETE FROM schedule_targets WHERE schedule_id=990041")
+        db.ex("DELETE FROM schedules WHERE id=990041")
+        db.ex("DELETE FROM packages WHERE id IN (?,?)", (pid, tpid))
+        db.ex("DELETE FROM tenants WHERE id=?", (tid,))
+        for c in cids:
+            db.ex("DELETE FROM software WHERE computer_id=?", (c,))
+            db.ex("DELETE FROM computers WHERE id=?", (c,))
+    js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
+    assert "field('Update-Paket'" in js and "'/api/winget/update-package'" in js
+    # double-click on the program name (link + row) opened the dialog twice - now only once
+    assert "function softwareDlg(sw) { return onceDlg('sw:' + sw.name" in js and "{ wide: true, key: dlgKey }" in js
 
 
 @test("2.22 Self-test: diagnostic package test does not use fixed dates (time bomb once outside the 30-day window)")

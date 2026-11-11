@@ -75,6 +75,27 @@ def validate_package(p):
         raise ValueError("Ungültige Neustart-Option.")
 
 
+def update_package(wid):
+    """2.41: the own package an admin chose for updates of this winget ID (instead of winget upgrade or the
+    winget cache) - DB row or None. Only packages without a tenant (they go to every computer)."""
+    if not wid:
+        return None
+    return db.q1("""SELECT p.* FROM winget_update_packages u JOIN packages p ON p.id=u.package_id
+                    WHERE u.winget_id=? AND p.tenant_id IS NULL""", (str(wid),))
+
+
+def update_with_package(row, wid, ids, user, pkg_name=None, **kw):
+    """Deployment of the own update package (current state, all steps) to ids - returns the deployment ID."""
+    from . import steps
+    pkg = row_to_package(row)
+    if pkg_name:
+        pkg["name"] = pkg_name
+    ids, _ignored = tenant_filter(steps.expand(pkg), sorted(set(ids)))
+    if not ids:
+        raise ValueError(f"Update-Paket „{row['name']}“ für {wid}: keine passenden Computer.")
+    return create(pkg, ids, user, package_id=row["id"], **kw)
+
+
 def adhoc_winget(wid, action="upgrade", scope=None):
     p = {"name": f"winget {action} {wid}", "type": "winget", "winget_id": wid, "winget_action": action,
          "winget_scope": scope if scope is not None else db.setting("winget_scope"), "reboot": "never", "rescan": 1,

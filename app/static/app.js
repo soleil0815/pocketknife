@@ -1432,7 +1432,7 @@ const UPD_CLS = { aktuell: 'ok', veraltet: 'warn', 'ohne Support': 'err', unbeka
 const updBadge = (st) => h('span.badge', { class: UPD_CLS[st] ?? '' }, st);
 const wingetOk = (c) => !c || !c.os_build || !(Number(c.os_build) < WINGET_MIN_BUILD);
 
-async function updateOutdated(wid, computerIds = null) {
+async function updateOutdated(wid, computerIds = null, viaPkg = null) {
   let ids = computerIds;
   if (!ids) {
     const sw = await GET('/api/software');
@@ -1446,7 +1446,7 @@ async function updateOutdated(wid, computerIds = null) {
   }
   ids = [...new Set(ids)];
   if (!ids.length) { toast(computerIds ? 'Keine Computer mit veralteter Version gefunden.' : 'Keine Computer mit veralteter Version gefunden, auf denen winget läuft.'); return; }
-  if (!(await confirmDlg(`${wid} auf ${ids.length} Computer(n) per winget aktualisieren?`, 'Aktualisieren'))) return;
+  if (!(await confirmDlg(viaPkg ? fmtT('{0} auf {1} Computer(n) mit dem Update-Paket „{2}“ aktualisieren?', wid, ids.length, viaPkg) : `${wid} auf ${ids.length} Computer(n) per winget aktualisieren?`, 'Aktualisieren'))) return;
   const r = await run(() => POST('/api/deployments', { winget_id: wid, action: 'upgrade', computer_ids: ids }), 'Bereitstellung gestartet');
   if (r) go(`#/deployment/${r.id}`);
 }
@@ -2999,7 +2999,17 @@ async function exclusionsDlg() {
   draw();
 }
 
-async function softwareDlg(sw) {
+// 2.41: a double-click on the program name triggers the link AND the row -> open the dialog only once
+const DLG_LOADING = new Set();
+async function onceDlg(key, open) {
+  if (DLG_LOADING.has(key) || document.querySelector(`#modal-root [data-dlg="${CSS.escape(key)}"]`)) return;
+  DLG_LOADING.add(key);
+  try { await open(key); } finally { DLG_LOADING.delete(key); }
+}
+
+function softwareDlg(sw) { return onceDlg('sw:' + sw.name, (key) => softwareDlgOpen(sw, key)); }
+
+async function softwareDlgOpen(sw, dlgKey) {
   const sw0 = sw;
   const d = await GET('/api/software/detail?name=' + encodeURIComponent(sw.name));
   await wcReady();
@@ -3013,7 +3023,29 @@ async function softwareDlg(sw) {
     { key: 'online', label: 'Online', render: (r) => h('span.dot', { class: r.online ? 'on' : 'off' }) },
   ], d.computers, { selectable: true, noun: 'Computer', fill: false });
   t.el.querySelector('.tbl-scroll').style.maxHeight = '320px';
-  const outIds = d.computers.filter((c) => c.outdated && (wingetOk(c) || wcHas(sw.winget_id))).map((c) => c.id);
+  // 2.41: own package for updates of this winget ID (instead of winget upgrade / winget cache)
+  const up = d.update_package;
+  const outIds = d.computers.filter((c) => c.outdated && (up?.package || wingetOk(c) || wcHas(sw.winget_id))).map((c) => c.id);
+  let updRow = null;
+  if (up && !isOU()) {
+    const pkSel = h('select', { style: { maxWidth: '360px' } }, h('option', { value: '' }, tr('Standard: winget upgrade bzw. winget-Cache')));
+    const pkInfo = h('span.muted.small');
+    const showInfo = () => { pkInfo.textContent = up.package ? fmtT('gesetzt von {0}, {1}', up.set_by || '?', fmtDate(up.set_at)) : (up.missing ? tr('Das gewählte Paket gibt es nicht mehr (oder es gehört einem Mandanten) – es gilt der Standard.') : ''); };
+    showInfo();
+    GET('/api/packages').then((pk) => {
+      pk.filter((p) => !p.tenant_id).forEach((p) => pkSel.append(h('option', { value: p.id }, `${p.name}${p.version ? ' ' + p.version : ''}`)));
+      pkSel.value = up.package_id ? String(up.package_id) : '';
+    }).catch(() => {});
+    pkSel.onchange = async () => {
+      const name = pkSel.selectedOptions[0]?.textContent || '';
+      const ok = await run(() => POST('/api/winget/update-package', { winget_id: up.winget_id, package_id: pkSel.value ? Number(pkSel.value) : null }),
+        pkSel.value ? fmtT('Updates von {0} laufen jetzt mit „{1}“', up.winget_id, name) : tr('Wieder Standard'));
+      if (ok !== undefined) { up.package = pkSel.value ? name : null; up.package_id = pkSel.value ? Number(pkSel.value) : null; up.set_by = S.me?.username; up.set_at = new Date().toISOString(); up.missing = false; showInfo(); }
+      else pkSel.value = up.package_id ? String(up.package_id) : '';
+    };
+    updRow = field('Update-Paket', h('div', h('div.row', pkSel, pkInfo)),
+      fmtT('Für Updates von {0} (Auto-Update-Zeitpläne, „Aktualisieren“) dieses eigene Paket verwenden – mit allen Schritten im aktuellen Stand, z. B. erst deinstallieren, dann sauber installieren. Ohne Auswahl: winget upgrade bzw. winget-Cache.', up.winget_id));
+  }
   modal(sw.name, h('div',
     h('div.form', field('winget-ID (Zuordnung)', h('div.row', wid, btn('Suchen', () => wingetPicker((id) => (wid.value = id)), { cls: 'small' })),
       'Automatisch ermittelt. Hier manuell festlegen, falls die Zuordnung falsch ist.'),
@@ -3022,7 +3054,8 @@ async function softwareDlg(sw) {
       ? h('span', h('span.badge', 'ausgenommen'), ` durch ${({ name: 'Name', publisher: 'Hersteller', winget_id: 'winget-ID' })[d.exclusion.field] || d.exclusion.field} „${d.exclusion.pattern}“ `,
         btn('Liste öffnen …', () => exclusionsDlg(), { cls: 'small ghost' }))
       : btn('Von der Aktualitätsprüfung ausnehmen …', () => exclusionAddDlg({ field: 'name', pattern: sw.name }), { cls: 'small' }),
-    'Eigene Liste von Programmen, die nie als „veraltet“ gelten (mit Platzhaltern, z. B. „Microsoft Visual C++*“).')),
+    'Eigene Liste von Programmen, die nie als „veraltet“ gelten (mit Platzhaltern, z. B. „Microsoft Visual C++*“).'),
+    updRow),
     h('div.row', { style: { margin: '14px 0 8px' } }, h('h3', 'Installationen'), h('div.spacer'),
       btn('Auswahl aktualisieren', async () => {
         const ids = t.selectedIds();
@@ -3045,12 +3078,12 @@ async function softwareDlg(sw) {
         }
         uninstallDlg(rows);
       }, { cls: 'small danger' }),
-      outIds.length && sw.winget_id ? btn(`Veraltete aktualisieren (${outIds.length})`, () => updateOutdated(sw.winget_id, outIds), { cls: 'small primary' }) : null),
+      outIds.length && sw.winget_id ? btn(`Veraltete aktualisieren (${outIds.length})`, () => updateOutdated(sw.winget_id, outIds, up?.package), { cls: 'small primary' }) : null),
     t.el), [
     ov.name ? { label: 'Zuordnung entfernen', onClick: async () => { await POST('/api/software/override', { name: sw.name, remove: true }); toast('Entfernt – Abgleich läuft', 'ok'); const hh = location.hash; setTimeout(() => { if (location.hash === hh) route(); }, 2000); } } : null,
     { label: 'Schließen' },
     { label: 'Zuordnung speichern', cls: 'primary', onClick: async () => { await POST('/api/software/override', { name: sw.name, winget_id: wid.value.trim(), ignore: ign.checked }); toast('Gespeichert – Abgleich läuft', 'ok'); const hh = location.hash; setTimeout(() => { if (location.hash === hh) route(); }, 2000); } },
-  ].filter(Boolean), { wide: true });
+  ].filter(Boolean), { wide: true, key: dlgKey });
 }
 
 function wingetPicker(onPick) {

@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.41.0",
+   "date": "2026-11-11",
+   "items": [
+    {
+     "kind": "new",
+     "audience": "all",
+     "de": "Eigenes Update-Paket je winget-ID: In den Details eines Programms lässt sich ein Paket wählen, mit dem Auto-Updates und „Aktualisieren“ laufen – z. B. erst deinstallieren, dann sauber installieren, wenn winget upgrade scheitert.",
+     "en": "Own update package per winget ID: in a program's details you can choose a package that Auto-Updates and \"Update\" use – e.g. uninstall first, then install cleanly when winget upgrade fails."
+    }
+   ]
+  },
+  {
    "version": "2.40.1",
    "date": "2026-11-11",
    "items": [
