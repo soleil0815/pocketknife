@@ -8038,6 +8038,25 @@ def _():
     assert "RERUN_PICK[id] = { v: RERUN_CUR[id], stamp: d.package_changed }" in js
 
 
+@test("2.39.2 Step results name the account that really ran each step (column \"Ausgeführt als\")")
+def _():
+    from app import steps as stp
+    run = stp.Runner(1, 1, {"id": 2392, "name": "PC-2392", "dns_name": ""}, lambda: False, lambda *a: None)
+    st = {"id": "x1", "type": "command", "command": "whoami"}
+    r = run._record("main", st, "success", "ok", ra="system")
+    assert r["run_as"] == "system" and r["run_as_label"].startswith("Lokales System") and "(als Lokales System" in run.log[-1]
+    r = run._record("main", st, "notrun", "Nicht ausgeführt")
+    assert r["run_as"] is None and r["run_as_label"] == "", "nothing ran on the client - no account"
+    assert run._record("main", st, "success", "x", ra="mixed")["run_as_label"].startswith("verschiedene Konten")
+    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "steps.py"), encoding="utf-8").read()
+    # steps POCKET KNIFE runs directly over WinRM name the service account (restart, message, log off, scan)
+    for frag in ('f"Neu gestartet, wieder erreichbar (Start {out.strip()}){note}", t0=t0, ra="deploy"', '"Nachricht gesendet", out=out, t0=t0, ra="deploy"',
+                 'f"Scan mit „{prof[\'name\']}“: {status}", t0=t0, ra="deploy"', 'ra=accts[0] if len(set(accts)) == 1 else "mixed"'):
+        assert frag in src, frag
+    js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
+    assert "h('th', 'Ausgeführt als')" in js and "x.run_as ? (RAN_AS[x.run_as] || x.run_as) : h('span.muted', '–')" in js
+
+
 @test("2.22 Self-test: diagnostic package test does not use fixed dates (time bomb once outside the 30-day window)")
 def _():
     import inspect

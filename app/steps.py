@@ -755,6 +755,8 @@ def uninstall_run_as(st):
 
 
 def run_as_label(ra):
+    if ra == "mixed":
+        return "verschiedene Konten (siehe Ausgabe)"
     if ra in ("deploy", "service"):
         return f"Dienstkonto {config.service_login() or '(nicht eingerichtet)'}"
     if ra == "user":
@@ -1077,7 +1079,9 @@ class Runner:
         title = ("  " * depth) + step_title(st)
         r = {"n": len(self.results) + 1, "phase": phase, "type": st["type"], "title": title, "status": status,
              "message": msg, "exit": code, "run_as": ra, "started": t0, "finished": util.now(),
-             "sid": st.get("id"), "depth": depth}
+             "sid": st.get("id"), "depth": depth,
+             # 2.39.2: account as text for the "Ausgeführt als" column (what really ran - empty if nothing ran on the client)
+             "run_as_label": run_as_label(ra) if ra else ""}
         self.results.append(r)
         head = f"=== {r['n']}. {dict(PHASES)[phase]}: {title}" + (f" (als {run_as_label(ra)})" if ra else "") + " ==="
         self.log.append(head + ("\n" + out.strip() if out and out.strip() else "") + (f"\n→ {msg}\n" if status != "running" else "\n"))
@@ -1197,9 +1201,9 @@ class Runner:
                 if mrc and int(mrc.group(1)) != 0:
                     # msg.exe reports e.g. 1 if nobody is logged on - no reason to abort the package
                     self._record(phase, st, "success", f"Nachricht nicht zugestellt (Exitcode {mrc.group(1)}, evtl. niemand angemeldet)",
-                                 out=out, t0=t0, depth=depth)
+                                 out=out, t0=t0, ra="deploy", depth=depth)
                     return "success", ""
-                self._record(phase, st, "success", "Nachricht gesendet", out=out, t0=t0, depth=depth)
+                self._record(phase, st, "success", "Nachricht gesendet", out=out, t0=t0, ra="deploy", depth=depth)
                 return "success", ""
             if t == "logoff":
                 return self._logoff(st, phase, depth, t0)
@@ -1357,7 +1361,7 @@ $out = foreach ($r in $roots) { Get-ChildItem -Path $r | ForEach-Object {
             return ("skipped" if st.get("missing_ok", True) else "failed"), msg
         if not st.get("all_matches", True):
             hits = hits[:1]
-        results, outs = [], []
+        results, outs, accts = [], [], []
         explicit = uninstall_run_as(st)
         for sw in hits:
             self._check_cancel()
@@ -1384,12 +1388,15 @@ $out = foreach ($r in $roots) { Get-ChildItem -Path $r | ForEach-Object {
                 code, hard = remote.apply_hard(code, out)
             self.last_code = code
             results.append(ok)
+            accts.append(ra)
             outs.append(f"--- {sw['name']} {sw.get('version') or ''} ({run_as_label(ra)}) ---\n{out or ''}\n→ "
                         + ("Erfolgreich" if ok else f"Fehlgeschlagen – {hard}" if hard else f"Fehlgeschlagen (Exitcode {code})"))
         n_ok = sum(1 for x in results if x)
         msg = f"{n_ok} von {len(results)} deinstalliert" if len(results) > 1 else ("Deinstalliert" if n_ok else f"Fehlgeschlagen (Exitcode {self.last_code})")
         status = "success" if n_ok == len(results) else "failed"
-        self._record(phase, st, status, msg, code=self.last_code, out="\n".join(outs), t0=t0, depth=depth)
+        # 2.39.2: account for the "Ausgeführt als" column - one account for all hits, otherwise "mixed" (each in the output)
+        self._record(phase, st, status, msg, code=self.last_code, out="\n".join(outs), t0=t0,
+                     ra=accts[0] if len(set(accts)) == 1 else "mixed", depth=depth)
         return status, msg
 
     def _winget_offline_copy(self, name):
@@ -1419,7 +1426,7 @@ $out = foreach ($r in $roots) { Get-ChildItem -Path $r | ForEach-Object {
         prof = (profiles.get(st["profile_id"]) if st.get("profile_id") else None) or profiles.default()
         status = inventory.scan_now(self.c["id"], self.user, prof)
         ok = status == "OK"
-        self._record(phase, st, "success" if ok else "failed", f"Scan mit „{prof['name']}“: {status}", t0=t0, depth=depth)
+        self._record(phase, st, "success" if ok else "failed", f"Scan mit „{prof['name']}“: {status}", t0=t0, ra="deploy", depth=depth)
         return ("success" if ok else "failed"), status
 
     def _reboot(self, st, phase, depth, t0):
@@ -1430,7 +1437,7 @@ $out = foreach ($r in $roots) { Get-ChildItem -Path $r | ForEach-Object {
         rc = out.rsplit("PK_RC:", 1)[-1].strip() if "PK_RC:" in out else "?"
         if rc not in ("0", "?"):
             self._record(phase, st, "failed", f"shutdown.exe meldet Fehler {rc} (z. B. bereits ein Herunterfahren geplant)", out=out,
-                         t0=t0, depth=depth)
+                         t0=t0, ra="deploy", depth=depth)
             return "failed", f"shutdown.exe Fehler {rc}"
         self.set_status(f"Schritt {self.n}: Neustart – warte auf den Computer …")
         went_down = False
@@ -1455,9 +1462,9 @@ $out = foreach ($r in $roots) { Get-ChildItem -Path $r | ForEach-Object {
                 time.sleep(20)  # let services start
                 self.reboot_needed = False
                 note = "" if went_down else " (Herunterfahren wurde nicht beobachtet)"
-                self._record(phase, st, "success", f"Neu gestartet, wieder erreichbar (Start {out.strip()}){note}", t0=t0, depth=depth)
+                self._record(phase, st, "success", f"Neu gestartet, wieder erreichbar (Start {out.strip()}){note}", t0=t0, ra="deploy", depth=depth)
                 return "success", ""
-        self._record(phase, st, "failed", f"Computer ist nach {st.get('wait_minutes', 20)} Minuten nicht wieder erreichbar", t0=t0, depth=depth)
+        self._record(phase, st, "failed", f"Computer ist nach {st.get('wait_minutes', 20)} Minuten nicht wieder erreichbar", t0=t0, ra="deploy", depth=depth)
         return "failed", "nicht wieder erreichbar"
 
     def _logoff(self, st, phase, depth, t0):
@@ -1478,5 +1485,5 @@ foreach ($l in $lines) {
 'Sitzungen abgemeldet: ' + $n""".replace("__ONLY__", only)
         out, _err, _ = remote.ps(self.host, script)
         self._record(phase, st, "success", out.strip().splitlines()[-1] if out.strip() else "Keine Sitzungen", out=out,
-                     t0=t0, depth=depth)
+                     t0=t0, ra="deploy", depth=depth)
         return "success", ""

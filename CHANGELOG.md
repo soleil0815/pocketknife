@@ -2,6 +2,11 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.39.2 (11.11.2026)
+- **New - column "Ausgeführt als" in the step results:** "Details" of a target shows for every step the account it really ran with on the computer - Lokales System, Dienstkonto, Angemeldeter Benutzer, or "Dienstkonto (WinRM)" for what POCKET KNIFE does directly over WinRM (restart, message, log off, scan); uninstall steps with several hits on different accounts show "verschiedene". A dash: nothing ran on the computer (skipped, not run)
+- **Changed:** restart, message, log off and scan steps now also name the account in the log header ("… (als Dienstkonto …)")
+- **Self-test:** account in the result, no account when nothing ran, steps over WinRM, column in the interface
+
 ## pocketknife-2.39.1 (11.11.2026)
 - **Fixed - retry after a package change used the old state:** if the deployment had been opened before the package was changed, "Fehlgeschlagene erneut", "Alle erneut", "Schritte wählen …" and "Schritt wiederholen" kept using the state of the deployment until the browser was reloaded (e.g. still "Dienstkonto" after switching the package to "Lokales System"). Now a changed package always counts with its current state; the state of the deployment only applies if chosen explicitly - and only for the package state it was chosen for. Retries started from other pages also take the current state
 - **Changed - all settings:** a retry of individual steps now also takes restart and the other settings from the current package (before: restart from the old deployment)

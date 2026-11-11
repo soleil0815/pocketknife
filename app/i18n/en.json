@@ -5694,5 +5694,9 @@
  "Umstellung 2.39: Diese Pakete öffnen in eigenen Befehlen selbst einen Netzwerkpfad. Als Lokales System greift dabei das Computerkonto zu (z. B. PC-0001$) – bitte Leserecht für „Domänencomputer“ auf der Freigabe prüfen oder die Datei über einen Repository-Schritt kopieren: ": "Migration 2.39: these packages open a network path themselves in their own commands. As Local System, the computer account accesses it (e.g. PC-0001$) – please check read access for “Domain Computers” on the share or copy the file with a repository step: ",
  "Umstellung 2.39: {0} Paket(e) laufen jetzt mit dem Konto aus den Einstellungen (Standard: Lokales System).": "Migration 2.39: {0} package(s) now run with the account from the settings (default: Local System).",
  "Wie in den Einstellungen": "As in the settings",
- "{0} auf {1} erneut ausführen?\n\nEs wird eine neue Bereitstellung mit diesem Ausschnitt des Pakets erstellt. Wurde das Paket seitdem geändert, gilt sein aktueller Stand mit allen Einstellungen.": "Run {0} again on {1}?\n\nA new deployment with this part of the package is created. If the package was changed since, its current state applies with all settings."
+ "{0} auf {1} erneut ausführen?\n\nEs wird eine neue Bereitstellung mit diesem Ausschnitt des Pakets erstellt. Wurde das Paket seitdem geändert, gilt sein aktueller Stand mit allen Einstellungen.": "Run {0} again on {1}?\n\nA new deployment with this part of the package is created. If the package was changed since, its current state applies with all settings.",
+ "Ausgeführt als": "Run as",
+ "Dienstkonto (WinRM)": "Service account (WinRM)",
+ "verschiedene Konten (siehe Ausgabe)": "different accounts (see output)",
+ "verschiedene": "different"
 }
