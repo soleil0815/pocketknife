@@ -255,8 +255,9 @@ try {
   # 2.41.3: packages Windows has marked for removal (EndOfLife\<SID>\<full name>) - leftovers of removed apps
   # (e.g. "MSTeams" 1.0.0.0 of an old profile: still under S-1-..., but no longer installed)
   $mxEol = @{}
-  foreach ($e in @(Get-ChildItem ($au + '\EndOfLife') -ErrorAction SilentlyContinue)) {
-    foreach ($ek in @(Get-ChildItem $e.PSPath -ErrorAction SilentlyContinue)) { $mxEol[$ek.PSChildName] = 1 }
+  # never name a variable $e here - that is the extras hashtable of the whole scan (2.44.2: it was overwritten)
+  foreach ($eolSid in @(Get-ChildItem ($au + '\EndOfLife') -ErrorAction SilentlyContinue)) {
+    foreach ($ek in @(Get-ChildItem $eolSid.PSPath -ErrorAction SilentlyContinue)) { $mxEol[$ek.PSChildName] = 1 }
   }
   $mx = foreach ($grp in @(Get-ChildItem $au -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -match '^(Applications|S-1-.*)$' })) {
     foreach ($k in @(Get-ChildItem $grp.PSPath -ErrorAction SilentlyContinue)) {

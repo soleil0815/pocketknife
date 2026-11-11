@@ -178,7 +178,7 @@ def direct_host(c):
     """2.36.3 (Audit): Address for direct actions (files, services, processes, tools, disk space, remote control, restart ...).
     As with deployment and scan, never connect with the service account (or custom credentials) to a device that the
     identity check has marked as foreign/unconfirmed - otherwise e.g. a changed dNSHostName reaches another
-    server (\\server\C$, WinRM). With the check switched off, an old note no longer applies."""
+    server (\\\\server\\C$, WinRM). With the check switched off, an old note no longer applies."""
     host = (c.get("dns_name") or c.get("name") or "").strip()
     prob = c.get("addr_problem") if "addr_problem" in c else (
         (db.q1("SELECT addr_problem, addr_detail FROM computers WHERE id=?", (c["id"],)) or {}).get("addr_problem")

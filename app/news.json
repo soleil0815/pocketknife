@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.44.2",
+   "date": "2026-11-11",
+   "items": [
+    {
+     "kind": "fixed",
+     "audience": "all",
+     "de": "Dashboard, Computerliste und dynamische Sammlungen waren seit 2.41.3 sehr langsam: Der Scan hat auf einigen Computern riesige Zusatzdaten gespeichert. Behoben – betroffene Computer werden beim Start automatisch bereinigt.",
+     "en": "Dashboard, computer list and dynamic collections were very slow since 2.41.3: the scan stored huge extra data on some computers. Fixed – affected computers are cleaned up automatically at start."
+    }
+   ]
+  },
+  {
    "version": "2.44.1",
    "date": "2026-11-11",
    "items": [

@@ -2,6 +2,14 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.44.2 (11.11.2026)
+- **Fix - dashboard, computer list and dynamic collections very slow (since 2.41.3):** the MSIX filter of 2.41.3 used `$e` as a loop variable - the name of the scan's extras. On computers with removed apps under "EndOfLife" the extras were replaced by a Windows registry object, about 35 MB per computer. Every query over computers read it: counting one collection took 250-300 ms with 39 computers, the collection tree more than 6 seconds
+  - the scan module uses its own variable again
+  - at start, POCKET KNIFE repairs affected computers once (PowerShell object properties removed, the next scan fills the missing values) and shrinks the database log; the log names each repaired computer with size before/after
+  - protection: extras never store PowerShell object properties, a single extras value larger than 256 KB is dropped (with a log entry)
+- **Fix:** SyntaxWarning `invalid escape sequence '\C'` in presence.py (comment only)
+- **Self-test:** the scan module keeps its extras (real PowerShell run), $e is never reassigned in the scan modules, repair and protection of the extras, every Python file compiles without warnings
+
 ## pocketknife-2.44.1 (11.11.2026)
 - **Fix - forgotten remote session slowed POCKET KNIFE down:** the picture of an RDP/VNC session in the browser is relayed by POCKET KNIFE in the same part that answers every page request. An open but unused session (e.g. a forgotten tab) kept it busy (about 70 % of a core) and every page, e.g. the computer overview, loaded more slowly
   - a remote session now ends after **30 minutes without keyboard or mouse input** (sync, ping and resizing do not count); setting "Ohne Eingabe beenden nach (Min.)" under Einstellungen → Netzwerk & Fernzugriff → Fernsitzungen, 0 = never; the end is logged and the operator sees the reason in the session tab

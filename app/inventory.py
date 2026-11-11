@@ -361,6 +361,10 @@ def _merge_extra(cid, data, modules):
             for k in keys:
                 ex.pop(k, None)
     new = dict(data.get("extra") or {})
+    # 2.44.2: never store a PowerShell object instead of the extras (registry key: PSProvider alone was 33 MB) -
+    # every query over computers reads this column
+    clean_extra(ex, cid)
+    clean_extra(new, cid)
     for k in ("firewall", "antivirus", "bitlocker"):
         if k in new:
             # 2.33.4: omit empty entries ("{}" from an empty PowerShell output)
@@ -372,6 +376,53 @@ def _merge_extra(cid, data, modules):
             new["chassis_name"] = ""
     ex.update(new)
     return ex
+
+
+# Properties of a PowerShell provider item (registry key, file) - never extras of POCKET KNIFE
+PS_OBJECT_KEYS = {"PSPath", "PSParentPath", "PSChildName", "PSDrive", "PSProvider", "PSIsContainer",
+                  "SubKeyCount", "ValueCount", "Property", "Handle", "View", "Name"}
+EXTRA_VALUE_MAX = 256 * 1024   # one extras value larger than this is dropped (normal: a few KB in total)
+
+
+def clean_extra(d, cid=None):
+    """2.44.2: removes PowerShell object properties and oversized values from an extras dict (in place); returns the
+    names of the removed keys."""
+    gone = [k for k in list(d) if k in PS_OBJECT_KEYS]
+    for k in list(d):
+        if k in gone:
+            continue
+        try:
+            if len(json.dumps(d[k], ensure_ascii=False)) > EXTRA_VALUE_MAX:
+                gone.append(k)
+        except (TypeError, ValueError):
+            gone.append(k)
+    for k in gone:
+        d.pop(k, None)
+    big = [k for k in gone if k not in PS_OBJECT_KEYS]
+    if big and cid:
+        pklog.warn("scan", f"Zusatzdaten zu groß und verworfen: {', '.join(big)[:200]}", computer_id=cid)
+    return gone
+
+
+def repair_extras():
+    """2.44.2, once at start: extras that 2.41.3 overwrote with a registry object (tens of MB per computer, every
+    computer query slow) are cleaned up. Returns the number of repaired computers."""
+    n = 0
+    for r in db.q("SELECT id, name FROM computers WHERE length(extra) > ? OR instr(extra, '\"PSProvider\"') > 0", (EXTRA_VALUE_MAX,)):
+        raw = db.val("SELECT extra FROM computers WHERE id=?", (r["id"],))
+        try:
+            d = json.loads(raw or "{}")
+        except ValueError:
+            d = {}
+        if not isinstance(d, dict):
+            d = {}
+        before = len(raw or "")
+        gone = clean_extra(d)
+        db.ex("UPDATE computers SET extra=? WHERE id=?", (json.dumps(d, ensure_ascii=False), r["id"]))
+        n += 1
+        pklog.info("system", f"Zusatzdaten von {r['name']} bereinigt: {before // 1024} KB → {len(json.dumps(d)) // 1024} KB "
+                             f"({', '.join(sorted(gone))[:200]}). Der nächste Scan füllt fehlende Werte wieder.", computer_id=r["id"])
+    return n
 
 
 def _inv(cid, cat, rows, now):
