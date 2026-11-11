@@ -2,6 +2,10 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.41.3 (11.11.2026)
+- **Fix - false "veraltet" for "MSTeams" 1.0.0.0 (MSIX leftovers):** apps removed from a profile can stay in AppxAllUserStore under the user's SID although they are no longer installed (Windows marks them under "EndOfLife", the package folder is gone). The MSIX scan listed them, e.g. "MSTeams" 1.0.0.0 without publisher, matched to Microsoft.Teams and "outdated". Now packages listed under EndOfLife and packages whose folder no longer exists are skipped. Only "not found" counts - with "access denied" the package is kept. The entry disappears with the next applications scan
+- **Self-test:** EndOfLife leftover and deleted package folder in the real scan module; both filters verified to fail without the fix
+
 ## pocketknife-2.41.2 (11.11.2026)
 - **Fix - false "veraltet" for Notepad++ and Adobe Acrobat Reader (since 2.40.1):** both register a "sparse" MSIX package for the Windows 11 context menu ("Notepad++" 1.0.0.0, "Adobe Acrobat Reader" 26.0.0.1). The MSIX scan listed it as a separate program, the winget matching assigned it by name to Notepad++/Acrobat Reader and it counted as outdated - "Aktualisieren" then found no update. Now sparse packages (AllowExternalContent, or manifest outside WindowsApps) are skipped, MSIX apps are only matched via their package family name, and existing assignments are corrected once after the update; the entries disappear with the next applications scan
 - **Manual as PDF up to date again:** "POCKET-KNIFE-Handbuch.pdf" and "POCKET-KNIFE-Manual.pdf" were last built with 2.32.8 and lacked everything since 2.33. They are now rebuilt from the current help (de/en) - including package execution as Local System, PowerShell errors, "Ausgeführt als", VNC, hidden items, update status, MSIX apps and update packages

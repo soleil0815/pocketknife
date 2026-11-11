@@ -8350,6 +8350,7 @@ def _():
     src = open(os.path.join(root, "scan_modules.ps1"), encoding="utf-8").read()
     apps = src[src.index("# @module applications"):src.index("# @module cpu")]
     assert "AppxAllUserStore" in apps and "Get-AppxPackage" not in apps, "registry, not the Appx module (CLM, terminal servers)"
+    assert "-match 'PathNotFound'" in apps, "2.41.3: only a missing folder hides a package - not 'access denied'"
     assert "-match '^(Applications|S-1-.*)$'" in apps.split("MSIX apps")[1], "inbox apps are not read"
     sw = None
     pw = os.environ.get("PK_PWSH")
@@ -8363,6 +8364,9 @@ def _():
         sp_in = os.path.join(wa, "pk-msix-sparse.xml")
         sp_out = os.path.join(TMP, "Notepad++", "contextMenu", "AppxManifest.xml")
         os.makedirs(os.path.dirname(sp_out), exist_ok=True)
+        plain = os.path.join(wa, "pk-msix-plain.xml")  # existing package folder without readable name
+        open(plain, "w", encoding="utf-8").write("<Package/>")
+        gone = os.path.join(wa, "Gone.App_2.0.0.0_x64__abcdefghjkmnp", "AppxManifest.xml")  # 2.41.3: folder deleted
         ns = 'xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"'
         open(mf, "w", encoding="utf-8").write(f'<?xml version="1.0" encoding="utf-8"?><Package {ns}><Identity Name="Microsoft.PowerShell" Version="7.5.4.0"/>'
                                               '<Properties><DisplayName>PowerShell</DisplayName><PublisherDisplayName>Microsoft Corporation</PublisherDisplayName></Properties></Package>')
@@ -8388,13 +8392,19 @@ def _():
                  "  if ($p -eq 'I') { return @(@{ PSChildName = 'Microsoft.Windows.Search_1.14.0.0_neutral_neutral_cw5n1h2txyewy'; PSPath = 'I1' }) }\n"
                  "  if ($p -eq 'S') { return @(@{ PSChildName = 'Staged.App_1.0.0.0_x64__abcdefghjkmnp'; PSPath = 'S1' }) }\n"
                  "  if ($p -eq 'U') { return @(@{ PSChildName = 'Microsoft.PowerShell_7.5.4.0_x64__8wekyb3d8bbwe'; PSPath = 'U1' },\n"
-                 "    @{ PSChildName = 'Fabrikam.Tool_2.1.0.0_neutral_~_q1w2e3r4t5y6u'; PSPath = 'U2' }) }\n"
+                 "    @{ PSChildName = 'Fabrikam.Tool_2.1.0.0_neutral_~_q1w2e3r4t5y6u'; PSPath = 'U2' },\n"
+                 "    @{ PSChildName = 'MSTeams_1.0.0.0_x64__8wekyb3d8bbwe'; PSPath = 'U3' },\n"
+                 "    @{ PSChildName = 'Gone.App_2.0.0.0_x64__abcdefghjkmnp'; PSPath = 'U4' }) }\n"
+                 "  if ($p -like '*AppxAllUserStore\\EndOfLife') { return @(@{ PSChildName = 'S-1-5-21-1-2-3-500'; PSPath = 'E' }) }\n"
+                 "  if ($p -eq 'E') { return @(@{ PSChildName = 'MSTeams_1.0.0.0_x64__8wekyb3d8bbwe'; PSPath = 'E1' }) }\n"
                  "  return @() }\n"
                  "function Get-ItemProperty { param($LiteralPath, $Path, $ErrorAction)\n"
                  f"  if ($LiteralPath -eq 'A1') {{ return @{{ Path = '{mf}' }} }}\n"
                  f"  if ($LiteralPath -eq 'A4') {{ return @{{ Path = '{fw}' }} }}\n"
                  f"  if ($LiteralPath -eq 'A6') {{ return @{{ Path = '{sp_in}' }} }}\n"
                  f"  if ($LiteralPath -eq 'A7') {{ return @{{ Path = '{sp_out}' }} }}\n"
+                 f"  if ($LiteralPath -eq 'A5' -or $LiteralPath -eq 'U2' -or $LiteralPath -eq 'U3') {{ return @{{ Path = '{plain}' }} }}\n"
+                 f"  if ($LiteralPath -eq 'U4') {{ return @{{ Path = '{gone}' }} }}\n"
                  "  return $null }\n")
         sf = os.path.join(TMP, "pk-msix.ps1")
         with open(sf, "w", encoding="utf-8-sig") as fh:
@@ -8404,7 +8414,8 @@ def _():
         assert line, r.stdout + r.stderr
         sw = json.loads(line[0])
         by = {x["name"]: x for x in sw}
-        assert set(by) == {"PowerShell", "Microsoft.WindowsCalculator", "Fabrikam.Tool"}, (sorted(by), r.stdout[-400:])  # no sparse packages
+        # no sparse packages (2.41.2), no EndOfLife leftovers ("MSTeams" 1.0.0.0) and no deleted package folders (2.41.3)
+        assert set(by) == {"PowerShell", "Microsoft.WindowsCalculator", "Fabrikam.Tool"}, (sorted(by), r.stdout[-400:])
         ps7 = by["PowerShell"]
         assert (ps7["version"], ps7["publisher"], ps7["key"], ps7["arch"], ps7["scope"], ps7["hive"]) == \
             ("7.5.4.0", "Microsoft Corporation", "Microsoft.PowerShell_8wekyb3d8bbwe", "x64", "Computer", "MSIX"), ps7

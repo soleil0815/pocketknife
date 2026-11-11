@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.41.3",
+   "date": "2026-11-11",
+   "items": [
+    {
+     "kind": "fixed",
+     "audience": "all",
+     "de": "„MSTeams“ 1.0.0.0 wurde fälschlich als veraltet angezeigt – Reste entfernter Apps (von Windows zum Löschen vorgemerkt, Ordner nicht mehr da) werden nicht mehr inventarisiert.",
+     "en": "\"MSTeams\" 1.0.0.0 was wrongly shown as outdated – leftovers of removed apps (marked for removal by Windows, folder gone) are no longer inventoried."
+    }
+   ]
+  },
+  {
    "version": "2.41.2",
    "date": "2026-11-11",
    "items": [

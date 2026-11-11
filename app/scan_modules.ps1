@@ -238,12 +238,19 @@ $mx = @()
 try {
   $au = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Appx\AppxAllUserStore'
   $mxSeen = @{}
+  # 2.41.3: packages Windows has marked for removal (EndOfLife\<SID>\<full name>) - leftovers of removed apps
+  # (e.g. "MSTeams" 1.0.0.0 of an old profile: still under S-1-..., but no longer installed)
+  $mxEol = @{}
+  foreach ($e in @(Get-ChildItem ($au + '\EndOfLife') -ErrorAction SilentlyContinue)) {
+    foreach ($ek in @(Get-ChildItem $e.PSPath -ErrorAction SilentlyContinue)) { $mxEol[$ek.PSChildName] = 1 }
+  }
   $mx = foreach ($grp in @(Get-ChildItem $au -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -match '^(Applications|S-1-.*)$' })) {
     foreach ($k in @(Get-ChildItem $grp.PSPath -ErrorAction SilentlyContinue)) {
       $fn = $k.PSChildName
       if ($fn -notmatch '^([A-Za-z0-9.\-]+)_(\d+(?:\.\d+){1,3})_([A-Za-z0-9]*)_~?_([a-z0-9]+)$') { continue }
       $nm = $matches[1]; $ver = $matches[2]; $ar = $matches[3]; $pubId = $matches[4]
       if ($nm -match '^Microsoft\.(VCLibs|NET\.|UI\.Xaml|WindowsAppRuntime|WinAppRuntime|Services\.Store\.Engagement|Advertising\.|DirectXRuntime)') { continue }
+      if ($mxEol.ContainsKey($fn)) { continue }
       if ($mxSeen.ContainsKey($nm + '_' + $ver)) { continue }
       $mxSeen[$nm + '_' + $ver] = 1
       $pv = Get-ItemProperty -LiteralPath $k.PSPath -ErrorAction SilentlyContinue
@@ -252,6 +259,13 @@ try {
       if (-not $mp) { $mp = $env:ProgramFiles + '\WindowsApps\' + $fn + '\AppxManifest.xml' }
       # 2.41.2: manifest outside WindowsApps/SystemApps = sparse package or registered from a folder - not a separate program
       if ($mp -notmatch '[\\/](WindowsApps|SystemApps)[\\/]') { continue }
+      # 2.41.3: package folder gone = not installed (registry leftover). Only "not found" counts - with
+      # "access denied" the package is kept (name from the registry)
+      if (-not (Test-Path -LiteralPath $mp)) {
+        $gone = $false
+        try { $null = Get-Item -LiteralPath $mp -Force -ErrorAction Stop } catch { $gone = ("" + $_.FullyQualifiedErrorId) -match 'PathNotFound' }
+        if ($gone) { continue }
+      }
       $dn = $nm; $pub = ''; $fw = $false
       try {
         if (Test-Path -LiteralPath $mp) {
