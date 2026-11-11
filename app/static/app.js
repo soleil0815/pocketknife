@@ -787,7 +787,8 @@ function modal(title, body, buttons = [], opt = {}) {
   const esc = async (e) => {
     if (e.key !== 'Escape' || root.lastChild !== bd || ctxMenu || openMenu) return;
     if (e.target && e.target.closest && e.target.closest('.cmenu, .tmenu')) return;
-    if (!opt.sticky) { close(); return; }
+    // 2.39.4: editors that know whether something changed close without asking when nothing did
+    if (!opt.sticky || (opt.dirty && !opt.dirty())) { close(); return; }
     // Editors (sticky): do not accidentally discard all input with Esc
     e.preventDefault();
     if (await confirmDlg('Dialog schließen? Nicht gespeicherte Änderungen gehen verloren.', 'Verwerfen', true)) close();
@@ -809,6 +810,7 @@ function modal(title, body, buttons = [], opt = {}) {
       h('button.ghost', { type: 'button', onclick: close, 'aria-label': 'Schließen' }, icon('x'))),
     h('div.modal-b', body), buttons.length ? foot : null);
   const bd = h('div.backdrop', { onmousedown: (e) => { if (e.target === bd && !opt.sticky) close(); } }, m);
+  if (opt.key) bd.dataset.dlg = opt.key;
   root.appendChild(bd);
   document.addEventListener('keydown', esc);
   const first = m.querySelector('input:not([type=checkbox]),select,textarea');
@@ -1590,11 +1592,12 @@ async function viewComputers(_parts, params) {
     if (r) go(`#/computers?c=${r.id}`);
   };
   // Edit: own ones directly; default/AD collections as a copy in the dialog; OU admin: foreign ones as a copy for their area
-  const openEdit = (c) => {
+  const openEdit = (c, viaDblClick = false) => {
     if (!locked(c)) return collectionDlg(c);
     if (c.builtin && !isOU()) return collectionDlg(c, { copy: true });
-    if (canNew) return duplicate(c);
-    return toast(lockMsg(c), 'err');
+    // 2.39.4: a double-click never creates a copy by itself (each double-click used to add one) – right click does
+    if (canNew && !viaDblClick) return duplicate(c);
+    return toast(canNew ? 'Rechtsklick → „Als Kopie für Ihren Bereich“ legt eine eigene Kopie an.' : lockMsg(c), canNew ? '' : 'err');
   };
   const treeMenu = (c, e) => {
     selId = c ? c.id : null; drawTree();
@@ -1666,7 +1669,7 @@ async function viewComputers(_parts, params) {
       onclick: () => { selId = c.id; if (c.type !== 'folder') go(`#/computers?c=${c.id}`); else { openState[c.id] = !isOpen; saveOpen(); drawTree(); } },
     }, tw, h('span.ic-s', icon(COLL_ICON(c))), h('span.lbl', { class: c.builtin === 1 ? '' : 'raw' }, c.name),
     c.count !== null && c.count !== undefined ? h('span.cnt', num(c.count)) : null);
-    it.addEventListener('dblclick', () => openEdit(c));
+    it.addEventListener('dblclick', () => openEdit(c, true));
     it.addEventListener('contextmenu', (e) => { e.preventDefault(); e.stopPropagation(); treeMenu(c, e); });
     if (!locked(c)) it.addEventListener('dragstart', (e) => { S.dragColl = c.id; try { e.dataTransfer.setData('application/x-pk-collection', String(c.id)); } catch (x) { /* ignore */ } e.dataTransfer.effectAllowed = 'copyMove'; });
     it.addEventListener('dragend', () => { S.dragColl = null; });
@@ -1957,7 +1960,17 @@ function filterEditor(root, schema, cols, selfId, onChange, newCond, emptyText) 
   return { el: box, redraw };
 }
 
+// 2.39.4: one dialog per collection – a second double-click while the dialog is still loading (schema, collections,
+// computer list) opened the same dialog several times on top of each other; closing one left the others behind
+const COLL_DLG_LOADING = new Set();
 async function collectionDlg(c, opt = {}) {
+  const dlgKey = c && c.id ? `coll-${c.id}${opt.copy ? '-copy' : ''}` : '';
+  if (dlgKey && (COLL_DLG_LOADING.has(dlgKey) || document.querySelector(`#modal-root [data-dlg="${dlgKey}"]`))) return;
+  if (dlgKey) COLL_DLG_LOADING.add(dlgKey);
+  document.body.classList.add('pk-busy');
+  try { await collectionDlgOpen(c, opt, dlgKey); } finally { COLL_DLG_LOADING.delete(dlgKey); document.body.classList.remove('pk-busy'); }
+}
+async function collectionDlgOpen(c, opt, dlgKey) {
   const [schema, cols] = await Promise.all([collSchema(true), collections()]);
   const isNew = !c || opt.copy || opt.preset;
   const src = c || { name: '', type: opt.type || 'dynamic', filters: { type: 'group', match: 'all', items: [] }, parent_id: opt.parentId || null, description: '' };
@@ -2037,9 +2050,11 @@ async function collectionDlg(c, opt = {}) {
       else go(`#/computers?c=${id}`);
     },
   });
+  const snap = () => JSON.stringify([name.value, type.value, parent.value, desc.value, tree, type.value === 'static' ? [...picker.selected()].sort() : null]);
+  const start = snap();
   modal(isNew ? (opt.copy ? 'Sammlung kopieren' : 'Neue Sammlung') : `Sammlung bearbeiten: ${c.name}`,
     h('div.form', field('Name', name), field('Typ', type), field('Ablegen in', parent, 'Unter einer Sammlung (nicht Ordner) enthält eine dynamische Sammlung nur Computer der übergeordneten Sammlung.'),
-      field('Beschreibung', desc), dyn, stat), buttons, { wide: true, sticky: true, help: "collections" });
+      field('Beschreibung', desc), dyn, stat), buttons, { wide: true, sticky: true, help: "collections", key: dlgKey, dirty: () => snap() !== start });
 }
 
 // ---------------------------------------------------------------------------

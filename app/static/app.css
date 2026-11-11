@@ -729,3 +729,6 @@ tr.dropto td { background: var(--sel); box-shadow: inset 0 2px 0 var(--accent), 
 fieldset.ro { border: 0; padding: 0; margin: 0; min-width: 0; }
 fieldset.ro input, fieldset.ro select, fieldset.ro textarea, fieldset.ro button { cursor: default; }
 .note.info { padding: 8px 12px; border-radius: 6px; background: var(--info-soft); border: 1px solid var(--info); font-size: 13px; }
+
+/* 2.39.4: a dialog is loading (e.g. collection with its computer list) - visible feedback instead of clicking again */
+body.pk-busy, body.pk-busy * { cursor: progress !important; }
