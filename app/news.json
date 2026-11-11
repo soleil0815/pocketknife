@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.39.1",
+   "date": "2026-11-11",
+   "items": [
+    {
+     "kind": "fixed",
+     "audience": "admin",
+     "de": "Wiederholen nach einer Paketänderung nimmt jetzt immer den aktuellen Stand des Pakets mit allen Einstellungen – auch wenn die Bereitstellung schon vorher geöffnet war.",
+     "en": "Retrying after a package change now always uses the current state of the package with all settings – also if the deployment was already open before."
+    }
+   ]
+  },
+  {
    "version": "2.39.0",
    "date": "2026-11-10",
    "items": [

@@ -679,9 +679,9 @@ def package_changed(d):
 
 
 def source_package(d, current=False):
-    """Package for a retry: the state of this deployment (default) - or, with current, the current state
-    of the package if it was changed since. If the deployment itself was already a slice (individual steps
-    retried), it stays a slice: from the current package only these steps."""
+    """Package for a retry: the state of this deployment - or, with current (the default in the interface since 2.39.1),
+    the current state of the package with ALL its settings if it was changed since. If the deployment itself was
+    already a slice (individual steps retried), it stays a slice: from the current package only these steps."""
     from . import steps
     snap = json.loads(d["package_json"] or "{}")
     if not current or not package_changed(d):
@@ -693,7 +693,7 @@ def source_package(d, current=False):
         # what was enabled in the slice stays enabled (disabled steps do not suddenly run too)
         keep = {st.get("id"): st.get("enabled", True) is not False for _ph, st in steps.iter_steps(steps.normalize(snap))}
         cur = dict(cur, steps={ph: [dict(st, enabled=keep[st.get("id")]) for st in cur["steps"].get(ph) or [] if st.get("id") in keep]
-                               for ph, _l in steps.PHASES}, reboot=snap.get("reboot", cur.get("reboot")), slice=True)
+                               for ph, _l in steps.PHASES}, slice=True)  # 2.39.1: reboot etc. from the current package too
         if not any(cur["steps"].values()):
             raise ValueError("Die wiederholten Schritte gibt es im geänderten Paket nicht mehr – bitte das Paket neu "
                              "bereitstellen.")

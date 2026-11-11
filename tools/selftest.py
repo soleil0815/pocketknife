@@ -6464,8 +6464,8 @@ def _():
         db.ex("DELETE FROM packages WHERE id=?", (pid,))
         db.ex("DELETE FROM computers WHERE id=?", (c,))
     js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
-    assert js.count("current: !!RERUN_CUR[") == 4 and "/steps${RERUN_CUR[did] ? '?current=1' : ''}" in js
-    assert "if (!(id in RERUN_CUR)) RERUN_CUR[id] = !!d.package_changed;" in js
+    # 2.39.1: all four retry paths send the remembered choice (null = server decides: current state)
+    assert js.count("current: rerunCur(") == 4 and "/steps?current=${rerunCur(did) === false ? 0 : 1}" in js
 
 
 @test("2.35.1 winget cache everywhere: winget step on computers without winget runs from the cache (packages, schedules, kiosk), set cache on the package page and in the package")
@@ -7999,6 +7999,43 @@ def _():
     assert "Standard ist das Dienstkonto" not in js
     src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "steps.py"), encoding="utf-8").read()
     assert "Mandantenpaket – läuft als Lokales System" not in src and "winget läuft als Lokales System, weil" not in src, "no silent switching"
+
+
+@test("2.39.1 Retry after a package change always takes the current state with all settings; only an explicit choice for exactly that package state keeps the old one")
+def _():
+    import json as _j
+    from app import deploy, main as _m, steps as stp
+    assert _m._rerun_current({}) is True and _m._rerun_current({"current": None}) is True, "missing = current state"
+    assert _m._rerun_current({"current": False}) is False and _m._rerun_current({"current": True}) is True
+    st_a = {"id": "ra", "type": "command", "command": "whoami", "title": "A"}
+    old = stp.clean_package({"name": "RR239", "reboot": "never", "steps": {"main": [st_a]}})
+    cur = stp.clean_package({"name": "RR239", "reboot": "always", "run_as": "user", "timeout_min": 7, "steps": {"main": [st_a]}})
+    for x in (old, cur):
+        x["steps"], x["conditions"] = _j.dumps(x["steps"]), _j.dumps(x["conditions"])
+    pid = db.ex(f"INSERT INTO packages({', '.join(deploy.PKG_FIELDS)}, created_at, updated_at) VALUES({', '.join('?' * len(deploy.PKG_FIELDS))}, ?, ?)",
+                tuple(cur[k] for k in deploy.PKG_FIELDS) + ("2026-10-01 10:00:00", "2026-10-02 10:00:00"))
+    snap = dict(deploy.row_to_package(dict(old, id=pid)), slice=True)
+    did = db.ex("INSERT INTO deployments(name, package_id, package_json, status, created_at) VALUES('RR239', ?, ?, 'failed', '2026-10-01 12:00:00')",
+                (pid, _j.dumps(snap)))
+    made = []
+    oc = deploy.create
+    deploy.create = lambda pkg, ids, user, *a, **k: (made.append(pkg) or 4712)
+    try:
+        # API without "current" (e.g. retry from a computer's page): current state
+        _m.api_deployment_redeploy(did, {"failed_only": False}, {"username": "haupt", "scope": None})
+        p = made[-1]
+        assert p["run_as"] == "user" and p["timeout_min"] == 7, "all settings of the changed package"
+        assert p["reboot"] == "always" and p.get("slice"), "slice stays a slice but takes the current reboot setting"
+        _m.api_deployment_redeploy(did, {"failed_only": False, "current": False}, {"username": "haupt", "scope": None})
+        assert made[-1]["reboot"] == "never" and made[-1].get("run_as") != "user", "explicit choice: state of the deployment"
+    finally:
+        deploy.create = oc
+        db.ex("DELETE FROM deployments WHERE id=?", (did,))
+        db.ex("DELETE FROM packages WHERE id=?", (pid,))
+    js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
+    assert "if (!(id in RERUN_CUR))" not in js, "no stale value from an earlier visit"
+    assert "RERUN_CUR[id] = !!d.package_changed && (pick && pick.stamp === d.package_changed ? pick.v : true);" in js
+    assert "RERUN_PICK[id] = { v: RERUN_CUR[id], stamp: d.package_changed }" in js
 
 
 @test("2.22 Self-test: diagnostic package test does not use fixed dates (time bomb once outside the 30-day window)")
