@@ -2,6 +2,14 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.44.3 (11.11.2026)
+- **Fix - Office LTSC 2024 stayed "aktuell" although Microsoft has a newer build:** the scan only recognised the update channel by a GUID in UpdateChannel (or CDNBaseUrl if empty). With Office updating from a network share or without UpdateChannel, the installation landed in "unbekannter Kanal" and was only compared with the own environment (e.g. 16.0.17932.21056 "aktuell" although 16.0.17932.21140 is out since 10.11.)
+  - the channel now also comes from CDNBaseUrl, AudienceId and AudienceData ("Production::LTSC2024", "Production::MEC" ...); the scan reads these values (next computer scan)
+  - right away, without a new scan: volume products of Office 2019/LTSC 2021/LTSC 2024 have exactly one channel and are assigned to it - "Jetzt neu berechnen" is enough
+- **Diagnostic package:** new files `leistung.json` (CPU load and peaks, duration of the main queries, slowest collections, largest fields of the computer table - names and sizes only) and `update_status.json` (Microsoft data, statuses, Office installations per product/channel/version, no computer names) - this would have shown the two problems of today at once
+- Help (de/en) and manual PDFs updated
+- **Self-test:** diagnostic package contains both files, anonymized, no field contents; channel from UNC update path + CDNBaseUrl, AudienceId, AudienceData, perpetual volume products, Microsoft 365 without channel stays unknown, the reported case 21056 vs. 21140
+
 ## pocketknife-2.44.2 (11.11.2026)
 - **Fix - dashboard, computer list and dynamic collections very slow (since 2.41.3):** the MSIX filter of 2.41.3 used `$e` as a loop variable - the name of the scan's extras. On computers with removed apps under "EndOfLife" the extras were replaced by a Windows registry object, about 35 MB per computer. Every query over computers read it: counting one collection took 250-300 ms with 39 computers, the collection tree more than 6 seconds
   - the scan module uses its own variable again

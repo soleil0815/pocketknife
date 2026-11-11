@@ -153,7 +153,10 @@ PKX 'office_c2r' {
   if ($o -and $o.VersionToReport) {
     $ch = "" + $o.UpdateChannel
     if (-not $ch) { $ch = "" + $o.CDNBaseUrl }
-    [ordered]@{ version = "" + $o.VersionToReport; channel = $ch; products = "" + $o.ProductReleaseIds; platform = "" + $o.Platform }
+    # 2.44.3: UpdateChannel can be a network share (UpdatePath) or empty - the channel is then in CDNBaseUrl,
+    # AudienceId (GUID) or AudienceData (e.g. "Production::LTSC2024")
+    [ordered]@{ version = "" + $o.VersionToReport; channel = $ch; products = "" + $o.ProductReleaseIds; platform = "" + $o.Platform
+                cdn = "" + $o.CDNBaseUrl; audience_id = "" + $o.AudienceId; audience = "" + $o.AudienceData }
   }
 }
 # 2.34: virtual machine? Manufacturer/model/BIOS reveal the hypervisor (HypervisorPresent alone does not – it is also true

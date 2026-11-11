@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.44.3",
+   "date": "2026-11-11",
+   "items": [
+    {
+     "kind": "fixed",
+     "audience": "all",
+     "de": "Office-Update-Status: Der Update-Kanal wird jetzt auch erkannt, wenn Office aus einer Netzwerkfreigabe aktualisiert wird – Office LTSC 2024/2021/2019 wird damit korrekt mit Microsofts aktuellem Build verglichen.",
+     "en": "Office update status: the update channel is now also recognised when Office updates from a network share – Office LTSC 2024/2021/2019 is thus compared correctly with Microsoft's current build."
+    }
+   ]
+  },
+  {
    "version": "2.44.2",
    "date": "2026-11-11",
    "items": [
