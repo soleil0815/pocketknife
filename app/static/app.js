@@ -4022,6 +4022,25 @@ async function packageDlg(pidOrPkg, preset = {}) {
       field('Bei Fehler', sl(st, 'on_error', [['stop', 'Paket anhalten (Abschluss-Schritte laufen trotzdem)'], ['continue', 'Mit dem nächsten Schritt weitermachen']])),
       field('Zeitlimit (Min.)', inp(st, 'timeout_min', { type: 'number', min: 0, style: { maxWidth: '120px' } }), '0 = Zeitlimit des Pakets.'));
   }
+  // 2.41.1: "Für Updates verwenden" - winget IDs whose updates run with this package (same as "Update-Paket" in Software)
+  if (!Array.isArray(p.update_for)) p.update_for = [];
+  function updateForBox() {
+    const box = h('div');
+    const draw = () => {
+      const has = (w) => p.update_for.some((x) => x.toLowerCase() === w.toLowerCase());
+      const add = (w) => { if (w && !has(w)) { p.update_for.push(w); draw(); } };
+      const own = [...new Set(PH.flatMap(([k]) => p.steps[k]).filter((st) => isWingetStep(st) && st.winget_id).map((st) => st.winget_id))].filter((w) => !has(w));
+      box.replaceChildren(
+        h('div.pick-chips', p.update_for.length ? p.update_for.map((w) => h('span.chip', h('span.raw.mono', w),
+          h('button', { type: 'button', title: tr('Entfernen'), onclick: () => { p.update_for = p.update_for.filter((x) => x !== w); draw(); } }, '×')))
+          : [h('span.muted.small', 'Keine – Updates laufen mit winget upgrade bzw. winget-Cache')]),
+        h('div.row', { style: { marginTop: '6px', gap: '6px', flexWrap: 'wrap' } },
+          btn('winget-ID hinzufügen …', () => wingetPicker((id) => add(id)), { cls: 'small', icon: 'plus' }),
+          ...own.map((w) => btn(fmtT('{0} (aus den Schritten)', w), () => add(w), { cls: 'small ghost', icon: 'plus' }))));
+    };
+    draw();
+    return box;
+  }
   function drawPanel() {
     curStep = null; pvBox = null;
     if (selKey === 'props') {
@@ -4041,7 +4060,9 @@ async function packageDlg(pidOrPkg, preset = {}) {
           'Windows-Benachrichtigung für den angemeldeten Benutzer nach erfolgreicher Installation/Aktualisierung („… wurde installiert.“). „Immer“ meldet auch reine Skript-Pakete.'),
         field('Danach scannen', sel([['', 'Anwendungen (Standard)'], ...meta.profiles.filter((x) => x.name !== 'Anwendungen').map((x) => [x.id, x.name, true]), ['none', 'Nicht scannen']],
           !p.rescan ? 'none' : (p.rescan_profile_id || ''), { onchange: (e) => { p.rescan = e.target.value === 'none' ? 0 : 1; p.rescan_profile_id = e.target.value && e.target.value !== 'none' ? Number(e.target.value) : null; } }),
-        'Nach jeder Installation oder Deinstallation wird der Computer mit diesem Scanprofil neu inventarisiert.')),
+        'Nach jeder Installation oder Deinstallation wird der Computer mit diesem Scanprofil neu inventarisiert.'),
+        isOU() ? null : field('Für Updates verwenden', updateForBox(),
+          'Updates dieser winget-IDs (Auto-Update-Zeitpläne, „Aktualisieren“, „Veraltete aktualisieren“) laufen mit diesem Paket – alle Schritte im aktuellen Stand – statt mit winget upgrade bzw. winget-Cache. Dieselbe Einstellung wie „Update-Paket“ in den Software-Details; wirksam beim Speichern. Nicht bei Paketen eines Mandanten.')),
         igBad ? null : igBox);
       return;
     }
@@ -8704,6 +8725,11 @@ setInterval(async () => {
   } catch (e) { /* signed out or network error */ } finally { IDLE.checking = false; }
 }, 15000);
 
+// 2.41.1: a double-click on a link that opens a dialog (program, package, schedule, profile …) clicked it twice and
+// opened the dialog twice on top of each other - the second click of a double-click is ignored for these links
+document.addEventListener('click', (e) => {
+  if (e.detail > 1 && e.target && e.target.closest && e.target.closest('a[href="#"]')) { e.preventDefault(); e.stopPropagation(); }
+}, true);
 window.addEventListener('hashchange', route);
 (async function init() {
   setTheme(localStorageGet('pk-theme'));

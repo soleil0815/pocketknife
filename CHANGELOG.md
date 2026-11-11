@@ -2,6 +2,11 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.41.1 (11.11.2026)
+- **New - "Für Updates verwenden" in the package editor:** under "Paket-Eigenschaften", main admins see and edit the winget IDs whose updates run with this package - add via the winget catalog search or with one click from the package's own winget steps, remove with ×; takes effect when saving. It is the same setting as "Update-Paket" in the software details, so both places always show the same state. A package can serve several winget IDs; adding a winget ID to another package moves it there. Not for tenant packages (checked before saving); OU admins neither see nor change it
+- **Fix:** a double-click on a name link (package, schedule, scan profile, scanner, tenant …) opened its dialog twice on top of each other - the second click of a double-click is now ignored for these links (2.41.0 only fixed the software list)
+- **Self-test:** both directions, moving a winget ID, duplicates, invalid IDs, tenant packages, OU admins
+
 ## pocketknife-2.41.0 (11.11.2026)
 - **New - own update package per winget ID:** in a program's details (double-click), "Update-Paket" lets main admins choose an own package. Updates of this winget ID - Auto-Update schedules, "Aktualisieren", "Veraltete aktualisieren" and deploying with action "upgrade" - then run with this package instead of `winget upgrade` or the winget cache: all steps in their current state (e.g. first `winget uninstall … --all-versions`, then install cleanly). Without a selection the standard applies again
 - **Rules:** only packages without a tenant; a package used this way cannot be deleted until it is switched back; if it later belongs to a tenant, the standard applies and the details say so. Changes are logged
