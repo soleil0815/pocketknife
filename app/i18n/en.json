@@ -5876,5 +5876,14 @@
  "Zusatzdaten von {0} bereinigt: {1} KB → {2} KB ({3}). Der nächste Scan füllt fehlende Werte wieder.": "Extra data of {0} cleaned up: {1} KB → {2} KB ({3}). The next scan fills in missing values again.",
  "Zusatzdaten zu groß und verworfen: {0}": "Extra data too large and discarded: {0}",
  "Zusatzdaten nicht bereinigt: {0}": "Extra data not cleaned up: {0}",
- "PRAGMA table_info(computers)": null
+ "PRAGMA table_info(computers)": null,
+ "CASE WHEN COALESCE(json_extract(extra, '$.winget'), '') = '' THEN 'fehlt' ELSE 'vorhanden' END": null,
+ "^\\s*([A-Za-z_][\\w ]{0,30}):\\s*(.*)$": null,
+ "{0} {1} MB": null,
+ "Sitzungsende": null,
+ "ohne Eingabe": null,
+ "Ungewöhnlich große Scan-Ergebnisse: {0}": "Unusually large scan results: {0}",
+ "Admin": "Admin",
+ "Benutzer/Verbindung": "User/connection",
+ "Inaktivität": "Inactivity"
 }

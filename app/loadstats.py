@@ -37,7 +37,7 @@ class task:
         self.c, self.w = cpu(), time.time()
         return self
 
-    def __exit__(self, *_exc):
+    def __exit__(self, exc_type, exc, _tb):
         dc, dw = max(0.0, cpu() - self.c), max(0.0, time.time() - self.w)
         with _lock:
             s = _tasks.setdefault(self.key, {"runs": 0, "wall": 0.0, "cpu": 0.0, "last_cpu": 0.0, "last_at": None})
@@ -46,7 +46,45 @@ class task:
             s["cpu"] += dc
             s["last_cpu"] = dc
             s["last_at"] = util.now()
+            s["last_wall"] = round(dw, 1)       # 2.44.4: duration of the last run (diagnostic package)
+            if exc_type is not None:
+                s["errors"] = s.get("errors", 0) + 1
+                s["last_error"] = f"{util.now()}: {str(exc)[:300]}"
         return False
+
+
+_dur: dict = {}          # 2.44.4: path -> {"n", "total", "max", "recent": [ms ...]} - duration of the requests since start
+DUR_KEEP = 200
+
+
+def request_done(path, ms):
+    """Duration of one finished request (milliseconds) - for the diagnostic package."""
+    key = _NUM.sub("/{id}", path or "")
+    with _lock:
+        d = _dur.get(key)
+        if d is None:
+            if len(_dur) >= 400:      # never grow without limit (unusual paths)
+                return
+            d = _dur[key] = {"n": 0, "total": 0.0, "max": 0.0, "recent": []}
+        d["n"] += 1
+        d["total"] += ms
+        d["max"] = max(d["max"], ms)
+        d["recent"].append(ms)
+        if len(d["recent"]) > DUR_KEEP:
+            del d["recent"][:len(d["recent"]) - DUR_KEEP]
+
+
+def durations(top=25):
+    """Slowest paths by 95th percentile of the recent requests: [{path, n, median, p95, max, avg}]."""
+    with _lock:
+        items = [(k, dict(v, recent=list(v["recent"]))) for k, v in _dur.items()]
+    out = []
+    for k, v in items:
+        r = sorted(v["recent"]) or [0]
+        out.append({"path": k, "n": v["n"], "median": round(r[len(r) // 2]), "p95": round(r[min(len(r) - 1, int(len(r) * 0.95))]),
+                    "max": round(v["max"]), "avg": round(v["total"] / v["n"]) if v["n"] else 0})
+    out.sort(key=lambda x: -x["p95"])
+    return out[:top]
 
 
 def request(path):

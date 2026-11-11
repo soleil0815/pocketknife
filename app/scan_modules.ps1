@@ -134,6 +134,8 @@ PKX 'product_type' { $os.ProductType }
 # 2.40: update status - edition (LTSC = EnterpriseS), Office Click-to-Run with version and update channel
 PKX 'os_edition' { $cv.EditionID }
 PKX 'os_install_type' { $cv.InstallationType }
+# 2.44.4: language mode of PowerShell on the client (ConstrainedLanguage = software restriction/AppLocker active)
+PKX 'ps_language' { "" + $ExecutionContext.SessionState.LanguageMode }
 # 2.43: Windows 10 Extended Security Updates - highest licensed ESU year (activation IDs from Microsoft, same for
 # every edition); only on Windows 10 22H2/21H2 outside LTSC, filtered by ID (the unfiltered class is very slow)
 PKX 'os_esu' {

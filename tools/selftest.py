@@ -8977,6 +8977,72 @@ def _():
             db.ex("DELETE FROM computers WHERE id=?", (i,))
 
 
+@test("2.44.4 Diagnostic package: request durations since start, scan sizes per area (warning for huge parts), database per table, remote sessions, background task errors, daily runs, scan errors per area, winget assignment, clients (PowerShell, language mode, winget)")
+def _():
+    import io as _io
+    import zipfile as _zf
+    from app import diagnostics, inventory, loadstats, remote_desktop as rd
+    # request durations
+    for ms in (10, 20, 30, 4000):
+        loadstats.request_done("GET /api/computers/17", ms)
+    d = {x["path"]: x for x in loadstats.durations(400)}["GET /api/computers/{id}"]
+    assert d["n"] >= 4 and d["max"] >= 4000 and d["p95"] >= 30, d
+    # background task with an error
+    try:
+        with loadstats.task("diagtest"):
+            raise RuntimeError("kaputt 42")
+    except RuntimeError:
+        pass
+    assert loadstats._tasks["diagtest"]["errors"] >= 1 and "kaputt 42" in loadstats._tasks["diagtest"]["last_error"]
+    ids = []
+    try:
+        cid = db.ex("INSERT INTO computers(name, last_scan, extra) VALUES('DIAG-PC-9', ?, ?)",
+                    (util.now(), json.dumps({"ps_version": "5.1.19041.1", "ps_language": "ConstrainedLanguage", "winget": "1.9"})))
+        ids.append(cid)
+        # scan sizes per area, warning for a huge part
+        big = {"extra": {"x": "y" * (inventory.SCAN_PART_WARN + 10)}, "software": [{"name": "a"}]}
+        inventory.note_scan_size(cid, "DIAG-PC-9", big, 6 * 1024 * 1024)
+        assert inventory.scan_sizes()["extra"]["max_kb"] > 5000 and inventory.scan_sizes()["extra"]["max_computer"] == "DIAG-PC-9"
+        assert db.val("SELECT COUNT(*) FROM logs WHERE computer_id=? AND message LIKE 'Ungewöhnlich große Scan-Ergebnisse: extra%'", (cid,)) == 1
+        db.ex("INSERT INTO scan_history(computer_id, ts, status, duration_ms, warnings) VALUES(?,?,?,?,?)",
+              (cid, util.now(), "OK", 100, "msix: Zugriff verweigert; Software: Registry nicht lesbar"))
+        # a finished remote session
+        sess = rd.Session({"user": "u", "computer": "DIAG-PC-9", "computer_id": cid, "protocol": "rdp", "login": ""}, None)
+        sess.started -= 3600
+        sess.last_input -= 1900
+        sess.closed_by = "POCKET KNIFE nach 30 Minuten ohne Eingabe"
+        rd.note_ended(sess)
+        assert rd.history()["ended_by"].get("Inaktivität", 0) >= 1
+        z = _zf.ZipFile(_io.BytesIO(diagnostics.build(days=1, anonymize=True)[0]))
+        perf = json.loads(z.read("leistung.json"))
+        assert "error" not in perf, perf
+        for k in ("requests_since_start_ms", "scan_sizes_since_start", "database", "remote_sessions", "background_tasks", "daily"):
+            assert k in perf, k
+        assert any(x["path"] == "GET /api/computers/{id}" for x in perf["requests_since_start_ms"])
+        assert perf["scan_sizes_since_start"]["extra"]["max_computer"] != "DIAG-PC-9", "anonymized"
+        assert "tables_kb" in perf["database"] or "table_rows" in perf["database"]
+        assert perf["background_tasks"]["diagtest"]["errors"] >= 1
+        inv = json.loads(z.read("inventar.json"))
+        assert "error" not in inv, inv
+        assert inv["scan_errors_by_area"]["msix"]["count"] >= 1 and "Software" in inv["scan_errors_by_area"]
+        assert inv["clients"]["language_mode"].get("ConstrainedLanguage", 0) >= 1 and inv["clients"]["winget"].get("vorhanden", 0) >= 1
+        assert {"software_rows", "assigned", "assigned_sure", "outdated", "msix"} <= set(inv["winget"])
+        raw = (z.read("leistung.json") + z.read("inventar.json")).decode()
+        assert "DIAG-PC-9" not in raw, "computer names anonymized"
+        assert "inventar.json" in z.read("LIESMICH.txt").decode()
+    finally:
+        loadstats._tasks.pop("diagtest", None)
+        for i in ids:
+            db.ex("DELETE FROM scan_history WHERE computer_id=?", (i,))
+            db.ex("DELETE FROM logs WHERE computer_id=?", (i,))
+            db.ex("DELETE FROM computers WHERE id=?", (i,))
+    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "scan_modules.ps1"), encoding="utf-8").read()
+    assert "PKX 'ps_language' { \"\" + $ExecutionContext.SessionState.LanguageMode }" in src
+    assert "ps_language" in inventory.MODULE_EXTRA["computer"]
+    msrc = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "main.py"), encoding="utf-8").read()
+    assert "loadstats.request_done(" in msrc
+
+
 @test("2.22 Self-test: diagnostic package test does not use fixed dates (time bomb once outside the 30-day window)")
 def _():
     import inspect

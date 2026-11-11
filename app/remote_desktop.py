@@ -345,6 +345,36 @@ def idle_limit():
         return 0
 
 
+# 2.44.4: finished sessions since start (diagnostic package): protocol, duration, data, why it ended
+_ended: list = []
+
+
+def note_ended(sess):
+    by = str(sess.closed_by or "")
+    kind = "Inaktivität" if "ohne Eingabe" in by else "Abmeldung" if by.startswith("Sitzungsende") else \
+        "Admin" if by else "Benutzer/Verbindung"
+    with _slock:
+        _ended.append({"protocol": sess.t.get("protocol"), "minutes": round((time.time() - sess.started) / 60, 1),
+                       "mb": round((sess.bytes_in + sess.bytes_out) / 1048576, 1),
+                       "idle_minutes_at_end": round((time.time() - sess.last_input) / 60, 1), "ended_by": kind})
+        del _ended[:-200]
+
+
+def history():
+    """Summary of the finished and the open sessions."""
+    with _slock:
+        ended = list(_ended)
+        open_ = [s.info() for s in _sessions.values()]
+    by: dict = {}
+    for e in ended:
+        by[e["ended_by"]] = by.get(e["ended_by"], 0) + 1
+    return {"open": [{"protocol": o["protocol"], "minutes": round(o["seconds"] / 60, 1), "mb": round(o["bytes"] / 1048576, 1),
+                      "idle_minutes": round(o["idle_seconds"] / 60, 1)} for o in open_],
+            "ended": len(ended), "ended_by": by,
+            "minutes_total": round(sum(e["minutes"] for e in ended)), "mb_total": round(sum(e["mb"] for e in ended)),
+            "longest": sorted(ended, key=lambda e: -e["minutes"])[:10]}
+
+
 def active():
     with _slock:
         return [s.info() for s in _sessions.values()]
@@ -535,6 +565,7 @@ async def tunnel(ws, token_hash):
         except Exception:
             pass
         mins = (time.time() - sess.started) / 60
+        note_ended(sess)
         pklog.info("remote", f"{PROTOCOLS[t['protocol']]}-Sitzung zu {t['computer']} beendet nach {mins:.0f} Min."
                    + (f" (getrennt von {sess.closed_by})" if sess.closed_by else ""), user=t["user"],
                    computer_id=t["computer_id"])
