@@ -557,7 +557,7 @@ Aktionen direkt beim Computer:
 | Dienste | Starten, Stoppen, Neu starten, Starttyp ändern |
 | Prozesse | Live laden und beenden |
 | Übersicht → Kennwörter & Schlüssel | LAPS-Kennwort und BitLocker-Wiederherstellungsschlüssel anzeigen (jeder Abruf wird protokolliert) |
-| Kopfzeile | Scannen, Bereitstellen, Tools, Remotedesktop |
+| Kopfzeile | Scannen, Bereitstellen, Verbindung testen, Remotedesktop, VNC (ab 2.39.6), Tools |
 
 # Scanprofile und Scanner {#scanning}
 

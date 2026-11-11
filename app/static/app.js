@@ -2378,7 +2378,9 @@ async function viewComputer(parts, params) {
         const r = await run(() => POST(`/api/computers/${id}/test`));
         if (r) showOutput('Verbindungstest', Object.entries(r).map(([k, v]) => `${k}: ${v}`).join('\n'));
       }, { icon: 'plug' }),
-      btn('Remotedesktop', () => openRemote([{ id, name: c.name }], 'rdp'), { icon: 'monitor', title: 'RDP-Sitzung im Browser (VNC unter Tools)' }), more));
+      btn('Remotedesktop', () => openRemote([{ id, name: c.name }], 'rdp'), { icon: 'monitor', title: 'RDP-Sitzung im Browser' }),
+      // 2.39.6: VNC right next to it (before only under Tools) – e.g. TightVNC with the central VNC password from the settings
+      btn('VNC', () => openRemote([{ id, name: c.name }], 'vnc'), { icon: 'monitor', title: 'VNC-Sitzung im Browser (zentrales VNC-Kennwort unter Einstellungen → Fernsitzungen)' }), more));
 
   const link = (k) => () => go(`#/computer/${id}?cat=${k}`);
   const nav = h('nav.pc-nav', PC_CATS.map(([k, label, ic, ck]) => {

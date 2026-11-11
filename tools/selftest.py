@@ -8168,6 +8168,23 @@ def _():
     assert "body.pk-busy, body.pk-busy * { cursor: progress !important; }" in css
 
 
+@test("2.39.6 Computer page: VNC button right next to Remote Desktop (central VNC password, same rights and log as RDP)")
+def _():
+    from app import access, remote_desktop
+    js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
+    i = js.index("btn('Remotedesktop', () => openRemote([{ id, name: c.name }], 'rdp')")
+    nxt = js[i:i + 600]
+    assert "btn('VNC', () => openRemote([{ id, name: c.name }], 'vnc')" in nxt, "VNC directly after Remote Desktop"
+    assert remote_desktop.DEFAULT_PORTS["vnc"] == 5900 and "vnc" in remote_desktop.PROTOCOLS
+    # the central password is stored encrypted, never in plain text
+    remote_desktop.set_vnc_password("geheim12")
+    try:
+        assert "geheim12" not in (db.setting_raw("vnc_password") or "") and remote_desktop.vnc_password() == "geheim12"
+    finally:
+        remote_desktop.set_vnc_password("")
+    assert ("POST", "/api/remote/connect") in access.ROUTES or any(r[1] == "/api/remote/connect" for r in access.ROUTES), "same route as RDP"
+
+
 @test("2.22 Self-test: diagnostic package test does not use fixed dates (time bomb once outside the 30-day window)")
 def _():
     import inspect

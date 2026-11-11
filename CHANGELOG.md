@@ -2,6 +2,10 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.39.6 (11.11.2026)
+- **New - "VNC" button on the computer page:** right next to "Remotedesktop" (before only under Tools → "VNC im Browser"). Opens the VNC session in the browser with the central VNC password from Settings → Fernsitzungen (stored encrypted, never sent to the browser) - e.g. for a TightVNC that is distributed as a package with this password. Same rights and log entry as Remote Desktop
+- **Self-test:** button position, central password encrypted
+
 ## pocketknife-2.39.5 (11.11.2026)
 - **Changed - file explorer: "Ausgeblendete Elemente" as in the Windows Explorer:** one checkbox in the toolbar (off by default, remembered by the browser) hides hidden folders and files and now also entries without access (pagefile.sys, hiberfil.sys, swapfile.sys, DumpStack.log.tmp …). Ticked, everything is shown, hidden entries dimmed. The number of hidden entries stays visible at the top right
 - **Self-test:** filter including entries without access, default off, dimmed display
