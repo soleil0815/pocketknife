@@ -31,6 +31,21 @@ RANK = {"ohne Support": 3, "veraltet": 2, "unbekannt": 1, "aktuell": 0}
 MSRC_UPDATES = "https://api.msrc.microsoft.com/cvrf/v3.0/updates"
 FIXED_RX = re.compile(r"^\s*10\.0\.(\d{4,6})\.(\d{1,6})\s*$")
 MAX_DOC = 80 * 1024 * 1024
+# 2.44: Microsoft's release data of the Microsoft 365 Apps / Office LTSC update channels (current build of every
+# supported version per channel, release date, end of support of the version)
+OFFICE_RELEASES = "https://clients.config.office.net/releases/v1.0/OfficeReleases"
+OFFICE_CHANNEL_IDS = {   # channelId of the feed (also old names) -> channel name as in CHANNELS
+    "current": "Current Channel", "monthly": "Current Channel", "production": "Current Channel",
+    "currentpreview": "Current Channel (Preview)", "firstreleasecurrent": "Current Channel (Preview)",
+    "monthlyenterprise": "Monthly Enterprise Channel",
+    "semiannual": "Semi-Annual Enterprise Channel", "deferred": "Semi-Annual Enterprise Channel",
+    "semiannualpreview": "Semi-Annual Enterprise Channel (Preview)", "firstreleasedeferred": "Semi-Annual Enterprise Channel (Preview)",
+    "betachannel": "Beta Channel", "beta": "Beta Channel", "insiderfast": "Beta Channel",
+    "perpetualvl2019": "Office 2019 Perpetual (PerpetualVL2019)",
+    "perpetualvl2021": "Office LTSC 2021 (PerpetualVL2021)",
+    "perpetualvl2024": "Office LTSC 2024 (PerpetualVL2024)",
+}
+OFFICE_VER_RX = re.compile(r"^\s*16\.0\.(\d{4,6})\.(\d{1,6})\s*$")
 _lock = threading.Lock()
 
 # --- Microsoft lifecycle (end of support; verify the newest entries once a year) ---------------------------------
@@ -268,6 +283,102 @@ def _compare(kind, key, have):
     return "veraltet", tgt
 
 
+# --- Office: Microsoft's channel data -----------------------------------------------------------------------------
+def _ms_date(v):
+    """Date of the feed as ISO (tolerant: ISO, dd/MM/yyyy, MM/dd/yyyy) - None for empty/"0001-01-01"."""
+    t = str(v or "").strip()
+    m = re.match(r"^(\d{4})-(\d{2})-(\d{2})", t)
+    if m:
+        return None if m.group(1) < "1900" else f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
+    m = re.match(r"^(\d{1,2})[./](\d{1,2})[./](\d{4})", t)
+    if m:
+        a, b, y = int(m.group(1)), int(m.group(2)), m.group(3)
+        day, mon = (b, a) if b > 12 else (a, b)   # day first unless impossible (as documented for the feed)
+        if y < "1900" or not (1 <= mon <= 12 and 1 <= day <= 31):
+            return None
+        return f"{y}-{mon:02d}-{day:02d}"
+    return None
+
+
+def parse_office_releases(doc):
+    """{channel name: {"latest": "16.0.b.r", "versions": {build: {"value", "released", "eos", "name"}}}} from the feed."""
+    items = doc if isinstance(doc, list) else (doc.get("value") or doc.get("releases") or []) if isinstance(doc, dict) else []
+    out: dict[str, dict] = {}
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        cid = re.sub(r"[^a-z0-9]", "", str(it.get("channelId") or it.get("channel") or "").lower())
+        ch = OFFICE_CHANNEL_IDS.get(cid)
+        if not ch:
+            continue
+        ent = out.setdefault(ch, {"latest": "", "versions": {}})
+        lv = str(it.get("latestVersion") or "").strip()
+        if OFFICE_VER_RX.match(lv) and _vkey(lv) > _vkey(ent["latest"]):
+            ent["latest"] = lv
+        for v in it.get("officeVersions") or []:
+            if not isinstance(v, dict):
+                continue
+            m = OFFICE_VER_RX.match(str(v.get("legacyVersion") or ""))
+            if not m:
+                continue
+            b = m.group(1)
+            val = f"16.0.{b}.{m.group(2)}"
+            old = ent["versions"].get(b)
+            if old and _vkey(old["value"]) >= _vkey(val):
+                continue
+            ent["versions"][b] = {"value": val, "released": _ms_date(v.get("availabilityDate")),
+                                  "eos": _ms_date(v.get("endOfSupportDate")), "name": str(v.get("releaseVersion") or "")[:20]}
+            if _vkey(val) > _vkey(ent["latest"]):
+                ent["latest"] = val
+    return {k: v for k, v in out.items() if v["versions"] or v["latest"]}
+
+
+def fetch_office(get=None):
+    """Microsoft's Office channel data -> update_refs (source "ms") + snapshot in the settings. Returns the number of channels."""
+    get = get or _get_json
+    data = parse_office_releases(get(OFFICE_RELEASES))
+    if not data:
+        return 0
+    for ch, ent in data.items():
+        for v in ent["versions"].values():
+            note_ref("office", ch, v["value"], v["released"] or _today(), source="ms")
+    db.ex("INSERT OR REPLACE INTO settings(key, value) VALUES('update_office_ms', ?)",
+          (json.dumps({"at": _today(), "channels": data}, ensure_ascii=False),))
+    return len(data)
+
+
+def _office_ms():
+    try:
+        d = json.loads(db.val("SELECT value FROM settings WHERE key='update_office_ms'") or "{}")
+    except (TypeError, ValueError):
+        return {}
+    if not db.setting("update_msrc"):
+        return {}
+    return d.get("channels") or {}
+
+
+def _compare_office(channel, have, ms=None):
+    """2.44: with Microsoft's channel data the installation is compared within ITS version (build branch, e.g. 17928 =
+    2408 on Semi-Annual) - a version Microsoft no longer supports in this channel is "veraltet" (target: newest of the
+    channel). Without Microsoft data: newest state of the channel in the own environment (as before)."""
+    ms = _office_ms() if ms is None else ms
+    ent = ms.get(channel)
+    m = OFFICE_VER_RX.match(str(have or ""))
+    if not ent or not m:
+        return _compare("office", channel, have)
+    ver = ent["versions"].get(m.group(1))
+    if not ver or (ver.get("eos") and ver["eos"] < _today()):
+        latest = ent.get("latest") or ""
+        return ("veraltet", latest) if latest and _vkey(have) < _vkey(latest) else ("aktuell", latest)
+    cutoff = (datetime.date.today() - datetime.timedelta(days=grace_days())).isoformat()
+    rows = db.q("SELECT value FROM update_refs WHERE kind='office' AND key=? AND released<=? AND value LIKE ?",
+                (channel, cutoff, f"16.0.{m.group(1)}.%"))
+    tgt = max((r["value"] for r in rows), key=_vkey, default=None)
+    if tgt is None or _vkey(have) >= _vkey(tgt):
+        return "aktuell", tgt or ver["value"]
+    return "veraltet", tgt
+
+
 def evaluate(cid):
     """Status of one computer: computers.win_update/office_update and the Office table (inventory_data 'office')."""
     c = db.q1("SELECT * FROM computers WHERE id=?", (cid,))
@@ -314,7 +425,7 @@ def evaluate(cid):
         elif o["kind"] == "MSI":
             st, tgt = "unbekannt", ""   # MSI patches come as single KBs - no build to compare
         else:
-            st, tgt = _compare("office", o["channel"], o["version"])
+            st, tgt = _compare_office(o["channel"], o["version"])
         rows.append({"product": o["product"], "version": o["version"], "channel": o["channel"], "kind": o["kind"],
                      "status": st, "current": tgt, "support_end": end or ""})
     office = max((r["status"] for r in rows), key=lambda s: RANK[s]) if rows else "kein Office"
@@ -398,11 +509,22 @@ def refresh(user="System"):
                 err = proxy.safe_error(e) if hasattr(proxy, "safe_error") else str(e)
                 pklog.warn("system", f"Update-Status: Microsoft-Daten nicht abrufbar ({err[:200]}) – Vergleich mit dem Stand "
                                      "der eigenen Umgebung.", user=user)
+        n_off = 0
+        if db.setting("update_msrc"):
+            try:
+                n_off = fetch_office()
+            except Exception as e:  # noqa: BLE001 - offline/proxy/format changed: environment state for Office
+                from . import proxy
+                oerr = proxy.safe_error(e) if hasattr(proxy, "safe_error") else str(e)
+                err = f"{err}; Office – {oerr}" if err else f"Office – {oerr}"
+                pklog.warn("system", f"Update-Status: Office-Kanäle von Microsoft nicht abrufbar ({oerr[:200]}) – Vergleich mit "
+                                     "dem Stand der eigenen Umgebung.", user=user)
         n = evaluate_all()
         sync_tree()
         db.ex("INSERT OR REPLACE INTO settings(key, value) VALUES('update_status_at', ?)", (util.now(),))
         db.ex("INSERT OR REPLACE INTO settings(key, value) VALUES('update_status_msrc', ?)", (str(n_ms),))
-        return {"computers": n, "msrc_builds": n_ms, "error": err}
+        db.ex("INSERT OR REPLACE INTO settings(key, value) VALUES('update_status_office', ?)", (str(n_off),))
+        return {"computers": n, "msrc_builds": n_ms, "office_channels": n_off, "error": err}
     finally:
         _lock.release()
 

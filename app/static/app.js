@@ -6303,7 +6303,7 @@ async function viewSettings() {
       h('p.muted.small', { style: { marginTop: 0 } }, 'Jede Installation wird mit dem neuesten Stand ihres eigenen Windows-Builds bzw. Office-Kanals verglichen – ohne feste Vorgabe. Grundlage: die von Microsoft veröffentlichten Patchstände (falls eingeschaltet) und der neueste Stand in der eigenen Umgebung. Die fertigen Sammlungen „Windows Updates“ und „Microsoft Office“ füllen sich aus dem Inventar.'),
       h('div.form',
         field('Karenzzeit (Tage)', days, 'Ein neuer Patch zählt erst nach so vielen Tagen (ab Veröffentlichung bzw. erstem Auftauchen in der Umgebung) – bis dahin gelten Computer mit dem vorherigen Stand noch als aktuell.'),
-        field('Microsoft-Abgleich', h('label.chk', ms, tr('Patchstände von Microsoft abrufen (MSRC, einmal täglich durch den Server)')), 'Ohne Internet am Server wird nur mit dem neuesten Stand der eigenen Umgebung verglichen.'),
+        field('Microsoft-Abgleich', h('label.chk', ms, tr('Stände von Microsoft abrufen (Windows-Builds und Office-Kanäle, einmal täglich durch den Server)')), 'Windows: Patchstände der letzten Patchdays (MSRC). Office: aktueller Build jeder unterstützten Version je Update-Kanal – auch Semi-Annual mit zwei Versionen. Ohne Internet am Server wird nur mit dem neuesten Stand der eigenen Umgebung verglichen.'),
         field('Fertige Sammlungen', h('label.chk', tree, tr('„Windows Updates“ und „Microsoft Office“ anlegen und aktuell halten'))),
         field('', h('div.row', btn('Speichern', async () => {
           if (await run(() => PUT('/api/updstatus', { grace_days: Number(days.value), msrc: ms.checked, tree: tree.checked }), 'Gespeichert') !== undefined) drawUpd();
@@ -6311,7 +6311,7 @@ async function viewSettings() {
           if (await run(() => POST('/api/updstatus/refresh'), 'Neuberechnung gestartet') !== undefined) setTimeout(drawUpd, 4000);
         }, { cls: 'small ghost', icon: 'refresh' }))),
         field('Stand', h('span.small', d.running ? tr('wird gerade aktualisiert …') : (d.at ? fmtDate(d.at) : tr('noch nicht berechnet')),
-          d.msrc && d.at ? ' · ' + fmtT('Microsoft: {0} Builds', d.msrc_builds || 0) : '')),
+          d.msrc && d.at ? ' · ' + fmtT('Microsoft: {0} Builds, {1} Office-Kanäle', d.msrc_builds || 0, d.office_channels || 0) : '')),
         field('Windows', h('div.small', cnt(d.windows))), field('Office', h('div.small', cnt(d.office)))));
   };
   drawUpd();

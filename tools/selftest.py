@@ -8755,6 +8755,75 @@ def _():
     assert us.ESU_END == {1: "2026-10-13", 2: "2027-10-12", 3: "2028-10-10"}
 
 
+@test("2.44 Office against Microsoft's update channels: feed parsed tolerantly, every installation compared within its own version (Semi-Annual with two versions), unsupported version = veraltet, grace period, fallback to the environment without Microsoft data")
+def _():
+    import datetime as _dt
+    from app import updstatus as us
+    today = _dt.date.today()
+    d = lambda n: (today + _dt.timedelta(days=n)).isoformat()  # noqa: E731
+    dmy = lambda n: (today + _dt.timedelta(days=n)).strftime("%d/%m/%Y 00:00:00")  # noqa: E731
+    assert us._ms_date("2026-10-14T00:00:00Z") == "2026-10-14" and us._ms_date("0001-01-01T00:00:00") is None
+    assert us._ms_date("25/12/2026 10:00:00 AM") == "2026-12-25" and us._ms_date("12/25/2026") == "2026-12-25"
+    assert us._ms_date("") is None and us._ms_date("kaputt") is None
+    sac, cur, ltsc = "Semi-Annual Enterprise Channel", "Current Channel", "Office LTSC 2024 (PerpetualVL2024)"
+    feed = [
+        {"channelId": "SemiAnnual", "latestVersion": "16.0.18025.20200", "officeVersions": [
+            {"releaseVersion": "2408", "legacyVersion": "16.0.17928.20300", "availabilityDate": dmy(-20), "endOfSupportDate": dmy(150)},
+            {"releaseVersion": "2502", "legacyVersion": "16.0.18025.20200", "availabilityDate": d(-3), "endOfSupportDate": "0001-01-01T00:00:00Z"},
+            {"releaseVersion": "2402", "legacyVersion": "16.0.17328.20900", "availabilityDate": d(-60), "endOfSupportDate": d(-1)}]},
+        {"channelId": "Current", "latestVersion": "16.0.19127.20100", "officeVersions": [
+            {"releaseVersion": "2510", "legacyVersion": "16.0.19127.20100", "availabilityDate": d(-10), "endOfSupportDate": None}]},
+        {"channelId": "PerpetualVL2024", "latestVersion": "16.0.17932.20500", "officeVersions": [
+            {"releaseVersion": "2408", "legacyVersion": "16.0.17932.20500", "availabilityDate": d(-1), "endOfSupportDate": d(1000)}]},
+        {"channelId": "Unbekannt", "latestVersion": "16.0.1.1"}, "kaputt", {"channelId": "Current", "officeVersions": [{"legacyVersion": "x"}]}]
+    parsed = us.parse_office_releases(feed)
+    assert set(parsed) == {sac, cur, ltsc}, parsed
+    assert set(parsed[sac]["versions"]) == {"17928", "18025", "17328"} and parsed[sac]["latest"] == "16.0.18025.20200"
+    assert parsed[sac]["versions"]["17328"]["eos"] == d(-1) and parsed[sac]["versions"]["17928"]["released"] == d(-20)
+    assert us.parse_office_releases({"value": feed}) == parsed and us.parse_office_releases("x") == {}
+    old_refs = db.q("SELECT * FROM update_refs")
+    old_ms = db.val("SELECT value FROM settings WHERE key='update_office_ms'")
+    calls = []
+    try:
+        db.ex("DELETE FROM update_refs")
+        db.ex("INSERT OR REPLACE INTO settings(key, value) VALUES('update_grace_days', '7')")
+        db.ex("INSERT OR REPLACE INTO settings(key, value) VALUES('update_msrc', '1')")
+        assert us.fetch_office(get=lambda u: calls.append(u) or feed) == 3 and calls == [us.OFFICE_RELEASES]
+        # an older build of 2408 the environment saw 30 days ago, and one of the LTSC channel
+        us.note_ref("office", sac, "16.0.17928.20250", d(-30))
+        us.note_ref("office", ltsc, "16.0.17932.20400", d(-40))
+        cmp = us._compare_office
+        assert cmp(sac, "16.0.17928.20300") == ("aktuell", "16.0.17928.20300"), "2408 is still supported - newest 2408 build"
+        assert cmp(sac, "16.0.17928.20250") == ("veraltet", "16.0.17928.20300"), "a newer 2408 build is out longer than the grace period"
+        assert cmp(sac, "16.0.18025.20200")[0] == "aktuell", "2502 is new (3 days) - within the grace period"
+        assert cmp(sac, "16.0.17328.20900") == ("veraltet", "16.0.18025.20200"), "2402 no longer supported"
+        assert cmp(sac, "16.0.16731.20000") == ("veraltet", "16.0.18025.20200"), "unknown version = not supported"
+        assert cmp(cur, "16.0.18925.20000") == ("veraltet", "16.0.19127.20100"), "Current Channel: only the newest version"
+        assert cmp(ltsc, "16.0.17932.20400") == ("aktuell", "16.0.17932.20400"), "20500 released yesterday - grace period"
+        db.ex("INSERT OR REPLACE INTO settings(key, value) VALUES('update_grace_days', '0')")
+        assert cmp(ltsc, "16.0.17932.20400") == ("veraltet", "16.0.17932.20500")
+        # channel without Microsoft data and switched off: environment as before
+        us.note_ref("office", "Beta Channel", "16.0.19200.20000", d(-20))
+        assert cmp("Beta Channel", "16.0.19100.20000") == ("veraltet", "16.0.19200.20000")
+        db.ex("INSERT OR REPLACE INTO settings(key, value) VALUES('update_msrc', '0')")
+        assert cmp(sac, "16.0.17328.20900") == ("veraltet", "16.0.18025.20200"), "env refs from the feed still count"
+        assert us._office_ms() == {}
+        # every channel GUID has a feed name
+        assert set(us.CHANNELS.values()) <= set(us.OFFICE_CHANNEL_IDS.values())
+    finally:
+        db.ex("DELETE FROM settings WHERE key IN ('update_grace_days')")
+        db.ex("INSERT OR REPLACE INTO settings(key, value) VALUES('update_msrc', '1')")
+        if old_ms is None:
+            db.ex("DELETE FROM settings WHERE key='update_office_ms'")
+        else:
+            db.ex("INSERT OR REPLACE INTO settings(key, value) VALUES('update_office_ms', ?)", (old_ms,))
+        db.ex("DELETE FROM update_refs")
+        for r in old_refs:
+            db.ex("INSERT INTO update_refs(kind, key, value, released, source) VALUES(?,?,?,?,?)", (r["kind"], r["key"], r["value"], r["released"], r["source"]))
+    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "updstatus.py"), encoding="utf-8").read()
+    assert "n_off = fetch_office()" in src and "except Exception as e:  # noqa: BLE001 - offline/proxy/format changed" in src
+
+
 @test("2.22 Self-test: diagnostic package test does not use fixed dates (time bomb once outside the 30-day window)")
 def _():
     import inspect

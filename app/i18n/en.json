@@ -5849,5 +5849,11 @@
  "ESU (am Patchstand erkannt) bis {0}; {1}.{2} – aktuell ist {3}.{4}": "ESU (recognised by patch level) until {0}; {1}.{2} – current is {3}.{4}",
  "ESU Jahr {0} bis {1}": "ESU year {0} until {1}",
  "ESU Jahr {0} bis {1} – abgelaufen": "ESU year {0} until {1} – expired",
- "ESU Jahr {0} bis {1}; {2}.{3} – aktuell ist {4}.{5}": "ESU year {0} until {1}; {2}.{3} – current is {4}.{5}"
+ "ESU Jahr {0} bis {1}; {2}.{3} – aktuell ist {4}.{5}": "ESU year {0} until {1}; {2}.{3} – current is {4}.{5}",
+ "Stände von Microsoft abrufen (Windows-Builds und Office-Kanäle, einmal täglich durch den Server)": "Fetch states from Microsoft (Windows builds and Office channels, once a day by the server)",
+ "Windows: Patchstände der letzten Patchdays (MSRC). Office: aktueller Build jeder unterstützten Version je Update-Kanal – auch Semi-Annual mit zwei Versionen. Ohne Internet am Server wird nur mit dem neuesten Stand der eigenen Umgebung verglichen.": "Windows: patch levels of the last patch days (MSRC). Office: current build of every supported version per update channel – also Semi-Annual with two versions. Without internet on the server, only the newest state of the own environment is used for comparison.",
+ "Microsoft: {0} Builds, {1} Office-Kanäle": "Microsoft: {0} builds, {1} Office channels",
+ "Update-Status: Office-Kanäle von Microsoft nicht abrufbar ({0}) – Vergleich mit dem Stand der eigenen Umgebung.": "Update status: Office channels not available from Microsoft ({0}) – comparison with the state of the own environment.",
+ "Office – {0}": "Office – {0}",
+ "{0}; Office – {1}": "{0}; Office – {1}"
 }

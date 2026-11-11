@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.44.0",
+   "date": "2026-11-11",
+   "items": [
+    {
+     "kind": "new",
+     "audience": "all",
+     "de": "Office-Update-Status mit den offiziellen Update-Kanälen von Microsoft: Jede Installation wird mit dem aktuellen Build ihrer Version im eigenen Kanal verglichen (auch Semi-Annual mit zwei Versionen); nicht mehr unterstützte Versionen gelten als veraltet.",
+     "en": "Office update status with Microsoft's official update channels: every installation is compared with the current build of its version in its own channel (also Semi-Annual with two versions); versions no longer supported count as outdated."
+    }
+   ]
+  },
+  {
    "version": "2.43.0",
    "date": "2026-11-11",
    "items": [
