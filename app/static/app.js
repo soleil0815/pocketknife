@@ -2765,7 +2765,7 @@ async function pcCategory(c, cat) {
       const fName = h('input', { placeholder: 'Neues Feld, z. B. Inventarnummer', style: { maxWidth: '260px' } });
       const fType = sel([['text', 'Text'], ['number', 'Zahl'], ['date', 'Datum']], 'text');
       add = h('div', { style: { marginTop: '16px' } }, h('div.muted.small', { style: { marginBottom: '6px' } },
-        data.length ? 'Weiteres Feld für alle Computer anlegen (verwalten unter Einstellungen → Inventar & Felder):'
+        data.length ? 'Weiteres Feld für alle Computer anlegen (verwalten unter Einstellungen → Inventar):'
           : 'Noch keine eigenen Felder. Felder gelten für alle Computer – z. B. Inventarnummer, Raum, Kostenstelle, Garantie bis:'),
       h('div.row', fName, fType, btn('Feld anlegen', async () => {
         if (await run(() => POST('/api/fields', { name: fName.value, type: fType.value }), 'Feld angelegt') === undefined) return;
@@ -4053,7 +4053,7 @@ async function packageDlg(pidOrPkg, preset = {}) {
         meta.tenants.length ? field('Mandant', sl(p, 'tenant_id', [['', '— keiner (global) —'], ...meta.tenants.map((x) => [x.id, x.name])], true)) : null,
         !isOU() && meta.tenants.length ? field('OU-Admins dürfen ändern', h('label.chk', h('input', { type: 'checkbox', checked: !!p.ou_edit, onchange: (e) => { p.ou_edit = e.target.checked ? 1 : 0; changed(); } }),
           'OU-Admins des Mandanten dürfen dieses Paket ändern und löschen'), 'Nur bei Paketen eines Mandanten. Aus: Sie sehen es, verteilen es und können es als Vorlage kopieren. Von OU-Admins angelegte Pakete sind immer an.') : null,
-        field('Ausführen als', sl(p, 'run_as', pkgRunAsOpts()), fmtT('Das Konto für „Wie in den Einstellungen“ ist zurzeit: {0} (Einstellungen → Repository & winget → „Ausführung der Pakete“). „Angemeldeter Benutzer“ für Programme und Einstellungen im Benutzerprofil; einzelne Schritte können abweichen.', tr(settingRunAsName()))),
+        field('Ausführen als', sl(p, 'run_as', pkgRunAsOpts()), fmtT('Das Konto für „Wie in den Einstellungen“ ist zurzeit: {0} (Einstellungen → Pakete & Repository → „Ausführung der Pakete“). „Angemeldeter Benutzer“ für Programme und Einstellungen im Benutzerprofil; einzelne Schritte können abweichen.', tr(settingRunAsName()))),
         field('Zeitlimit (Min.)', inp(p, 'timeout_min', { type: 'number', min: 1, style: { maxWidth: '120px' } }), 'Je Schritt.'),
         field('Neustart am Ende', sl(p, 'reboot', [['never', 'Nie'], ['if_required', 'Wenn erforderlich (3010/1641)'], ['always', 'Immer']])),
         field('Benachrichtigung', sl(p, 'notify_user', [['', 'wie in den Einstellungen'], ['on', 'immer'], ['off', 'nie']]),
@@ -5937,29 +5937,36 @@ async function viewSettings() {
       if (!(await confirmDlg(`Dem neuen Zertifikat von ${sys.ldap_pending.host} vertrauen?`, 'Vertrauen'))) return;
       await run(() => POST('/api/system/ldap/trust'), 'Zertifikat übernommen'); route();
     }, { cls: 'primary small' }))) : null,
-  h('div.form', { style: { marginTop: '8px' } }, field('LDAPS-Zertifikat', h('label.chk', c('ldap_cert_strict'), 'strikt prüfen: bei geändertem Zertifikat Verbindung ablehnen, bis es bestätigt wird'),
+  h('p.muted.small', 'Domäne und Server kommen aus der .env. Das Dienstkonto wird unten, die AD-Container unter „Active Directory“ gepflegt.')));
+
+  // 2.42: settings grouped by topic - the former "Zeitpläne & Leistung" is split into Inventar, Pakete and Wartung
+  const secCard = h('div.card', h('div.card-h', h('h2', 'Anmeldung & Sitzung')), h('div.card-b',
+  h('div.form', field('LDAPS-Zertifikat', h('label.chk', c('ldap_cert_strict'), 'strikt prüfen: bei geändertem Zertifikat Verbindung ablehnen, bis es bestätigt wird'),
     sys.ldap_ca ? 'Es wird gegen die CA aus PK_LDAP_CA_FILE geprüft.' : 'Standard: Das Zertifikat jedes Domänencontrollers wird beim ersten Kontakt vertraut und vor dem Senden eines Kennworts verglichen; eine Änderung wird protokolliert. Mit PK_LDAP_CA_FILE (CA der Domäne als PEM) erfolgt eine vollständige Prüfung.'),
   field('Abmelden bei Inaktivität (Min.)', n('session_idle_minutes', { min: 5, max: 720 }), 'Ohne Maus- oder Tastatureingabe wird die Sitzung nach dieser Zeit beendet (auch offene Fernsitzungen); kurz vorher erscheint ein Hinweis. Automatische Aktualisierungen zählen nicht als Aktivität. 5–720 Minuten, Standard 30.'),
   field('', h('div.row', btn('Speichern', async () => {
     if (await run(() => PUT('/api/settings', { ldap_cert_strict: inputs.ldap_cert_strict.checked ? 1 : 0, session_idle_minutes: inputs.session_idle_minutes.value }), 'Gespeichert') && S.me) S.me.idle_minutes = Number(inputs.session_idle_minutes.value);
-  }, { cls: 'small' })))),
-  h('p.muted.small', 'Domäne und Server kommen aus der .env. Das Dienstkonto wird unten, die AD-Container unter „Active Directory“ gepflegt.')));
+  }, { cls: 'small' }))))));
 
-  const sched = h('div.card', h('div.card-h', h('h2', 'Zeitpläne & Leistung')), h('div.card-b', h('div.form',
+  const invCard = h('div.card', h('div.card-h', h('h2', 'Scans & Inventar')), h('div.card-b', h('div.form',
     field('Heartbeat alle (Min.)', n('heartbeat_minutes'), 'Prüft, welche Computer online sind. Wann gescannt wird, legen die Scanprofile fest.'),
     field('Scan nach dem Hochfahren (Min.)', n('scan_online_delay_minutes', { min: 0 }), 'Automatische Scans für einen gerade hochgefahrenen oder aufgewachten Computer erst nach dieser Zeit – dann sind Netzwerk, Dienste und Anmeldung fertig. 0 = sofort. Manuelle Scans laufen immer sofort.'),
     field('Parallele Scans', n('scan_concurrency', { min: 1 }), 'Wirksam nach Neustart des Containers.'),
-    field('Parallele Installationen', n('deploy_concurrency', { min: 1 }), 'Wirksam nach Neustart des Containers.'),
-    field('Zeitlimit Installation (Min.)', n('deploy_timeout_minutes', { min: 1 })),
     field('Nach Bereitstellungen scannen', h('label.chk', c('rescan_after_deploy'), 'nach jeder Installation/Deinstallation neu inventarisieren'), 'Standard ist das Profil „Anwendungen“; im Paket unter „Danach scannen“ änderbar.'),
     field('Integrierte Windows-Apps', h('label.chk', c('msix_hide_builtin'), 'in der Softwareliste ausblenden'), 'MSIX-Apps (z. B. PowerShell 7 aus winget) werden mit inventarisiert. Die mit Windows ausgelieferten Apps (Rechner, Fotos, Xbox, Store, Codecs …) erscheinen nur, wenn dieser Haken fehlt. Wirksam ab dem nächsten Scan.'),
+    field('Grenze „wenig Speicher“ (GB)', n('low_disk_gb')),
+    field('Speicherplatz-Scanner: Tiefe', n('du_scan_depth', { min: 1, max: 8 }), 'Wie tief der optionale Scanner „Speicherplatz“ die Ordner aufschlüsselt (1–8). Tiefer = mehr Details, aber langsamer und größer. Nachträglich lässt sich in der Ansicht gezielt tiefer analysieren.'))));
+
+  const instCard = h('div.card', h('div.card-h', h('h2', 'Installationen')), h('div.card-b', h('div.form',
+    field('Parallele Installationen', n('deploy_concurrency', { min: 1 }), 'Wirksam nach Neustart des Containers.'),
+    field('Zeitlimit Installation (Min.)', n('deploy_timeout_minutes', { min: 1 })))));
+
+  const retCard = h('div.card', h('div.card-h', h('h2', 'Aufbewahrung & Datenbank')), h('div.card-b', h('div.form',
     field('Protokoll aufbewahren (Tage)', n('log_retention_days'), '0 = nie automatisch löschen.'),
     field('Scan-Protokoll aufbewahren (Tage)', n('scan_log_retention_days'), 'Einträge unter „Scans“ und Scan-Meldungen im Protokoll werden nach so vielen Tagen automatisch gelöscht; 0 = nie. Die gescannten Daten bleiben erhalten.'),
     field('Bereitstellungen aufbewahren (Tage)', n('deployment_retention_days')),
     field('Softwareänderungen aufbewahren (Tage)', n('software_changes_retention_days'), 'Verlauf „installiert/aktualisiert/entfernt“ je Computer (Bericht Softwareänderungen).'),
-    field('Datenbankwartung um (Stunde)', n('db_maintenance_hour', { min: 0, max: 23 }), 'Täglich zu dieser Stunde: Aufräumen, Statistiken, und bei mehr als 20 % freiem Platz VACUUM (verkleinert die Datei).'),
-    field('Grenze „wenig Speicher“ (GB)', n('low_disk_gb')),
-    field('Speicherplatz-Scanner: Tiefe', n('du_scan_depth', { min: 1, max: 8 }), 'Wie tief der optionale Scanner „Speicherplatz“ die Ordner aufschlüsselt (1–8). Tiefer = mehr Details, aber langsamer und größer. Nachträglich lässt sich in der Ansicht gezielt tiefer analysieren.'))));
+    field('Datenbankwartung um (Stunde)', n('db_maintenance_hour', { min: 0, max: 23 }), 'Täglich zu dieser Stunde: Aufräumen, Statistiken, und bei mehr als 20 % freiem Platz VACUUM (verkleinert die Datei).'))));
 
   // 2.31: Wake-on-LAN
   const wolCard = h('div.card', h('div.card-h', h('h2', 'Wake-on-LAN')), h('div.card-b',
@@ -6128,7 +6135,7 @@ async function viewSettings() {
         if (!(await confirmDlg('Datenbank jetzt aufräumen und verkleinern (VACUUM)? Bei großen Datenbanken kann POCKET KNIFE dabei einige Sekunden bis Minuten langsamer reagieren.', 'Aufräumen'))) return;
         if (await run(() => POST('/api/system/run/dbmaint'), 'Wartung gestartet – Ergebnis im Protokoll')) setTimeout(route, 5000);
       }, { cls: 'small', icon: 'refresh' })),
-      sys.db_maintenance_last ? `Letzte Wartung: ${sys.db_maintenance_last}` : 'Noch keine Wartung gelaufen – sie läuft täglich automatisch (siehe Zeitpläne & Leistung).'),
+      sys.db_maintenance_last ? `Letzte Wartung: ${sys.db_maintenance_last}` : 'Noch keine Wartung gelaufen – sie läuft täglich automatisch (siehe „Aufbewahrung & Datenbank“ unten).'),
     field('Hintergrundaufgaben', h('span', sys.background.join(', ') || '—')),
     sys.load ? field('Rechenlast', loadBox(sys.load), `Durchschnitt seit dem Start (${String(sys.load.uptime_h).replace('.', ',')} Std.), in % eines Prozessorkerns. Spitzen ab ${sys.load.peak_pct} % werden mit dem festgehalten, was gerade lief – das hilft bei der Suche nach der Ursache. Laufen mehrere Aufgaben gleichzeitig, zählt die Rechenzeit bei jeder.`) : null,
     field('Jetzt ausführen', h('div.row',
@@ -6312,33 +6319,59 @@ async function viewSettings() {
   const SECTIONS = [
     ['conn', 'Verbindung & Konten', 'net', [conn, accountsCard(), authCard(sys)], false],
     ['ad', 'Active Directory', 'ad', [adCard()], false],
-    ['sched', 'Zeitpläne & Leistung', 'clock', [sched, toastCard, rebootCard], true],
-    ['dns', 'Namensauflösung', 'net', [dnsCard], true],
-    ['wol', 'Wake-on-LAN', 'play', [wolCard], true],
-    ['software', 'Repository & winget', 'box', [runCard, repo, upCard, integCard, wg, proxyCard(), exclCard], true],
-    ['remote', 'Fernsitzungen', 'monitor', [rdCard], true],
-    ['tls', 'Zertifikat (HTTPS)', 'shield', [tlsCard()], false],
-    ['backup', 'Sicherung', 'download', [bkCard], true],
+    ['security', 'Sicherheit', 'shield', [secCard, tlsCard()], false],
+    ['network', 'Netzwerk & Fernzugriff', 'monitor', [dnsCard, wolCard, rdCard], true],
+    ['inventory', 'Inventar', 'db', [invCard, scCard, fCard], true],
+    ['updates', 'Updates & Aktualität', 'refresh', [updCard, wg, proxyCard(), exclCard], true],
+    ['software', 'Pakete & Repository', 'box', [runCard, instCard, repo, upCard, integCard], true],
+    ['client', 'Am Client', 'bell', [toastCard, rebootCard], true],
     ['mail', 'E-Mail & Benachrichtigungen', 'mail', [mailCard(), alertsCard()], false],
-    ['inventory', 'Inventar & Felder', 'db', [scCard, updCard, fCard], false],
     ['tenants', 'Mandanten', 'user', [tenantsCard()], false],
-    ['maint', 'Wartung', 'gear', [maint, updatesCard(), diagCard], false],
+    ['backup', 'Sicherung', 'download', [bkCard], true],
+    ['maint', 'Wartung', 'gear', [maint, retCard, updatesCard(), diagCard], true],
   ];
-  const cur = (() => { const k = parseHash().params.get('s'); return SECTIONS.some((x) => x[0] === k) ? k : 'conn'; })();
+  // 2.42: links to the former sections (help, bookmarks) still lead to the right place
+  const OLD_SEC = { sched: 'inventory', dns: 'network', wol: 'network', remote: 'network', tls: 'security' };
+
+  const cur = (() => { let k = parseHash().params.get('s'); k = OLD_SEC[k] || k; return SECTIONS.some((x) => x[0] === k) ? k : 'conn'; })();
   const panes = {};
   const navItems = {};
+  let lastSec = cur;
   const showSec = (k) => {
     for (const [key] of SECTIONS) {
       panes[key].style.display = key === k ? '' : 'none';
       navItems[key].classList.toggle('on', key === k);
     }
+    lastSec = k;
     try { history.replaceState(null, '', `#/settings?s=${k}`); } catch (e) { /* ignore */ }
   };
-  const nav = h('nav.set-nav', SECTIONS.map(([k, label, ic]) => (navItems[k] = h('a', { href: '#', onclick: (e) => { e.preventDefault(); showSec(k); } }, icon(ic), h('span', label)))));
+  const nav = h('nav.set-nav', SECTIONS.map(([k, label, ic]) => (navItems[k] = h('a', { href: '#', onclick: (e) => { e.preventDefault(); find.value = ''; filter(); showSec(k); } }, icon(ic), h('span', label)))));
   const body = h('div.set-body', SECTIONS.map(([k, , , cards, hasSave]) => (panes[k] = h('div.set-pane', ...cards,
     hasSave ? h('div.row.end', btn('Speichern', () => save.click(), { cls: 'primary' })) : null))));
-  setTop('Einstellungen', 'Verbindung, Active Directory, Zeitpläne, Repository und winget');
-  setContent(h('div', guardBanner(sys.guard), h('div.set-layout', nav, body)));
+  const FIND_SEL = ['input', 'select', 'textarea'].join(', ');
+  // 2.42: search across all sections - shows every card containing the text (e.g. "Karenz", "VNC", "Proxy")
+  const findInfo = h('div.muted.small', { style: { padding: '2px 0' } });
+  const find = h('input', { type: 'search', placeholder: tr('Einstellung suchen …'), style: { width: '100%' } });
+  const filter = () => {
+    const q = find.value.trim().toLowerCase();
+    if (!q) {
+      findInfo.textContent = '';
+      for (const [, , , cards] of SECTIONS) cards.forEach((cd) => { if (cd) cd.style.display = ''; });
+      showSec(lastSec);
+      return;
+    }
+    let hits = 0;
+    for (const [k, , , cards] of SECTIONS) {
+      let any = false;
+      cards.forEach((cd) => { if (!cd) return; const ok = cd.textContent.toLowerCase().includes(q) || [...cd.querySelectorAll(FIND_SEL)].some((x) => String(x.value || '').toLowerCase().includes(q) && x.type !== 'password'); cd.style.display = ok ? '' : 'none'; if (ok) { any = true; hits++; } });
+      panes[k].style.display = any ? '' : 'none';
+      navItems[k].classList.toggle('on', any);
+    }
+    findInfo.textContent = hits ? fmtT('{0} Treffer', hits) : tr('Nichts gefunden');
+  };
+  find.addEventListener('input', filter);
+  setTop('Einstellungen', 'Verbindung, Sicherheit, Inventar, Updates, Pakete und Wartung');
+  setContent(h('div', guardBanner(sys.guard), h('div.set-layout', h('div', h('div', { style: { padding: '0 0 8px' } }, find, findInfo), nav), body)));
   showSec(cur);
 }
 
@@ -6667,7 +6700,7 @@ function powerDialog(targets) {
   });
   modal('Neustart / Herunterfahren', h('div', warn, h('div.form',
     field('Aktion', act),
-    field('Wartezeit', h('div.row', num, unit), 'Angemeldete Benutzer sehen solange eine Meldung von Windows (Text unter Einstellungen → Zeitpläne & Leistung). 0 = sofort, dabei werden offene Programme ohne Rückfrage geschlossen. Bis zum Ablauf lässt es sich mit „Neustart/Herunterfahren abbrechen“ stoppen.'))), [
+    field('Wartezeit', h('div.row', num, unit), 'Angemeldete Benutzer sehen solange eine Meldung von Windows (Text unter Einstellungen → Am Client). 0 = sofort, dabei werden offene Programme ohne Rückfrage geschlossen. Bis zum Ablauf lässt es sich mit „Neustart/Herunterfahren abbrechen“ stoppen.'))), [
     { label: 'Abbrechen' },
     { label: 'Ausführen', cls: 'primary', onClick: async () => {
       if (servers === null) { toast('Einen Moment – POCKET KNIFE prüft noch, ob Server dabei sind.', 'err'); return false; }

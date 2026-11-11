@@ -12,7 +12,7 @@ Checks:
   merely "touched", the state is silently updated; different → break.
 - Before every deployment (also schedule, kiosk, repeat) directly on the share. Break → the run does not start
   (IntegrityError) – "interrupt + warning" (operator's decision, 24.10.2026).
-- Full check: every file once per week, at night within the time window, throttled (Settings → Repository & winget).
+- Full check: every file once per week, at night within the time window, throttled (Settings → Packages & Repository).
 
 Levels: broken (red: file/folder missing, installation file or source of a file copy changed) – the run is
 interrupted; warn (yellow: other files in the package folder changed or added, check still running) – the run continues,

@@ -175,7 +175,7 @@ In POCKET KNIFE unter **Einstellungen → Verbindung & Konten → Anmeldeverfahr
 | 3 000 – 5 000 | 8 | 16 GB | 80 GB | 20 – 30 / 25 – 40 | 15 Min. |
 | über 5 000 | – | – | – | mehrere Instanzen (z. B. je Standort/Mandant) | – |
 
-Die Zahl der parallelen Scans und Installationen sowie das Heartbeat-Intervall stehen unter **Einstellungen → Zeitpläne & Leistung** (Änderungen an der Parallelität wirken nach einem Neustart des Containers).
+Die Zahl der parallelen Scans und Installationen sowie das Heartbeat-Intervall stehen unter **Einstellungen → Inventar** (Scans, Heartbeat) und **Einstellungen → Pakete & Repository → Installationen** (Änderungen an der Parallelität wirken nach einem Neustart des Containers).
 
 **Wofür die Ressourcen gebraucht werden**
 
@@ -192,11 +192,11 @@ Die Zahl der parallelen Scans und Installationen sowie das Heartbeat-Intervall s
 
 - Scans mit **Scanprofilen** staffeln: das vollständige Profil z. B. wöchentlich, „Anwendungen“ täglich; „Scan-Alter“ statt fester Uhrzeit verteilt die Last.
 - Zeitpläne mit **Zeitfenster** und Heartbeat statt alle Computer gleichzeitig.
-- Aufbewahrung unter **Einstellungen → Zeitpläne & Leistung** anpassen (Protokoll, Scan-Protokoll, Bereitstellungen).
+- Aufbewahrung unter **Einstellungen → Wartung → Aufbewahrung & Datenbank** anpassen (Protokoll, Scan-Protokoll, Bereitstellungen).
 - Optional Ressourcen im Compose begrenzen, z. B. `mem_limit: 8g` und `cpus: 4` beim Dienst `pocketknife`.
 - **Sicherung:** die automatische Sicherung (Einstellungen → Sicherung) auf ein anderes Laufwerk legen (`PK_BACKUP_PATH`) und je Sicherung mit etwa der Datenbankgröße (komprimiert meist deutlich weniger) × Anzahl Versionen rechnen.
 
-**Aufräumen der Datenbank:** Stündlich werden alte Einträge gelöscht – Protokoll (Standard 90 Tage), Scan-Protokoll (14 Tage), Bereitstellungen samt Ausgabe (180 Tage; dieselbe Frist gilt für entschiedene Kiosk-Anfragen mit Benutzername und Computer), Softwareänderungen (365 Tage), abgelaufene Sitzungen und Reste ohne Bezug. Die Fristen stehen unter **Einstellungen → Zeitpläne & Leistung**. Einmal täglich (Standard 03:00 Uhr) folgt die **Datenbankwartung**: Statistiken aktualisieren, WAL-Datei zurückschreiben und – wenn mehr als 20 % der Datei frei sind – `VACUUM`, das die Datei verkleinert. Größe, freier Anteil und letzte Wartung zeigt **Einstellungen → Wartung**; dort startet **Jetzt aufräumen** die Wartung sofort. Gelöschte Computer verlieren ihre Inventardaten sofort, ihre Kiosk-Anfragen beim nächsten Aufräumen. Die Protokolldateien unter `/data/logs` werden bei 10 MB rotiert (höchstens 10 Dateien); für sie gilt keine Frist in Tagen.
+**Aufräumen der Datenbank:** Stündlich werden alte Einträge gelöscht – Protokoll (Standard 90 Tage), Scan-Protokoll (14 Tage), Bereitstellungen samt Ausgabe (180 Tage; dieselbe Frist gilt für entschiedene Kiosk-Anfragen mit Benutzername und Computer), Softwareänderungen (365 Tage), abgelaufene Sitzungen und Reste ohne Bezug. Die Fristen stehen unter **Einstellungen → Wartung → Aufbewahrung & Datenbank**. Einmal täglich (Standard 03:00 Uhr) folgt die **Datenbankwartung**: Statistiken aktualisieren, WAL-Datei zurückschreiben und – wenn mehr als 20 % der Datei frei sind – `VACUUM`, das die Datei verkleinert. Größe, freier Anteil und letzte Wartung zeigt **Einstellungen → Wartung**; dort startet **Jetzt aufräumen** die Wartung sofort. Gelöschte Computer verlieren ihre Inventardaten sofort, ihre Kiosk-Anfragen beim nächsten Aufräumen. Die Protokolldateien unter `/data/logs` werden bei 10 MB rotiert (höchstens 10 Dateien); für sie gilt keine Frist in Tagen.
 
 ## Installation {#setup}
 
@@ -307,7 +307,7 @@ docker compose exec -T -e HOME=/nonexistent pocketknife \
 
 ### Schritt 5: Erste Anmeldung
 
-1. Im Browser `https://pocketknife.firma.local:8443` öffnen (Ihr `PK_PUBLIC_HOSTNAME` und `PK_PORT`). Beim ersten Mal warnt der Browser vor dem selbstsignierten Zertifikat – bestätigen; ein eigenes Zertifikat laden Sie später unter **Einstellungen → Zertifikat (HTTPS)** hoch (siehe [Eigenes Zertifikat](#certificate)).
+1. Im Browser `https://pocketknife.firma.local:8443` öffnen (Ihr `PK_PUBLIC_HOSTNAME` und `PK_PORT`). Beim ersten Mal warnt der Browser vor dem selbstsignierten Zertifikat – bestätigen; ein eigenes Zertifikat laden Sie später unter **Einstellungen → Sicherheit → Zertifikat (HTTPS)** hoch (siehe [Eigenes Zertifikat](#certificate)).
 2. Mit einem AD-Konto aus der Zugriffsgruppe anmelden – als `benutzer`, `FIRMA\benutzer` oder `benutzer@firma.local`. Dafür reichen DNS und LDAPS; das Dienstkonto ist noch nicht nötig.
 3. Weiter mit den [ersten Schritten](#firststeps): Dienstkonto eintragen, AD abgleichen, Verbindung zu einem Computer testen, Repository einrichten.
 
@@ -414,7 +414,7 @@ Gelöscht werden nur bekannte Programmdateien früherer Versionen (`app/`, `tool
 1. **Einstellungen → Verbindung & Konten**: Dienstkonto eintragen und „Prüfen & speichern“, dann „LDAPS testen“.
 2. **Einstellungen → Active Directory**: Container ein- oder ausschließen und „Jetzt abgleichen“.
 3. **Einstellungen → Wartung → Verbindung testen** mit einem Computernamen (WinRM, Administratorrechte, ADMIN$).
-4. **Einstellungen → Repository & winget**: Repository-Pfad eintragen, „Index jetzt laden“.
+4. **Einstellungen → Pakete & Repository**: Repository-Pfad eintragen; unter **Einstellungen → Updates & Aktualität → winget** „Index jetzt laden“.
 5. Die Computer werden nun automatisch gescannt, sobald sie online sind (Profil „Standard“).
 
 # Bedienung {#ui}
@@ -482,7 +482,7 @@ Links steht der **Sammlungsbaum**, rechts die Computer der gewählten Sammlung. 
 
 **Gelber Punkt – Adresse nicht bestätigt:** POCKET KNIFE zeigt einen Computer nur als online, wenn unter seiner Adresse wirklich dieser Computer antwortet. Bei einer neuen Adresse (und spätestens nach 24 Stunden) fragt es ihn über WinRM nach Name und Domäne. Antwortet ein anderes Gerät (z. B. weil DHCP die Adresse eines ausgeschalteten PCs inzwischen einem Drucker oder Handy gegeben hat), ein Gerät außerhalb der Domäne oder unter einer zuvor anderen Adresse ein Gerät ohne WinRM, gilt der Computer als offline. Der Punkt wird gelb, die Computeransicht nennt den Grund (z. B. „Unter 10.0.10.77 antwortet ‚DRUCKER-3OG‘ statt PC-0004“) und bietet „Jetzt erneut prüfen“. Scans und Bereitstellungen laufen dann nicht – sie würden sonst das falsche Gerät treffen. Alle betroffenen Computer zeigt die Standardsammlung **„Falsche Adresse“**; die Spalte „DNS-Adresse“ (einblendbar) zeigt die aktuell aufgelöste Adresse.
 
-Ursache ist fast immer ein veralteter Eintrag im DNS der Domäne. Abhilfe: Computer einschalten (er registriert sich neu), den Eintrag korrigieren und dauerhaft die **DNS-Bereinigung (Scavenging)** auf den Domänencontrollern einschalten. Einstellungen dazu: **Einstellungen → Namensauflösung**:
+Ursache ist fast immer ein veralteter Eintrag im DNS der Domäne. Abhilfe: Computer einschalten (er registriert sich neu), den Eintrag korrigieren und dauerhaft die **DNS-Bereinigung (Scavenging)** auf den Domänencontrollern einschalten. Einstellungen dazu: **Einstellungen → Netzwerk & Fernzugriff → Namensauflösung**:
 
 - **DNS-Cache (Min.):** so lange gilt eine aufgelöste Adresse in POCKET KNIFE; **„DNS-Cache leeren“** verwirft alle sofort (0 = bei jedem Heartbeat neu auflösen).
 - **DNS direkt fragen:** die DNS-Server der Domäne (Standard: die Domänencontroller) direkt fragen – an Zwischenspeichern auf dem Docker-Host vorbei. „Auflösung testen“ zeigt, was herauskommt, und warnt, wenn das System eine andere Adresse liefert.
@@ -558,7 +558,7 @@ Danach öffnet sich der normale Sammlungsdialog mit dem fertigen Filter – Name
 
 **Felder für eigene Sammlungen:** Computer → „Windows-Update-Status“, „Windows-Edition“, „Office-Update-Status“; Tabelle **Office-Installationen** (Produkt, Version, Update-Kanal, Update-Status, Art, Support bis). Auf der Computerseite stehen Update-Status und Office unter „Betriebssystem“, die Office-Installationen unter **Office**.
 
-**Einstellungen → Inventar & Felder → Update-Status:** Karenzzeit, Microsoft-Abgleich, fertige Sammlungen an/aus, **Jetzt neu berechnen**. Berechnet wird nach jedem Scan und einmal täglich. Die Lebenszyklus-Daten (Supportende) sind im Programm hinterlegt und kommen mit Updates.
+**Einstellungen → Updates & Aktualität → Update-Status:** Karenzzeit, Microsoft-Abgleich, fertige Sammlungen an/aus, **Jetzt neu berechnen**. Berechnet wird nach jedem Scan und einmal täglich. Die Lebenszyklus-Daten (Supportende) sind im Programm hinterlegt und kommen mit Updates.
 
 ## AD-Sammlungen {#adcollections}
 
@@ -593,7 +593,7 @@ Ein Scanprofil legt fest, **was** gescannt wird (Scanner), **bei welchen Compute
 - Feste Profile lassen sich nicht löschen und ihre Scanner nicht ändern; **Auslöser und Ziele** sind frei einstellbar. Für eigene Zusammenstellungen: **Duplizieren**.
 - **Ziele** (Reiter im Profil): **Alle Computer**, beliebige Sammlungen (auch dynamische) und/oder **einzelne Computer**. Die Sammlungen erscheinen wie im Baum links nach Ordnern gegliedert und alphabetisch (Standard, AD, eigene Ordner); **Sammlung suchen** filtert über alle Ordner, **nur ausgewählte** zeigt die gewählten, oben stehen sie als Liste zum Entfernen. Zugeklappte Ordner zeigen, wie viele darin gewählt sind. Gleiches gilt für die Ziele von Zeitplänen. Ziel-Computer sind die Mitglieder der gewählten Sammlungen plus die einzeln gewählten. Neue Profile zielen zunächst auf „Alle Computer“. Ohne Ziel läuft ein Profil nur manuell (Scannen → Profil wählen). Der Reiter **Computer** zeigt, welche Computer das Profil gerade erfasst.
 - **Standard** enthält alle Scanner außer Dateien & Ordner, PowerShell, Registry, WMI und Speicherplatz. Neue Computer werden beim ersten Online-Sein damit gescannt.
-- **Speicherplatz** (optionaler Scanner): ermittelt die Ordnergrößen der festen Laufwerke als Diagramm – wie das Tool „Speicherplatz analysieren“, aber planbar. Bewusst **nicht** im Standardscan, da er den Client stärker belastet; über einen eigenen Auslöser (z. B. monatlich, nachts) und Sammlungen gezielt einplanen. Die Tiefe stellt man unter **Einstellungen → Zeitpläne & Leistung** ein; die Ergebnisse stehen beim Computer unter **Speicherplatz** und im Diagramm.
+- **Speicherplatz** (optionaler Scanner): ermittelt die Ordnergrößen der festen Laufwerke als Diagramm – wie das Tool „Speicherplatz analysieren“, aber planbar. Bewusst **nicht** im Standardscan, da er den Client stärker belastet; über einen eigenen Auslöser (z. B. monatlich, nachts) und Sammlungen gezielt einplanen. Die Tiefe stellt man unter **Einstellungen → Inventar** ein; die Ergebnisse stehen beim Computer unter **Speicherplatz** und im Diagramm.
 - Nach jeder Installation oder Deinstallation läuft automatisch das Profil **Anwendungen** (im Paket änderbar).
 
 **Auslöser**
@@ -604,7 +604,7 @@ Ein Scanprofil legt fest, **was** gescannt wird (Scanner), **bei welchen Compute
 | Intervall | alle n Minuten/Stunden/Tage |
 | Täglich / Wöchentlich / Monatlich | zu einer Uhrzeit an bestimmten Tagen |
 | Scan-Alter | sobald der letzte Scan älter als eine Zeitspanne ist, optional nur in einem Zeitfenster |
-| Heartbeat | sobald ein Computer (wieder) online ist – ab 2.32.8 erst einige Minuten danach (Standard 3, **Einstellungen → Zeitpläne & Leistung → Scan nach dem Hochfahren**), damit Netzwerk, Dienste und Anmeldung fertig sind. Das gilt für alle automatischen Scans eines gerade hochgefahrenen oder aufgewachten Computers; manuelle Scans laufen sofort |
+| Heartbeat | sobald ein Computer (wieder) online ist – ab 2.32.8 erst einige Minuten danach (Standard 3, **Einstellungen → Inventar → Scan nach dem Hochfahren**), damit Netzwerk, Dienste und Anmeldung fertig sind. Das gilt für alle automatischen Scans eines gerade hochgefahrenen oder aufgewachten Computers; manuelle Scans laufen sofort |
 
 „Offline Computer nachholen“ scannt Computer, die zum Zeitpunkt offline waren, sobald sie online kommen.
 
@@ -673,11 +673,11 @@ Die Softwareübersicht fasst alle installierten Programme aller Computer zusamme
 - **Auswahl aktualisieren:** Programme markieren (Strg/Umschalt) → Knopf oder Rechtsklick. Für jede winget-ID entsteht eine Bereitstellung `winget upgrade` für alle veralteten Installationen.
 - **Detailansicht (Doppelklick):** alle Computer mit Version; Auswahl aktualisieren, bereitstellen oder deinstallieren; winget-Zuordnung von Hand festlegen oder das Programm ignorieren.
 - **Deinstallationspaket erstellen:** Rechtsklick auf ein Programm. Das Paket entfernt das Programm auf beliebigen Computern, Sammlungen oder per Zeitplan (siehe Schritt „Deinstallieren“).
-- **MSIX-Apps (ab 2.40.1):** Programme, die Windows als MSIX-Paket installiert (z. B. PowerShell 7 aus winget, Windows Terminal), stehen nicht in der Deinstallations-Registry. Der Scan liest sie zusätzlich aus `AppxAllUserStore` – schnell, ohne alle Benutzerprofile zu durchlaufen, und auch unter Softwareeinschränkung. Sie erscheinen mit Registry-Hive „MSIX“, werden über den Paketfamiliennamen der winget-ID zugeordnet (also auch „veraltet“, Sammlungen, Aktualisieren) und lassen sich deinstallieren (`Remove-AppxPackage -AllUsers`, als Lokales System). Frameworks, Sprachpakete und „Sparse“-Pakete (nur die Kontextmenü-Anbindung eines normalen Programms an Windows 11, z. B. „Notepad++“ 1.0.0.0 oder „Adobe Acrobat Reader“ 26.0.0.1 – ab 2.41.2) sowie Reste entfernter Apps (von Windows als „EndOfLife“ vorgemerkt oder Paketordner gelöscht, z. B. „MSTeams“ 1.0.0.0 – ab 2.41.3) werden nie aufgeführt; MSIX-Apps werden nur über den Paketfamiliennamen einer winget-ID zugeordnet, nie über den Namen; die mit Windows ausgelieferten Apps (Rechner, Fotos, Xbox, Store, Codecs …) nur, wenn unter **Einstellungen → Zeitpläne & Leistung** der Haken **Integrierte Windows-Apps ausblenden** fehlt.
+- **MSIX-Apps (ab 2.40.1):** Programme, die Windows als MSIX-Paket installiert (z. B. PowerShell 7 aus winget, Windows Terminal), stehen nicht in der Deinstallations-Registry. Der Scan liest sie zusätzlich aus `AppxAllUserStore` – schnell, ohne alle Benutzerprofile zu durchlaufen, und auch unter Softwareeinschränkung. Sie erscheinen mit Registry-Hive „MSIX“, werden über den Paketfamiliennamen der winget-ID zugeordnet (also auch „veraltet“, Sammlungen, Aktualisieren) und lassen sich deinstallieren (`Remove-AppxPackage -AllUsers`, als Lokales System). Frameworks, Sprachpakete und „Sparse“-Pakete (nur die Kontextmenü-Anbindung eines normalen Programms an Windows 11, z. B. „Notepad++“ 1.0.0.0 oder „Adobe Acrobat Reader“ 26.0.0.1 – ab 2.41.2) sowie Reste entfernter Apps (von Windows als „EndOfLife“ vorgemerkt oder Paketordner gelöscht, z. B. „MSTeams“ 1.0.0.0 – ab 2.41.3) werden nie aufgeführt; MSIX-Apps werden nur über den Paketfamiliennamen einer winget-ID zugeordnet, nie über den Namen; die mit Windows ausgelieferten Apps (Rechner, Fotos, Xbox, Store, Codecs …) nur, wenn unter **Einstellungen → Inventar** der Haken **Integrierte Windows-Apps ausblenden** fehlt.
 - **Update-Paket (ab 2.41):** In den Details eines Programms (Doppelklick) lässt sich unter **Update-Paket** ein eigenes Paket wählen. Updates dieser winget-ID – Auto-Update-Zeitpläne, „Aktualisieren“, „Veraltete aktualisieren“ und Bereitstellen mit Aktion „upgrade“ – laufen dann mit diesem Paket statt mit `winget upgrade` bzw. dem winget-Cache: mit allen Schritten im aktuellen Stand, z. B. erst `winget uninstall Microsoft.PowerShell --all-versions`, dann winget-Installation. So lässt sich eingreifen, wenn ein Update überall am selben Punkt scheitert. Ohne Auswahl gilt wieder der Standard. Nur Pakete ohne Mandant (sie gehen an alle Computer); ein so verwendetes Paket lässt sich erst löschen, wenn es wieder auf „Standard“ steht. Die Freigabe-Verzögerung neuer winget-Versionen gilt nur für `winget upgrade`, nicht für das eigene Paket. Nur Hauptadmins.
   Dieselbe Einstellung gibt es im Paket selbst: **Paket-Eigenschaften → Für Updates verwenden** (ab 2.41.1) – winget-IDs hinzufügen (Suche im winget-Katalog oder per Klick die IDs aus den winget-Schritten des Pakets) oder mit × entfernen; wirksam beim Speichern. Beide Stellen zeigen immer denselben Stand; ein Paket kann für mehrere winget-IDs gelten, eine winget-ID hat höchstens ein Update-Paket (wer sie in einem anderen Paket einträgt, übernimmt sie).
 
-**Ausnahmen der Aktualitätsprüfung** (eigene Liste): Programme, die nie als „veraltet“ gelten sollen – z. B. Laufzeitbibliotheken, Treiber-Tools oder Fachanwendungen, deren Version der Hersteller vorgibt. Zu finden unter **Software → Ausnahmen …** und **Einstellungen → Repository & winget**; schneller per Rechtsklick auf ein oder mehrere Programme → *Von der Aktualitätsprüfung ausnehmen*.
+**Ausnahmen der Aktualitätsprüfung** (eigene Liste): Programme, die nie als „veraltet“ gelten sollen – z. B. Laufzeitbibliotheken, Treiber-Tools oder Fachanwendungen, deren Version der Hersteller vorgibt. Zu finden unter **Software → Ausnahmen …** und **Einstellungen → Updates & Aktualität**; schneller per Rechtsklick auf ein oder mehrere Programme → *Von der Aktualitätsprüfung ausnehmen*.
 
 | Feld | Beispiel-Muster | Wirkung |
 |---|---|---|
@@ -695,7 +695,7 @@ Die winget-Zuordnung berücksichtigt Varianten wie ESR, Beta oder Sprachversione
 
 ## Neue winget-Versionen zurückstellen {#winget-release}
 
-**Einstellungen → Repository & winget → winget → Neue Versionen** legt fest, wann eine neue Version aus dem winget-Katalog verteilt wird:
+**Einstellungen → Updates & Aktualität → winget → Neue Versionen** legt fest, wann eine neue Version aus dem winget-Katalog verteilt wird:
 
 | Einstellung | Wirkung |
 |---|---|
@@ -768,9 +768,9 @@ Jeder Schritt lässt sich oben im Feld **Bezeichnung** benennen (z. B. „Wazuh-
 
 Die Spalte **Zustand** in der Paketliste zeigt das Ergebnis (Tooltip mit den Dateien), die **Übersicht** eine Kachel „Pakete mit Bruch“. Im Paket listet **Repository-Dateien** jede Abweichung mit bisherigem und jetzigem Stand. War die Änderung gewollt (z. B. neue Version drübergelegt), bestätigt **Neuen Stand übernehmen** den aktuellen Inhalt – bei einer MSI weist POCKET KNIFE darauf hin, wenn die Version im Paket nicht mehr zur Datei passt. Fehlende Dateien behebt das nicht: wurden sie nur verschoben, findet sie **Datei suchen …** per Fingerabdruck ([Reparatur](#repair)), sonst das Paket anpassen. OU-Admins sehen Details nur zu Dateien in ihren Mandanten-Ordnern; ein zentrales Paket mit Bruch ist für sie „derzeit nicht verfügbar“, bestätigen kann es nur ein Hauptadmin. Kiosk-Nutzer sehen nur „derzeit nicht verfügbar“.
 
-**Vollprüfung:** Einmal pro Woche wird zusätzlich jede benutzte Datei komplett gelesen und ihr Fingerabdruck verglichen – das findet auch einen Austausch mit gleicher Größe und gleichem Datum. Sie läuft nachts im Zeitfenster (Standard 1 bis 6 Uhr), gedrosselt (Standard 50 MB/s) und eine Datei nach der anderen; endet das Zeitfenster, geht es in der nächsten Nacht weiter. Einstellbar unter **Einstellungen → Repository & winget → Bruchprüfung der Pakete**. Last: etwa so, als würden die benutzten Paketordner einmal kopiert (Netz und Platten des Dateiservers); die Clients merken nichts.
+**Vollprüfung:** Einmal pro Woche wird zusätzlich jede benutzte Datei komplett gelesen und ihr Fingerabdruck verglichen – das findet auch einen Austausch mit gleicher Größe und gleichem Datum. Sie läuft nachts im Zeitfenster (Standard 1 bis 6 Uhr), gedrosselt (Standard 50 MB/s) und eine Datei nach der anderen; endet das Zeitfenster, geht es in der nächsten Nacht weiter. Einstellbar unter **Einstellungen → Pakete & Repository → Bruchprüfung der Pakete**. Last: etwa so, als würden die benutzten Paketordner einmal kopiert (Netz und Platten des Dateiservers); die Clients merken nichts.
 
-**Repository umziehen:** Pakete speichern nur den Pfad **im** Repository (z. B. `7zip\24.08`), nie den Server. Liegt das Repository künftig auf einem anderen Server, genügt es, unter **Einstellungen → Repository & winget** den Pfad zu ändern – alle Pakete funktionieren weiter, auch importierte. Nur Pfade, die Sie selbst fest in einen Befehl oder ein Skript geschrieben haben (`\\server\freigabe\…`), bleiben stehen; der Export weist auf solche Stellen hin.
+**Repository umziehen:** Pakete speichern nur den Pfad **im** Repository (z. B. `7zip\24.08`), nie den Server. Liegt das Repository künftig auf einem anderen Server, genügt es, unter **Einstellungen → Pakete & Repository** den Pfad zu ändern – alle Pakete funktionieren weiter, auch importierte. Nur Pfade, die Sie selbst fest in einen Befehl oder ein Skript geschrieben haben (`\\server\freigabe\…`), bleiben stehen; der Export weist auf solche Stellen hin.
 
 ## Schritttypen {#steps}
 
@@ -804,7 +804,7 @@ Ist eine Paket-Bedingung nicht erfüllt, wird der Computer **übersprungen**; be
 
 | Option | Wann |
 |---|---|
-| Wie in den Einstellungen (Standard) | fast immer – mit dem Konto aus **Einstellungen → Repository & winget → Ausführung der Pakete**: **Lokales System** (Standard) oder das **Dienstkonto** |
+| Wie in den Einstellungen (Standard) | fast immer – mit dem Konto aus **Einstellungen → Pakete & Repository → Ausführung der Pakete**: **Lokales System** (Standard) oder das **Dienstkonto** |
 | Angemeldeter Benutzer | für Programme und Einstellungen im Benutzerprofil (z. B. Benutzer-Installationen, HKCU) |
 
 Bei einem Schritt gibt es zusätzlich **Wie Paket**. In Klammern steht immer das Konto, das wirklich läuft – POCKET KNIFE stellt nichts heimlich um. Im Ergebnis der Bereitstellung steht es in der Kopfzeile jedes Schritts („… (als Lokales System …)“).
@@ -862,7 +862,7 @@ Rechtsklick auf „Zotero“ in der Software → „Deinstallationspaket erstell
 
 ## Proxyserver {#proxy}
 
-Für Netze ohne direkten Internetzugang: **Einstellungen → Repository & winget → Proxyserver**.
+Für Netze ohne direkten Internetzugang: **Einstellungen → Updates & Aktualität → Proxyserver**.
 
 | Feld | Bedeutung |
 |---|---|
@@ -876,7 +876,7 @@ Für Netze ohne direkten Internetzugang: **Einstellungen → Repository & winget
 
 ## winget auf Servern {#wingetbootstrap}
 
-Vor jedem winget-Schritt prüft POCKET KNIFE, ob winget vorhanden ist. Fehlt es (Windows Server, ältere Windows-10-Builds), wird der App-Installer samt Abhängigkeiten nachinstalliert – **immer aus dem Repository**, nie per Download auf dem Client (ab 2.37). Den App-Installer lädt POCKET KNIFE selbst einmal in den Ordner **Offline-Quelle** (Standard `_winget`): beim ersten Bedarf, danach einmal täglich, aber nur bei einer neuen Version (aktuelles Release von microsoft/winget-cli, Prüfsumme aus GitHub; Windows prüft zusätzlich die Microsoft-Signatur). **Jetzt laden** in den Einstellungen holt ihn sofort. Ohne Internet: die Dateien `*.msixbundle`, `*License*.xml` und `DesktopAppInstaller_Dependencies.zip` selbst in den Ordner legen. Vor Windows 10 1809 bzw. Server 2019 gibt es kein winget; dort werden winget-Schritte **übersprungen**. Einstellbar unter **Einstellungen → Repository & winget**.
+Vor jedem winget-Schritt prüft POCKET KNIFE, ob winget vorhanden ist. Fehlt es (Windows Server, ältere Windows-10-Builds), wird der App-Installer samt Abhängigkeiten nachinstalliert – **immer aus dem Repository**, nie per Download auf dem Client (ab 2.37). Den App-Installer lädt POCKET KNIFE selbst einmal in den Ordner **Offline-Quelle** (Standard `_winget`): beim ersten Bedarf, danach einmal täglich, aber nur bei einer neuen Version (aktuelles Release von microsoft/winget-cli, Prüfsumme aus GitHub; Windows prüft zusätzlich die Microsoft-Signatur). **Jetzt laden** in den Einstellungen holt ihn sofort. Ohne Internet: die Dateien `*.msixbundle`, `*License*.xml` und `DesktopAppInstaller_Dependencies.zip` selbst in den Ordner legen. Vor Windows 10 1809 bzw. Server 2019 gibt es kein winget; dort werden winget-Schritte **übersprungen**. Einstellbar unter **Einstellungen → Updates & Aktualität → winget**.
 
 # Repository {#repository}
 
@@ -908,7 +908,7 @@ Die Ansicht bedient sich wie der Datei-Explorer für Clients:
 
 Neue Dateien in einem benutzten Paketordner sind erlaubt (z. B. eine zusätzliche Konfiguration); das Paket zeigt dann „neu im Paketordner“, bis jemand den neuen Stand übernimmt. **Wer benutzt das?** zeigt für jeden Eintrag die Pakete, die Spalte **Benutzt von** steht direkt in der Liste. Jede Aktion steht im Protokoll (Kategorie „Repository“) mit Benutzer und Mandant.
 
-**Grenzen:** maximale Dateigröße (Standard 4096 MB) unter **Einstellungen → Repository & winget**; für OU-Admins zusätzlich die erlaubten Dateitypen (MSI, MSP, MSU, MST, EXE, CMD/BAT, PS1, REG, ZIP, 7Z, CAB, MSIX/APPX, INI/INF, XML/JSON/TXT/CFG, Zertifikate, ISO/WIM und ähnliche) und ein **Speicherkontingent** je Mandant (beim Mandanten, leer = Standard aus den Einstellungen, 0 = unbegrenzt).
+**Grenzen:** maximale Dateigröße (Standard 4096 MB) unter **Einstellungen → Pakete & Repository → Hochladen ins Repository**; für OU-Admins zusätzlich die erlaubten Dateitypen (MSI, MSP, MSU, MST, EXE, CMD/BAT, PS1, REG, ZIP, 7Z, CAB, MSIX/APPX, INI/INF, XML/JSON/TXT/CFG, Zertifikate, ISO/WIM und ähnliche) und ein **Speicherkontingent** je Mandant (beim Mandanten, leer = Standard aus den Einstellungen, 0 = unbegrenzt).
 
 **Mandanten:** OU-Admins sehen und bearbeiten nur den Ordner ihres Mandanten; den Ordner selbst können sie nicht umbenennen, verschieben oder löschen. Darf ein Mandant eigene Pakete bauen und hat noch keinen Repository-Ordner, legt POCKET KNIFE **`Mandanten\<Name>`** selbst an – ein Ordner je Mandant, alle seine Admins teilen ihn; darunter legen sie eigene Unterordner an. Zwei Mandanten können sich keinen Ordner teilen (auch nicht ineinander verschachtelt). Das Repository und sein Server bleiben OU-Admins verborgen.
 
@@ -970,7 +970,7 @@ Nach einer **erfolgreichen Installation oder Aktualisierung** sieht der angemeld
 - **Installiert** oder **aktualisiert**: winget-Aktualisierungen und Programme, die vorher schon (in älterer Version) im Inventar standen, gelten als „aktualisiert“. Name und Version nimmt POCKET KNIFE bei winget aus der Ausgabe („Found 7-Zip … Version 26.00“), sonst aus Paketname und -version.
 - **Keine Meldung**, wenn niemand angemeldet ist, alles schon installiert bzw. aktuell war, bei Deinstallationen und bei reinen Skript-/Registry-Paketen.
 - Mehrere angemeldete Benutzer (z. B. Terminalserver) sehen die Meldung jeweils in ihrer Sitzung.
-- **Einstellungen → Zeitpläne & Leistung → Benachrichtigung am Client:** ein/aus, Absender (ein geänderter Absender gilt ab der nächsten Meldung), Sprache (Deutsch/Englisch), **Test-Benachrichtigung senden** an einen Computer. Je Paket unter *Paket-Eigenschaften → Benachrichtigung*: wie in den Einstellungen, immer (auch Skript-Pakete) oder nie.
+- **Einstellungen → Am Client → Benachrichtigung am Client:** ein/aus, Absender (ein geänderter Absender gilt ab der nächsten Meldung), Sprache (Deutsch/Englisch), **Test-Benachrichtigung senden** an einen Computer. Je Paket unter *Paket-Eigenschaften → Benachrichtigung*: wie in den Einstellungen, immer (auch Skript-Pakete) oder nie.
 
 **Technik:** Eine kurze WinRM-Verbindung startet je angemeldetem Benutzer eine geplante Aufgabe *als dieser Benutzer* (ohne Kennwort, ohne erhöhte Rechte, ohne sichtbares Fenster) – nur so erscheint die Meldung in seiner Sitzung; als Dienstkonto oder SYSTEM sähe sie niemand. Das Anzeigeskript liegt unter `C:\Program Files\PocketKnife` (nur Administratoren dürfen dort schreiben), Name und Version werden nur als Daten übergeben, nie als Befehl. Danach prüft das Skript im Benachrichtigungscenter, ob Windows die Meldung angenommen hat – wenn nicht, zeigt es sie mit dem Absender „Windows PowerShell“, den Windows immer kennt. Hat der Benutzer die Benachrichtigungen dieses Absenders in den Windows-Einstellungen selbst abgeschaltet, wird das respektiert (kein Ausweichen). Das Skript wird mit `-File` aus „Programme“ gestartet und läuft damit auch bei Softwareeinschränkung (SRP), AppLocker oder WDAC (eingeschränkter Sprachmodus) – sofern Skripte aus „Programme“ erlaubt sind, wie in den Standardregeln. Nur wenn eine GPO die Ausführungsrichtlinie auf AllSigned/Restricted festlegt, startet POCKET KNIFE es über einen kurzen kodierten Befehl. Das Ergebnis meldet das Skript selbst zurück; kommt keine Antwort, steht im Protokoll „Anzeigeskript ist beim Benutzer nicht gestartet“; die Rechte des Ordners setzt POCKET KNIFE bei jeder Meldung wieder auf den Standard von „Programme“. **Das Ergebnis je Benutzer steht im Protokoll** („gezeigt“, „gezeigt mit Absender Windows PowerShell“, „von Windows nicht angezeigt – Benachrichtigungen aus/Nicht stören/Richtlinie“ …), ebenso beim Test in den Einstellungen. Die Bereitstellung wartet nicht darauf.
 
@@ -978,7 +978,7 @@ Nach einer **erfolgreichen Installation oder Aktualisierung** sieht der angemeld
 
 ## Meldung bei Neustart und Herunterfahren {#rebootmsg}
 
-Bevor POCKET KNIFE einen Computer neu startet oder herunterfährt, zeigt Windows dem angemeldeten Benutzer eine Meldung. Deren Text stellen Sie unter **Einstellungen → Zeitpläne & Leistung → Meldung bei Neustart und Herunterfahren** ein:
+Bevor POCKET KNIFE einen Computer neu startet oder herunterfährt, zeigt Windows dem angemeldeten Benutzer eine Meldung. Deren Text stellen Sie unter **Einstellungen → Am Client → Meldung bei Neustart und Herunterfahren** ein:
 
 - **Absender** – z. B. „Ihre IT-Abteilung“ statt „POCKET KNIFE“.
 - Je Anlass ein eigener Text: **Neustart** und **Herunterfahren** aus dem Computer-Menü, **Neustart nach Bereitstellung**, Paketschritt **„Neustart“** und **Neustart aus dem Kiosk**. Leeres Feld = Standardtext; unter jedem Feld steht ein Beispiel, wie die Meldung aussehen wird.
@@ -1053,7 +1053,7 @@ Computer auswählen → **Tools ▾** oder Rechtsklick → Tools.
 | Ping & Ports | Erreichbarkeit und offene Ports |
 | Remotedesktop / VNC im Browser | Fernsitzung in einem eigenen Tab |
 | Wake-on-LAN | über einen erreichbaren Computer im selben Subnetz (Relay), mehrfach, mit Prüfung, ob er aufwacht – siehe unten |
-| Neustart / Herunterfahren … | ab 2.32.3 in einem Dialog: Neustart oder Herunterfahren wählen und die Wartezeit angeben (Sekunden oder Minuten, 0 = sofort bis 24 Stunden, Standard 60 Sekunden). Angemeldete Benutzer sehen solange die Meldung von Windows; der Standardtext nennt bei längeren Zeiten Minuten, ein eigener Text unter **Einstellungen → Zeitpläne & Leistung** gilt unverändert. Bei „sofort“ schließt Windows offene Programme ohne Rückfrage. Ab 2.34: Sind Server oder Domänencontroller dabei, nennt der Dialog sie samt Zahl der angemeldeten Benutzer und führt erst nach einem Häkchen „Ja, auch die Server“ aus |
+| Neustart / Herunterfahren … | ab 2.32.3 in einem Dialog: Neustart oder Herunterfahren wählen und die Wartezeit angeben (Sekunden oder Minuten, 0 = sofort bis 24 Stunden, Standard 60 Sekunden). Angemeldete Benutzer sehen solange die Meldung von Windows; der Standardtext nennt bei längeren Zeiten Minuten, ein eigener Text unter **Einstellungen → Am Client** gilt unverändert. Bei „sofort“ schließt Windows offene Programme ohne Rückfrage. Ab 2.34: Sind Server oder Domänencontroller dabei, nennt der Dialog sie samt Zahl der angemeldeten Benutzer und führt erst nach einem Häkchen „Ja, auch die Server“ aus |
 | Neustart/Herunterfahren abbrechen | stoppt einen angekündigten Neustart bzw. ein Herunterfahren, solange die Wartezeit läuft |
 | gpupdate /force | Gruppenrichtlinien aktualisieren: Computerrichtlinie und – in der Sitzung jedes angemeldeten Benutzers – dessen Benutzerrichtlinie (z. B. Browser-Lesezeichen, Laufwerke). Die Ausgabe zeigt jeden Teil einzeln. Ist niemand angemeldet, gilt die Benutzerrichtlinie bei der nächsten Anmeldung |
 | winget prüfen / nachinstallieren | stellt winget bereit, wo es fehlt |
@@ -1067,7 +1067,7 @@ Computer auswählen → **Tools ▾** oder Rechtsklick → Tools.
 
 - **Mehrfach senden:** jedes Paket 3× im Abstand von knapp einer Sekunde (UDP kann verloren gehen), an alle bekannten MAC-Adressen – auch an die kabelgebundener Karten, die beim letzten Scan keine IP hatten (z. B. Dockingstation).
 - **Aufwachen abwarten:** Danach prüft POCKET KNIFE den Computer alle 10 Sekunden. Das Fenster zeigt „wartet … 45 s“, dann „aufgewacht nach 70 s“ oder „nicht aufgewacht“; nach der halben Wartezeit wird automatisch noch einmal gesendet – über andere Computer, wenn es welche gibt. Das Ergebnis steht auch im Protokoll; ein aufgewachter Computer löst sofort die Heartbeat-Auslöser aus (Scans, Zeitpläne).
-- **Feste Relays (optional):** unter **Einstellungen → Wake-on-LAN** Computer eintragen, die immer laufen (z. B. Server). Sie senden zuerst – so klappt es auch, wenn im Subnetz sonst niemand online ist. Dort lassen sich auch Anzahl der Pakete und Wartezeit einstellen.
+- **Feste Relays (optional):** unter **Einstellungen → Netzwerk & Fernzugriff → Wake-on-LAN** Computer eintragen, die immer laufen (z. B. Server). Sie senden zuerst – so klappt es auch, wenn im Subnetz sonst niemand online ist. Dort lassen sich auch Anzahl der Pakete und Wartezeit einstellen.
 - **Bereitschaft im Inventar:** Der Scanner „Netzwerkkarten“ liest je Karte, ob das Magic Packet erlaubt ist, ob sie den Computer wecken darf und die WoL-Einstellungen des Treibers, dazu den Windows-Schnellstart (weckt aus „Herunterfahren“ bei vielen Karten nicht). Zu sehen beim Computer unter **Netzwerkkarten**, im Bericht **Wake-on-LAN-Bereitschaft** und als Filter „Wake-on-LAN bereit“ für Sammlungen. Die Einstellung im BIOS/UEFI kann Windows nicht auslesen.
 - **Vor Zeitplänen wecken (optional, Standard aus):** im Zeitplan unter Optionen → „ausgeschaltete Ziele beim Lauf wecken“. Gilt bei einem Termin, im Zeitfenster und bei „Jetzt ausführen“, nicht bei jedem Heartbeat; geweckte Computer werden versorgt, sobald sie hochgefahren sind. Heruntergefahren werden sie danach nicht.
 
@@ -1207,7 +1207,7 @@ Im Beispiel heißt die Domäne `firma.local` (NetBIOS `FIRMA`), der Kiosk `pocke
 
 # Fernsitzungen {#remote}
 
-Computer → **Remotedesktop** (oder Tools → VNC im Browser) öffnet die Sitzung in einem eigenen Tab – ohne Plugin. Anmelden können Sie sich mit der eigenen POCKET KNIFE-Anmeldung (das Kennwort liegt nur verschlüsselt im Arbeitsspeicher), mit anderen Anmeldedaten oder erst auf dem Computer. Werden Anmeldedaten mitgegeben, verbindet POCKET KNIFE nur mit **NLA** (Network Level Authentication, ab 2.37) – Windows prüft die Anmeldung, bevor ein Desktop entsteht. Gehört der Computer zu einem Mandanten mit OU-Admins, warnt der Dialog vor der eigenen Anmeldung: Dort sind auch andere Administratoren und könnten ein gesendetes Kennwort abgreifen – besser ein Konto, das nur dort gilt. Bei **VNC** gibt es „Ohne Kennwort / Nachfrage vom Server“, „Mit Kennwort“ und – wenn unter **Einstellungen → Fernsitzungen** hinterlegt – das **zentrale VNC-Kennwort** (verschlüsselt gespeichert, im Dialog dann vorausgewählt; klassisches VNC nutzt nur die ersten 8 Zeichen). In der Sitzung: Strg+Alt+Entf, Windows-Taste, Zwischenablage, Vollbild, Anpassen an das Fenster. Voraussetzung ist der Container `pocketknife-guacd`, der mit `docker compose` automatisch startet.
+Computer → **Remotedesktop** (oder Tools → VNC im Browser) öffnet die Sitzung in einem eigenen Tab – ohne Plugin. Anmelden können Sie sich mit der eigenen POCKET KNIFE-Anmeldung (das Kennwort liegt nur verschlüsselt im Arbeitsspeicher), mit anderen Anmeldedaten oder erst auf dem Computer. Werden Anmeldedaten mitgegeben, verbindet POCKET KNIFE nur mit **NLA** (Network Level Authentication, ab 2.37) – Windows prüft die Anmeldung, bevor ein Desktop entsteht. Gehört der Computer zu einem Mandanten mit OU-Admins, warnt der Dialog vor der eigenen Anmeldung: Dort sind auch andere Administratoren und könnten ein gesendetes Kennwort abgreifen – besser ein Konto, das nur dort gilt. Bei **VNC** gibt es „Ohne Kennwort / Nachfrage vom Server“, „Mit Kennwort“ und – wenn unter **Einstellungen → Netzwerk & Fernzugriff → Fernsitzungen** hinterlegt – das **zentrale VNC-Kennwort** (verschlüsselt gespeichert, im Dialog dann vorausgewählt; klassisches VNC nutzt nur die ersten 8 Zeichen). In der Sitzung: Strg+Alt+Entf, Windows-Taste, Zwischenablage, Vollbild, Anpassen an das Fenster. Voraussetzung ist der Container `pocketknife-guacd`, der mit `docker compose` automatisch startet.
 
 # Berichte und Protokoll {#reports}
 
@@ -1288,17 +1288,20 @@ Die Einstellungen sind in Bereiche gegliedert (Liste links).
 
 | Bereich | Inhalt |
 |---|---|
-| Verbindung & Konten | Domänendaten, LDAPS testen, **Abmelden bei Inaktivität**, **Dienstkonto** und optional ein Repository-Konto (vor dem Speichern geprüft, verschlüsselt gespeichert), **Anmeldeverfahren** NTLM/Kerberos mit Test |
+| Verbindung & Konten | Domänendaten, LDAPS testen, **Dienstkonto** und optional ein Repository-Konto (vor dem Speichern geprüft, verschlüsselt gespeichert), **Anmeldeverfahren** NTLM/Kerberos mit Test |
 | Active Directory | Container ein-/ausschließen (die nächstgelegene Regel gewinnt), Abgleich-Intervall, Umgang mit verschwundenen und deaktivierten Computern (Löschen erst, wenn ein Computer **seit 7 Tagen** im AD fehlt; ist kein Container eingeschlossen oder fehlen plötzlich fast alle Computer, wird nichts geändert), AD-Sammlungen |
-| Zeitpläne & Leistung | Heartbeat, parallele Scans/Installationen, Zeitlimits, Aufbewahrung von Protokoll und Verlauf, [Benachrichtigung am Client](#toast), [Meldung bei Neustart](#rebootmsg) |
-| Repository & winget | Repository-Pfad und Test, winget-Index, Standard-Bereich, [neue Versionen zurückstellen](#winget-release), automatische Nachinstallation von winget, Offline-Quellen, [Proxyserver](#proxy) |
-| Fernsitzungen | Status von guacd, eigene Anmeldung, Tastaturlayout, aktive Sitzungen |
-| Sicherung | automatische Sicherung (täglich und vor Updates), Anzahl Versionen, Jetzt sichern, Herunterladen |
+| Sicherheit | LDAPS-Zertifikat strikt prüfen, **Abmelden bei Inaktivität**, Zertifikat der Weboberfläche (HTTPS): anzeigen, eigenes hochladen (PFX oder PEM), Anforderung (CSR) erstellen, Sicherungen, selbstsigniert neu erzeugen |
+| Netzwerk & Fernzugriff | Namensauflösung & Erreichbarkeit, Wake-on-LAN, Fernsitzungen (Status von guacd, eigene Anmeldung, Tastaturlayout, zentrales VNC-Kennwort, aktive Sitzungen) |
+| Inventar | Heartbeat, Scan nach dem Hochfahren, parallele Scans, nach Bereitstellungen scannen, integrierte Windows-Apps, Grenze „wenig Speicher“, Speicherplatz-Tiefe, Scanprofile, benutzerdefinierte Felder (z. B. Inventarnummer, Raum) – auch direkt beim Computer unter **Benutzerdefinierte Felder** anlegbar; dort stehen außerdem freie **Notizen** je Computer (nur in POCKET KNIFE gespeichert, nie vom Computer überschrieben) |
+| Updates & Aktualität | [Update-Status](#updstatus) Windows & Office, winget-Index, Standard-Bereich, [neue Versionen zurückstellen](#winget-release), automatische Nachinstallation von winget, Offline-Quellen, [Proxyserver](#proxy), Ausnahmen der Aktualitätsprüfung |
+| Pakete & Repository | Ausführung der Pakete (Lokales System oder Dienstkonto), parallele Installationen, Zeitlimit, Repository-Pfad und Test, Hochladen ins Repository, Bruchprüfung der Pakete |
+| Am Client | [Benachrichtigung am Client](#toast), [Meldung bei Neustart und Herunterfahren](#rebootmsg) |
 | E-Mail & Benachrichtigungen | SMTP-Server mit Testmail, Benachrichtigungen bei Ereignissen (siehe [Benachrichtigungen](#alerts)) |
-| Zertifikat (HTTPS) | Zertifikat der Weboberfläche: anzeigen, eigenes hochladen (PFX oder PEM), Anforderung (CSR) erstellen, Sicherungen, selbstsigniert neu erzeugen |
-| Inventar & Felder | Scanprofile, benutzerdefinierte Felder (z. B. Inventarnummer, Raum) – auch direkt beim Computer unter **Benutzerdefinierte Felder** anlegbar; dort stehen außerdem freie **Notizen** je Computer (nur in POCKET KNIFE gespeichert, nie vom Computer überschrieben) |
 | Mandanten | Mandanten mit eigener Sammlung, eigenem Repository-Ordner und optional [OU-Admins](#ou-admins) |
-| Wartung | Status, Datenbankgröße und „Jetzt aufräumen“, AD-Abgleich und Heartbeat sofort, Verbindungstest, Darstellung, Sprache, [Diagnosepaket](#diagnostics) |
+| Sicherung | automatische Sicherung (täglich und vor Updates), Anzahl Versionen, Jetzt sichern, Herunterladen |
+| Wartung | Status, Datenbankgröße und „Jetzt aufräumen“, AD-Abgleich und Heartbeat sofort, Verbindungstest, Darstellung, Sprache, **Aufbewahrung** von Protokoll und Verlauf, Datenbankwartung, Programm-Updates, [Diagnosepaket](#diagnostics) |
+
+**Suchen (ab 2.42):** Das Suchfeld über der Liste durchsucht alle Bereiche, z. B. „Karenz“, „VNC“ oder „Proxy“ – angezeigt werden alle Karten, die den Begriff enthalten. Alte Verweise auf frühere Bereiche (z. B. „Zeitpläne & Leistung“) führen automatisch zum neuen Ort.
 
 **Mandanten:** Pakete und Zeitpläne lassen sich einem Mandanten zuordnen. Hat der Mandant eine Sammlung, werden seine Pakete nur auf deren Computer verteilt. Hat er einen Repository-Ordner, dürfen seine Pakete nur Dateien aus diesem Ordner verwenden (wird beim Speichern geprüft).
 
@@ -1378,7 +1381,7 @@ Skripte gehören damit **als Datei ins Repository** – dort sieht und prüft si
 
 ## Eigenes Zertifikat {#certificate}
 
-POCKET KNIFE stellt HTTPS selbst bereit – ein Reverse Proxy ist nicht nötig. Beim ersten Start wird ein selbstsigniertes Zertifikat erzeugt; unter **Einstellungen → Zertifikat (HTTPS)** lässt es sich ersetzen. Ein neues Zertifikat ist **sofort aktiv** (ohne Neustart); das bisherige wird gesichert.
+POCKET KNIFE stellt HTTPS selbst bereit – ein Reverse Proxy ist nicht nötig. Beim ersten Start wird ein selbstsigniertes Zertifikat erzeugt; unter **Einstellungen → Sicherheit → Zertifikat (HTTPS)** lässt es sich ersetzen. Ein neues Zertifikat ist **sofort aktiv** (ohne Neustart); das bisherige wird gesichert.
 
 **Variante A – fertiges Zertifikat hochladen**
 
@@ -1551,7 +1554,7 @@ POCKET KNIFE läuft vollständig in Ihrem Netz; Daten liegen nur unter `/data` a
 | Softwareänderungen | Verlauf | Standard 365 Tage |
 | Sitzungen | Anmeldung | bis zum Ablauf |
 
-Die Fristen stehen unter **Einstellungen → Zeitpläne & Leistung**. Kennwörter, Schlüssel, LAPS- und BitLocker-Werte liegen nur verschlüsselt in der Datenbank und erscheinen nie im Protokoll oder im [Diagnosepaket](#diagnostics).
+Die Fristen stehen unter **Einstellungen → Wartung → Aufbewahrung & Datenbank**. Kennwörter, Schlüssel, LAPS- und BitLocker-Werte liegen nur verschlüsselt in der Datenbank und erscheinen nie im Protokoll oder im [Diagnosepaket](#diagnostics).
 
 **Was das Netz verlässt** – nur, was Sie einschalten: winget-Katalog und winget-Cache (`cdn.winget.microsoft.com` und die Hersteller), der App-Installer für Computer ohne winget (github.com), der Hinweis auf neue Versionen (github.com, einmal täglich, ohne Daten aus Ihrem Netz) und E-Mails an die eingetragenen Empfänger. Die Oberfläche lädt nichts aus dem Internet. Das Diagnosepaket wird nie verschickt – nur heruntergeladen, standardmäßig anonymisiert.
 

@@ -1,5 +1,5 @@
 """Text of the Windows message shown on restart/shutdown (shutdown.exe /c ...) - configurable under
-Einstellungen -> Zeitpläne & Leistung -> "Meldung bei Neustart und Herunterfahren".
+Einstellungen -> Am Client -> "Meldung bei Neustart und Herunterfahren".
 
 Sender (default "POCKET KNIFE") and a separate text per occasion with placeholders:
 {absender}, {sekunden}, {minuten}, {benutzer}. An empty field means the default text.
