@@ -8553,6 +8553,59 @@ def _():
     assert "function softwareDlg(sw) { return onceDlg('sw:' + sw.name" in js and "{ wide: true, key: dlgKey }" in js
 
 
+@test("2.41.1 Package editor \"Für Updates verwenden\": same setting as \"Update-Paket\" in the software details (both directions), moves a winget ID, tenant packages refused, OU admins neither see nor change it")
+def _():
+    from fastapi import HTTPException
+    from app import deploy, main as _m
+    adm, ou = {"username": "haupt", "scope": None}, {"username": "ou-x", "scope": [1]}
+    stp = {"main": [{"id": "w1", "type": "install", "source": "winget", "winget_id": "Microsoft.PowerShell"}]}
+
+    def mk(name, tenant=None):
+        return db.ex("INSERT INTO packages(name, version, steps, conditions, run_as, tenant_id, created_at) VALUES(?,'1',?,'{}','default',?,?)",
+                     (name, json.dumps(stp), tenant, util.now()))
+
+    def err(fn, *a):
+        try:
+            fn(*a)
+        except HTTPException as e:
+            return str(e.detail)
+        raise AssertionError("no error")
+    tid = db.ex("INSERT INTO tenants(name, created_at) VALUES('Mandant UF', ?)", (util.now(),))
+    pa, pb, pt = mk("UF-A"), mk("UF-B"), mk("UF-T", tid)
+    try:
+        # package editor -> table (as the software details read it)
+        _m._sync_update_for(pa, {"update_for": ["Microsoft.PowerShell", "microsoft.powershell", "Git.Git"]}, adm)
+        assert deploy.update_package("Microsoft.PowerShell")["id"] == pa and deploy.update_package("git.git")["id"] == pa
+        assert db.val("SELECT COUNT(*) FROM winget_update_packages WHERE package_id=?", (pa,)) == 2, "duplicates ignored"
+        # software details -> package editor shows it
+        _m.api_winget_update_package({"winget_id": "Mozilla.Firefox", "package_id": pa}, adm)
+        assert _m.api_package(pa, adm)["update_for"] == ["Git.Git", "Microsoft.PowerShell", "Mozilla.Firefox"]
+        # another package takes over a winget ID
+        _m._sync_update_for(pb, {"update_for": ["Git.Git"]}, adm)
+        assert deploy.update_package("Git.Git")["id"] == pb and "Git.Git" not in _m.api_package(pa, adm)["update_for"]
+        # removing in the editor = standard again; key missing = unchanged
+        _m._sync_update_for(pa, {"name": "x"}, adm)
+        assert len(_m.api_package(pa, adm)["update_for"]) == 2
+        _m._sync_update_for(pa, {"update_for": ["Mozilla.Firefox"]}, adm)
+        assert deploy.update_package("Microsoft.PowerShell") is None and deploy.update_package("Mozilla.Firefox")["id"] == pa
+        assert "winget-ID" in err(_m._sync_update_for, pa, {"update_for": ["bad id;x"]}, adm)
+        assert "Mandanten" in err(_m._sync_update_for, pt, {"update_for": ["Microsoft.PowerShell"]}, adm)
+        # OU admin: ignored and not shown
+        _m._sync_update_for(pa, {"update_for": []}, ou)
+        assert deploy.update_package("Mozilla.Firefox")["id"] == pa
+        src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "main.py"), encoding="utf-8").read()
+        assert "if not access.scoped(user):  # 2.41.1" in src and src.count("    _sync_update_for(pid, data, user)\n") == 2
+        assert src.count('if data.get("update_for") and p.get("tenant_id") is not None and not access.scoped(user):') == 2, "checked before saving"
+    finally:
+        db.ex("DELETE FROM winget_update_packages WHERE package_id IN (?,?,?)", (pa, pb, pt))
+        db.ex("DELETE FROM packages WHERE id IN (?,?,?)", (pa, pb, pt))
+        db.ex("DELETE FROM tenants WHERE id=?", (tid,))
+    js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
+    assert "if (e.detail > 1 && e.target && e.target.closest && e.target.closest('a[href=\"#\"]')) { e.preventDefault(); e.stopPropagation(); }" in js, "double-click on dialog links"
+    assert "}, true);\nwindow.addEventListener('hashchange', route);" in js, "capture phase - before the link's own onclick"
+    assert "isOU() ? null : field('Für Updates verwenden', updateForBox()" in js and "if (!Array.isArray(p.update_for)) p.update_for = [];" in js
+
+
 @test("2.22 Self-test: diagnostic package test does not use fixed dates (time bomb once outside the 30-day window)")
 def _():
     import inspect

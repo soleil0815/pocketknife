@@ -5821,5 +5821,12 @@
  "Updates von {0} laufen jetzt mit „{1}“": "Updates of {0} now run with \"{1}\"",
  "Wieder Standard": "Standard again",
  "gesetzt von {0}, {1}": "set by {0}, {1}",
- "{0} auf {1} Computer(n) mit dem Update-Paket „{2}“ aktualisieren?": "Update {0} on {1} computer(s) with the update package \"{2}\"?"
+ "{0} auf {1} Computer(n) mit dem Update-Paket „{2}“ aktualisieren?": "Update {0} on {1} computer(s) with the update package \"{2}\"?",
+ "Für Updates verwenden": "Use for updates",
+ "Updates dieser winget-IDs (Auto-Update-Zeitpläne, „Aktualisieren“, „Veraltete aktualisieren“) laufen mit diesem Paket – alle Schritte im aktuellen Stand – statt mit winget upgrade bzw. winget-Cache. Dieselbe Einstellung wie „Update-Paket“ in den Software-Details; wirksam beim Speichern. Nicht bei Paketen eines Mandanten.": "Updates of these winget IDs (Auto-Update schedules, \"Update\", \"Update outdated\") run with this package – all steps in their current state – instead of winget upgrade or the winget cache. Same setting as \"Update package\" in the software details; takes effect when saving. Not for a tenant's packages.",
+ "Keine – Updates laufen mit winget upgrade bzw. winget-Cache": "None – updates run with winget upgrade or the winget cache",
+ "winget-ID hinzufügen …": "Add winget ID …",
+ "{0} (aus den Schritten)": "{0} (from the steps)",
+ "Für Updates verwenden: Liste von winget-IDs erwartet.": "Use for updates: a list of winget IDs is expected.",
+ "Für Updates verwenden: ungültige winget-ID „{0}“.": "Use for updates: invalid winget ID \"{0}\"."
 }

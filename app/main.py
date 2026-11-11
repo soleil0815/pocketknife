@@ -2357,7 +2357,41 @@ def api_package(pid: int, user=U):
     out = _pkg_out(r)
     out["editable"] = access.can_edit_package(user, r)
     out["integrity"] = integrity.scope_view(out.get("integrity"), _ou_prefixes(user))
+    if not access.scoped(user):  # 2.41.1: winget IDs whose updates run with this package (main admins only)
+        out["update_for"] = [x["winget_id"] for x in db.q(
+            "SELECT winget_id FROM winget_update_packages WHERE package_id=? ORDER BY winget_id COLLATE NOCASE", (pid,))]
     return out
+
+
+def _sync_update_for(pid, data, user):
+    """2.41.1: "Für Updates verwenden" in the package editor - same table as in the software details, so both places
+    always show the same. A winget ID listed here moves from another package to this one."""
+    if "update_for" not in data or access.scoped(user):
+        return
+    raw = data.get("update_for") or []
+    if not isinstance(raw, list):
+        _err("Für Updates verwenden: Liste von winget-IDs erwartet.")
+    want: dict[str, str] = {}
+    for w in raw:
+        w = str(w or "").strip()
+        if not util.WINGET_ID_RE.match(w):
+            _err(f"Für Updates verwenden: ungültige winget-ID „{w[:80]}“.")
+        want.setdefault(w.lower(), w)
+    if want and db.val("SELECT tenant_id FROM packages WHERE id=?", (pid,)) is not None:
+        _err("Pakete eines Mandanten können nicht für Updates aller Computer verwendet werden.")
+    have = {r["winget_id"].lower(): r["winget_id"] for r in db.q("SELECT winget_id FROM winget_update_packages WHERE package_id=?", (pid,))}
+    name = db.val("SELECT name FROM packages WHERE id=?", (pid,))
+    for k, w in have.items():
+        if k not in want:
+            db.ex("DELETE FROM winget_update_packages WHERE winget_id=? AND package_id=?", (w, pid))
+            pklog.info("winget", f"Updates für {w}: wieder Standard (winget upgrade bzw. winget-Cache).", user=user["username"])
+    for k, w in want.items():
+        if k in have:
+            continue
+        db.ex("""INSERT INTO winget_update_packages(winget_id, package_id, set_by, set_at) VALUES(?,?,?,?)
+                 ON CONFLICT(winget_id) DO UPDATE SET winget_id=excluded.winget_id, package_id=excluded.package_id,
+                 set_by=excluded.set_by, set_at=excluded.set_at""", (w, pid, user["username"], util.now()))
+        pklog.info("winget", f"Updates für {w}: mit Paket „{name}“ statt winget upgrade.", user=user["username"])
 
 
 @app.post("/api/packages/{pid}/integrity/check")
@@ -2396,6 +2430,8 @@ def api_package_create(data: dict = Body(...), user=U):
     if access.scoped(user):
         data = {**data, "tenant_id": access.own_tenant_for(user, data.get("tenant_id"))}
     p = _pkg_values(data, user=user)
+    if data.get("update_for") and p.get("tenant_id") is not None and not access.scoped(user):
+        _err("Pakete eines Mandanten können nicht für Updates aller Computer verwendet werden.")
     ids, pending = _dup_guard(p, None, user, data)
     cols = deploy.PKG_FIELDS + ["created_at", "updated_at"]
     pid = db.ex(f"INSERT INTO packages({', '.join(cols)}) VALUES({', '.join('?' * len(cols))})",
@@ -2403,6 +2439,7 @@ def api_package_create(data: dict = Body(...), user=U):
     db.ex("UPDATE packages SET ou_edit=? WHERE id=?", (_ou_edit_flag(user, data), pid))
     repofiles.store_idents(pid, ids, pending)
     pklog.info("deploy", f"Paket '{p['name']}' angelegt.", user=user["username"])
+    _sync_update_for(pid, data, user)
     integrity.after_save(pid)  # record the state of the repository files
     return {"id": pid, "warnings": _net_warn(p, user)}
 
@@ -2414,6 +2451,8 @@ def api_package_update(pid: int, data: dict = Body(...), user=U):
     if access.scoped(user):
         data = {**data, "tenant_id": access.own_tenant_for(user, data.get("tenant_id"))}
     p = _pkg_values(data, pid, user=user)
+    if data.get("update_for") and p.get("tenant_id") is not None and not access.scoped(user):
+        _err("Pakete eines Mandanten können nicht für Updates aller Computer verwendet werden.")
     ids, pending = _dup_guard(p, pid, user, data)
     db.ex(f"UPDATE packages SET {', '.join(k + '=?' for k in deploy.PKG_FIELDS)}, updated_at=? WHERE id=?",
           tuple(p[k] for k in deploy.PKG_FIELDS) + (util.now(), pid))
@@ -2421,6 +2460,7 @@ def api_package_update(pid: int, data: dict = Body(...), user=U):
           (_ou_edit_flag(user, data, db.q1("SELECT ou_edit FROM packages WHERE id=?", (pid,))), pid))
     repofiles.store_idents(pid, ids, pending)
     pklog.info("deploy", f"Paket '{p['name']}' geändert.", user=user["username"])
+    _sync_update_for(pid, data, user)
     integrity.after_save(pid)  # record new files - changed ones stay a break until someone confirms
     return {"ok": True, "warnings": _net_warn(p, user)}
 
