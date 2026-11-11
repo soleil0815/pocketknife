@@ -5,6 +5,8 @@ Usage: python3 tools/build_manual.py
 """
 import base64
 import datetime
+import hashlib
+import json
 import os
 import subprocess
 import sys
@@ -93,6 +95,24 @@ def build(lang):
     finally:
         os.remove(tmp)
     print(pdf_name, os.path.getsize(os.path.join(HELP, pdf_name)) // 1024, "KB")
+    stamp(lang)
+
+
+STAMP = os.path.join(HELP, "manual-stamp.json")
+
+
+def help_hash(lang):
+    return hashlib.sha256(open(os.path.join(HELP, f"{lang}.md"), "rb").read()).hexdigest()
+
+
+def stamp(lang):
+    """2.41.2: which help text the PDF was built from - the self-test fails if the help changed without a new PDF."""
+    try:
+        d = json.load(open(STAMP, encoding="utf-8"))
+    except (OSError, ValueError):
+        d = {}
+    d[lang] = {"help_sha256": help_hash(lang), "version": VERSION}
+    open(STAMP, "w", encoding="utf-8").write(json.dumps(d, indent=1, sort_keys=True) + "\n")
 
 
 if __name__ == "__main__":

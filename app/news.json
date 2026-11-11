@@ -2,6 +2,24 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.41.2",
+   "date": "2026-11-11",
+   "items": [
+    {
+     "kind": "fixed",
+     "audience": "all",
+     "de": "Notepad++ und Adobe Acrobat Reader wurden fälschlich als veraltet angezeigt (Kontextmenü-Pakete aus dem MSIX-Scan von 2.40.1) – behoben.",
+     "en": "Notepad++ and Adobe Acrobat Reader were wrongly shown as outdated (context-menu packages from the MSIX scan in 2.40.1) – fixed."
+    },
+    {
+     "kind": "improved",
+     "audience": "all",
+     "de": "Handbuch als PDF wieder aktuell (Deutsch und Englisch) – mit allen Neuerungen seit Version 2.33.",
+     "en": "Manual as PDF up to date again (German and English) – with everything new since version 2.33."
+    }
+   ]
+  },
+  {
    "version": "2.41.1",
    "date": "2026-11-11",
    "items": [
