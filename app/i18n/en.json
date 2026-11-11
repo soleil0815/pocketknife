@@ -5709,5 +5709,9 @@
  "Fehlgeschlagen – PowerShell hat {0} Fehler gemeldet, das Skript endete aber mit Exitcode {1} (im Skript $ErrorActionPreference = 'Stop' oder exit 1 verwenden; bewusst ignorieren: Option am Schritt)": "Failed – PowerShell reported {0} error(s), but the script ended with exit code {1} (use $ErrorActionPreference = 'Stop' or exit 1 in the script; to ignore deliberately: option on the step)",
  "Nicht ausgeführt – kein Neustart nach einem fehlgeschlagenen Schritt": "Not run – no restart after a failed step",
  "#modal-root [data-dlg=\"{0}\"]": null,
- "Rechtsklick → „Als Kopie für Ihren Bereich“ legt eine eigene Kopie an.": "Right click → “As a copy for your area” creates a copy of your own."
+ "Rechtsklick → „Als Kopie für Ihren Bereich“ legt eine eigene Kopie an.": "Right click → “As a copy for your area” creates a copy of your own.",
+ "Ausgeblendete Elemente": "Hidden items",
+ "Nur ausgeblendete Einträge ({0}) – „Ausgeblendete Elemente“ anhaken": "Only hidden entries ({0}) – tick “Hidden items”",
+ "Versteckte Ordner und Dateien (z. B. ProgramData, $Recycle.Bin, desktop.ini) und Einträge ohne Zugriff (z. B. pagefile.sys, hiberfil.sys) ein- oder ausblenden": "Show or hide hidden folders and files (e.g. ProgramData, $Recycle.Bin, desktop.ini) and entries without access (e.g. pagefile.sys, hiberfil.sys)",
+ "{0} ausgeblendet": "{0} hidden"
 }
