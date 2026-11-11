@@ -4313,12 +4313,16 @@ function tenantsCard() {
 const STEP_STATUS = { success: ['OK', 'ok'], failed: ['Fehler', 'err'], skipped: ['Übersprungen', ''], notrun: ['Nicht ausgeführt', ''], running: ['Läuft', 'info'] };
 // Run step again: only this step or from this step onward (new deployment with a shortened package)
 // 2.35.1: Package changed since the deployment → "Wiederholen" uses (selectable) the current state instead of the original one
+// 2.39.1: default is ALWAYS the current state once the package was changed. Only an explicit choice of the user
+// ("mit dem Stand dieser Bereitstellung") is remembered - and only for the package state it was made for.
 const RERUN_CUR = {};
+const RERUN_PICK = {};
+const rerunCur = (did) => (did in RERUN_CUR ? !!RERUN_CUR[did] : null);  // null = server decides (current state)
 async function retryStep(did, sid, title, mode, targetIds, names) {
   const who = names.length === 1 ? names[0] : `${names.length} Computern`;
   const what = mode === 'step' ? `Nur den Schritt „${title}“` : `Den Schritt „${title}“ und alle folgenden Schritte (inkl. Abschluss)`;
-  if (!(await confirmDlg(`${what} auf ${who} erneut ausführen?\n\nEs wird eine neue Bereitstellung mit diesem Ausschnitt des Pakets erstellt; Paket-Bedingungen und „Ausführen als“ bleiben gleich.`, 'Wiederholen'))) return;
-  const r = await run(() => POST(`/api/deployments/${did}/retry`, { step_id: sid, mode, target_ids: targetIds, current: !!RERUN_CUR[did] }), 'Wiederholung gestartet');
+  if (!(await confirmDlg(`${what} auf ${who} erneut ausführen?\n\nEs wird eine neue Bereitstellung mit diesem Ausschnitt des Pakets erstellt. Wurde das Paket seitdem geändert, gilt sein aktueller Stand mit allen Einstellungen.`, 'Wiederholen'))) return;
+  const r = await run(() => POST(`/api/deployments/${did}/retry`, { step_id: sid, mode, target_ids: targetIds, current: rerunCur(did) }), 'Wiederholung gestartet');
   if (r) { closeModals(); go(`#/deployment/${r.id}`); }
 }
 function retryMenu(e, did, sid, title, targetIds, names) {
@@ -4593,7 +4597,7 @@ async function viewDeployments() {
 // Repeat a deployment with freely chosen steps
 const STEP_COUNT_LABEL = { success: ['OK', 'ok'], failed: ['Fehler', 'err'], skipped: ['übersprungen', ''], notrun: ['nicht ausgeführt', ''] };
 async function rerunDlg(did, d) {
-  const ov = await GET(`/api/deployments/${did}/steps${RERUN_CUR[did] ? '?current=1' : ''}`);
+  const ov = await GET(`/api/deployments/${did}/steps?current=${rerunCur(did) === false ? 0 : 1}`);
   const PHN = { pre: 'Vorbereitung', main: 'Schritte', post: 'Abschluss' };
   const checks = {};
   const anyFailed = ov.steps.some((x) => x.counts.failed);
@@ -4630,7 +4634,7 @@ async function rerunDlg(did, d) {
   Object.values(checks).forEach((c) => c.addEventListener('change', rbAuto)); rbAuto();
   modal('Schritte wählen und wiederholen', h('div',
     h('p.muted.small', { style: { marginTop: 0 } }, 'Es entsteht eine neue Bereitstellung nur mit den gewählten Schritten – in der Reihenfolge des Pakets, mit dessen Bedingungen und „Ausführen als“. Abschluss-Schritte laufen nur, wenn sie gewählt sind.'),
-    RERUN_CUR[did] ? h('p.small', { style: { marginTop: 0 } }, h('span.badge.info', 'aktueller Stand des Pakets'), ' ', tr('Schritte und Einstellungen aus dem geänderten Paket; neue Schritte haben noch kein Ergebnis.')) : null,
+    rerunCur(did) !== false && d.package_changed ? h('p.small', { style: { marginTop: 0 } }, h('span.badge.info', 'aktueller Stand des Pakets'), ' ', tr('Schritte und Einstellungen aus dem geänderten Paket; neue Schritte haben noch kein Ergebnis.')) : null,
     allBtns, h('div', rows), h('div.form', { style: { marginTop: '12px' } }, field('Ziele', h('div', tsel, tbox)),
       pkgReboot !== 'never' ? field('Neustart am Ende', rb, 'Werden nur einzelne Schritte wiederholt (z. B. Registry), ist meist kein Neustart nötig.') : null)), [
     { label: 'Abbrechen' },
@@ -4639,7 +4643,7 @@ async function rerunDlg(did, d) {
       if (!step_ids.length) { toast(tr('Bitte mindestens einen Schritt wählen.'), 'err'); return false; }
       const target_ids = tsel.value === 'selected' ? Object.entries(tchecks).filter(([, c]) => c.checked).map(([k]) => Number(k)) : [];
       if (tsel.value === 'selected' && !target_ids.length) { toast(tr('Bitte mindestens ein Ziel wählen.'), 'err'); return false; }
-      const r = await run(() => POST(`/api/deployments/${did}/rerun`, { step_ids, target: tsel.value, target_ids, reboot: rb.value, current: !!RERUN_CUR[did] }), 'Wiederholung gestartet');
+      const r = await run(() => POST(`/api/deployments/${did}/rerun`, { step_ids, target: tsel.value, target_ids, reboot: rb.value, current: rerunCur(did) }), 'Wiederholung gestartet');
       if (!r) return false;
       go(`#/deployment/${r.id}`);
     } }], { wide: true });
@@ -4650,18 +4654,19 @@ async function viewDeployment(parts) {
   const d = await GET(`/api/deployments/${id}`);
   const p = d.package || {};
   const active = ['running', 'queued', 'scheduled'].includes(d.status);
-  if (!(id in RERUN_CUR)) RERUN_CUR[id] = !!d.package_changed;  // Default: changed package → current state
-  if (!d.package_changed) RERUN_CUR[id] = false;
+  // Default: changed package → current state; an explicit choice only counts for the package state it was made for
+  const pick = RERUN_PICK[id];
+  RERUN_CUR[id] = !!d.package_changed && (pick && pick.stamp === d.package_changed ? pick.v : true);
   setTop(`Bereitstellung #${d.id}: ${d.name}`, `${SOURCE[d.source] || d.source} · ${d.created_by || ''} · ${fmtDate(d.created_at)}`,
     active ? btn('Abbrechen', async () => { if (await confirmDlg('Bereitstellung abbrechen? Bereits laufende Installationen werden beendet.', 'Abbrechen', true)) { await run(() => POST(`/api/deployments/${id}/cancel`), 'Abgebrochen'); route(); } }, { cls: 'danger' }) : null,
     !active ? btn('Fehlgeschlagene erneut', async () => {
       if (!(await confirmDlg('Die fehlgeschlagenen Ziele erneut bereitstellen?', 'Erneut bereitstellen'))) return;
-      const r = await run(() => POST(`/api/deployments/${id}/redeploy`, { failed_only: true, current: !!RERUN_CUR[id] }), 'Gestartet'); if (r) go(`#/deployment/${r.id}`);
+      const r = await run(() => POST(`/api/deployments/${id}/redeploy`, { failed_only: true, current: rerunCur(id) }), 'Gestartet'); if (r) go(`#/deployment/${r.id}`);
     }) : null,
     !active && p.steps && Object.values(p.steps).some((v) => v && v.length) ? btn('Schritte wählen …', () => rerunDlg(id, d), { icon: 'refresh', title: 'Ausgewählte Schritte auf allen, den fehlgeschlagenen oder ausgewählten Zielen wiederholen' }) : null,
     !active ? btn('Alle erneut', async () => {
       if (!(await confirmDlg(`Bereitstellung für alle ${d.targets.length === 1 ? 'Ziele (1)' : `${d.targets.length} Ziele`} erneut starten? Bereits erfolgreiche Computer werden noch einmal versorgt.`, 'Erneut bereitstellen'))) return;
-      const r = await run(() => POST(`/api/deployments/${id}/redeploy`, { failed_only: false, current: !!RERUN_CUR[id] }), 'Gestartet'); if (r) go(`#/deployment/${r.id}`);
+      const r = await run(() => POST(`/api/deployments/${id}/redeploy`, { failed_only: false, current: rerunCur(id) }), 'Gestartet'); if (r) go(`#/deployment/${r.id}`);
     }) : null,
     !active ? btn('Löschen', async () => { if (await confirmDlg('Bereitstellung aus dem Verlauf löschen?', 'Löschen', true)) { await run(() => DEL(`/api/deployments/${id}`), 'Gelöscht'); go('#/deployments'); } }, { cls: 'danger', icon: 'trash' }) : null);
   const ok = d.targets.filter((t) => t.status === 'success').length;
@@ -4703,7 +4708,7 @@ async function viewDeployment(parts) {
     }
   }
   const curSel = d.package_changed && !active ? sel([['1', 'mit dem aktuellen Stand des Pakets'], ['0', 'mit dem Stand dieser Bereitstellung']], RERUN_CUR[id] ? '1' : '0',
-    { onchange: (e) => { RERUN_CUR[id] = e.target.value === '1'; } }) : null;
+    { onchange: (e) => { RERUN_CUR[id] = e.target.value === '1'; RERUN_PICK[id] = { v: RERUN_CUR[id], stamp: d.package_changed }; } }) : null;
   const changed = curSel ? h('div.news-up', { style: { marginBottom: '0' } }, h('b', fmtT('Das Paket wurde seit dieser Bereitstellung geändert ({0}).', fmtDate(d.package_changed))), ' ',
     h('span', tr('Wiederholen (Fehlgeschlagene erneut, Alle erneut, Schritte wählen, Schritt wiederholen):')), ' ', curSel) : null;
   setContent(h('div.grid', changed, info, fsCard, h('div.card', { style: { display: 'flex', height: 'calc(100vh - 290px)', minHeight: '300px' } }, h('div.pane', t.el))));

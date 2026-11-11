@@ -2,6 +2,11 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.39.1 (11.11.2026)
+- **Fixed - retry after a package change used the old state:** if the deployment had been opened before the package was changed, "Fehlgeschlagene erneut", "Alle erneut", "Schritte wählen …" and "Schritt wiederholen" kept using the state of the deployment until the browser was reloaded (e.g. still "Dienstkonto" after switching the package to "Lokales System"). Now a changed package always counts with its current state; the state of the deployment only applies if chosen explicitly - and only for the package state it was chosen for. Retries started from other pages also take the current state
+- **Changed - all settings:** a retry of individual steps now also takes restart and the other settings from the current package (before: restart from the old deployment)
+- **Self-test:** default without a choice, explicit choice, slice with the current settings, no stale value in the interface
+
 ## pocketknife-2.39.0 (10.11.2026)
 - **Changed - packages run as Local System by default:** the account for packages is now one setting for everyone (Settings → Repository & winget → "Ausführung der Pakete"): **Local System** (default) or the **service account**. In packages "Ausführen als" offers "Wie in den Einstellungen (…)" and "Angemeldeter Benutzer", steps additionally "Wie Paket (…)"; the brackets always name the account that really runs. Up to 2.38 the service account ran directly over WinRM (network logon) - Windows Update (e.g. PSWindowsUpdate) failed there with "Zugriff verweigert" (0x80070005). As Local System (scheduled task without a password) it works
 - **New - service account with a local logon (opt-in):** if "Dienstkonto" is chosen, every step runs in a short-lived scheduled task with the service account and its password (local logon, so Windows Update works as well). The task is deleted right after the step (also on abort, leftovers by the next scan); the password goes to the client as a parameter, never in the script text. Switching asks for confirmation with a security warning (the password is on the client while the step runs; tenants with own packages are named) and is logged
