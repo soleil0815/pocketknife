@@ -5843,5 +5843,11 @@
  "Noch keine Wartung gelaufen – sie läuft täglich automatisch (siehe „Aufbewahrung & Datenbank“ unten).": "No maintenance yet – it runs automatically every day (see \"Retention & database\" below).",
  "Weiteres Feld für alle Computer anlegen (verwalten unter Einstellungen → Inventar):": "Create another field for all computers (manage under Settings → Inventory):",
  "Angemeldete Benutzer sehen solange eine Meldung von Windows (Text unter Einstellungen → Am Client). 0 = sofort, dabei werden offene Programme ohne Rückfrage geschlossen. Bis zum Ablauf lässt es sich mit „Neustart/Herunterfahren abbrechen“ stoppen.": "Signed-in users see a Windows message during this time (text under Settings → On the client). 0 = immediately; open programs are closed without asking. Until then it can be stopped with \"Cancel restart/shutdown\".",
- "Das Konto für „Wie in den Einstellungen“ ist zurzeit: {0} (Einstellungen → Pakete & Repository → „Ausführung der Pakete“). „Angemeldeter Benutzer“ für Programme und Einstellungen im Benutzerprofil; einzelne Schritte können abweichen.": "The account for “As in the settings” is currently: {0} (Settings → Packages & Repository → “Package execution”). “Logged-on user” for programs and settings in the user profile; individual steps can differ."
+ "Das Konto für „Wie in den Einstellungen“ ist zurzeit: {0} (Einstellungen → Pakete & Repository → „Ausführung der Pakete“). „Angemeldeter Benutzer“ für Programme und Einstellungen im Benutzerprofil; einzelne Schritte können abweichen.": "The account for “As in the settings” is currently: {0} (Settings → Packages & Repository → “Package execution”). “Logged-on user” for programs and settings in the user profile; individual steps can differ.",
+ "ESU (am Patchstand erkannt) bis {0}": "ESU (recognised by patch level) until {0}",
+ "ESU (am Patchstand erkannt) bis {0} – abgelaufen": "ESU (recognised by patch level) until {0} – expired",
+ "ESU (am Patchstand erkannt) bis {0}; {1}.{2} – aktuell ist {3}.{4}": "ESU (recognised by patch level) until {0}; {1}.{2} – current is {3}.{4}",
+ "ESU Jahr {0} bis {1}": "ESU year {0} until {1}",
+ "ESU Jahr {0} bis {1} – abgelaufen": "ESU year {0} until {1} – expired",
+ "ESU Jahr {0} bis {1}; {2}.{3} – aktuell ist {4}.{5}": "ESU year {0} until {1}; {2}.{3} – current is {4}.{5}"
 }

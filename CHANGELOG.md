@@ -2,6 +2,14 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.43.0 (11.11.2026)
+- **New - Windows 10 with ESU in the update status:** Windows 10 22H2 PCs with Extended Security Updates no longer count as "ohne Support" across the board. They count as supported until the end of their ESU year and are compared like any build (aktuell/veraltet). Detection:
+  - the scan reads the licensed ESU year via Microsoft's ESU activation IDs (years 1-3, query filtered by ID; only on Windows 10 outside LTSC)
+  - without a license found (consumer ESU, ESU via Windows 365/Intune): by the patch level - a build Microsoft released after the support end only comes with ESU and counts until the end of the ESU year it was released in (Microsoft release dates only, never "first seen in the environment")
+  - the computer page shows e.g. "ESU Jahr 2 bis 12.10.2027"; once the ESU year has ended: "ohne Support"
+- Help (de/en) and manual PDFs updated
+- **Self-test:** licensed year current/behind, year 1 only (expired), ESU by patch level, updates stopped, no ESU, environment-only build, LTSC and Windows 11 unaffected
+
 ## pocketknife-2.42.0 (11.11.2026)
 - **Settings grouped by topic:** 12 sections instead of 13, each setting where you look for it - no setting changes its value:
   - "Zeitpläne & Leistung" is split up: scans/heartbeat/MSIX/low disk → **Inventar**, parallel installations/timeout → **Pakete & Repository**, retention/database maintenance → **Wartung**, client notification and restart message → new **Am Client**

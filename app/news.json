@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.43.0",
+   "date": "2026-11-11",
+   "items": [
+    {
+     "kind": "new",
+     "audience": "all",
+     "de": "Update-Status: Windows 10 mit ESU (Extended Security Updates) gilt bis zum Ende des ESU-Jahres als unterstützt und wird normal auf aktuell/veraltet geprüft – erkannt an der ESU-Lizenz oder am Patchstand.",
+     "en": "Update status: Windows 10 with ESU (Extended Security Updates) counts as supported until the end of the ESU year and is checked for current/outdated as usual – recognised by the ESU license or the patch level."
+    }
+   ]
+  },
+  {
    "version": "2.42.0",
    "date": "2026-11-11",
    "items": [

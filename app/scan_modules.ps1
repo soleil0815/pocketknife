@@ -134,6 +134,20 @@ PKX 'product_type' { $os.ProductType }
 # 2.40: update status - edition (LTSC = EnterpriseS), Office Click-to-Run with version and update channel
 PKX 'os_edition' { $cv.EditionID }
 PKX 'os_install_type' { $cv.InstallationType }
+# 2.43: Windows 10 Extended Security Updates - highest licensed ESU year (activation IDs from Microsoft, same for
+# every edition); only on Windows 10 22H2/21H2 outside LTSC, filtered by ID (the unfiltered class is very slow)
+PKX 'os_esu' {
+  if (("" + $os.Caption) -match 'Windows 10' -and ("" + $cv.EditionID) -notmatch 'EnterpriseS' -and [int]$cv.CurrentBuildNumber -ge 19044) {
+    $esuIds = @{ 'f520e45e-7413-4a34-a497-d2765967d094' = 1; '1043add5-23b1-4afb-9a0f-64343c8f3f8d' = 2; '83d49986-add3-41d7-ba33-87c7bfb5c0fb' = 3 }
+    $flt = (@($esuIds.Keys) | ForEach-Object { "ID='" + $_ + "'" }) -join ' OR '
+    $yr = 0
+    foreach ($l in @(Get-CimInstance -ClassName SoftwareLicensingProduct -Filter $flt -Property ID, LicenseStatus -ErrorAction Stop)) {
+      $y = $esuIds[("" + $l.ID).ToLower()]
+      if ($y -and [int]$l.LicenseStatus -eq 1 -and $y -gt $yr) { $yr = $y }
+    }
+    $yr
+  }
+}
 PKX 'office_c2r' {
   $o = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Office\ClickToRun\Configuration' -ErrorAction SilentlyContinue
   if ($o -and $o.VersionToReport) {

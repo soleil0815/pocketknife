@@ -8692,6 +8692,69 @@ def _():
         assert "Zeitpläne & Leistung" not in src and "Repository & winget" not in src, f
 
 
+@test("2.43 Windows 10 ESU: licensed ESU year from the scan or a build Microsoft released after the support end keeps Windows 10 supported until the end of that ESU year, compared like any build; without ESU or after it 'ohne Support'")
+def _():
+    import datetime as _dt
+    from app import updstatus as us
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app")
+    src = open(os.path.join(root, "scan_modules.ps1"), encoding="utf-8").read()
+    for aid in ("f520e45e-7413-4a34-a497-d2765967d094", "1043add5-23b1-4afb-9a0f-64343c8f3f8d", "83d49986-add3-41d7-ba33-87c7bfb5c0fb"):
+        assert aid in src, aid
+    assert "-Filter $flt" in src and "PKX 'os_esu'" in src, "filtered by ID - the unfiltered class takes minutes"
+    assert "os_esu" in __import__("app.inventory", fromlist=["x"]).MODULE_EXTRA["computer"]
+    today = _dt.date.today()
+    d = lambda n: (today + _dt.timedelta(days=n)).isoformat()  # noqa: E731
+    o_end, o_last = dict(us.ESU_END), us.WIN10_LAST
+    old_refs = db.q("SELECT * FROM update_refs")
+    ids = []
+    try:
+        us.WIN10_LAST = d(-400)
+        us.ESU_END.clear()
+        us.ESU_END.update({1: d(-30), 2: d(335), 3: d(700)})   # year 1 over, year 2 running
+        db.ex("DELETE FROM update_refs")
+        db.ex("INSERT OR REPLACE INTO settings(key, value) VALUES('update_grace_days', '0')")
+        # Microsoft builds for 19045: before the end, in ESU year 1, in ESU year 2
+        for ubr, rel in ((6000, d(-420)), (6500, d(-100)), (7000, d(-10))):
+            us.note_ref("win", 19045, ubr, rel, source="msrc")
+        pro = {"os_edition": "Professional", "product_type": 1}
+
+        def mk(name, ubr, esu=None, edition=pro):
+            ids.append(db.ex("INSERT INTO computers(name, os_name, os_build, os_display_version, extra) VALUES(?,?,?,?,?)",
+                             (name, "Microsoft Windows 10 Pro", f"19045.{ubr}", "22H2", json.dumps({**edition, **({"os_esu": esu} if esu is not None else {})}))))
+        mk("ESU-Y2-AKT", 7000, 2)       # licensed year 2, current
+        mk("ESU-Y2-ALT", 6500, 2)       # licensed year 2, behind
+        mk("ESU-Y1", 7000, 1)           # only year 1 licensed -> over
+        mk("ESU-PATCH", 7000)           # no license found (consumer/cloud ESU) but a build of ESU year 2
+        mk("ESU-STOP", 6500)            # got updates in ESU year 1 only, then nothing
+        mk("ESU-KEIN", 6000, 0)         # never ESU
+        mk("ESU-ENV", 5000, 0)          # build only seen in the environment (no Microsoft date) - no evidence of ESU
+        us.evaluate_all()
+        st = {r["name"]: (r["win_update"], r["win_update_info"]) for r in db.q("SELECT name, win_update, win_update_info FROM computers WHERE name LIKE 'ESU-%'")}
+        assert st["ESU-Y2-AKT"][0] == "aktuell" and "ESU Jahr 2" in st["ESU-Y2-AKT"][1], st
+        assert st["ESU-Y2-ALT"][0] == "veraltet" and "19045.7000" in st["ESU-Y2-ALT"][1], st
+        assert st["ESU-Y1"][0] == "ohne Support" and "ESU Jahr 1" in st["ESU-Y1"][1] and "abgelaufen" in st["ESU-Y1"][1], st
+        assert st["ESU-PATCH"][0] == "aktuell" and "am Patchstand erkannt" in st["ESU-PATCH"][1], st
+        assert st["ESU-STOP"][0] == "ohne Support", st
+        assert st["ESU-KEIN"][0] == "ohne Support" and "ESU" not in st["ESU-KEIN"][1], st
+        assert st["ESU-ENV"][0] == "ohne Support", "first seen in the environment is not a Microsoft release date"
+        # LTSC and Windows 11 are not affected
+        lt = us.windows_info({"os_name": "Microsoft Windows 10 Enterprise LTSC 2021", "os_build": "19044.7000", "extra": json.dumps({"os_edition": "EnterpriseS", "os_esu": 3})})
+        assert us.esu_info(lt) == (0, None)
+        w11 = us.windows_info({"os_name": "Microsoft Windows 11 Pro", "os_build": "26100.1", "os_display_version": "24H2", "extra": json.dumps({"os_esu": 2})})
+        assert us.esu_info(w11) == (0, None)
+    finally:
+        us.ESU_END.clear()
+        us.ESU_END.update(o_end)
+        us.WIN10_LAST = o_last
+        db.ex("DELETE FROM settings WHERE key='update_grace_days'")
+        db.ex("DELETE FROM update_refs")
+        for r in old_refs:
+            db.ex("INSERT INTO update_refs(kind, key, value, released, source) VALUES(?,?,?,?,?)", (r["kind"], r["key"], r["value"], r["released"], r["source"]))
+        for i in ids:
+            db.ex("DELETE FROM computers WHERE id=?", (i,))
+    assert us.ESU_END == {1: "2026-10-13", 2: "2027-10-12", 3: "2028-10-10"}
+
+
 @test("2.22 Self-test: diagnostic package test does not use fixed dates (time bomb once outside the 30-day window)")
 def _():
     import inspect
