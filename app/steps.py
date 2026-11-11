@@ -398,6 +398,8 @@ def clean_step(s, label="Schritt"):
             raise ValueError(f"{label}: PowerShell-Code angeben.")
         o["script"] = s["script"].strip()[:50000]
         o["success_codes"] = _codes(s.get("success_codes"), "0")
+        # 2.39.3: errors PowerShell reports count even with exit code 0 - unless deliberately ignored
+        o["ignore_errors"] = bool(s.get("ignore_errors"))
     elif typ == "nested":
         pid = _int(s.get("package_id"), 0, 10 ** 9, 0)
         if not pid or not db.val("SELECT 1 FROM packages WHERE id=?", (pid,)):
@@ -1135,6 +1137,10 @@ class Runner:
                 elif res == "failed" and pkg.get("composite") and st.get("type") == "nested":
                     soft.append(f"{step_title(st)}: {msg}")
         for st in pkg["steps"]["post"]:
+            if failed and st.get("type") == "reboot":
+                # 2.39.3: completion steps run after an error too (clean-up) - but never a restart
+                self._record("post", st, "notrun", "Nicht ausgeführt – kein Neustart nach einem fehlgeschlagenen Schritt", depth=depth)
+                continue
             res, msg = self.run_step(st, pkg, "post", depth)
             if res == "failed" and st.get("on_error", "stop") == "stop" and not failed:
                 failed, fail_msg = True, f"{step_title(st)}: {msg}"
@@ -1281,6 +1287,14 @@ class Runner:
             return "skipped", "winget wird auf diesem Betriebssystem nicht unterstützt"
         ok, reboot = evaluate(st, code)
         self.last_code = code
+        n_err, out = remote.ps_errors(out)
+        ps_fail = ""
+        if ok and n_err and st["type"] == "powershell" and not st.get("ignore_errors"):
+            # 2.39.3: PowerShell reported errors, the script still ended with 0 - not a success (before: "Erfolgreich",
+            # e.g. Windows Update with "Zugriff verweigert" followed by a restart)
+            ok, reboot = False, False
+            ps_fail = (f"Fehlgeschlagen – PowerShell hat {n_err} Fehler gemeldet, das Skript endete aber mit Exitcode {code} "
+                       "(im Skript $ErrorActionPreference = 'Stop' oder exit 1 verwenden; bewusst ignorieren: Option am Schritt)")
         if reboot:
             self.reboot_needed = True
         msg = deploy.WINGET_MESSAGES.get(code, "") if st["type"] == "install" and st.get("source") == "winget" else ""
@@ -1292,8 +1306,12 @@ class Runner:
             if hard:
                 self.last_code = code
                 msg = f"Fehlgeschlagen – {hard}"
+        if ps_fail:
+            msg = ps_fail
         if not msg:
             msg = "Erfolgreich" if ok else f"Fehlgeschlagen (Exitcode {code})"
+        if not ok:
+            msg += remote.wu_hint(out, ra)
         if ok and "Bereits installiert" in (out or ""):
             msg = "Bereits installiert – übersprungen"
         if ok and reboot and "Neustart erforderlich" not in msg:

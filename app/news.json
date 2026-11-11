@@ -2,6 +2,24 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.39.3",
+   "date": "2026-11-11",
+   "items": [
+    {
+     "kind": "fixed",
+     "audience": "admin",
+     "de": "PowerShell-Schritte gelten nicht mehr als erfolgreich, wenn PowerShell Fehler meldet (z. B. „Zugriff verweigert“ bei Windows Update) – auch wenn das Skript mit Exitcode 0 endet. Ein Neustart im Abschluss läuft dann nicht mehr.",
+     "en": "PowerShell steps no longer count as successful when PowerShell reports errors (e.g. \"access denied\" with Windows Update) – even if the script ends with exit code 0. A restart in the completion then no longer runs."
+    },
+    {
+     "kind": "new",
+     "audience": "admin",
+     "de": "Neue Option am PowerShell-Schritt: „Fehlermeldungen von PowerShell ignorieren“ für Skripte, bei denen Fehlermeldungen normal sind.",
+     "en": "New option on the PowerShell step: \"Ignore PowerShell error messages\" for scripts where error messages are normal."
+    }
+   ]
+  },
+  {
    "version": "2.39.2",
    "date": "2026-11-11",
    "items": [

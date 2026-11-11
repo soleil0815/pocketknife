@@ -493,6 +493,9 @@ def _run(tool, c, host, name, with_files):
         except remote.RemoteTimeout:
             raise remote.RemoteTimeout(f"Zeitlimit von {remote.dur_text(timeout)} überschritten – abgebrochen.")
         hard = ""
+        n_err, out = remote.ps_errors(out)
+        if n_err and code in parse_codes(tool.get("success_codes")):
+            code = 1  # 2.39.3: like a tool directly over WinRM - reported errors count
         if code not in parse_codes(tool.get("success_codes")):
             code, hard = remote.apply_hard(code, out)  # 2.32.5: hardened Windows in plain language
         out = "\n".join(l for l in (out or "").splitlines() if not l.startswith("> ") and not l.startswith("Exitcode: "))

@@ -3891,7 +3891,8 @@ async function packageDlg(pidOrPkg, preset = {}) {
         field('Nicht installiert', chk(st, 'missing_ok', 'als erfolgreich werten (übersprungen)')));
     }
     if (t === 'command') return h('div.form', h('label', 'Befehl'), h('div', ta(st, 'command', 10, { placeholder: 'Mehrzeilig wie eine .cmd-Datei, z. B.\ntaskkill /im 7zFM.exe /f\nreg add "HKLM\\SOFTWARE\\Firma" /v Wert /d 1 /f' })), field('Erfolgs-Exitcodes', inp(st, 'success_codes')));
-    if (t === 'powershell') return h('div.form', h('label', 'PowerShell'), h('div', ta(st, 'script', 14, { placeholder: '# exit 1 meldet einen Fehler (Exitcode), ohne exit gilt 0\nGet-Process 7zFM -ErrorAction SilentlyContinue | Stop-Process -Force' })), field('Erfolgs-Exitcodes', inp(st, 'success_codes')));
+    if (t === 'powershell') return h('div.form', h('label', 'PowerShell'), h('div', ta(st, 'script', 14, { placeholder: '# exit 1 meldet einen Fehler (Exitcode), ohne exit gilt 0\nGet-Process 7zFM -ErrorAction SilentlyContinue | Stop-Process -Force' })), field('Erfolgs-Exitcodes', inp(st, 'success_codes')),
+      field('Fehlermeldungen', chk(st, 'ignore_errors', 'Fehlermeldungen von PowerShell ignorieren – nur der Exitcode zählt'), 'Standard: Meldet PowerShell einen Fehler (z. B. „Zugriff verweigert“), gilt der Schritt als fehlgeschlagen, auch wenn das Skript mit Exitcode 0 endet. Gezielt unterdrückte Fehler (-ErrorAction SilentlyContinue) zählen nicht.'));
     if (t === 'nested') {
       return h('div.form', field('Paket', sl(st, 'package_id', meta.packages.filter((x) => (!p.id || x.id !== p.id) && (!x.cache || x.id === Number(st.package_id))).map((x) => [x.id, x.name]), true),
         'Die Schritte dieses Pakets laufen an dieser Stelle – mit dessen eigenen Bedingungen und „Ausführen als“.'));
