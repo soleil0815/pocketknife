@@ -5713,5 +5713,7 @@
  "Ausgeblendete Elemente": "Hidden items",
  "Nur ausgeblendete Einträge ({0}) – „Ausgeblendete Elemente“ anhaken": "Only hidden entries ({0}) – tick “Hidden items”",
  "Versteckte Ordner und Dateien (z. B. ProgramData, $Recycle.Bin, desktop.ini) und Einträge ohne Zugriff (z. B. pagefile.sys, hiberfil.sys) ein- oder ausblenden": "Show or hide hidden folders and files (e.g. ProgramData, $Recycle.Bin, desktop.ini) and entries without access (e.g. pagefile.sys, hiberfil.sys)",
- "{0} ausgeblendet": "{0} hidden"
+ "{0} ausgeblendet": "{0} hidden",
+ "RDP-Sitzung im Browser": "RDP session in the browser",
+ "VNC-Sitzung im Browser (zentrales VNC-Kennwort unter Einstellungen → Fernsitzungen)": "VNC session in the browser (central VNC password under Settings → Remote sessions)"
 }

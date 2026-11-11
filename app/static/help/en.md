@@ -557,7 +557,7 @@ Actions directly on the computer:
 | Services | Start, Stop, Restart, Change startup type |
 | Processes | Load live and end |
 | Overview → Passwords & Keys | Show LAPS password and BitLocker recovery key (every retrieval is logged) |
-| Header | Scan, Deploy, Tools, Remote Desktop |
+| Header | Scan, Deploy, Test connection, Remote Desktop, VNC (from 2.39.6), Tools |
 
 # Scan Profiles and Scanners {#scanning}
 

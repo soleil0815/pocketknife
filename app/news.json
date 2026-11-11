@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.39.6",
+   "date": "2026-11-11",
+   "items": [
+    {
+     "kind": "new",
+     "audience": "all",
+     "de": "Auf der Computerseite gibt es jetzt den Knopf „VNC“ direkt neben „Remotedesktop“ – mit dem zentralen VNC-Kennwort aus den Einstellungen.",
+     "en": "The computer page now has a \"VNC\" button right next to \"Remote desktop\" – with the central VNC password from the settings."
+    }
+   ]
+  },
+  {
    "version": "2.39.5",
    "date": "2026-11-11",
    "items": [
