@@ -537,6 +537,29 @@ Danach öffnet sich der normale Sammlungsdialog mit dem fertigen Filter – Name
 
 **Reguläre Ausdrücke** im Filter: höchstens 200 Zeichen; verschachtelte Wiederholungen wie `(a+)+` oder `(a|b)*` und Rückverweise sind nicht erlaubt, weil sie die Auswertung extrem verlangsamen können.
 
+## Update-Status für Windows und Office {#updstatus}
+
+**Ab 2.40.** POCKET KNIFE zeigt für jeden Computer, ob Windows und Office auf dem aktuellen Stand sind – **ohne feste Vorgabe**: Jede Installation wird mit dem neuesten Stand **ihres eigenen** Windows-Builds bzw. Office-Kanals verglichen. Windows 11 24H2 also mit dem letzten Patch für Build 26100, Office LTSC 2024 mit dem neuesten LTSC-2024-Stand, Microsoft 365 Apps im Monthly Enterprise Channel mit dem neuesten Stand dieses Kanals.
+
+| Status | Bedeutung |
+|---|---|
+| aktuell | gleicher oder neuerer Stand als der Vergleichswert |
+| veraltet | ein neuerer Patch ist länger als die Karenzzeit draußen |
+| ohne Support | Version oder Produkt hat laut Microsoft-Lebenszyklus keinen Support mehr (z. B. Windows 10, Office 2016/2019/2021) |
+| unbekannt | noch keine Daten (nicht gescannt) – bei MSI-Office immer, weil Patches dort einzelne KBs sind |
+| kein Office | kein Office gefunden |
+
+**Vergleichswert:**
+- **Windows:** Build und Patchstand (UBR, z. B. 26100.7171) aus dem Scan. Mit **Microsoft-Abgleich** holt der Server einmal täglich die gepatchten Builds der letzten Patchdays von Microsoft (Security Update Guide, MSRC) – samt Veröffentlichungsdatum. Zusätzlich zählt der neueste Stand, der in der eigenen Umgebung vorkommt (ab dem Tag, an dem er zuerst auftaucht). Ohne Internet am Server gilt nur dieser.
+- **Office (Klick-und-Los):** Version und Update-Kanal aus der Registry; Vergleich mit der neuesten Version desselben Kanals in der Umgebung. **MSI-Office** (z. B. Office 2016 Volumenlizenz) kommt aus der Softwareliste.
+- **Karenzzeit** (Standard 7 Tage, einstellbar): Ein neuer Patch zählt erst danach – Computer mit dem vorherigen Stand gelten bis dahin noch als aktuell.
+
+**Fertige Sammlungen:** Unter **Windows Updates** (Arbeitsstationen → Windows 11/10 → je Version, Server → je Version, jeweils mit „Aktuell“ und „Veraltet“, dazu „Ohne Support“ und „Neustart ausstehend“) und **Microsoft Office** (je Produkt mit „Aktuell“/„Veraltet“, „Office ohne Support“, „Kein Office installiert“). Sie füllen sich automatisch aus dem Inventar; eine neue Windows-Version oder ein neues Office-Produkt bekommt beim ersten Scan einen eigenen Knoten. Bekannte Versionen stehen auch ohne Computer da („0“). Die Sammlungen lassen sich nicht ändern, aber kopieren (Rechtsklick) und als Ziel für Zeitpläne und Bereitstellungen nutzen.
+
+**Felder für eigene Sammlungen:** Computer → „Windows-Update-Status“, „Windows-Edition“, „Office-Update-Status“; Tabelle **Office-Installationen** (Produkt, Version, Update-Kanal, Update-Status, Art, Support bis). Auf der Computerseite stehen Update-Status und Office unter „Betriebssystem“, die Office-Installationen unter **Office**.
+
+**Einstellungen → Inventar & Felder → Update-Status:** Karenzzeit, Microsoft-Abgleich, fertige Sammlungen an/aus, **Jetzt neu berechnen**. Berechnet wird nach jedem Scan und einmal täglich. Die Lebenszyklus-Daten (Supportende) sind im Programm hinterlegt und kommen mit Updates.
+
 ## AD-Sammlungen {#adcollections}
 
 Ist es unter **Einstellungen → Active Directory** eingeschaltet, legt der Abgleich die OU-Struktur unter einem Eintrag mit dem Domänennamen an und einen Ordner „Gruppen“ mit allen AD-Gruppen, die Computer enthalten. Diese Sammlungen pflegt POCKET KNIFE selbst; im Baum lassen sie sich nur auf- und zuklappen, nicht verschieben.

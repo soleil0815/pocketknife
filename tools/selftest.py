@@ -8185,6 +8185,161 @@ def _():
     assert ("POST", "/api/remote/connect") in access.ROUTES or any(r[1] == "/api/remote/connect" for r in access.ROUTES), "same route as RDP"
 
 
+@test("2.40 Update status: every installation against the latest state of its own Windows build/Office channel (Microsoft or own environment, grace period), lifecycle, ready-made collections that fill themselves")
+def _():
+    import datetime as _dt
+    from app import collections_, updstatus as us
+    today = _dt.date.today()
+    ago = lambda d: (today - _dt.timedelta(days=d)).isoformat()  # noqa: E731
+    # --- Office products and channels from Click-to-Run / MSI ---
+    assert us._office_product("O365ProPlusRetail") == ("Microsoft 365 Apps", None)
+    assert us._office_product("ProPlus2024Volume") == ("Office LTSC 2024", "2024")
+    assert us._office_product("HomeBusiness2024Retail") == ("Office 2024", "2024")
+    assert us._office_product("VisioPro2021Volume") == ("Visio 2021", "2021")
+    assert us._office_product("Standard2019Volume") == ("Office 2019", "2019")
+    assert us.MSI_OFFICE_RX.match("Microsoft Office Professional Plus 2016") and not us.MSI_OFFICE_RX.match("Microsoft Office Proofing Tools 2016 - Deutsch")
+    assert not us.MSI_OFFICE_RX.match("Microsoft Office 64-bit Components 2016")
+    # --- Windows: family, edition, lifecycle ---
+    w = us.windows_info({"os_name": "Microsoft Windows 11 Pro", "os_build": "26100.7171", "os_display_version": "24H2",
+                         "extra": json.dumps({"os_edition": "Professional", "product_type": 1})})
+    assert w["family"] == "Windows 11" and w["build"] == 26100 and w["ubr"] == 7171 and not w["enterprise"] and not w["ltsc"]
+    assert us.windows_end(w) == "2026-10-13" and us.windows_end(dict(w, enterprise=True)) == "2027-10-12"
+    ltsc = us.windows_info({"os_name": "Microsoft Windows 11 IoT Enterprise LTSC", "os_build": "26100.1", "os_display_version": "24H2",
+                            "extra": json.dumps({"os_edition": "IoTEnterpriseS"})})
+    assert ltsc["ltsc"] and us.windows_end(ltsc) == "2034-10-10", "LTSC by build, IoT longer"
+    assert us.windows_info({"os_name": "Microsoft Windows 10 Enterprise LTSC 2021", "os_build": "19044.1", "extra": json.dumps({"os_edition": "EnterpriseSN"})})["ltsc"]
+    assert not us.windows_info({"os_name": "Microsoft Windows 11 Enterprise", "os_build": "26100.1", "extra": json.dumps({"os_edition": "Enterprise"})})["ltsc"]
+    srv = us.windows_info({"os_name": "Microsoft Windows Server 2022 Standard", "os_build": "20348.4000", "extra": json.dumps({"product_type": 3})})
+    assert srv["server"] and srv["family"] == "Windows Server 2022" and us.windows_end(srv) == "2031-10-14"
+    assert us.windows_end(us.windows_info({"os_name": "Microsoft Windows 10 Pro", "os_build": "19045.6000", "os_display_version": "22H2"})) == "2025-10-14"
+    # --- MSRC (CVRF): patched builds of the patch days ---
+    doc = {"DocumentTracking": {"InitialReleaseDate": ago(30) + "T08:00:00Z"},
+           "Vulnerability": [{"Remediations": [{"FixedBuild": "10.0.26100.7000"}, {"FixedBuild": "10.0.20348.3900"}, {"FixedBuild": "x"}]},
+                             {"Remediations": [{"FixedBuild": "10.0.26100.6990"}, {"Description": {"Value": "KB1"}}]}]}
+    assert us.parse_cvrf(doc) == {26100: (7000, ago(30)), 20348: (3900, ago(30))}
+    old_refs = db.q("SELECT * FROM update_refs")
+    db.ex("DELETE FROM update_refs")
+    calls = []
+
+    def get(url):
+        calls.append(url)
+        if url == us.MSRC_UPDATES:
+            return {"value": [{"ID": "a", "InitialReleaseDate": ago(30), "CvrfUrl": "https://api.msrc.microsoft.com/cvrf/v3.0/cvrf/a"},
+                              {"ID": "b", "InitialReleaseDate": ago(2), "CvrfUrl": "https://api.msrc.microsoft.com/cvrf/v3.0/cvrf/b"},
+                              {"ID": "evil", "InitialReleaseDate": ago(1), "CvrfUrl": "https://example.invalid/x"}]}
+        if url.endswith("/b"):
+            return dict(doc, DocumentTracking={"InitialReleaseDate": ago(2)}, Vulnerability=[{"Remediations": [{"FixedBuild": "10.0.26100.7171"}]}])
+        return doc
+    assert us.fetch_msrc(get=get) == 2 and not any("example.invalid" in u for u in calls), "only Microsoft's own documents"
+    ids = []
+    try:
+        mk = lambda name, osn, build, dv, extra, sw=(): ids.append(db.ex(  # noqa: E731
+            "INSERT INTO computers(name, os_name, os_build, os_display_version, extra) VALUES(?,?,?,?,?)",
+            (name, osn, build, dv, json.dumps(extra)))) or [db.ex("INSERT INTO software(computer_id, name, version) VALUES(?,?,?)", (ids[-1], n, v)) for n, v in sw]
+        ent = {"os_edition": "Enterprise", "product_type": 1}
+        c2r = lambda v, ch, prods: {**ent, "office_c2r": {"version": v, "channel": f"http://officecdn.microsoft.com/pr/{ch}", "products": prods}}  # noqa: E731
+        mk("UPD-NEU", "Microsoft Windows 11 Enterprise", "26100.7000", "24H2", c2r("16.0.17932.20500", "7983bac0-e531-40cf-be00-fd24fe66619c", "ProPlus2024Volume,VisioPro2024Volume"))
+        mk("UPD-ALT", "Microsoft Windows 11 Enterprise", "26100.6800", "24H2", c2r("16.0.17932.20300", "7983BAC0-E531-40CF-BE00-FD24FE66619C", "ProPlus2024Volume"))
+        mk("UPD-W10", "Microsoft Windows 10 Pro", "19045.6000", "22H2", {"os_edition": "Professional", "product_type": 1},
+           [("Microsoft Office Professional Plus 2016", "16.0.4266.1001"), ("Microsoft Office Proofing Tools 2016 - Deutsch", "16.0")])
+        mk("UPD-SRV", "Microsoft Windows Server 2022 Standard", "20348.3900", "21H2", {"os_edition": "ServerStandard", "product_type": 3})
+        mk("UPD-LEER", None, None, None, {})
+        db.ex("UPDATE settings SET value='0' WHERE key='update_msrc'")
+        db.ex("INSERT OR REPLACE INTO settings(key, value) VALUES('update_msrc', '0')")
+        us.evaluate_all()
+        st = {r["name"]: r for r in db.q("SELECT name, win_update, win_update_info, office_update FROM computers WHERE name LIKE 'UPD-%'")}
+        # 7171 was released 2 days ago (grace period 7 days) -> 7000 is the target
+        assert st["UPD-NEU"]["win_update"] == "aktuell", st["UPD-NEU"]
+        assert st["UPD-ALT"]["win_update"] == "veraltet" and "26100.7000" in st["UPD-ALT"]["win_update_info"], st["UPD-ALT"]
+        assert st["UPD-W10"]["win_update"] == "ohne Support" and st["UPD-SRV"]["win_update"] == "aktuell"
+        assert st["UPD-LEER"]["win_update"] == "unbekannt" and st["UPD-LEER"]["office_update"] == "kein Office"
+        # Office: channel GUID in any case, highest version of the channel in the environment - from its first sighting
+        assert st["UPD-NEU"]["office_update"] == "aktuell" and st["UPD-ALT"]["office_update"] == "aktuell", "first sighting today: grace period"
+        db.ex("UPDATE update_refs SET released=? WHERE kind='office'", (ago(10),))
+        us.evaluate_all()
+        rows = {r["name"]: r["office_update"] for r in db.q("SELECT name, office_update FROM computers WHERE name LIKE 'UPD-%'")}
+        assert rows["UPD-ALT"] == "veraltet" and rows["UPD-NEU"] == "aktuell" and rows["UPD-W10"] == "ohne Support", rows
+        off = json.loads(db.val("SELECT json FROM inventory_data WHERE computer_id=? AND category='office'", (ids[0],)))
+        assert [(o["product"], o["channel"], o["status"]) for o in off] == [
+            ("Office LTSC 2024", "Office LTSC 2024 (PerpetualVL2024)", "aktuell"), ("Visio 2024", "Office LTSC 2024 (PerpetualVL2024)", "aktuell")], off
+        w10 = json.loads(db.val("SELECT json FROM inventory_data WHERE computer_id=? AND category='office'", (ids[2],)))
+        assert [(o["product"], o["kind"], o["status"]) for o in w10] == [("Office 2016", "MSI", "ohne Support")], "MSI from the software list, no components"
+        # grace period 0: the newest Microsoft build counts at once
+        db.ex("INSERT OR REPLACE INTO settings(key, value) VALUES('update_grace_days', '0')")
+        assert us.evaluate(ids[0])["win"] == "veraltet"
+        db.ex("INSERT OR REPLACE INTO settings(key, value) VALUES('update_grace_days', '7')")
+        assert us.evaluate(ids[0])["win"] == "aktuell"
+        # --- ready-made collections: known versions plus the ones in the inventory, members via the normal filters ---
+        us.sync_tree()
+        us.sync_tree()  # idempotent
+        col = lambda name: db.q("SELECT id, parent_id FROM collections WHERE builtin=1 AND name=?", (name,))  # noqa: E731
+        assert len(col("Windows Updates")) == 1 and len(col("Windows 11 26H2")) == 1 and len(col("Windows Server 2022")) == 1
+        v24 = col("Windows 11 24H2")[0]["id"]
+        kids = {r["name"]: r["id"] for r in db.q("SELECT id, name FROM collections WHERE parent_id=?", (v24,))}
+        collections_.invalidate()
+        assert set(collections_.member_ids(v24)) >= {ids[0], ids[1]}
+        assert ids[1] in collections_.member_ids(kids["Veraltet"]) and ids[0] not in collections_.member_ids(kids["Veraltet"])
+        assert ids[0] in collections_.member_ids(kids["Aktuell"])
+        ltsc24 = [r for r in col("Office LTSC 2024") if db.val("SELECT name FROM collections WHERE id=?", (r["parent_id"],)) == "Microsoft Office"][0]["id"]
+        okids = {r["name"]: r["id"] for r in db.q("SELECT id, name FROM collections WHERE parent_id=?", (ltsc24,))}
+        assert set(collections_.member_ids(ltsc24)) == {ids[0], ids[1]} and set(collections_.member_ids(okids["Veraltet"])) == {ids[1]}
+        assert len(col("Visio 2024")) == 1, "products in the inventory get their node"
+        assert ids[4] in collections_.member_ids(col("Kein Office installiert")[0]["id"])
+        assert ids[2] in collections_.member_ids(col("Ohne Support")[0]["id"])
+    finally:
+        for cid in ids:
+            db.ex("DELETE FROM software WHERE computer_id=?", (cid,))
+            db.ex("DELETE FROM inventory_data WHERE computer_id=?", (cid,))
+            db.ex("DELETE FROM computers WHERE id=?", (cid,))
+        db.ex("DELETE FROM update_refs")
+        for r in old_refs:
+            db.ex("INSERT INTO update_refs(kind, key, value, released, source) VALUES(?,?,?,?,?)", (r["kind"], r["key"], r["value"], r["released"], r["source"]))
+        db.ex("DELETE FROM settings WHERE key IN ('update_msrc', 'update_grace_days')")
+        collections_.invalidate()
+    # --- API: state, settings (checked, logged), refresh in the background ---
+    from app import main as _m
+    adm = {"username": "haupt", "scope": None}
+    st = _m.api_updstatus(adm)
+    assert st["grace_days"] == 7 and st["msrc"] is True and "windows" in st and "office" in st
+    must_fail(_m.api_updstatus_save, {"grace_days": "x"}, adm)
+    must_fail(_m.api_updstatus_save, {"grace_days": 99}, adm)
+    _m.api_updstatus_save({"grace_days": 3, "msrc": False, "tree": True}, adm)
+    try:
+        assert db.setting("update_grace_days") == 3 and db.setting("update_msrc") == 0
+        assert db.val("SELECT 1 FROM logs WHERE message LIKE 'Update-Status: Karenzzeit 3 Tage%'")
+    finally:
+        db.ex("DELETE FROM settings WHERE key IN ('update_grace_days', 'update_msrc', 'update_tree')")
+    ran = []
+    o_ref = us.refresh
+    us.refresh = lambda user="System": ran.append(user)
+    try:
+        assert _m.api_updstatus_refresh(adm) == {"started": True}
+        import time as _tm
+        for _i in range(50):
+            if ran:
+                break
+            _tm.sleep(0.05)
+        assert ran == ["haupt"], ran
+    finally:
+        us.refresh = o_ref
+    assert "update_grace_days" in _m.INTERNAL_SETTINGS and "update_msrc" in _m.INTERNAL_SETTINGS
+    # Microsoft not reachable (no internet at the server): logged, the environment's state still works
+    o_get = us._get_json
+    us._get_json = lambda url, timeout=120: (_ for _ in ()).throw(OSError("Name or service not known"))
+    try:
+        r = us.refresh("t")
+        assert r["msrc_builds"] == 0 and r["error"] and r["computers"] >= 0, r
+        assert db.val("SELECT 1 FROM logs WHERE message LIKE 'Update-Status: Microsoft-Daten nicht abrufbar%'")
+    finally:
+        us._get_json = o_get
+    # --- scan, UI, settings ---
+    ps = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "scan_modules.ps1"), encoding="utf-8").read()
+    assert "PKX 'os_edition' { $cv.EditionID }" in ps and "HKLM:\\SOFTWARE\\Microsoft\\Office\\ClickToRun\\Configuration" in ps
+    js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
+    assert "['office', 'Office', 'apps', 'office']" in js and "'/api/updstatus'" in js and "fRow('Update-Status'" in js
+    assert db.setting("update_grace_days") == 7 and db.setting("update_msrc") == 1
+
+
 @test("2.22 Self-test: diagnostic package test does not use fixed dates (time bomb once outside the 30-day window)")
 def _():
     import inspect

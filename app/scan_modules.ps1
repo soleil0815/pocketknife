@@ -131,6 +131,17 @@ PKX 'domain' { $cs.Domain }
 PKX 'os_serial' { $os.SerialNumber }
 PKX 'system_drive' { $os.SystemDrive }
 PKX 'product_type' { $os.ProductType }
+# 2.40: update status - edition (LTSC = EnterpriseS), Office Click-to-Run with version and update channel
+PKX 'os_edition' { $cv.EditionID }
+PKX 'os_install_type' { $cv.InstallationType }
+PKX 'office_c2r' {
+  $o = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Office\ClickToRun\Configuration' -ErrorAction SilentlyContinue
+  if ($o -and $o.VersionToReport) {
+    $ch = "" + $o.UpdateChannel
+    if (-not $ch) { $ch = "" + $o.CDNBaseUrl }
+    [ordered]@{ version = "" + $o.VersionToReport; channel = $ch; products = "" + $o.ProductReleaseIds; platform = "" + $o.Platform }
+  }
+}
 # 2.34: virtual machine? Manufacturer/model/BIOS reveal the hypervisor (HypervisorPresent alone does not – it is also true
 # on real hardware with Hyper-V or virtualization-based security)
 PKX 'virtual' {

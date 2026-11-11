@@ -10,6 +10,12 @@ _local = threading.local()
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT);
 
+-- 2.40: update status - known states per Windows build (kind 'win', key = build, value = UBR) or Office channel
+-- (kind 'office', value = version), with the release date (Microsoft) or the first sighting in the environment
+CREATE TABLE IF NOT EXISTS update_refs(
+  kind TEXT, key TEXT, value TEXT, released TEXT, source TEXT,
+  PRIMARY KEY(kind, key, value));
+
 CREATE TABLE IF NOT EXISTS sessions(
   token_hash TEXT PRIMARY KEY, username TEXT, display_name TEXT,
   created TEXT, expires TEXT, ip TEXT);
@@ -274,6 +280,10 @@ DEFAULT_SETTINGS = {
     # 2.39: account for packages ("Wie in den Einstellungen"): "system" (Local System, standard) or "deploy" (service
     # account through a short-lived scheduled task with its password) - only via PUT /api/settings/pkg-run-as
     "pkg_run_as": "system",
+    # 2.40: update status for Windows and Office (updstatus.py)
+    "update_grace_days": 7,    # a newer patch counts only after this many days (release or first sighting)
+    "update_msrc": 1,          # fetch the patched builds of the last patch days from Microsoft (MSRC), server-side
+    "update_tree": 1,          # ready-made collections "Windows Updates" / "Microsoft Office"
     "rescan_after_deploy": 1,
     # 2.24: Windows notification for logged-on users after a successful installation/update
     "reboot_sender": "", "reboot_msg_restart": "", "reboot_msg_shutdown": "", "reboot_msg_deploy": "", "reboot_msg_step": "",
@@ -530,6 +540,9 @@ MIGRATIONS = [
     ("collections", "tenant_id", "INTEGER"),  # 2.30: created by an OU admin – belongs to this tenant  # 2.29.9: several collections per tenant (JSON list); collection_id = first  # 2.29.1: OU admins may write command/PowerShell steps
     ("tenants", "quota_mb", "INTEGER"), # 2.27: storage quota in the repository (empty = default from the settings)
     ("computers", "online_since", "TEXT"),  # 2.32.8: since when WinRM has been (again) reachable – scan only after a short wait
+    ("computers", "win_update", "TEXT"),       # 2.40: update status (see updstatus.py)
+    ("computers", "win_update_info", "TEXT"),
+    ("computers", "office_update", "TEXT"),
 ]
 
 

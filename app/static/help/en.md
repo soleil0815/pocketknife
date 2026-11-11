@@ -537,6 +537,29 @@ The normal collection dialog then opens with the finished filter – adjust name
 
 **Regular expressions** in filters: at most 200 characters; nested repetitions such as `(a+)+` or `(a|b)*` and backreferences are not allowed because they can slow evaluation down dramatically.
 
+## Update status for Windows and Office {#updstatus}
+
+**From 2.40.** POCKET KNIFE shows for every computer whether Windows and Office are up to date – **without a fixed target**: every installation is compared with the newest state of **its own** Windows build or Office channel. Windows 11 24H2 with the latest patch for build 26100, Office LTSC 2024 with the newest LTSC 2024 state, Microsoft 365 Apps in the Monthly Enterprise Channel with the newest state of that channel.
+
+| Status | Meaning |
+|---|---|
+| current | same or newer state than the reference |
+| outdated | a newer patch has been out longer than the grace period |
+| out of support | version or product is out of support according to the Microsoft lifecycle (e.g. Windows 10, Office 2016/2019/2021) |
+| unknown | no data yet (not scanned) – always for MSI Office, because its patches are single KBs |
+| no Office | no Office found |
+
+**Reference:**
+- **Windows:** build and patch level (UBR, e.g. 26100.7171) from the scan. With **Microsoft comparison** the server fetches the patched builds of the last patch days from Microsoft (Security Update Guide, MSRC) once a day – with their release date. In addition, the newest state that occurs in your own environment counts (from the day it first appears). Without internet access on the server only the latter applies.
+- **Office (Click-to-Run):** version and update channel from the registry; compared with the newest version of the same channel in the environment. **MSI Office** (e.g. Office 2016 volume licence) comes from the software list.
+- **Grace period** (default 7 days, adjustable): a new patch only counts afterwards – until then computers with the previous state still count as current.
+
+**Ready-made collections:** under **Windows Updates** (Workstations → Windows 11/10 → per version, Server → per version, each with "Current" and "Outdated", plus "Out of support" and "Restart pending") and **Microsoft Office** (per product with "Current"/"Outdated", "Office out of support", "No Office installed"). They fill themselves from the inventory; a new Windows version or Office product gets its own node at the first scan. Known versions are shown even without computers ("0"). The collections cannot be changed, but copied (right click) and used as targets for schedules and deployments.
+
+**Fields for own collections:** Computer → "Windows update status", "Windows edition", "Office update status"; table **Office installations** (product, version, update channel, update status, type, support until). On the computer page update status and Office are under "Operating system", the Office installations under **Office**.
+
+**Settings → Inventory & fields → Update status:** grace period, Microsoft comparison, ready-made collections on/off, **Recalculate now**. Computed after every scan and once a day. The lifecycle data (end of support) is built into the program and comes with updates.
+
 ## AD Collections {#adcollections}
 
 If enabled under **Settings → Active Directory**, the sync creates the OU structure under an entry named after the domain, plus a "Groups" folder with all AD groups that contain computers. POCKET KNIFE maintains these collections itself; in the tree they can only be expanded and collapsed, not moved.

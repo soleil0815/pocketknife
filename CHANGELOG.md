@@ -2,6 +2,13 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.40.0 (11.11.2026)
+- **New - update status for Windows and Office:** every installation is compared with the newest state of its own Windows build or Office channel - no fixed version or channel. Windows: build and patch level (UBR) from the scan against the patched builds Microsoft published on the last patch days (MSRC security update guide, fetched by the server once a day, optional) and the newest state in the own environment. Office Click-to-Run (Microsoft 365 Apps, LTSC 2024/2021, 2024/2021, Visio/Project): version and update channel from the registry against the newest version of the same channel; MSI Office from the software list. Grace period (default 7 days) before a new patch counts. Microsoft lifecycle dates give "ohne Support" (Windows 10, Windows 11 up to 23H2/24H2 Home/Pro, Office 2016/2019/2021 …)
+- **New - ready-made collections "Windows Updates" and "Microsoft Office":** Workstations → Windows 11/10 → per version, Server → per version, each with "Aktuell"/"Veraltet", plus "Ohne Support" and "Neustart ausstehend"; Office per product with "Aktuell"/"Veraltet", "Office ohne Support", "Kein Office installiert". They fill themselves from the inventory; a new version or product gets its node at the first scan; known versions are shown with (0)
+- **New - fields and display:** computer columns "Windows-Update-Status", "Windows-Edition", "Office-Update-Status", table "Office-Installationen" for own collections; on the computer page under "Betriebssystem" and a new category "Office"; settings under "Inventar & Felder → Update-Status"
+- **Scan:** additionally Windows edition (LTSC recognised) and Office Click-to-Run version/channel/products (registry, CLM-safe)
+- **Self-test:** products and channels, lifecycle, MSRC parsing (only Microsoft's own documents), grace period, environment reference, MSI detection, collections and their members
+
 ## pocketknife-2.39.6 (11.11.2026)
 - **New - "VNC" button on the computer page:** right next to "Remotedesktop" (before only under Tools → "VNC im Browser"). Opens the VNC session in the browser with the central VNC password from Settings → Fernsitzungen (stored encrypted, never sent to the browser) - e.g. for a TightVNC that is distributed as a package with this password. Same rights and log entry as Remote Desktop
 - **Self-test:** button position, central password encrypted

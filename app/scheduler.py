@@ -254,6 +254,11 @@ def tick():
     if db.setting("winget_auto_refresh") and _due("winget", db.setting("winget_refresh_hours") * 60):
         _last["winget"] = time.time()
         _bg("winget", winget.refresh)
+    if _due("updstatus", 24 * 60):
+        # 2.40: update status - Microsoft data (optional), evaluate all computers, ready-made collections
+        _last["updstatus"] = time.time()
+        from . import updstatus
+        _bg("updstatus", updstatus.refresh)
     if db.setting("winget_bootstrap") and _due("wingetboot", 24 * 60):
         # 2.37: keep the app installer for computers without winget up to date once a day (download only on a new release)
         _last["wingetboot"] = time.time()
@@ -298,6 +303,7 @@ def start():
         age = time.time() - time.mktime(time.strptime(st["updated"], "%Y-%m-%d %H:%M:%S"))
         _last["winget"] = time.time() - age
     _last["wingetboot"] = time.time() - (24 * 60 - 40) * 60  # 2.37: first check 40 minutes after startup
+    _last["updstatus"] = time.time() - (24 * 60 - 3) * 60   # 2.40: update status 3 minutes after startup
     _last["wingetcache"] = time.time() - (24 * 60 - 30) * 60  # 2.35: first check of the winget cache 30 minutes after startup
     threading.Thread(target=_loop, name="scheduler", daemon=True).start()
 
