@@ -5898,6 +5898,7 @@ async function viewSettings() {
     field('Parallele Installationen', n('deploy_concurrency', { min: 1 }), 'Wirksam nach Neustart des Containers.'),
     field('Zeitlimit Installation (Min.)', n('deploy_timeout_minutes', { min: 1 })),
     field('Nach Bereitstellungen scannen', h('label.chk', c('rescan_after_deploy'), 'nach jeder Installation/Deinstallation neu inventarisieren'), 'Standard ist das Profil „Anwendungen“; im Paket unter „Danach scannen“ änderbar.'),
+    field('Integrierte Windows-Apps', h('label.chk', c('msix_hide_builtin'), 'in der Softwareliste ausblenden'), 'MSIX-Apps (z. B. PowerShell 7 aus winget) werden mit inventarisiert. Die mit Windows ausgelieferten Apps (Rechner, Fotos, Xbox, Store, Codecs …) erscheinen nur, wenn dieser Haken fehlt. Wirksam ab dem nächsten Scan.'),
     field('Protokoll aufbewahren (Tage)', n('log_retention_days'), '0 = nie automatisch löschen.'),
     field('Scan-Protokoll aufbewahren (Tage)', n('scan_log_retention_days'), 'Einträge unter „Scans“ und Scan-Meldungen im Protokoll werden nach so vielen Tagen automatisch gelöscht; 0 = nie. Die gescannten Daten bleiben erhalten.'),
     field('Bereitstellungen aufbewahren (Tage)', n('deployment_retention_days')),

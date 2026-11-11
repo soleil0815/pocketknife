@@ -5802,5 +5802,9 @@
  "{0} (Microsoft 365)": null,
  "{0}.{1} – aktuell ist {2}.{3}": "{0}.{1} – current is {2}.{3}",
  "Jetzt neu berechnen": "Recalculate now",
- "Neuberechnung gestartet": "Recalculation started"
+ "Neuberechnung gestartet": "Recalculation started",
+ "Integrierte Windows-Apps": "Built-in Windows apps",
+ "in der Softwareliste ausblenden": "hide in the software list",
+ "MSIX-Apps (z. B. PowerShell 7 aus winget) werden mit inventarisiert. Die mit Windows ausgelieferten Apps (Rechner, Fotos, Xbox, Store, Codecs …) erscheinen nur, wenn dieser Haken fehlt. Wirksam ab dem nächsten Scan.": "MSIX apps (e.g. PowerShell 7 from winget) are inventoried as well. The apps that ship with Windows (Calculator, Photos, Xbox, Store, codecs …) only appear when this box is unchecked. Takes effect with the next scan.",
+ "MSIX-Paket (Remove-AppxPackage)": "MSIX package (Remove-AppxPackage)"
 }
