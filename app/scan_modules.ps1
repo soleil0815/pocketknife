@@ -150,17 +150,6 @@ PKX 'os_esu' {
     $yr
   }
 }
-PKX 'office_c2r' {
-  $o = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Office\ClickToRun\Configuration' -ErrorAction SilentlyContinue
-  if ($o -and $o.VersionToReport) {
-    $ch = "" + $o.UpdateChannel
-    if (-not $ch) { $ch = "" + $o.CDNBaseUrl }
-    # 2.44.3: UpdateChannel can be a network share (UpdatePath) or empty - the channel is then in CDNBaseUrl,
-    # AudienceId (GUID) or AudienceData (e.g. "Production::LTSC2024")
-    [ordered]@{ version = "" + $o.VersionToReport; channel = $ch; products = "" + $o.ProductReleaseIds; platform = "" + $o.Platform
-                cdn = "" + $o.CDNBaseUrl; audience_id = "" + $o.AudienceId; audience = "" + $o.AudienceData }
-  }
-}
 # 2.34: virtual machine? Manufacturer/model/BIOS reveal the hypervisor (HypervisorPresent alone does not – it is also true
 # on real hardware with Hyper-V or virtualization-based security)
 PKX 'virtual' {
@@ -334,6 +323,19 @@ try {
   }
 } catch { $r.errors += ('msix: ' + $_.Exception.Message) }
 $r.software = @($sw) + @($mx)
+# 2.46.0: Office (Click-to-Run) belongs to the applications scan - the scan after a deployment updates the Office
+# column too (until now only "Computer-Details" read it)
+PKX 'office_c2r' {
+  $o = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Office\ClickToRun\Configuration' -ErrorAction SilentlyContinue
+  if ($o -and $o.VersionToReport) {
+    $ch = "" + $o.UpdateChannel
+    if (-not $ch) { $ch = "" + $o.CDNBaseUrl }
+    # 2.44.3: UpdateChannel can be a network share (UpdatePath) or empty - the channel is then in CDNBaseUrl,
+    # AudienceId (GUID) or AudienceData (e.g. "Production::LTSC2024")
+    [ordered]@{ version = "" + $o.VersionToReport; channel = $ch; products = "" + $o.ProductReleaseIds; platform = "" + $o.Platform
+                cdn = "" + $o.CDNBaseUrl; audience_id = "" + $o.AudienceId; audience = "" + $o.AudienceData }
+  }
+}
 } catch { $r.errors += ('applications: ' + $_.Exception.Message) }
 
 # @module cpu | CPU

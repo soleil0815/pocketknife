@@ -8,8 +8,8 @@
     {
      "kind": "new",
      "audience": "all",
-     "de": "Mehrere Pakete auf einmal verteilt (auch per Zeitplan) ergeben jetzt eine eigene Bereitstellung je Paket – jedes Paket hat seinen eigenen Eintrag im Verlauf. Sie laufen pro Computer nacheinander; Neustart und Scan kommen einmal am Ende.",
-     "en": "Deploying several packages at once (also by schedule) now creates one deployment per package – each package has its own history entry. They run one after another per computer; restart and scan happen once at the end."
+     "de": "Mehrere Pakete auf einmal verteilt (auch per Zeitplan) ergeben jetzt eine eigene Bereitstellung je Paket – jedes Paket hat seinen eigenen Eintrag im Verlauf. Sie laufen pro Computer nacheinander; Neustart und Scan kommen einmal am Ende. Die Office-Version liest jetzt der Scan „Anwendungen“ – die Office-Spalte stimmt schon nach dem Scan nach einer Bereitstellung.",
+     "en": "Deploying several packages at once (also by schedule) now creates one deployment per package – each package has its own history entry. They run one after another per computer; restart and scan happen once at the end. The Office version is now read by the applications scan – the Office column is right after the scan following a deployment."
     }
    ]
   },

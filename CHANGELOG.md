@@ -11,8 +11,9 @@ New entries are in English. Entries up to and including 2.38.4-s1 (November 2026
   - a deployment whose targets were all skipped because of the chain shows "Fehlgeschlagen", never "Erfolgreich"
   - schedules: the result per computer comes once the whole chain is finished there (success, or the first failed package with its message)
   - a safety net starts a waiting package if its predecessor ended without passing on (e.g. after a restart of POCKET KNIFE)
+- **Fix - Office column stayed "veraltet" after an Office update:** the Office version and channel were only read by the "Computer-Details" scan, while the scan after a deployment usually is "Anwendungen" - the application list showed the new build, the Office column the old one. Office (Click-to-Run) is now part of the applications scan; a computer-details scan alone keeps the Office values, an applications scan without Office removes them
 - Help (de/en) and manual PDFs updated
-- **Self-test:** chain columns, restart/rescan only at the end, waiting/running/skipping per computer, cascade, own condition, without "Bei Fehler abbrechen", safety net, status of a chain-skipped deployment, schedule result per computer, single package stays one plain deployment, schedule with two packages
+- **Self-test:** chain columns, restart/rescan only at the end, waiting/running/skipping per computer, cascade, own condition, without "Bei Fehler abbrechen", safety net, status of a chain-skipped deployment, schedule result per computer, single package stays one plain deployment, schedule with two packages, Office values with the applications scan
 
 ## pocketknife-2.45.0 (12.11.2026)
 - **New - Entra ID and MDM in the inventory:** the computer scan reads the Entra ID join (Entra ID / Hybrid, with tenant name) and the MDM enrollment (e.g. Intune) from the registry (CloudDomainJoin, Enrollments) - CLM-safe, no dsregcmd. Shown on the computer page under "Active Directory"; collection fields "Entra-ID-Beitritt", "Entra-ID-Mandant", "MDM-Registrierung" (e.g. "MDM-Registrierung ist leer" = not in Intune yet)
