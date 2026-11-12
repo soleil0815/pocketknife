@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTex
 from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 
-from . import (access, backup, clientfiles, loadstats, integrity, kiosk, news, pkgexport, repofiles, sso, customreports, mailer, notify, diskusage, kerberos, presence, tls, actions, ad, auth, guard, profiles, remote_desktop, scanners, tools, uninstall, collections_, config, db, deploy, inventory, pklog, remote, reports, scheduler,
+from . import (access, backup, gphistory, clientfiles, loadstats, integrity, kiosk, news, pkgexport, repofiles, sso, customreports, mailer, notify, diskusage, kerberos, presence, tls, actions, ad, auth, guard, profiles, remote_desktop, scanners, tools, uninstall, collections_, config, db, deploy, inventory, pklog, remote, reports, scheduler,
                schedules, steps, util, winget, wingetcache)
 
 
@@ -806,6 +806,14 @@ def api_eventlog(cid: int, log: str = "System", level: int = 0, count: int = 100
     res = _act(actions.event_log, cid, log, level, count, q)
     res["logs"] = [{"key": k, "label": v} for k, v in actions.EVENT_LOGS.items()]
     return res
+
+
+@app.get("/api/computers/{cid}/gphistory")
+def api_gphistory(cid: int, hours: int = 24, user=U):
+    """2.47.0: Group Policy processing runs of the computer (live via WinRM)."""
+    if not db.q1("SELECT id FROM computers WHERE id=?", (cid,)):
+        raise HTTPException(404)
+    return _act(gphistory.history, cid, hours)
 
 
 @app.post("/api/computers/{cid}/live/{what}")

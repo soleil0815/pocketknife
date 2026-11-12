@@ -1068,6 +1068,7 @@ Computer auswählen → **Tools ▾** oder Rechtsklick → Tools.
 | Speicherplatz analysieren | Ordnergrößen als Ringdiagramm – siehe unten |
 | Dateien (Explorer) | Dateien des Clients im Browser verwalten – siehe unten |
 | Ereignisanzeige | Windows-Ereignisprotokolle im Browser – siehe unten |
+| Gruppenrichtlinien-Verlauf | Verarbeitungen der Gruppenrichtlinien mit Dauer, GPOs, Erweiterungen und Fehlern – siehe unten |
 
 
 **Wake-on-LAN:** Broadcasts verlassen ihr Subnetz nicht. Das Magic Packet sendet deshalb ein Computer, der gerade läuft und im selben Subnetz wie das Ziel liegt (bis zu 3 „Relays“, ermittelt aus IP und Subnetzmaske des letzten Scans), zusätzlich der Container. Ab 2.31:
@@ -1128,6 +1129,17 @@ Verknüpfungen (Junctions/Symlinks, z. B. `C:\Users\All Users` → `C:\ProgramDa
 ## Ereignisanzeige {#eventlog}
 
 **Tools ▾ → Ereignisanzeige …**: liest die Windows-Ereignisprotokolle (System, Anwendung, Sicherheit, Setup, Defender) live über WinRM. Nach Stufe filtern (ab Warnung, ab Fehler, nur Kritisch), nach Text/Ereignis-ID/Quelle suchen, Anzahl wählen; Klick auf eine Zeile zeigt die vollständige Meldung.
+
+
+## Gruppenrichtlinien-Verlauf {#gphistory}
+
+**Tools ▾ → Gruppenrichtlinien-Verlauf …** (ab 2.47.0) zeigt, wann ein Computer die Gruppenrichtlinien verarbeitet hat, wie lange das gedauert hat und was schiefging – zum Debuggen von GPOs, ohne Skript auf dem Client. POCKET KNIFE liest dafür live über WinRM das Protokoll *Microsoft-Windows-GroupPolicy/Operational* auf dem Computer selbst (kein Fernzugriff auf die Ereignisanzeige nötig, funktioniert auch mit Software-Einschränkung/Constrained Language).
+
+- **Übersicht:** jede Verarbeitung eine Zeile – Status (**OK**, **Warnung**, **Fehler**, **ohne Ende** = läuft noch oder wurde abgebrochen), Beginn, Computer- oder Benutzerrichtlinie, Konto, Anlass (Computerstart, Anmeldung, manuell, periodisch, Netzwerkänderung), Dauer, langsamste Erweiterung und Domänencontroller. Zeitraum 12 h, 24 h, 48 h oder 7 Tage; Häkchen **nur Warnungen und Fehler**.
+- **Klick auf eine Zeile** zeigt die Details: Domänencontroller mit IP, Domäne, Kontoobjekt, nach wie vielen Sekunden die GPOs ermittelt waren, **angewendete GPOs** und **nicht angewendete (gefilterte) GPOs** mit Grund, die **Erweiterungen** (Registrierung, Sicherheit, Skripts, Ordnerumleitung …) mit Laufzeit und ihren GPOs – die langsamste ist markiert.
+- **Bei Warnung oder Fehler** stehen die Meldung und die **Gründe aus dem Systemprotokoll** dabei (z. B. 1058 SYSVOL nicht erreichbar, 1129 kein Domänencontroller, 1085 Erweiterung fehlgeschlagen).
+- **Alle Ereignisse dieser Verarbeitung** lassen sich aufklappen und als Textdatei herunterladen.
+- **Jetzt gpupdate** führt `gpupdate /force` aus (Fragen nach Abmelden/Neustart: immer „Nein“) und lädt danach neu – der frische Lauf steht oben.
 
 # Software-Kiosk {#kiosk}
 

@@ -2,6 +2,16 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.47.0 (12.11.2026)
+- **New - Group Policy history** (Tools ▾ → "Gruppenrichtlinien-Verlauf …"): when a computer processed Group Policy, how long it took and what went wrong - for debugging GPOs without a script on the client
+  - read live over WinRM on the computer itself from Microsoft-Windows-GroupPolicy/Operational (no remote event log access, Constrained-Language-safe: only event properties, no ToXml())
+  - overview: one row per run (grouped by activity ID) - status OK / warning / error / no end, start, computer or user policy, account, trigger (computer start, logon, manual, periodic, network change), duration, slowest extension, domain controller; 12 h / 24 h / 48 h / 7 days, "only warnings and errors"
+  - details: domain controller with IP, domain, account object, time until the GPOs were determined, applied and filtered GPOs (with reason), extensions with run time and their GPOs (slowest marked), message of a warning/error plus the Group Policy errors of the System log (e.g. 1058, 1129, 1085), all events of the run (download as text)
+  - "Jetzt gpupdate" runs gpupdate /force (always "No" to log off/restart) and reloads
+  - also for OU admins on their computers
+- Help (de/en) and manual PDFs updated
+- **Self-test:** grouping, status, durations, DC/domain/account, applied/filtered GPOs, extensions and slowest, System log by activity ID and by time, run without start/end, time range check, OU route, built-in tool; the client script runs in real PowerShell (Constrained Language) against sample events
+
 ## pocketknife-2.46.1 (12.11.2026)
 - **Fix - gpupdate asked "log off / restart? (J/N)" in tools:** a tool must never wait for an answer and never log off or restart
   - cmd tools: every plain gpupdate line gets `echo N|` in front, PowerShell tools `'N' |` - when saving and once at start for existing tools (also the example tool "GPUPDATE /force"). Lines with `/logoff` or `/boot`, redirected output or an own answer stay as they are

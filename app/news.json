@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.47.0",
+   "date": "2026-11-12",
+   "items": [
+    {
+     "kind": "new",
+     "audience": "all",
+     "de": "Neu: Gruppenrichtlinien-Verlauf (Tools ▾). Zeigt jede Verarbeitung der Gruppenrichtlinien eines Computers mit Dauer, Domänencontroller, angewendeten und gefilterten GPOs, Erweiterungen (die langsamste markiert) und bei Fehlern den Grund aus dem Systemprotokoll – ideal zum GPO-Debuggen.",
+     "en": "New: Group Policy history (Tools ▾). Shows every Group Policy processing run of a computer with duration, domain controller, applied and filtered GPOs, extensions (the slowest marked) and on errors the reason from the System log – ideal for debugging GPOs."
+    }
+   ]
+  },
+  {
    "version": "2.46.1",
    "date": "2026-11-12",
    "items": [

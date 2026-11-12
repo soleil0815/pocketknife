@@ -79,11 +79,12 @@ SEED = [
 # for built-in tools under Tools → "Tastenkürzel …" (with sensible defaults). Always Ctrl+Alt, optionally with
 # Shift, plus A–Z, 0–9 or F1–F12. Stored in a fixed notation, e.g. "Ctrl+Alt+P".
 BUILTIN_KEYS = ("ping", "rdpweb", "vncweb", "wake", "power", "abort", "gpupdate", "winget", "scan",
-                "diskusage", "files", "eventlog", "command")
+                "diskusage", "files", "eventlog", "gphistory", "command")
 BUILTIN_NAMES = {"ping": "Ping & Ports", "rdpweb": "Remotedesktop im Browser", "vncweb": "VNC im Browser",
                  "wake": "Wake-on-LAN", "power": "Neustart / Herunterfahren …", "abort": "Neustart/Herunterfahren abbrechen",
                  "gpupdate": "gpupdate /force", "winget": "winget prüfen / nachinstallieren", "scan": "Scannen mit Profil …",
                  "diskusage": "Speicherplatz analysieren …", "files": "Dateien (Explorer) …", "eventlog": "Ereignisanzeige …",
+                 "gphistory": "Gruppenrichtlinien-Verlauf …",
                  "command": "Befehl ausführen …"}
 BUILTIN_HOTKEY_DEFAULTS = {"ping": "Ctrl+Alt+P", "rdpweb": "Ctrl+Alt+R", "vncweb": "Ctrl+Alt+V", "wake": "Ctrl+Alt+W",
                            "power": "Ctrl+Alt+B", "gpupdate": "Ctrl+Alt+G", "files": "Ctrl+Alt+D", "eventlog": "Ctrl+Alt+E",
