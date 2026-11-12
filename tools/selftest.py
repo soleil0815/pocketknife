@@ -9132,6 +9132,31 @@ def _():
     assert "fRow('Mainboard'" in js and "fRow('Entra ID'" in js and "fRow('MDM'" in js
 
 
+@test("2.46.0 Office version/channel comes with the applications scan: the scan after a deployment updates the Office column, a computer-details scan keeps it, Office removed = gone")
+def _():
+    from app import inventory, updstatus
+    assert "PKX 'office_c2r'" in inventory.MODULES["applications"][1], "Office belongs to the applications module"
+    assert "office_c2r" not in inventory.MODULES["computer"][1]
+    assert inventory.MODULE_EXTRA["applications"] == ["office_c2r"] and "office_c2r" not in inventory.MODULE_EXTRA["computer"]
+    old = {"version": "16.0.17932.21056", "channel": "", "products": "ProPlus2024Volume"}
+    cid = db.ex("INSERT INTO computers(name, extra) VALUES('PC-OFF46', ?)", (json.dumps({"office_c2r": old, "winget": "1.9"}),))
+    try:
+        new = {**old, "version": "16.0.17932.21140"}
+        ex = inventory._merge_extra(cid, {"extra": {"office_c2r": new}}, {"applications"})
+        assert ex["office_c2r"]["version"] == "16.0.17932.21140" and ex["winget"] == "1.9", ex
+        db.ex("UPDATE computers SET extra=? WHERE id=?", (json.dumps(ex), cid))
+        rows = updstatus.office_installs(db.q1("SELECT * FROM computers WHERE id=?", (cid,)), software=[])
+        assert rows and rows[0]["version"] == "16.0.17932.21140", rows
+        # a computer-details scan alone does not touch the Office values
+        ex = inventory._merge_extra(cid, {"extra": {"winget": "1.10"}}, {"computer"})
+        assert ex["office_c2r"]["version"] == "16.0.17932.21140" and ex["winget"] == "1.10", ex
+        # Office uninstalled: the next applications scan removes it
+        ex = inventory._merge_extra(cid, {"extra": {}}, {"applications"})
+        assert "office_c2r" not in ex, ex
+    finally:
+        db.ex("DELETE FROM computers WHERE id=?", (cid,))
+
+
 @test("2.46 Several packages = one deployment per package, chained: next package waits per computer, skipped after a failure (stop_on_fail), restart/scan only at the end, schedule shows one result per computer, kick and safety net")
 def _():
     from app import deploy, schedules
