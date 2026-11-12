@@ -7460,6 +7460,96 @@ def _():
 
 
 
+GP_MOCK_PS = r'''function Get-WinEvent($FilterHashtable, $MaxEvents, $ErrorAction) {
+  $a = [guid]'11111111-2222-3333-4444-555555555555'
+  $b = [guid]'aaaaaaaa-2222-3333-4444-555555555555'
+  $t = Get-Date '2026-11-12T15:43:33'
+  function E($sec, $id, $lvl, $act, $msg, $props) { [pscustomobject]@{ TimeCreated = $t.AddSeconds($sec); Id = $id; Level = $lvl; ActivityId = $act; Message = $msg; Properties = @($props | ForEach-Object { [pscustomobject]@{ Value = $_ } }) } }
+  if ($FilterHashtable.LogName -eq 'System') {
+    @(E 20 1129 2 $b 'Die Verarbeitung der Gruppenrichtlinie ist aufgrund fehlender Netzwerkverbindung zu einem Domänencontroller fehlgeschlagen.' @())
+  } else {
+    @(
+     (E 0 4004 4 $a 'Die manuelle Verarbeitung der Computerrichtlinie für FIRMA\PC-0001$ wurde gestartet.' @('0','0','1','FIRMA\PC-0001$'))
+     (E 0.5 5308 4 $a "Details zum Domänencontroller:`n`tName des Domänencontrollers : \\dc01.firma.local`n`tIP-Adresse : 10.0.0.5" @('\\dc01.firma.local','10.0.0.5','1'))
+     (E 0.6 5310 4 $a 'Konto-Details' @('CN=PC-0001,OU=Clients,DC=firma,DC=local','firma.local'))
+     (E 1.2 5312 4 $a "Liste der anwendbaren Gruppenrichtlinienobjekte:`n`nDefault Domain Policy`nClients-Basis`n" @('x'))
+     (E 1.3 5313 4 $a "Folgende Gruppenrichtlinienobjekte wurden nicht angewendet, da sie herausgefiltert wurden:`n`nLokale Gruppenrichtlinie`n`tNicht angewendet (leer)`n" @('x'))
+     (E 2 4016 4 $a "Die Verarbeitung der Erweiterung Registrierung wurde gestartet.`n`nListe der anwendbaren Gruppenrichtlinienobjekte: (Keine Änderungen erkannt.)`n`nClients-Basis`n" @('{35378EAC}','Registrierung','0','0'))
+     (E 3 5016 4 $a 'Die Erweiterung Registrierung wurde in 812 Millisekunden verarbeitet.' @('812','0','Registrierung'))
+     (E 3.5 4016 4 $a "Die Verarbeitung der Erweiterung Sicherheit wurde gestartet.`n`nListe der anwendbaren Gruppenrichtlinienobjekte: (Keine Änderungen erkannt.)`n`nDefault Domain Policy`n" @('{827D319E}','Sicherheit','0','0'))
+     (E 6 5016 4 $a 'Die Erweiterung Sicherheit wurde in 2512 Millisekunden verarbeitet.' @('2512','0','Sicherheit'))
+     (E 6.2 8004 4 $a 'Die manuelle Verarbeitung der Computerrichtlinie wurde erfolgreich in 6 Sekunden abgeschlossen.' @('6','0'))
+     (E 10 4005 4 $b 'Die manuelle Verarbeitung der Benutzerrichtlinie für FIRMA\anwender wurde gestartet.' @('0','0','0','FIRMA\anwender'))
+     (E 21 7005 2 $b 'Fehler bei der Verarbeitung der Benutzerrichtlinie nach 11 Sekunden.' @('11','1355'))
+     (E 30 5016 4 ([guid]'99999999-2222-3333-4444-555555555555') 'Altes Ende ohne Start' @('1','0','X'))
+    )
+  }
+}
+'''
+
+
+@test("2.47.0 Group Policy history: runs grouped by activity ID (status, duration, DC, GPOs, filtered GPOs, extensions, slowest, System log reasons), CLM-safe client script, OU route, built-in tool")
+def _():
+    import subprocess as _sp
+    from fastapi import HTTPException
+    from app import access, actions, gphistory, main as _m, tools
+    sc = gphistory.script(24)
+    assert "ToXml" not in sc and "[xml]" not in sc.lower(), "method calls on event objects are blocked in Constrained Language"
+    assert "Microsoft-Windows-GroupPolicy/Operational" in sc and "LogName = 'System'; ProviderName = 'Microsoft-Windows-GroupPolicy'" in sc
+    assert ("GET", "/api/computers/{cid}/gphistory") in access.ROUTES and access.ROUTES[("GET", "/api/computers/{cid}/gphistory")] is access._p_cid
+    assert "gphistory" in tools.BUILTIN_KEYS and tools.BUILTIN_NAMES["gphistory"] == "Gruppenrichtlinien-Verlauf …"
+    js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
+    assert "gphistory: viewGpHistory" in js and "view: 'gphistory'" in js
+    try:
+        _m.api_gphistory(1, 5, user={"username": "x"})
+        raise AssertionError("hours 5 must be rejected")
+    except HTTPException as e:
+        assert e.status_code in (400, 404), e
+    for bad in (5, 999):
+        try:
+            gphistory.history(1, bad)
+            raise AssertionError("time range must be rejected")
+        except ValueError as e:
+            assert "Zeitraum" in str(e), e
+
+    def check(runs):
+        assert [r["status"] for r in runs] == ["err", "ok"], [r["status"] for r in runs]
+        u, c = runs
+        assert c["target"] == "computer" and c["reason"] == "Computer (manuell)" and c["principal"] == "FIRMA\\PC-0001$", c
+        assert c["seconds"] == 6.2 and c["discover_seconds"] == 1.2 and c["ext_seconds"] == 3.32, c
+        assert c["dc"] == "\\\\dc01.firma.local" and c["dc_ip"] == "10.0.0.5" and c["domain"] == "firma.local", c
+        assert c["account"].startswith("CN=PC-0001,"), c
+        assert c["gpos"] == ["Default Domain Policy", "Clients-Basis"], c["gpos"]
+        assert c["filtered"] == ["Lokale Gruppenrichtlinie – Nicht angewendet (leer)"], c["filtered"]
+        ex = {x["name"]: x for x in c["extensions"]}
+        assert ex["Registrierung"]["seconds"] == 0.81 and ex["Registrierung"]["gpos"] == ["Clients-Basis"], ex
+        assert ex["Sicherheit"].get("slowest") and not ex["Registrierung"].get("slowest"), ex
+        assert c["system"] == [] and len(c["events"]) == 10, c
+        assert u["target"] == "user" and u["reason"] == "Benutzer (manuell)" and u["seconds"] == 11.0 and u["end_id"] == 7005, u
+        assert "Fehler bei der Verarbeitung" in u["end_message"] and [x["id"] for x in u["system"]] == [1129], u
+        assert u["extensions"] == [] and u["ext_seconds"] is None, u
+    # run without a start inside the time window (only an end event) is left out; run without end = "open"
+    t = "2026-11-12T10:00:00.000"
+    data = {"ops": [{"t": t, "id": 4001, "lvl": 4, "act": "A", "msg": "Anmeldung FIRMA\\anna", "p": ["FIRMA\\anna"]},
+                    {"t": t, "id": 8001, "lvl": 4, "act": "B", "msg": "Ende", "p": ["1"]}], "sys": []}
+    r = gphistory.build(data)
+    assert len(r) == 1 and r[0]["status"] == "open" and r[0]["seconds"] is None and r[0]["reason"] == "Anmeldung", r
+    assert gphistory.build({}) == [] and gphistory.build({"ops": {"t": t, "id": 4000, "act": "", "p": []}}) == []
+    # System log event without activity ID: assigned by time (within the run + 30 s)
+    data = {"ops": [{"t": "2026-11-12T10:00:00.000", "id": 4006, "act": "C", "p": []}, {"t": "2026-11-12T10:00:05.000", "id": 6006, "act": "C", "msg": "Warnung", "p": []}],
+            "sys": [{"t": "2026-11-12T10:00:20.000", "id": 1058, "act": "", "msg": "SYSVOL"}, {"t": "2026-11-12T11:00:00.000", "id": 1058, "act": "", "msg": "später"}]}
+    r = gphistory.build(data)[0]
+    assert r["status"] == "warn" and r["target"] == "computer" and [x["msg"] for x in r["system"]] == ["SYSVOL"], r
+    pw = os.environ.get("PK_PWSH")
+    if pw and os.path.exists(pw):
+        sf = os.path.join(TMP, "pk-gphist.ps1")
+        with open(sf, "w", encoding="utf-8-sig") as fh:
+            fh.write(GP_MOCK_PS + "\n$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'\n" + sc)
+        res = _sp.run([pw, "-NoProfile", "-File", sf], capture_output=True, text=True, timeout=120)
+        assert "PKJSON:" in res.stdout, res.stderr[:1500]
+        check(gphistory.build(actions._json(res.stdout)))
+
+
 @test("2.46.1 gpupdate in tools never waits for \"log off / restart? (J/N)\": always \"N\" (cmd and PowerShell, new and existing tools, built-in tool says so in the output)")
 def _():
     import subprocess as _sp

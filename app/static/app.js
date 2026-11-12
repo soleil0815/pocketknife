@@ -6574,6 +6574,7 @@ const BUILTIN_TOOLS = [
   { key: 'diskusage', name: 'Speicherplatz analysieren …', icon: 'db' },
   { key: 'files', name: 'Dateien (Explorer) …', icon: 'folder', view: 'files' },
   { key: 'eventlog', name: 'Ereignisanzeige …', icon: 'log', view: 'eventlog' },
+  { key: 'gphistory', name: 'Gruppenrichtlinien-Verlauf …', icon: 'shield', view: 'gphistory' },
   { key: 'command', name: 'Befehl ausführen …', icon: 'terminal', main: true },
 ];
 // 2.32.6: Session state of logged-in users – locked (lock screen) or disconnected (Remote Desktop/user switch)
@@ -6651,7 +6652,7 @@ async function hotkeyRun2(ref, combo) {
     if (!b) return;
     // The confirmation comes from the tool itself (restart dialog, scan profile) or views open only one computer
     if (b.main && isOU()) return;
-    name = tr(b.name); asks = !!b.confirm || ['scan', 'power', 'files', 'eventlog', 'diskusage', 'command'].includes(b.key); exec = () => runBuiltin(b, targets);
+    name = tr(b.name); asks = !!b.confirm || ['scan', 'power', 'files', 'eventlog', 'gphistory', 'diskusage', 'command'].includes(b.key); exec = () => runBuiltin(b, targets);
   } else {
     const t = HK.tools.find((x) => `tool:${x.id}` === ref);
     if (!t) { toast('Das Tool zu diesem Tastenkürzel gibt es nicht mehr', 'err'); return; }
@@ -7151,6 +7152,7 @@ const BUILTIN_DESC = {
   diskusage: 'Ordnergrößen als Ringdiagramm, mit Zoom in die Ebenen',
   files: 'Dateien auf dem Client durchsuchen, kopieren, verschieben, löschen, herunter- und hochladen',
   eventlog: 'Windows-Ereignisprotokolle im Browser ansehen',
+  gphistory: 'Wann wurden Gruppenrichtlinien angewendet, wie lange hat es gedauert, was ist schiefgegangen (GPO-Debugging)',
   command: 'PowerShell- oder CMD-Befehl direkt ausführen, auf Wunsch als Tool speichern (nur Hauptadmins)',
 };
 
@@ -8015,6 +8017,127 @@ async function viewEventLog(parts, params) {
 }
 
 // ---------------------------------------------------------------------------
+// 2.47.0 View: Group Policy history (processing runs from Microsoft-Windows-GroupPolicy/Operational)
+// ---------------------------------------------------------------------------
+const GP_STATUS = { ok: ['ok', 'OK'], warn: ['warn', 'Warnung'], err: ['err', 'Fehler'], open: ['info', 'ohne Ende'], unknown: ['', '?'] };
+function gpTime(t) { return t ? `${t.slice(8, 10)}.${t.slice(5, 7)}. ${t.slice(11, 19)}` : ''; }
+function gpSec(v) { return v === null || v === undefined ? '–' : `${Number(v).toFixed(2).replace('.', ',')} s`; }
+function gpBadge(st) { const b = GP_STATUS[st] || GP_STATUS.unknown; return h('span.badge', { class: b[0] }, b[1]); }
+
+async function viewGpHistory(parts, params) {
+  const cid = Number(parts[0]);
+  const c = await GET(`/api/computers/${cid}`);
+  setTop(`Gruppenrichtlinien-Verlauf: ${c.name}`, 'Jede Verarbeitung der Gruppenrichtlinien mit Dauer, Domänencontroller, angewendeten GPOs und Erweiterungen – live vom Computer.',
+    btn('Zum Computer', () => go(`#/computer/${cid}?cat=computer`), { icon: 'pc' }));
+  const hoursSel = sel([['12', 'letzte 12 Stunden'], ['24', 'letzte 24 Stunden'], ['48', 'letzte 48 Stunden'], ['168', 'letzte 7 Tage']], params.get('hours') || '24');
+  const onlyBad = h('input', { type: 'checkbox' });
+  const status = h('span.muted.small');
+  const loadBtn = btn('Laden', () => load(), { cls: 'primary', icon: 'refresh' });
+  const gpBtn = btn('Jetzt gpupdate', () => gpNow(), { icon: 'play', title: 'gpupdate /force auf dem Computer (Fragen nach Abmelden/Neustart: immer Nein), danach neu laden' });
+  const gpOut = h('div');
+  const list = h('div', h('div.muted', { style: { padding: '12px' } }, 'Wird geladen …'));
+  const detail = h('div');
+  hoursSel.addEventListener('change', () => load());
+  onlyBad.addEventListener('change', () => draw());
+  setContent(h('div.grid',
+    h('div.card', h('div.card-b',
+      h('div.row', { style: { gap: '8px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '8px' } },
+        h('b', 'Zeitraum'), hoursSel, h('label.row', { style: { gap: '4px', alignItems: 'center' } }, onlyBad, 'nur Warnungen und Fehler'), loadBtn, gpBtn, status),
+      gpOut, list)),
+    detail));
+
+  let runs = [];
+  let gen = 0;
+  let selAct = params.get('act') || '';
+  async function load() {
+    const g = ++gen;
+    if (!c.online) toast(`${c.name} ist laut Heartbeat offline – der Versuch kann fehlschlagen.`, 'err');
+    status.textContent = 'Wird vom Computer gelesen …';
+    try { history.replaceState(null, '', `#/gphistory/${cid}?hours=${hoursSel.value}`); } catch (e) { /* ignore */ }
+    let d;
+    try { d = await GET(`/api/computers/${cid}/gphistory?hours=${hoursSel.value}`); }
+    catch (e) { if (g !== gen) return; status.textContent = ''; list.replaceChildren(h('div.empty', e.message)); return; }
+    if (g !== gen) return;
+    status.textContent = '';
+    runs = d.runs || [];
+    draw();
+  }
+  function draw() {
+    const rows = onlyBad.checked ? runs.filter((r) => r.status === 'warn' || r.status === 'err') : runs;
+    if (!rows.length) {
+      list.replaceChildren(h('div.empty', runs.length ? 'Keine Verarbeitung mit Warnung oder Fehler im Zeitraum.' : 'Keine Gruppenrichtlinien-Verarbeitung im Zeitraum gefunden.'));
+      detail.replaceChildren();
+      return;
+    }
+    const slow = (r) => (r.extensions || []).find((x) => x.slowest);
+    const t = table([
+      { key: 'status', label: 'Status', render: (r) => gpBadge(r.status), sort: (r) => ({ err: 0, warn: 1, open: 2, ok: 3 }[r.status] ?? 4) },
+      { key: 'start', label: 'Beginn', render: (r) => gpTime(r.start), sort: (r) => r.start || '' },
+      { key: 'target', label: 'Art', render: (r) => (r.target === 'computer' ? 'Computer' : 'Benutzer') },
+      { key: 'principal', label: 'Konto', render: (r) => h('span.raw', r.principal || '') },
+      { key: 'reason', label: 'Anlass', render: (r) => tr(r.reason) },
+      { key: 'seconds', label: 'Dauer', cls: 'right', render: (r) => gpSec(r.seconds), sort: (r) => r.seconds ?? -1 },
+      { key: 'slow', label: 'Langsamste Erweiterung', render: (r) => { const x = slow(r); return x ? `${x.name} (${gpSec(x.seconds)})` : ''; }, sort: (r) => (slow(r) || {}).seconds ?? -1 },
+      { key: 'dc', label: 'Domänencontroller', render: (r) => h('span.raw', (r.dc || '').replace(/^\\\\/, '')) },
+    ], rows, { key: 'gphistory', noun: 'Verarbeitungen', sort: 'start', dir: -1, id: (r) => r.act, pageSize: 500,
+      onRow: (r) => { selAct = r.act; showDetail(r); } });
+    list.replaceChildren(t.el);
+    const cur = rows.find((r) => r.act === selAct);
+    if (cur) showDetail(cur, true); else detail.replaceChildren();
+  }
+  function lines(arr) { return arr && arr.length ? h('ul.gp-list', { style: { margin: '0', paddingLeft: '18px' } }, arr.map((x) => h('li.raw', x))) : h('span.muted', '–'); }
+  function showDetail(r, quiet) {
+    const exts = r.extensions || [];
+    const extTable = exts.length ? table([
+      { key: 'name', label: 'Erweiterung', render: (x) => h('span', x.name, x.slowest && exts.length > 1 ? h('span.badge.warn', { style: { marginLeft: '6px' } }, 'langsamste') : null) },
+      { key: 'status', label: 'Status', render: (x) => gpBadge(x.status) },
+      { key: 'seconds', label: 'Laufzeit', cls: 'right', render: (x) => gpSec(x.seconds), sort: (x) => x.seconds },
+      { key: 'gpos', label: 'Gruppenrichtlinien', cls: 'wrap', render: (x) => h('span.raw', (x.gpos || []).join(', ')), value: (x) => (x.gpos || []).join(', ') },
+    ], exts, { key: 'gphistory-ext', noun: 'Erweiterungen', id: (x) => x.name, pageSize: 200,
+      onRow: (x) => { if (x.message) modal(`Erweiterung ${x.name}`, h('pre.out', { style: { whiteSpace: 'pre-wrap' } }, x.message), [{ label: 'Schließen' }], { wide: true }); } }).el
+      : h('div.muted', 'Keine Erweiterungen protokolliert (Ereignis 5016 fehlt) – siehe Ereignisse unten.');
+    const evText = () => (r.events || []).map((e) => `${e.t}\t${e.id}\t${String(e.msg || '').replace(/\s+/g, ' ').trim()}`).join('\r\n');
+    const evTable = table([
+      { key: 't', label: 'Zeit', render: (e) => gpTime(e.t), sort: (e) => e.t },
+      { key: 'id', label: 'ID', cls: 'right' },
+      { key: 'msg', label: 'Meldung', cls: 'wrap', render: (e) => h('span.raw', String(e.msg || '').split('\n')[0].slice(0, 200)) },
+    ], r.events || [], { key: 'gphistory-ev', noun: 'Ereignisse', sort: 't', dir: 1, id: (e) => e, pageSize: 1000,
+      onRow: (e) => modal(`Ereignis ${e.id}`, h('pre.out', { style: { whiteSpace: 'pre-wrap' } }, e.msg || '(keine Meldung)'), [{ label: 'Schließen' }], { wide: true }) });
+    const bad = r.status === 'warn' || r.status === 'err';
+    detail.replaceChildren(h('div.card', h('div.card-b',
+      h('div.row', { style: { gap: '8px', alignItems: 'center', marginBottom: '8px' } },
+        h('b', `${r.target === 'computer' ? 'Computerrichtlinie' : 'Benutzerrichtlinie'} · ${gpTime(r.start)}`), gpBadge(r.status), h('div.spacer'),
+        btn('Ereignisse herunterladen', () => downloadText(`gpo-${c.name}-${(r.start || '').replace(/[^0-9]/g, '').slice(0, 14)}.txt`, evText(), 'text/plain;charset=utf-8'), { icon: 'download' })),
+      kv([['Beginn', gpTime(r.start)], ['Ende', r.end ? gpTime(r.end) : 'kein Ende protokolliert (läuft noch oder wurde abgebrochen)'],
+        ['Konto', r.principal], ['Anlass', r.reason],
+        ['Domänencontroller', [String(r.dc || '').replace(/^\\\\/, ''), r.dc_ip].filter(Boolean).join(' · ')], ['Domäne', r.domain], ['Kontoobjekt', r.account],
+        ['GPOs ermittelt nach', gpSec(r.discover_seconds)], ['Erweiterungen zusammen', gpSec(r.ext_seconds)], ['Gesamtdauer', gpSec(r.seconds)]]),
+      bad && r.end_message ? h('div.alert.' + (r.status === 'err' ? 'err' : 'warn'), { style: { marginTop: '10px', whiteSpace: 'pre-wrap' } }, r.end_message) : null,
+      (r.system || []).length ? h('div', { style: { marginTop: '10px' } }, h('b', 'Gründe aus dem Systemprotokoll'),
+        h('ul', { style: { margin: '4px 0 0', paddingLeft: '18px' } }, r.system.map((e) => h('li', h('b', `${e.id} · ${gpTime(e.t)}: `), h('span.raw', String(e.msg || '').replace(/\s+/g, ' ').trim()))))) : null,
+      h('div.row', { style: { gap: '24px', flexWrap: 'wrap', marginTop: '12px', alignItems: 'flex-start' } },
+        h('div', h('b', 'Angewendete GPOs'), h('div', lines(r.gpos))),
+        h('div', h('b', 'Nicht angewendet (gefiltert)'), h('div', lines(r.filtered)))),
+      h('h4', { style: { margin: '14px 0 6px' } }, 'Erweiterungen'), extTable,
+      h('details', { style: { marginTop: '12px' } }, h('summary', `Alle Ereignisse dieser Verarbeitung (${(r.events || []).length})`), evTable.el))));
+    if (!quiet) detail.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+  async function gpNow() {
+    gpBtn.disabled = true;
+    status.textContent = `gpupdate läuft auf ${c.name} …`;
+    let r;
+    try { r = await POST(`/api/computers/${cid}/action`, { action: 'gpupdate' }); }
+    catch (e) { gpBtn.disabled = false; status.textContent = ''; toast(e.message, 'err'); return; }
+    gpBtn.disabled = false;
+    status.textContent = '';
+    gpOut.replaceChildren(h('details', { style: { marginBottom: '8px' } }, h('summary', 'Ausgabe von gpupdate'), h('pre.out', { style: { whiteSpace: 'pre-wrap' } }, (r && r.output) || 'Ausgeführt.')));
+    selAct = '';
+    await load();
+  }
+  load();
+}
+
+// ---------------------------------------------------------------------------
 // View: Disk space analysis (donut chart with zoom into the folder levels)
 // ---------------------------------------------------------------------------
 async function viewDiskUsage(parts, params) {
@@ -8756,7 +8879,7 @@ const VIEWS = {
   dashboard: viewDashboard, computers: viewComputers, computer: viewComputer, software: viewSoftware,
   help: viewHelp, packages: viewPackages, schedules: viewSchedules, deployments: viewDeployments, deployment: viewDeployment, rules: () => go('#/schedules'),
   reports: viewReports, logs: viewLogs, settings: viewSettings, tools: viewTools, scanners: viewScanners, diskusage: viewDiskUsage,
-  files: viewFiles, eventlog: viewEventLog, kiosk: viewKiosk, repository: viewRepository, wingetcache: viewWingetCache,
+  files: viewFiles, eventlog: viewEventLog, gphistory: viewGpHistory, kiosk: viewKiosk, repository: viewRepository, wingetcache: viewWingetCache,
 };
 
 // ---------------------------------------------------------------------------

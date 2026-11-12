@@ -1068,6 +1068,7 @@ Select computers → **Tools ▾** or right-click → Tools.
 | Analyse disk space | folder sizes as a ring chart – see below |
 | Files (Explorer) | manage the client's files in the browser – see below |
 | Event log | Windows event logs in the browser – see below |
+| Group Policy history | Group Policy processing runs with duration, GPOs, extensions and errors – see below |
 
 
 **Wake-on-LAN:** broadcasts do not leave their subnet. The magic packet is therefore sent by a computer that is running and in the same subnet as the target (up to 3 "relays", determined from IP and subnet mask of the last scan), plus the container. From 2.31:
@@ -1128,6 +1129,17 @@ Links (junctions/symlinks, e.g. `C:\Users\All Users` → `C:\ProgramData`) are m
 ## Event log {#eventlog}
 
 **Tools ▾ → Event log …**: reads the Windows event logs (System, Application, Security, Setup, Defender) live over WinRM. Filter by level (warning and worse, errors, critical only), search by text/event ID/source, choose the count; click a row for the full message.
+
+
+## Group Policy history {#gphistory}
+
+**Tools ▾ → Group Policy history …** (from 2.47.0) shows when a computer processed Group Policy, how long it took and what went wrong – for debugging GPOs without a script on the client. POCKET KNIFE reads the log *Microsoft-Windows-GroupPolicy/Operational* live over WinRM on the computer itself (no remote event log access needed, works with software restriction/Constrained Language too).
+
+- **Overview:** one row per processing run – status (**OK**, **warning**, **error**, **no end** = still running or aborted), start, computer or user policy, account, trigger (computer start, logon, manual, periodic, network change), duration, slowest extension and domain controller. Time range 12 h, 24 h, 48 h or 7 days; checkbox **only warnings and errors**.
+- **Click a row** for the details: domain controller with IP, domain, account object, after how many seconds the GPOs were determined, **applied GPOs** and **not applied (filtered) GPOs** with reason, the **extensions** (registry, security, scripts, folder redirection …) with run time and their GPOs – the slowest one is marked.
+- **On a warning or error** the message and the **reasons from the System log** are shown (e.g. 1058 SYSVOL not reachable, 1129 no domain controller, 1085 extension failed).
+- **All events of this run** can be expanded and downloaded as a text file.
+- **Run gpupdate now** runs `gpupdate /force` (questions about logging off/restarting: always "No") and reloads – the fresh run is at the top.
 
 # Software Kiosk {#kiosk}
 
