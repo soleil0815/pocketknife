@@ -537,6 +537,12 @@ MIGRATIONS = [
     ("schedules", "window", "TEXT"),
     ("update_rules", "migrated", "INTEGER DEFAULT 0"),
     ("deployments", "target_label", "TEXT"),
+    # 2.46: several packages = one deployment per package, chained (per computer one after another)
+    ("deployments", "chain_id", "INTEGER"),
+    ("deployments", "chain_prev", "INTEGER"),
+    ("deployments", "chain_pos", "INTEGER"),
+    ("deployments", "chain_len", "INTEGER"),
+    ("deployments", "chain_stop", "INTEGER"),
     ("packages", "integrity", "TEXT"),  # 2.26: result of the integrity check (JSON: state, issues, at)
     ("packages", "ident_at", "TEXT"),   # 2.27: fingerprint for the duplicate lock last computed
     ("tenants", "allow_scripts", "INTEGER DEFAULT 0"),  # 2.29.1

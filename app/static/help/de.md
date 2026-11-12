@@ -940,7 +940,7 @@ Wurde außerhalb von POCKET KNIFE verschoben oder umbenannt (z. B. im Windows-Ex
 
 # Bereitstellungen {#deployments}
 
-**Mehrere Pakete auf einmal:** In **Pakete** mehrere Zeilen anhaken (oder mit Strg/Umschalt markieren) und oben rechts auf **„N Pakete bereitstellen …“** klicken – oder Rechtsklick → „N Pakete bereitstellen …“. Im Dialog lassen sich weitere Pakete dazunehmen und die Reihenfolge durch Ziehen der Einträge ändern. Alle Pakete laufen als **eine** Bereitstellung: je Computer nacheinander in dieser Reihenfolge, nie zwei Installationen gleichzeitig (sonst meldet Windows Installer gern 1618 „eine andere Installation läuft“). Optional werden nach einem Fehler die weiteren Pakete für diesen Computer ausgelassen.
+**Mehrere Pakete auf einmal:** In **Pakete** mehrere Zeilen anhaken (oder mit Strg/Umschalt markieren) und oben rechts auf **„N Pakete bereitstellen …“** klicken – oder Rechtsklick → „N Pakete bereitstellen …“. Im Dialog lassen sich weitere Pakete dazunehmen und die Reihenfolge durch Ziehen der Einträge ändern. Ab 2.46 bekommt **jedes Paket seine eigene Bereitstellung** – mit eigenem Eintrag im Verlauf, eigenem Status, eigenem „Fehlgeschlagene erneut“ und im Verlauf des Pakets. Die Bereitstellungen sind verkettet: Auf jedem Computer startet das nächste Paket erst, wenn das vorherige dort fertig ist – nie zwei Installationen gleichzeitig (sonst meldet Windows Installer gern 1618 „eine andere Installation läuft“). In der Liste zeigt „1/3, 2/3 …“ die Position, in den Details stehen alle Pakete der Kette mit Status und Link. Mit **„Bei Fehler abbrechen“** wird ein Paket auf einem Computer übersprungen („Übersprungen – vorheriges Paket … war nicht erfolgreich“), wenn das vorherige dort fehlgeschlagen ist; überspringt ein Paket nur wegen seiner eigenen Bedingungen (z. B. schon installiert), läuft das nächste trotzdem. **Neustart und Nachscan** gibt es nur einmal am Ende: Das letzte Paket übernimmt den stärksten Neustart aller Pakete und die Scanprofile aller Pakete.
 
 Bereitstellen über den Knopf **Bereitstellen …** (Computerliste, Paket, Software) oder per Rechtsklick. Ziel sind ausgewählte Computer oder eine Sammlung; der Zeitpunkt ist sofort oder geplant.
 
@@ -1023,7 +1023,7 @@ Zeitpläne sind die eine Stelle für alles, was automatisch verteilt oder aktual
 
 | Art | Was passiert |
 |---|---|
-| **Pakete verteilen** | ein oder mehrere gespeicherte Pakete, je Computer in fester Reihenfolge |
+| **Pakete verteilen** | ein oder mehrere gespeicherte Pakete, je Computer in fester Reihenfolge – ab 2.46 je Paket eine eigene Bereitstellung („Zeitplanname: Paket“, verkettet wie beim Bereitstellen mehrerer Pakete); im Zeitplan steht je Computer ein Gesamtergebnis (fehlgeschlagen, sobald ein Paket fehlschlägt) |
 | **winget-Updates** | veraltete Software der Ziele per `winget upgrade` aktualisieren – alle veralteten oder nur bestimmte winget-IDs, mit Ausnahmen; je Programm eine Bereitstellung. IDs und Ausnahmen lassen sich mit **„Aus dem Inventar wählen …“** aus den installierten Programmen übernehmen, statt sie abzutippen |
 
 Gemeinsam für beide Arten:

@@ -2923,7 +2923,7 @@ def api_deployments(limit: int = 300, before: int = 0, user=U):
         # OU admin: only deployments with at least one of their computers; numbers and names of their targets only
         mine = json.dumps(sorted(access.computer_ids(user)))
         return db.q("""SELECT d.id, d.name, d.source, d.status, d.created_by, d.created_at, d.scheduled_at, d.started_at,
-                       d.finished_at, NULL target_label,
+                       d.finished_at, NULL target_label, d.chain_pos, d.chain_len,
                        (SELECT group_concat(computer_name, ', ') FROM (SELECT computer_name FROM deployment_targets t
                           WHERE t.deployment_id=d.id AND t.computer_id IN (SELECT value FROM json_each(?1))
                           ORDER BY computer_name LIMIT 4)) target_names,
@@ -2937,7 +2937,7 @@ def api_deployments(limit: int = 300, before: int = 0, user=U):
                           AND t.computer_id IN (SELECT value FROM json_each(?1)))
                        ORDER BY d.id DESC LIMIT ?2""", (mine, lim, bef))
     return db.q("""SELECT d.id, d.name, d.source, d.status, d.created_by, d.created_at, d.scheduled_at, d.started_at,
-                   d.finished_at, d.target_label,
+                   d.finished_at, d.target_label, d.chain_pos, d.chain_len,
                    (SELECT group_concat(computer_name, ', ') FROM (SELECT computer_name FROM deployment_targets t
                       WHERE t.deployment_id=d.id ORDER BY computer_name LIMIT 4)) target_names,
                    (SELECT COUNT(*) FROM deployment_targets t WHERE t.deployment_id=d.id) total,
@@ -2964,12 +2964,13 @@ def api_deploy(data: dict = Body(...), user=U):
         if access.scoped(user) and not ids:
             _err("Keine Computer aus Ihrem Bereich ausgewählt.")
         if len(pids) > 1:
-            # Several packages: one deployment, per computer one after another
+            # 2.46: several packages: one deployment per package (own entry), chained - per computer one after another
             pkg = deploy.composite(pids, stop_on_fail=bool(data.get("stop_on_fail", True)))
             from . import steps as _steps
             _ids, ignored = deploy.tenant_filter(_steps.expand(pkg), sorted(set(ids)))
-            did = deploy.create(pkg, ids, user["username"], sched or None, target_label=label)
-            return {"id": did, "ignored": ignored}
+            dids = deploy.create_chain(pids, ids, user["username"], stop_on_fail=bool(data.get("stop_on_fail", True)),
+                                       scheduled_at=sched or None, target_label=label)
+            return {"id": dids[0], "ids": dids, "ignored": ignored}
         if len(pids) == 1:
             data["package_id"] = pids[0]
         if data.get("package_id"):
@@ -3016,6 +3017,8 @@ def api_deployment(did: int, user=U):
     d["package_changed"] = deploy.package_changed(d)  # 2.35.1: package changed since then -> retry with the current state
     d["package"] = json.loads(d.pop("package_json") or "{}")
     d["targets"] = db.q("SELECT * FROM deployment_targets WHERE deployment_id=? ORDER BY computer_name", (did,))
+    if d.get("chain_id"):  # 2.46: the other packages of the same multi-package deployment
+        d["chain"] = db.q("SELECT id, name, status, chain_pos FROM deployments WHERE chain_id=? ORDER BY chain_pos", (d["chain_id"],))
     mine = access.computer_ids(user)
     if mine is not None:
         full = all(t["computer_id"] in mine for t in d["targets"])

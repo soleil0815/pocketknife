@@ -5902,5 +5902,18 @@
  "{0} hängengebliebene Bereitstellungsziele ohne aktiven Lauf beendet – auf den Computern wird aufgeräumt, sobald sie erreichbar sind.": "{0} hung deployment targets without an active run ended – the computers are cleaned up as soon as they are reachable.",
  "Abgebrochen – der Lauf war nicht mehr aktiv (hängengeblieben); Reste auf dem Computer werden entfernt, sobald er erreichbar ist": "Aborted – the run was no longer active (hung); leftovers on the computer are removed as soon as it is reachable",
  "NULLIF({0}, '')": null,
- " AND t.started_at IS NOT NULL AND t.started_at <= ?": null
+ " AND t.started_at IS NOT NULL AND t.started_at <= ?": null,
+ "{0} Bereitstellungen gestartet (eine je Paket, nacheinander)": "{0} deployments started (one per package, one after another)",
+ "{0} Bereitstellungen geplant (eine je Paket, nacheinander)": "{0} deployments scheduled (one per package, one after another)",
+ "Mehrere Pakete nacheinander – Teil der gemeinsamen Bereitstellung": "Several packages one after another – part of the joint deployment",
+ "Pakete nacheinander": "Packages in sequence",
+ "Wartet auf „{0}“": "Waiting for \"{0}\"",
+ "Übersprungen – vorheriges Paket „{0}“ war nicht erfolgreich": "Skipped – previous package \"{0}\" was not successful",
+ "{0} Pakete erfolgreich": "{0} packages successful",
+ "Übersprungen – vorheriges Paket": null,
+ "Nächstes Paket der Kette nicht gestartet: {0}": "Next package of the chain not started: {0}",
+ "{0} Pakete nacheinander: Bereitstellungen {1} (nach einem Fehler werden die folgenden auf dem Computer übersprungen).": "{0} packages one after another: deployments {1} (after an error the following ones are skipped on the computer).",
+ "{0} Pakete nacheinander: Bereitstellungen {1}.": "{0} packages one after another: deployments {1}.",
+ "Zeitplan „{0}“ ({1}): Bereitstellungen {2} für {3} Computer{4}.": "Schedule \"{0}\" ({1}): deployments {2} for {3} computers{4}.",
+ "Zeitplan „{0}“ ({1}): Bereitstellung {2} für {3} Computer{4}.": "Schedule \"{0}\" ({1}): deployment {2} for {3} computers{4}."
 }

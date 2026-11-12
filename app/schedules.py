@@ -599,8 +599,15 @@ def _fire(s, cids=None, reason="Zeitplan", user=None, force=False):
         return {"deployment_id": None, "count": 0}
     from . import integrity
     try:
-        did = deploy.create(composite_package(s), run, user or "Zeitplan", source="schedule", name=s["name"],
-                            schedule_id=s["id"], start_now=False, target_label=target_label(s))
+        if len(s["packages"]) > 1:
+            # 2.46: one deployment per package, chained - every package its own entry in the history
+            dids = deploy.create_chain(s["packages"], run, user or "Zeitplan", stop_on_fail=bool(s["options"]["stop_on_fail"]),
+                                       source="schedule", name_prefix=s["name"], schedule_id=s["id"], start_now=False,
+                                       target_label=target_label(s))
+        else:
+            dids = [deploy.create(composite_package(s), run, user or "Zeitplan", source="schedule", name=s["name"],
+                                  schedule_id=s["id"], start_now=False, target_label=target_label(s))]
+        did = dids[-1]
     except integrity.IntegrityError as e:
         # Break in the repository: interrupt the run, targets stay open (the next run tries again) –
         # report only for a new cause, otherwise the same warning would appear in the log on every heartbeat
@@ -615,10 +622,15 @@ def _fire(s, cids=None, reason="Zeitplan", user=None, force=False):
                  ON CONFLICT(schedule_id, computer_id) DO UPDATE SET status=excluded.status, deployment_id=excluded.deployment_id,
                  pending=0, pending_since=NULL, message=excluded.message""",
               (s["id"], r["computer_id"], "queued", did, f"Bereitstellung #{did}"))
-    deploy.start(did, checked=True)
-    pklog.info("deploy", f"Zeitplan „{s['name']}“ ({reason}): Bereitstellung #{did} für {len(run)} Computer"
-                         + (f", {len(off)} offline" if off else "") + ".", user=user)
-    return {"deployment_id": did, "count": 1}
+    for d in dids:
+        deploy.start(d, checked=True)
+    nums = "#" + ", #".join(map(str, dids))
+    offl = f", {len(off)} offline" if off else ""
+    if len(dids) > 1:
+        pklog.info("deploy", f"Zeitplan „{s['name']}“ ({reason}): Bereitstellungen {nums} für {len(run)} Computer{offl}.", user=user)
+    else:
+        pklog.info("deploy", f"Zeitplan „{s['name']}“ ({reason}): Bereitstellung {nums} für {len(run)} Computer{offl}.", user=user)
+    return {"deployment_id": did, "deployment_ids": dids, "count": len(dids)}
 
 
 _blocked = {}  # schedule ID → last reported interruption (break in the repository)
@@ -640,10 +652,39 @@ def preview(s, only=None):
     return {"kind": "packages", "members": len(mem), "online": len(mem & online)}
 
 
+def _chain_result(did, t):
+    """2.46: result of a whole chain for one computer - None while a package is still open there.
+    Returns a target-like dict (status, message, deployment_id) for the schedule history."""
+    d = db.q1("SELECT chain_id FROM deployments WHERE id=?", (did,))
+    if not d or not d["chain_id"]:
+        return {"status": t["status"], "message": t["message"], "deployment_id": did}
+    rows = db.q("""SELECT t.status, t.message, d.id, d.name, d.chain_pos FROM deployments d JOIN deployment_targets t
+                   ON t.deployment_id = d.id WHERE d.chain_id=? AND t.computer_id=? ORDER BY d.chain_pos""",
+                (d["chain_id"], t["computer_id"]))
+    if any(r["status"] in ("queued", "running") for r in rows):
+        return None
+    from .deploy import CHAIN_SKIP
+    bad = [r for r in rows if r["status"] == "failed"]
+    chain_skipped = [r for r in rows if r["status"] == "skipped" and (r["message"] or "").startswith(CHAIN_SKIP)]
+    if bad or chain_skipped:
+        first = bad[0] if bad else chain_skipped[0]
+        return {"status": "failed", "message": f"{first['name']}: {first['message'] or ''}"[:1000], "deployment_id": first["id"]}
+    if any(r["status"] == "cancelled" for r in rows):
+        return {"status": "cancelled", "message": "Abgebrochen", "deployment_id": rows[-1]["id"]}
+    if all(r["status"] == "skipped" for r in rows):
+        return {"status": "skipped", "message": rows[-1]["message"], "deployment_id": rows[-1]["id"]}
+    return {"status": "success", "message": f"{len(rows)} Pakete erfolgreich", "deployment_id": rows[-1]["id"]}
+
+
 def target_finished(sid, did, tid):
-    t = db.q1("SELECT * FROM deployment_targets WHERE id=?", (tid,))
-    if not t or not t["computer_id"]:
+    t0 = db.q1("SELECT * FROM deployment_targets WHERE id=?", (tid,))
+    if not t0 or not t0["computer_id"]:
         return
+    agg = _chain_result(did, t0)
+    if agg is None:
+        return   # further packages of the chain still open on this computer
+    t = {**dict(t0), "status": agg["status"], "message": agg["message"]}
+    did = agg["deployment_id"]
     st = t["status"]
     status = st if st in ("success", "skipped", "cancelled") else "failed"
     now = util.now()
