@@ -1140,6 +1140,13 @@ Links (junctions/symlinks, e.g. `C:\Users\All Users` → `C:\ProgramData`) are m
 - **On a warning or error** the message and the **reasons from the System log** are shown (e.g. 1058 SYSVOL not reachable, 1129 no domain controller, 1085 extension failed).
 - **All events of this run** can be expanded and downloaded as a text file.
 - **Run gpupdate now** runs `gpupdate /force` (questions about logging off/restarting: always "No") and reloads – the fresh run is at the top.
+- **Resultant Set of Policy (gpresult, from 2.48.0):** at the bottom of the page – choose **Computer** or a **user** (users from the history and logged-on users) and **Ergebnis laden** (load result). POCKET KNIFE runs `gpresult /x` on the computer (only on click, a few seconds) and shows:
+  - all **Group Policy objects** with status – applied or not, and why not (WMI filter does not match, access denied = security filtering, disabled, link disabled), linked to, enforced, number of effective settings
+  - all **effective settings** with value and GPO: administrative templates, security settings, scripts, software and the **Group Policy Preferences (GPP)** – drives, printers, registry, files, shortcuts, scheduled tasks, services, local groups … Click a setting for all values and the **item-level targeting**. The checkbox **also overridden** shows settings another GPO overrides (with the GPO that wins).
+  - organizational unit, site, security groups (important for security filtering) and extensions that ended with an error
+  - **Clicking a GPO name** in the details of a run opens its settings on this computer or for this user directly.
+  - Users: only for users who have signed in on this computer before. What took effect is shown – items that do not match their item-level targeting are usually not listed by Windows.
+- **Errors of single GPP items** (e.g. a drive that cannot be mapped) are written by Windows as event 4098 to the Application log. The history assigns them to the run (marker **GPP n** in the status column) and shows them under "reasons from the System and Application log".
 
 # Software Kiosk {#kiosk}
 

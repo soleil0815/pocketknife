@@ -816,6 +816,14 @@ def api_gphistory(cid: int, hours: int = 24, user=U):
     return _act(gphistory.history, cid, hours)
 
 
+@app.get("/api/computers/{cid}/gpresult")
+def api_gpresult(cid: int, scope: str = "computer", account: str = "", user=U):
+    """2.48.0: Resultant Set of Policy (gpresult /x) of the computer or of a user on it - on request only."""
+    if not db.q1("SELECT id FROM computers WHERE id=?", (cid,)):
+        raise HTTPException(404)
+    return _act(gphistory.rsop, cid, scope, account or None)
+
+
 @app.post("/api/computers/{cid}/live/{what}")
 def api_live(cid: int, what: str, user=U):
     fn = {"processes": actions.live_processes, "services": actions.live_services}.get(what)

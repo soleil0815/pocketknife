@@ -8037,6 +8037,7 @@ async function viewGpHistory(parts, params) {
   const gpOut = h('div');
   const list = h('div', h('div.muted', { style: { padding: '12px' } }, 'Wird geladen …'));
   const detail = h('div');
+  const rsopCard = h('div');
   hoursSel.addEventListener('change', () => load());
   onlyBad.addEventListener('change', () => draw());
   setContent(h('div.grid',
@@ -8044,7 +8045,7 @@ async function viewGpHistory(parts, params) {
       h('div.row', { style: { gap: '8px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '8px' } },
         h('b', 'Zeitraum'), hoursSel, h('label.row', { style: { gap: '4px', alignItems: 'center' } }, onlyBad, 'nur Warnungen und Fehler'), loadBtn, gpBtn, status),
       gpOut, list)),
-    detail));
+    detail, rsopCard));
 
   let runs = [];
   let gen = 0;
@@ -8060,10 +8061,11 @@ async function viewGpHistory(parts, params) {
     if (g !== gen) return;
     status.textContent = '';
     runs = d.runs || [];
+    rsopUsers();
     draw();
   }
   function draw() {
-    const rows = onlyBad.checked ? runs.filter((r) => r.status === 'warn' || r.status === 'err') : runs;
+    const rows = onlyBad.checked ? runs.filter((r) => r.status === 'warn' || r.status === 'err' || r.gpp_errors) : runs;
     if (!rows.length) {
       list.replaceChildren(h('div.empty', runs.length ? 'Keine Verarbeitung mit Warnung oder Fehler im Zeitraum.' : 'Keine Gruppenrichtlinien-Verarbeitung im Zeitraum gefunden.'));
       detail.replaceChildren();
@@ -8071,7 +8073,7 @@ async function viewGpHistory(parts, params) {
     }
     const slow = (r) => (r.extensions || []).find((x) => x.slowest);
     const t = table([
-      { key: 'status', label: 'Status', render: (r) => gpBadge(r.status), sort: (r) => ({ err: 0, warn: 1, open: 2, ok: 3 }[r.status] ?? 4) },
+      { key: 'status', label: 'Status', render: (r) => h('span', gpBadge(r.status), r.gpp_errors ? h('span.badge.warn', { style: { marginLeft: '4px' }, title: 'Fehler einzelner Einstellungen (GPP), Ereignis 4098 im Anwendungsprotokoll' }, `GPP ${r.gpp_errors}`) : null), sort: (r) => ({ err: 0, warn: 1, open: 2, ok: 3 }[r.status] ?? 4) - (r.gpp_errors ? 0.5 : 0) },
       { key: 'start', label: 'Beginn', render: (r) => gpTime(r.start), sort: (r) => r.start || '' },
       { key: 'target', label: 'Art', render: (r) => (r.target === 'computer' ? 'Computer' : 'Benutzer') },
       { key: 'principal', label: 'Konto', render: (r) => h('span.raw', r.principal || '') },
@@ -8085,14 +8087,19 @@ async function viewGpHistory(parts, params) {
     const cur = rows.find((r) => r.act === selAct);
     if (cur) showDetail(cur, true); else detail.replaceChildren();
   }
-  function lines(arr) { return arr && arr.length ? h('ul.gp-list', { style: { margin: '0', paddingLeft: '18px' } }, arr.map((x) => h('li.raw', x))) : h('span.muted', '–'); }
+  function lines(arr, run) {
+    if (!arr || !arr.length) return h('span.muted', '–');
+    // 2.48.0: click on a GPO = its settings on this computer / for this user (gpresult)
+    return h('ul.gp-list', { style: { margin: '0', paddingLeft: '18px' } }, arr.map((x) => h('li.raw', run
+      ? h('a', { href: '#', title: 'Einstellungen dieser GPO anzeigen (Richtlinienergebnis)', onclick: (e) => { e.preventDefault(); openRsop(run, x.split(' – ')[0]); } }, x) : x)));
+  }
   function showDetail(r, quiet) {
     const exts = r.extensions || [];
     const extTable = exts.length ? table([
       { key: 'name', label: 'Erweiterung', render: (x) => h('span', x.name, x.slowest && exts.length > 1 ? h('span.badge.warn', { style: { marginLeft: '6px' } }, 'langsamste') : null) },
       { key: 'status', label: 'Status', render: (x) => gpBadge(x.status) },
       { key: 'seconds', label: 'Laufzeit', cls: 'right', render: (x) => gpSec(x.seconds), sort: (x) => x.seconds },
-      { key: 'gpos', label: 'Gruppenrichtlinien', cls: 'wrap', render: (x) => h('span.raw', (x.gpos || []).join(', ')), value: (x) => (x.gpos || []).join(', ') },
+      { key: 'gpos', label: 'Gruppenrichtlinien', cls: 'wrap', render: (x) => h('span.raw', (x.gpos || []).map((g, i) => [i ? ', ' : '', h('a', { href: '#', onclick: (e) => { e.preventDefault(); e.stopPropagation(); openRsop(r, g); } }, g)])), value: (x) => (x.gpos || []).join(', ') },
     ], exts, { key: 'gphistory-ext', noun: 'Erweiterungen', id: (x) => x.name, pageSize: 200,
       onRow: (x) => { if (x.message) modal(`Erweiterung ${x.name}`, h('pre.out', { style: { whiteSpace: 'pre-wrap' } }, x.message), [{ label: 'Schließen' }], { wide: true }); } }).el
       : h('div.muted', 'Keine Erweiterungen protokolliert (Ereignis 5016 fehlt) – siehe Ereignisse unten.');
@@ -8113,14 +8120,104 @@ async function viewGpHistory(parts, params) {
         ['Domänencontroller', [String(r.dc || '').replace(/^\\\\/, ''), r.dc_ip].filter(Boolean).join(' · ')], ['Domäne', r.domain], ['Kontoobjekt', r.account],
         ['GPOs ermittelt nach', gpSec(r.discover_seconds)], ['Erweiterungen zusammen', gpSec(r.ext_seconds)], ['Gesamtdauer', gpSec(r.seconds)]]),
       bad && r.end_message ? h('div.alert.' + (r.status === 'err' ? 'err' : 'warn'), { style: { marginTop: '10px', whiteSpace: 'pre-wrap' } }, r.end_message) : null,
-      (r.system || []).length ? h('div', { style: { marginTop: '10px' } }, h('b', 'Gründe aus dem Systemprotokoll'),
-        h('ul', { style: { margin: '4px 0 0', paddingLeft: '18px' } }, r.system.map((e) => h('li', h('b', `${e.id} · ${gpTime(e.t)}: `), h('span.raw', String(e.msg || '').replace(/\s+/g, ' ').trim()))))) : null,
+      (r.system || []).length ? h('div', { style: { marginTop: '10px' } }, h('b', 'Gründe aus dem System- und Anwendungsprotokoll'),
+        h('ul', { style: { margin: '4px 0 0', paddingLeft: '18px' } }, r.system.map((e) => h('li', h('b', `${e.id} · ${gpTime(e.t)}${e.log === 'Anwendung' ? ` · ${e.src || 'Einstellungen (GPP)'}` : ''}: `), h('span.raw', String(e.msg || '').replace(/\s+/g, ' ').trim()))))) : null,
       h('div.row', { style: { gap: '24px', flexWrap: 'wrap', marginTop: '12px', alignItems: 'flex-start' } },
-        h('div', h('b', 'Angewendete GPOs'), h('div', lines(r.gpos))),
+        h('div', h('b', 'Angewendete GPOs'), h('div', lines(r.gpos, r))),
         h('div', h('b', 'Nicht angewendet (gefiltert)'), h('div', lines(r.filtered)))),
       h('h4', { style: { margin: '14px 0 6px' } }, 'Erweiterungen'), extTable,
       h('details', { style: { marginTop: '12px' } }, h('summary', `Alle Ereignisse dieser Verarbeitung (${(r.events || []).length})`), evTable.el))));
     if (!quiet) detail.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+  // 2.48.0: Resultant Set of Policy (gpresult /x) – what is effective on this computer or for a user on it
+  const rsopCache = new Map();
+  const rsopScope = sel([['computer', 'Computer']], 'computer');
+  const rsopStatus = h('span.muted.small');
+  const rsopBody = h('div');
+  let rsopGpo = '';
+  let rsopData = null;
+  const rsopOver = h('input', { type: 'checkbox' });
+  rsopOver.addEventListener('change', () => drawRsop());
+  function rsopUsers() {
+    // users seen in the runs + users logged on now
+    const set = new Set(runs.filter((r) => r.target === 'user' && r.principal).map((r) => r.principal));
+    String(c.users || '').split(',').map((u) => u.trim()).filter((u) => u.includes('\\')).forEach((u) => set.add(u));
+    const cur = rsopScope.value;
+    rsopScope.replaceChildren(h('option', { value: 'computer' }, tr('Computer')), ...[...set].sort().map((u) => h('option', { value: `user:${u}` }, `${tr('Benutzer')} ${u}`)));
+    rsopScope.value = [...rsopScope.options].some((o) => o.value === cur) ? cur : 'computer';
+  }
+  rsopCard.replaceChildren(h('div.card', h('div.card-b',
+    h('div.row', { style: { gap: '8px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '6px' } },
+      h('b', 'Richtlinienergebnis (gpresult)'), rsopScope, btn('Ergebnis laden', () => loadRsop(true), { icon: 'refresh' }), rsopStatus),
+    h('div.muted.small', 'Was auf diesem Computer bzw. für den Benutzer tatsächlich wirkt – jede Einstellung mit Wert und GPO, auch Gruppenrichtlinien-Einstellungen (GPP). Läuft nur auf Klick, dauert einige Sekunden.'),
+    rsopBody)));
+  async function openRsop(run, gpo) {
+    rsopUsers();
+    const want = run && run.target === 'user' && run.principal ? `user:${run.principal}` : 'computer';
+    if ([...rsopScope.options].some((o) => o.value === want)) rsopScope.value = want;
+    rsopGpo = gpo || '';
+    rsopCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    await loadRsop(false);
+  }
+  async function loadRsop(fresh) {
+    const key = rsopScope.value;
+    const [scope, user] = key === 'computer' ? ['computer', ''] : ['user', key.slice(5)];
+    if (!fresh && rsopCache.has(key)) { rsopData = rsopCache.get(key); drawRsop(); return; }
+    if (fresh) rsopGpo = '';
+    rsopStatus.textContent = 'gpresult läuft auf dem Computer …';
+    let d;
+    try { d = await GET(`/api/computers/${cid}/gpresult?scope=${scope}&account=${encodeURIComponent(user)}`); }
+    catch (e) { rsopStatus.textContent = ''; rsopBody.replaceChildren(h('div.empty', e.message)); return; }
+    rsopStatus.textContent = '';
+    rsopCache.set(key, d);
+    rsopData = d;
+    drawRsop();
+  }
+  function rsopValue(st) {
+    const st2 = st.state ? tr({ Enabled: 'Aktiviert', Disabled: 'Deaktiviert', 'Not Configured': 'Nicht konfiguriert' }[st.state] || st.state) : '';
+    const det = (st.details || []).slice(0, 4).map(([k, v]) => `${tr(k)} ${k === 'Aktion' ? tr(v) : v}`.trim()).join(' · ');
+    return [st2, det].filter(Boolean).join(' · ');
+  }
+  function drawRsop() {
+    const d = rsopData;
+    if (!d) return;
+    const hex = (n) => { const x = Number(n); return x ? `0x${(x >>> 0).toString(16).toUpperCase().padStart(8, '0')}` : ''; };
+    const extErr = (d.extensions || []).filter((x) => Number(x.error));
+    const gpoT = table([
+      { key: 'name', label: 'GPO', render: (g) => h('a', { href: '#', onclick: (e) => { e.preventDefault(); e.stopPropagation(); rsopGpo = rsopGpo === g.name ? '' : g.name; drawRsop(); } }, g.name) },
+      { key: 'applied', label: 'Status', render: (g) => (g.applied ? h('span.badge.ok', 'angewendet') : h('span.badge', { title: g.reason }, 'nicht angewendet')), sort: (g) => (g.applied ? 0 : 1) },
+      { key: 'reason', label: 'Grund', cls: 'wrap', render: (g) => tr(g.reason || '') },
+      { key: 'link', label: 'Verknüpft mit', render: (g) => h('span.raw', g.link || '') },
+      { key: 'enforced', label: 'Erzwungen', render: (g) => (g.enforced ? 'ja' : '') },
+      { key: 'settings', label: 'Einstellungen', cls: 'right' },
+    ], d.gpos || [], { key: 'gpresult-gpo', noun: 'GPOs', id: (g) => g.id || g.name, pageSize: 500, onRow: (g) => { rsopGpo = rsopGpo === g.name ? '' : g.name; drawRsop(); } });
+    let rows = (d.settings || []).filter((x) => rsopOver.checked || x.precedence === 1);
+    if (rsopGpo) rows = rows.filter((x) => x.gpo === rsopGpo);
+    const setT = table([
+      { key: 'gpo', label: 'GPO', render: (x) => h('span', x.gpo, x.precedence > 1 ? h('span.badge', { style: { marginLeft: '4px' }, title: x.winner ? `gewinnt: ${x.winner}` : '' }, 'überschrieben') : null) },
+      { key: 'ext', label: 'Bereich' },
+      { key: 'kind', label: 'Art', render: (x) => tr(x.kind) },
+      { key: 'title', label: 'Einstellung', cls: 'wrap', render: (x) => h('span.raw', x.title) },
+      { key: 'value', label: 'Wert', cls: 'wrap', value: (x) => rsopValue(x), render: (x) => h('span.raw', rsopValue(x).slice(0, 300)) },
+      { key: 'category', label: 'Kategorie', cls: 'wrap', render: (x) => h('span.raw', x.category || '') },
+    ], rows, { key: 'gpresult-set', noun: 'Einstellungen', sort: 'gpo', id: (x) => x, pageSize: 1000,
+      onRow: (x) => modal(x.title, h('div',
+        kv([['GPO', x.gpo + (x.precedence > 1 ? ` (${tr('überschrieben')}${x.winner ? ` – ${tr('gewinnt')}: ${x.winner}` : ''})` : '')], ['Bereich', x.ext], ['Art', tr(x.kind)], ['Kategorie', x.category],
+          ['Zustand', x.state ? tr({ Enabled: 'Aktiviert', Disabled: 'Deaktiviert' }[x.state] || x.state) : '']]),
+        (x.details || []).length ? h('table.tbl', { style: { marginTop: '10px' } }, h('tbody', x.details.map(([k, v]) => h('tr', h('td.muted', tr(k)), h('td.raw', { style: { wordBreak: 'break-all' } }, k === 'Aktion' ? tr(v) : v))))) : null,
+        (x.filters || []).length ? h('div', { style: { marginTop: '10px' } }, h('b', 'Zielgruppenadressierung'), h('ul', { style: { margin: '4px 0 0', paddingLeft: '18px' } }, x.filters.map((f) => h('li.raw', f)))) : null),
+      [{ label: 'Schließen' }], { wide: true }) });
+    rsopBody.replaceChildren(
+      kv([['Ergebnis für', d.name], ['Organisationseinheit', d.som], ['Standort', d.site], ['Gelesen', d.read_time ? fmtDate(d.read_time.replace('Z', '')) + ' (UTC)' : ''],
+        ['Langsame Verbindung', d.slow_link ? 'ja' : '']]),
+      (d.groups || []).length ? h('details', { style: { margin: '6px 0' } }, h('summary', `Sicherheitsgruppen (${d.groups.length})`), h('div.raw.small', d.groups.join(' · '))) : null,
+      extErr.length ? h('div.alert.warn', { style: { marginTop: '8px' } }, h('b', 'Erweiterungen mit Fehler: '), extErr.map((x, i) => [i ? ' · ' : '', `${x.name} (${hex(x.error)})`])) : null,
+      h('h4', { style: { margin: '12px 0 6px' } }, 'Gruppenrichtlinienobjekte'), gpoT.el,
+      h('div.row', { style: { gap: '8px', alignItems: 'center', margin: '12px 0 6px', flexWrap: 'wrap' } },
+        h('h4', { style: { margin: 0 } }, rsopGpo ? `Einstellungen aus „${rsopGpo}“` : 'Alle wirksamen Einstellungen'),
+        rsopGpo ? btn('Alle GPOs', () => { rsopGpo = ''; drawRsop(); }, { icon: 'x' }) : null,
+        h('label.row', { style: { gap: '4px', alignItems: 'center' } }, rsopOver, 'auch überschriebene')),
+      rows.length ? setT.el : h('div.empty', rsopGpo ? 'Aus dieser GPO wirkt hier keine Einstellung (nicht angewendet, leer oder überall überschrieben).' : 'Keine Einstellungen.'));
   }
   async function gpNow() {
     gpBtn.disabled = true;

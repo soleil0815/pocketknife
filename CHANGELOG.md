@@ -2,6 +2,19 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.48.0 (12.11.2026)
+- **New - Resultant Set of Policy in the Group Policy history** (bottom of the page, "Richtlinienergebnis (gpresult)"): what actually takes effect on the computer or for a user on it - on click only, runs `gpresult /x` on the client (CLM-safe, temporary file removed, help texts dropped on the client to keep the answer small)
+  - all GPOs with status: applied or not, and why not (WMI filter does not match, access denied = security filtering, disabled, link disabled, invalid), linked to, enforced, number of effective settings
+  - all effective settings with value and GPO, generic for every extension: administrative templates (incl. option values), security settings, scripts, software and Group Policy Preferences (drives, printers, registry, files, shortcuts, tasks, services, local groups ...) with readable property names, action (create/replace/update/delete) and item-level targeting
+  - "auch überschriebene": settings overridden by another GPO, with the GPO that wins
+  - organizational unit, site, security groups, extensions that ended with an error (error code as hex)
+  - a click on a GPO name in the details of a run opens its settings for this computer/user directly
+  - users: chosen from the runs and the logged-on users; a user without policy data on the computer gets an understandable message; the user name is checked (DOMAIN\name) and quoted
+  - the XML answer is refused with DOCTYPE/ENTITY and above 30 MB
+- **Group Policy history:** errors of single GPP items (event 4098 in the Application log, e.g. a drive that cannot be mapped) are assigned to the run during which they were written - marker "GPP n" in the status column, shown with the reasons; "only warnings and errors" includes them
+- Help (de/en) and manual PDFs updated
+- **Self-test:** parsing of a gpresult sample (GPOs and reasons, policy values, overridden/winner, GPP drive with targeting, extension error), refused answers, user check and quoting, API scope check, no-RSoP-data message, 4098 assignment; the client script runs in real PowerShell (Constrained Language) with a stand-in gpresult.exe (UTF-16 output, temporary file removed, failure path)
+
 ## pocketknife-2.47.0 (12.11.2026)
 - **New - Group Policy history** (Tools ▾ → "Gruppenrichtlinien-Verlauf …"): when a computer processed Group Policy, how long it took and what went wrong - for debugging GPOs without a script on the client
   - read live over WinRM on the computer itself from Microsoft-Windows-GroupPolicy/Operational (no remote event log access, Constrained-Language-safe: only event properties, no ToXml())

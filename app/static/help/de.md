@@ -1137,9 +1137,16 @@ Verknüpfungen (Junctions/Symlinks, z. B. `C:\Users\All Users` → `C:\ProgramDa
 
 - **Übersicht:** jede Verarbeitung eine Zeile – Status (**OK**, **Warnung**, **Fehler**, **ohne Ende** = läuft noch oder wurde abgebrochen), Beginn, Computer- oder Benutzerrichtlinie, Konto, Anlass (Computerstart, Anmeldung, manuell, periodisch, Netzwerkänderung), Dauer, langsamste Erweiterung und Domänencontroller. Zeitraum 12 h, 24 h, 48 h oder 7 Tage; Häkchen **nur Warnungen und Fehler**.
 - **Klick auf eine Zeile** zeigt die Details: Domänencontroller mit IP, Domäne, Kontoobjekt, nach wie vielen Sekunden die GPOs ermittelt waren, **angewendete GPOs** und **nicht angewendete (gefilterte) GPOs** mit Grund, die **Erweiterungen** (Registrierung, Sicherheit, Skripts, Ordnerumleitung …) mit Laufzeit und ihren GPOs – die langsamste ist markiert.
-- **Bei Warnung oder Fehler** stehen die Meldung und die **Gründe aus dem Systemprotokoll** dabei (z. B. 1058 SYSVOL nicht erreichbar, 1129 kein Domänencontroller, 1085 Erweiterung fehlgeschlagen).
+- **Bei Warnung oder Fehler** stehen die Meldung und die **Gründe aus dem Systemprotokoll** dabei (z. B. 1058 SYSVOL nicht erreichbar, 1129 kein Domänencontroller, 1085 Erweiterung fehlgeschlagen) – ab 2.48.0 auch die GPP-Fehler aus dem Anwendungsprotokoll.
 - **Alle Ereignisse dieser Verarbeitung** lassen sich aufklappen und als Textdatei herunterladen.
 - **Jetzt gpupdate** führt `gpupdate /force` aus (Fragen nach Abmelden/Neustart: immer „Nein“) und lädt danach neu – der frische Lauf steht oben.
+- **Richtlinienergebnis (gpresult, ab 2.48.0):** unten auf der Seite – **Computer** oder ein **Benutzer** wählen (Benutzer aus dem Verlauf und angemeldete Benutzer) und **Ergebnis laden**. POCKET KNIFE führt dafür auf dem Computer `gpresult /x` aus (nur auf Klick, einige Sekunden) und zeigt:
+  - alle **Gruppenrichtlinienobjekte** mit Status – angewendet oder nicht, und warum nicht (WMI-Filter trifft nicht zu, Zugriff verweigert = Sicherheitsfilterung, deaktiviert, Verknüpfung deaktiviert), verknüpft mit, erzwungen, Anzahl wirksamer Einstellungen
+  - alle **wirksamen Einstellungen** mit Wert und GPO: administrative Vorlagen, Sicherheitseinstellungen, Skripte, Software und die **Gruppenrichtlinien-Einstellungen (GPP)** – Laufwerke, Drucker, Registry, Dateien, Verknüpfungen, geplante Aufgaben, Dienste, lokale Gruppen … Klick auf eine Einstellung zeigt alle Werte und die **Zielgruppenadressierung**. Häkchen **auch überschriebene** zeigt Einstellungen, die eine andere GPO überschreibt (mit der GPO, die gewinnt).
+  - Organisationseinheit, Standort, Sicherheitsgruppen (wichtig für die Sicherheitsfilterung) und Erweiterungen, die mit Fehler endeten
+  - **Klick auf einen GPO-Namen** in den Details einer Verarbeitung öffnet direkt deren Einstellungen auf diesem Computer bzw. für diesen Benutzer.
+  - Benutzer: nur für Benutzer, die sich an diesem Computer schon angemeldet haben. Gezeigt wird, was gewirkt hat – Elemente, die durch die Zielgruppenadressierung nicht zutreffen, führt Windows dort in der Regel nicht auf.
+- **Fehler einzelner GPP-Elemente** (z. B. ein Laufwerk, das sich nicht verbinden lässt) schreibt Windows als Ereignis 4098 ins Anwendungsprotokoll. Der Verlauf ordnet sie der Verarbeitung zu (Markierung **GPP n** in der Statusspalte) und zeigt sie unter „Gründe aus dem System- und Anwendungsprotokoll“.
 
 # Software-Kiosk {#kiosk}
 
