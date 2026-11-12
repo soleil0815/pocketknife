@@ -535,6 +535,104 @@ def composite(package_ids, stop_on_fail=True):
             "steps": {"pre": [], "main": main, "post": []}, "tenant_id": tenants.pop()}
 
 
+CHAIN_SKIP = "Übersprungen – vorheriges Paket"   # start of the message of a target skipped because of the chain
+
+
+def create_chain(package_ids, computer_ids, user, stop_on_fail=True, scheduled_at=None, source="manual", name_prefix=None,
+                 schedule_id=None, start_now=True, target_label=None):
+    """2.46: several packages = one deployment PER PACKAGE (own entry, status, repeat), chained: on every computer the
+    next package starts only when the previous one is finished there; with stop_on_fail it is skipped there if the
+    previous one did not succeed. Restart and rescan only once at the end (last package: strongest restart of all,
+    scan profiles of all) - as with the former single deployment. Returns the deployment IDs in order."""
+    from . import integrity
+    ids, seen = [], set()
+    for pid in package_ids:
+        pid = int(pid)
+        if pid not in seen:
+            seen.add(pid)
+            ids.append(pid)
+    if not ids:
+        raise ValueError("Keine Pakete ausgewählt.")
+    rows = {r["id"]: r for r in db.q(f"SELECT * FROM packages WHERE id IN ({','.join('?' * len(ids))})", tuple(ids))}
+    if [i for i in ids if i not in rows]:
+        raise ValueError("Paket nicht gefunden.")
+    if len({rows[i]["tenant_id"] for i in ids}) > 1:
+        raise ValueError("Pakete verschiedener Mandanten lassen sich nicht zusammen bereitstellen.")
+    pkgs = [row_to_package(rows[i]) for i in ids]
+    # check every package first - a break in package 3 must not leave packages 1 and 2 started alone
+    for pid, pkg in zip(ids, pkgs):
+        integrity.guard(pkg, package_id=pid, name=pkg["name"])
+    reboot = strongest_reboot(p.get("reboot") for p in pkgs)
+    n = len(ids)
+    dids: list[int] = []
+    for pos, (pid, pkg) in enumerate(zip(ids, pkgs), start=1):
+        pkg = dict(pkg)
+        if n > 1:
+            last = pos == n
+            pkg["reboot"] = reboot if last else "never"
+            if last:
+                pkg["chain_rescan"] = ids          # scan profiles of all packages, once at the end
+            else:
+                pkg["rescan"] = 0
+        nm = f"{name_prefix}: {pkg['name']}" if name_prefix else pkg["name"]
+        did = create(pkg, computer_ids, user, scheduled_at, source=source, name=nm, package_id=pid, schedule_id=schedule_id,
+                     start_now=False, target_label=target_label)
+        if n > 1:
+            db.ex("UPDATE deployments SET chain_id=?, chain_prev=?, chain_pos=?, chain_len=?, chain_stop=? WHERE id=?",
+                  (dids[0] if dids else did, dids[-1] if dids else None, pos, n, 1 if stop_on_fail else 0, did))
+        dids.append(did)
+    if n > 1:
+        nums = "#" + ", #".join(map(str, dids))
+        if stop_on_fail:
+            pklog.info("deploy", f"{n} Pakete nacheinander: Bereitstellungen {nums} (nach einem Fehler werden die folgenden auf dem "
+                                 "Computer übersprungen).", user=user)
+        else:
+            pklog.info("deploy", f"{n} Pakete nacheinander: Bereitstellungen {nums}.", user=user)
+    if start_now and not (scheduled_at and scheduled_at > util.now()):
+        for did in dids:
+            start(did, checked=True)
+    return dids
+
+
+def _chain_gate(did, tid):
+    """For a chained deployment: may this target start? "run" | "wait" (previous package still open on this
+    computer) | "skip" (stop_on_fail and the previous package did not succeed - target ended here)."""
+    d = db.q1("SELECT chain_prev, chain_stop FROM deployments WHERE id=?", (did,))
+    if not d or not d["chain_prev"]:
+        return "run"
+    cid = db.val("SELECT computer_id FROM deployment_targets WHERE id=?", (tid,))
+    prev = db.q1("SELECT t.status, t.message, d.name FROM deployment_targets t JOIN deployments d ON d.id = t.deployment_id "
+                 "WHERE t.deployment_id=? AND t.computer_id=?", (d["chain_prev"], cid))
+    if not prev:
+        return "run"                       # the previous package has no target here (e.g. tenant) - nothing to wait for
+    if prev["status"] in ("queued", "running"):
+        db.ex("UPDATE deployment_targets SET message=? WHERE id=? AND status='queued'",
+              (f"Wartet auf „{prev['name']}“", tid))
+        return "wait"
+    ok = prev["status"] == "success" or (prev["status"] == "skipped" and not (prev["message"] or "").startswith(CHAIN_SKIP))
+    if ok or not d["chain_stop"]:
+        return "run"
+    if db.ex_count("UPDATE deployment_targets SET status='skipped', message=?, finished_at=? WHERE id=? AND status='queued'",
+                   (f"Übersprungen – vorheriges Paket „{prev['name']}“ war nicht erfolgreich", util.now(), tid)):
+        # the earlier packages did run - the scan at the end of the chain must not get lost
+        p = json.loads(db.val("SELECT package_json FROM deployments WHERE id=?", (did,)) or "{}")
+        if p.get("chain_rescan") and db.setting("rescan_after_deploy") and prev["status"] in ("failed", "success") and cid:
+            for pid in rescan_profiles(p):
+                inventory.queue_scan(cid, None, pid, follow=True)
+        _after_target(did, tid)
+    return "skip"
+
+
+def _chain_next(did, tid):
+    """A target of a chained deployment is finished: start the same computer's target of the next package."""
+    cid = db.val("SELECT computer_id FROM deployment_targets WHERE id=?", (tid,))
+    if not cid:
+        return
+    for r in db.q("""SELECT t.id, t.deployment_id FROM deployments d JOIN deployment_targets t ON t.deployment_id = d.id
+                     WHERE d.chain_prev=? AND t.computer_id=? AND t.status='queued' AND d.status IN ('queued','running')""", (did, cid)):
+        pool().submit(_run_target_safe, r["deployment_id"], r["id"])
+
+
 def rescan_profiles(p):
     """2.32: Which scan profiles are used to scan after the deployment - [] = do not scan.
     One package: its profile ("Danach scannen" (scan afterwards), default "Anwendungen"). Several packages in one deployment or
@@ -545,6 +643,15 @@ def rescan_profiles(p):
         if not rescan:
             return None
         return pid if pid and profiles.get(pid) else profiles.apps_profile_id()
+    if p.get("chain_rescan"):
+        # 2.46: last package of a chain - the profiles of all its packages, each once
+        out = []
+        for pid in p["chain_rescan"]:
+            r = db.q1("SELECT rescan, rescan_profile_id FROM packages WHERE id=?", (pid,))
+            x = one(r["rescan"] if r and r["rescan"] is not None else 1, r["rescan_profile_id"] if r else None)
+            if x and x not in out:
+                out.append(x)
+        return out
     if not p.get("composite"):
         x = one(p.get("rescan", 1), p.get("rescan_profile_id"))
         return [x] if x else []
@@ -942,6 +1049,10 @@ def _run_target_safe(did, tid):
     # Only one deployment at a time per computer (e.g. several uninstallations or winget updates as
     # separate deployments): two msiexec at once otherwise end with 1618. Whoever waits stays "in Warteschlange" (queued)
     # and can be aborted normally.
+    gate = _chain_gate(did, tid)   # 2.46: chained packages - wait for / skip after the previous one on this computer
+    if gate != "run":
+        _finish_check(did)
+        return
     cid = db.val("SELECT computer_id FROM deployment_targets WHERE id=?", (tid,))
     lk = _computer_lock(cid) if cid else None
     if lk and not lk.acquire(blocking=False):
@@ -1066,7 +1177,11 @@ def _run_target(did, tid):
 
 
 def _after_target(did, tid):
-    """Report the result back to a schedule (target history)."""
+    """Report the result back to a schedule (target history); start the next package of a chain on this computer."""
+    try:
+        _chain_next(did, tid)
+    except Exception as e:  # pragma: no cover
+        pklog.error("deploy", f"Nächstes Paket der Kette nicht gestartet: {e}")
     sid = db.val("SELECT schedule_id FROM deployments WHERE id=?", (did,))
     if sid:
         from . import schedules
@@ -1167,6 +1282,12 @@ def _finish_check(did):
         return
     stats = {r["status"]: r["n"] for r in db.q(
         "SELECT status, COUNT(*) n FROM deployment_targets WHERE deployment_id=? GROUP BY status", (did,))}
+    # Skipped because the previous package of a chain failed counts as not done (never shown as "success")
+    chain_sk = db.val("SELECT COUNT(*) FROM deployment_targets WHERE deployment_id=? AND status='skipped' "
+                      "AND message LIKE ?", (did, CHAIN_SKIP + "%"), 0) or 0
+    if chain_sk:
+        stats["skipped"] = stats.get("skipped", 0) - chain_sk
+        stats["failed"] = stats.get("failed", 0) + chain_sk
     cur = db.val("SELECT status FROM deployments WHERE id=?", (did,))
     if cur == "cancelled":
         status = "cancelled"
@@ -1242,6 +1363,12 @@ def recover_orphans():
     for d in db.q("""SELECT id FROM deployments d WHERE status='running' AND NOT EXISTS (SELECT 1 FROM deployment_targets t
                      WHERE t.deployment_id = d.id AND t.status IN ('running', 'queued'))"""):
         _finish_check(d["id"])
+    # 2.46: safety net for chains - a waiting target whose previous package is finished (kick lost, e.g. abort)
+    for r in db.q("""SELECT t.id, t.deployment_id FROM deployments d JOIN deployment_targets t ON t.deployment_id = d.id
+                     JOIN deployment_targets pt ON pt.deployment_id = d.chain_prev AND pt.computer_id = t.computer_id
+                     WHERE d.chain_prev IS NOT NULL AND d.status IN ('queued','running') AND t.status='queued'
+                     AND pt.status NOT IN ('queued','running')"""):
+        pool().submit(_run_target_safe, r["deployment_id"], r["id"])
     return n
 
 

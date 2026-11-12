@@ -9132,6 +9132,114 @@ def _():
     assert "fRow('Mainboard'" in js and "fRow('Entra ID'" in js and "fRow('MDM'" in js
 
 
+@test("2.46 Several packages = one deployment per package, chained: next package waits per computer, skipped after a failure (stop_on_fail), restart/scan only at the end, schedule shows one result per computer, kick and safety net")
+def _():
+    from app import deploy, schedules
+    started, submitted = [], []
+    o_start, o_pool = deploy.start, deploy.pool
+
+    class _P:
+        def submit(self, fn, *a):
+            submitted.append(a)
+    deploy.start = lambda d, checked=False: started.append(d)
+    deploy.pool = lambda: _P()
+    ids, pids, dids, sid = [], [], [], None
+    try:
+        for i in (1, 2):
+            ids.append(db.ex("INSERT INTO computers(name, online, winrm) VALUES(?, 1, 1)", (f"CHAIN-PC{i}",)))
+        for nm, reb, rs in (("A-Office", "never", 1), ("B-Tool", "if_required", 0), ("C-Agent", "always", 1)):
+            pids.append(db.ex("INSERT INTO packages(name, version, steps, conditions, run_as, reboot, rescan, created_at) VALUES(?,?,?,?,?,?,?,?)",
+                              (nm, "1", json.dumps({"main": [{"id": "s", "type": "command", "command": "echo"}]}), "{}", "default", reb, rs, util.now())))
+        dids = deploy.create_chain(pids, ids, "haupt", stop_on_fail=True)
+        assert len(dids) == 3 and started == dids, (dids, started)
+        rows = {r["id"]: r for r in db.q(f"SELECT * FROM deployments WHERE id IN ({','.join('?' * 3)})", tuple(dids))}
+        assert [rows[d]["package_id"] for d in dids] == pids, "every deployment linked to its package (own history, repeat)"
+        assert [rows[d]["name"] for d in dids] == ["A-Office", "B-Tool", "C-Agent"]
+        assert [(rows[d]["chain_pos"], rows[d]["chain_len"], rows[d]["chain_prev"], rows[d]["chain_id"]) for d in dids] == \
+            [(1, 3, None, dids[0]), (2, 3, dids[0], dids[0]), (3, 3, dids[1], dids[0])]
+        pj = [json.loads(rows[d]["package_json"]) for d in dids]
+        assert [x["reboot"] for x in pj] == ["never", "never", "always"], "restart only at the end, the strongest one"
+        assert pj[0]["rescan"] == 0 and pj[1]["rescan"] == 0 and pj[2]["chain_rescan"] == pids
+        assert len(deploy.rescan_profiles(pj[2])) >= 1 and deploy.rescan_profiles(pj[0]) == []
+        tg = {(r["deployment_id"], r["computer_id"]): r["id"] for r in db.q(
+            f"SELECT id, deployment_id, computer_id FROM deployment_targets WHERE deployment_id IN ({','.join('?' * 3)})", tuple(dids))}
+        a1, a2 = tg[(dids[0], ids[0])], tg[(dids[0], ids[1])]
+        b1, b2 = tg[(dids[1], ids[0])], tg[(dids[1], ids[1])]
+        c1, c2 = tg[(dids[2], ids[0])], tg[(dids[2], ids[1])]
+        assert deploy._chain_gate(dids[0], a1) == "run"
+        assert deploy._chain_gate(dids[1], b1) == "wait" and "Wartet auf „A-Office“" in db.val("SELECT message FROM deployment_targets WHERE id=?", (b1,))
+        # PC1: A succeeds -> B of PC1 is kicked (not PC2's)
+        db.ex("UPDATE deployment_targets SET status='success' WHERE id=?", (a1,))
+        submitted.clear()
+        deploy._after_target(dids[0], a1)
+        assert submitted == [(dids[1], b1)], submitted
+        assert deploy._chain_gate(dids[1], b1) == "run"
+        # PC2: A fails -> B and C on PC2 are skipped (cascade), schedule-like result = failed
+        db.ex("UPDATE deployment_targets SET status='failed', message='Exitcode 1603' WHERE id=?", (a2,))
+        assert deploy._chain_gate(dids[1], b2) == "skip"
+        st = db.q1("SELECT status, message FROM deployment_targets WHERE id=?", (b2,))
+        assert st["status"] == "skipped" and st["message"].startswith(deploy.CHAIN_SKIP) and "A-Office" in st["message"], st
+        assert deploy._chain_gate(dids[2], c2) == "skip", "a chain-skipped predecessor counts as not successful"
+        # B skipped by its OWN condition on PC1 (e.g. already installed) -> C still runs
+        db.ex("UPDATE deployment_targets SET status='skipped', message='Bedingung nicht erfüllt' WHERE id=?", (b1,))
+        assert deploy._chain_gate(dids[2], c1) == "run"
+        # without stop_on_fail the next one runs after a failure
+        db.ex("UPDATE deployments SET chain_stop=0 WHERE id=?", (dids[1],))
+        db.ex("UPDATE deployment_targets SET status='queued', message=NULL WHERE id=?", (b2,))
+        assert deploy._chain_gate(dids[1], b2) == "run"
+        # safety net: a waiting target whose predecessor is finished is started by recover_orphans
+        submitted.clear()
+        deploy.recover_orphans()
+        assert (dids[1], b2) in submitted, submitted
+        # schedule result per computer: one aggregated entry, only when the whole chain is finished there
+        t_c1 = db.q1("SELECT * FROM deployment_targets WHERE id=?", (c1,))
+        assert schedules._chain_result(dids[2], t_c1) is None, "C still open on PC1"
+        db.ex("UPDATE deployment_targets SET status='success' WHERE id=?", (c1,))
+        r1 = schedules._chain_result(dids[2], db.q1("SELECT * FROM deployment_targets WHERE id=?", (c1,)))
+        assert r1["status"] == "success" and r1["deployment_id"] == dids[2], r1
+        db.ex("UPDATE deployment_targets SET status='skipped', message=? WHERE id IN (?,?)", (deploy.CHAIN_SKIP + " x", b2, c2))
+        r2 = schedules._chain_result(dids[2], db.q1("SELECT * FROM deployment_targets WHERE id=?", (c2,)))
+        assert r2["status"] == "failed" and r2["deployment_id"] == dids[0] and "A-Office" in r2["message"] and "1603" in r2["message"], r2
+        # a deployment whose targets were all skipped because of the chain is never shown as "success"
+        db.ex("UPDATE deployment_targets SET status='skipped', message=? WHERE deployment_id=?", (deploy.CHAIN_SKIP + " y", dids[1]))
+        deploy._finish_check(dids[1])
+        assert db.val("SELECT status FROM deployments WHERE id=?", (dids[1],)) == "failed"
+        db.ex("UPDATE deployment_targets SET status='success' WHERE id=?", (b1,))
+        deploy._finish_check(dids[1])
+        assert db.val("SELECT status FROM deployments WHERE id=?", (dids[1],)) == "partial"
+        db.ex("UPDATE deployment_targets SET status='skipped', message='Bedingung nicht erfüllt' WHERE deployment_id=?", (dids[1],))
+        deploy._finish_check(dids[1])
+        assert db.val("SELECT status FROM deployments WHERE id=?", (dids[1],)) == "success", "own condition skip stays success"
+        # a single package stays one plain deployment
+        single = deploy.create_chain([pids[0]], ids, "haupt")
+        dids += single
+        assert len(single) == 1 and db.val("SELECT chain_id FROM deployments WHERE id=?", (single[0],)) is None
+        # schedule with several packages: one deployment per package, named after the schedule
+        started.clear()
+        sid = db.ex("INSERT INTO schedules(name, kind, packages, targets, options, enabled) VALUES('Nacht', 'packages', ?, ?, ?, 1)",
+                    (json.dumps(pids[:2]), json.dumps({"computers": ids}), json.dumps({"stop_on_fail": True})))
+        s = schedules.get(sid)
+        res = schedules.fire(s, reason="Test")
+        dids += res.get("deployment_ids") or []
+        assert len(res["deployment_ids"]) == 2 and started == res["deployment_ids"], res
+        assert [db.val("SELECT name FROM deployments WHERE id=?", (d,)) for d in res["deployment_ids"]] == ["Nacht: A-Office", "Nacht: B-Tool"]
+        assert {r["deployment_id"] for r in db.q("SELECT deployment_id FROM schedule_targets WHERE schedule_id=?", (sid,))} == {res["deployment_ids"][-1]}
+    finally:
+        deploy.start, deploy.pool = o_start, o_pool
+        for d in dids:
+            db.ex("DELETE FROM deployment_targets WHERE deployment_id=?", (d,))
+            db.ex("DELETE FROM deployments WHERE id=?", (d,))
+        if sid:
+            db.ex("DELETE FROM schedule_targets WHERE schedule_id=?", (sid,))
+            db.ex("DELETE FROM schedules WHERE id=?", (sid,))
+        for p_ in pids:
+            db.ex("DELETE FROM packages WHERE id=?", (p_,))
+        for c in ids:
+            db.ex("DELETE FROM computers WHERE id=?", (c,))
+    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "main.py"), encoding="utf-8").read()
+    assert "dids = deploy.create_chain(pids, ids, user[\"username\"]" in src
+
+
 @test("2.22 Self-test: diagnostic package test does not use fixed dates (time bomb once outside the 30-day window)")
 def _():
     import inspect

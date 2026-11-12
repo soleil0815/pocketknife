@@ -4572,8 +4572,10 @@ async function deployDlg(opt = {}) {
           body.stop_on_fail = stop.checked;
         } else { body.winget_id = wid.value.trim(); body.action = wact.value; }
         const r = await POST('/api/deployments', body);
-        toast((body.scheduled_at ? 'Bereitstellung geplant' : 'Bereitstellung gestartet') + (r.ignored ? ` – ${r.ignored} Computer gehören nicht zum Mandanten und wurden ausgelassen` : ''), 'ok');
-        go(`#/deployment/${r.id}`);
+        const many = r.ids && r.ids.length > 1;
+        toast((many ? fmtT(body.scheduled_at ? '{0} Bereitstellungen geplant (eine je Paket, nacheinander)' : '{0} Bereitstellungen gestartet (eine je Paket, nacheinander)', r.ids.length)
+          : tr(body.scheduled_at ? 'Bereitstellung geplant' : 'Bereitstellung gestartet')) + (r.ignored ? ` – ${r.ignored} Computer gehören nicht zum Mandanten und wurden ausgelassen` : ''), 'ok');
+        go(many ? '#/deployments' : `#/deployment/${r.id}`);
       },
     },
   ], { wide: true, sticky: true });
@@ -4690,7 +4692,7 @@ async function viewDeployments() {
   const syncMore = () => { moreBtn.style.display = more ? '' : 'none'; };
   const t = table([
     { key: 'id', label: '#', cls: 'right' },
-    { key: 'name', label: 'Name' },
+    { key: 'name', label: 'Name', render: (r) => h('span', r.name, r.chain_len > 1 ? h('span.badge', { style: { marginLeft: '6px' }, title: tr('Mehrere Pakete nacheinander – Teil der gemeinsamen Bereitstellung') }, `${r.chain_pos}/${r.chain_len}`) : null) },
     { key: 'target', label: 'Ziel', cls: 'trunc', value: depTargetText, title: depTargetText,
       render: (r) => h('span', r.target_label ? h('span.badge', { style: { marginRight: '6px' } }, r.target_label) : null, depTargetNames(r)) },
     { key: 'source', label: 'Quelle', value: (r) => SOURCE[r.source] || r.source },
@@ -4791,7 +4793,9 @@ async function viewDeployment(parts) {
   const info = h('div.card', h('div.card-b', h('div.grid.two',
     kv([['Status', depBadge(d.status)], ['Paket', d.package_id ? h('a', { href: '#', onclick: (e) => { e.preventDefault(); packageDlg(d.package_id); } }, `${p.name || ''} ${p.version || ''}`) : `${p.name || ''} ${p.version || ''}`],
       ['Ausführung', h('span.mono', src)], d.schedule_id ? ['Zeitplan', h('a', { href: '#', onclick: (e) => { e.preventDefault(); scheduleDlg(d.schedule_id); } }, 'öffnen')] : null, ['Neustart', { never: 'nie', if_required: 'bei Bedarf', always: 'immer' }[p.reboot] || 'nie']]),
-    kv([d.target_label ? ['Ziel', d.target_label] : null, ['Ziele', `${d.targets.length} (${ok} erfolgreich, ${failed} fehlgeschlagen)`], ['Fortschritt', progress(ok, failed, d.targets.length)],
+    kv([d.chain && d.chain.length > 1 ? ['Pakete nacheinander', h('span', ...d.chain.map((x, i) => h('span', i ? ' → ' : '',
+        x.id === d.id ? h('b', `${x.chain_pos}. ${x.name}`) : h('a', { href: `#/deployment/${x.id}` }, `${x.chain_pos}. ${x.name}`), ' ', depBadge(x.status))))] : null,
+      d.target_label ? ['Ziel', d.target_label] : null, ['Ziele', `${d.targets.length} (${ok} erfolgreich, ${failed} fehlgeschlagen)`], ['Fortschritt', progress(ok, failed, d.targets.length)],
       ['Geplant', fmtDate(d.scheduled_at)], ['Gestartet', fmtDate(d.started_at)], ['Beendet', fmtDate(d.finished_at)]]))));
   const t = table([
     { key: 'computer_name', label: 'Computer', render: (r) => (r.computer_id ? h('a', { href: `#/computer/${r.computer_id}` }, r.computer_name) : r.computer_name) },

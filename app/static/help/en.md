@@ -940,7 +940,7 @@ If something was moved or renamed outside POCKET KNIFE (e.g. in Windows Explorer
 
 # Deployments {#deployments}
 
-**Several packages at once:** in **Packages**, tick several rows (or select with Ctrl/Shift) and click **"Deploy N packages …"** at the top right – or right-click → "Deploy N packages …". In the dialog you can add further packages and change the order by dragging the entries. All packages run as **one** deployment: one after another per computer in this order, never two installations at the same time (otherwise Windows Installer likes to report 1618 "another installation is in progress"). Optionally the remaining packages are skipped for a computer after an error.
+**Several packages at once:** in **Packages**, tick several rows (or select with Ctrl/Shift) and click **"Deploy N packages …"** at the top right – or right-click → "Deploy N packages …". In the dialog you can add further packages and change the order by dragging the entries. From 2.46 **every package gets its own deployment** – with its own entry in the history, its own status, its own "Redeploy failed" and in the package's history. The deployments are chained: on every computer the next package starts only when the previous one is finished there – never two installations at the same time (otherwise Windows Installer likes to report 1618 "another installation is in progress"). In the list "1/3, 2/3 …" shows the position, the details list all packages of the chain with status and link. With **"Stop on error"** a package is skipped on a computer ("Skipped – previous package … was not successful") if the previous one failed there; if a package skips only because of its own conditions (e.g. already installed), the next one still runs. **Restart and rescan** happen only once at the end: the last package takes the strongest restart of all packages and the scan profiles of all packages.
 
 Deploy with the **Deploy …** button (computer list, package, software) or by right-clicking. The target is the selected computers or a collection; the time is immediate or scheduled.
 
@@ -1023,7 +1023,7 @@ Schedules are the one place for everything that is distributed or updated automa
 
 | Kind | What happens |
 |---|---|
-| **Deploy packages** | one or more saved packages, in a fixed order per computer |
+| **Deploy packages** | one or more saved packages, in a fixed order per computer – from 2.46 one deployment per package ("schedule name: package", chained as when deploying several packages); the schedule shows one overall result per computer (failed as soon as one package fails) |
 | **winget updates** | update outdated software on the targets with `winget upgrade` – all outdated or only specific winget IDs, with exceptions; one deployment per program. IDs and exceptions can be taken from the installed programs with **“Pick from the inventory …”** instead of typing them |
 
 Common to both kinds:

@@ -2,6 +2,18 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.46.0 (12.11.2026)
+- **Several packages at once = one deployment per package:** deploying several packages together (deploy dialog or a schedule with several packages) no longer creates one combined deployment "2 Pakete: ...". Every package gets its own deployment and its own history entry (e.g. "Nacht: Microsoft Office Update", "Nacht: 7-Zip"), so each one can be found, filtered and run again on its own
+  - the deployments are chained per computer: the next package starts on a computer only when the previous one is finished there (no two installers at the same time, no msiexec 1618); other computers are not held up
+  - "Bei Fehler abbrechen" stays: if a package fails on a computer, the following packages are skipped on that computer ("Übersprungen – vorheriges Paket ... war nicht erfolgreich"); without the option they still run. A package skipped by its own condition (e.g. already installed) does not stop the chain
+  - restart and rescan only once at the end: the earlier packages never restart, the last one restarts with the strongest setting of all packages, the rescan covers the scan profiles of all packages
+  - list: badge "1/2", "2/2"; detail page: row "Pakete nacheinander" with links and status of all packages of the chain
+  - a deployment whose targets were all skipped because of the chain shows "Fehlgeschlagen", never "Erfolgreich"
+  - schedules: the result per computer comes once the whole chain is finished there (success, or the first failed package with its message)
+  - a safety net starts a waiting package if its predecessor ended without passing on (e.g. after a restart of POCKET KNIFE)
+- Help (de/en) and manual PDFs updated
+- **Self-test:** chain columns, restart/rescan only at the end, waiting/running/skipping per computer, cascade, own condition, without "Bei Fehler abbrechen", safety net, status of a chain-skipped deployment, schedule result per computer, single package stays one plain deployment, schedule with two packages
+
 ## pocketknife-2.45.0 (12.11.2026)
 - **New - Entra ID and MDM in the inventory:** the computer scan reads the Entra ID join (Entra ID / Hybrid, with tenant name) and the MDM enrollment (e.g. Intune) from the registry (CloudDomainJoin, Enrollments) - CLM-safe, no dsregcmd. Shown on the computer page under "Active Directory"; collection fields "Entra-ID-Beitritt", "Entra-ID-Mandant", "MDM-Registrierung" (e.g. "MDM-Registrierung ist leer" = not in Intune yet)
 - **New - mainboard:** manufacturer, model, version and serial number (Win32_BaseBoard) under "System"; collection fields "Mainboard-Hersteller", "Mainboard-Modell"

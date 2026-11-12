@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.46.0",
+   "date": "2026-11-12",
+   "items": [
+    {
+     "kind": "new",
+     "audience": "all",
+     "de": "Mehrere Pakete auf einmal verteilt (auch per Zeitplan) ergeben jetzt eine eigene Bereitstellung je Paket – jedes Paket hat seinen eigenen Eintrag im Verlauf. Sie laufen pro Computer nacheinander; Neustart und Scan kommen einmal am Ende.",
+     "en": "Deploying several packages at once (also by schedule) now creates one deployment per package – each package has its own history entry. They run one after another per computer; restart and scan happen once at the end."
+    }
+   ]
+  },
+  {
    "version": "2.45.0",
    "date": "2026-11-12",
    "items": [
