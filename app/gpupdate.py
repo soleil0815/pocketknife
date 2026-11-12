@@ -33,7 +33,10 @@ Get-ChildItem -Path (Join-Path $env:SystemRoot 'Temp') -Filter 'pk_gp_*' -Direct
   ForEach-Object { PK-GpRemove $_.FullName }
 
 '=== Computerrichtlinie ==='
-(& (Join-Path $sys 'cmd.exe') /d /c 'echo N| gpupdate.exe /target:computer /force' | Out-String).Trim()
+# 2.46.1: gpupdate asks "restart / log off? (J/N)" when a policy needs it - always answered with "N"; the answer itself
+# does not appear in the output, so say it (otherwise it looks as if the tool were still waiting)
+function PK-GpNo($t) { if ($t -match '\((J/N|Y/N)\)') { $t + "`r`n" + '-> automatisch mit „Nein“ beantwortet – kein Abmelden, kein Neustart.' } else { $t } }
+PK-GpNo ((& (Join-Path $sys 'cmd.exe') /d /c 'echo N| gpupdate.exe /target:computer /force' | Out-String).Trim())
 
 # Logged-on users: owner of explorer.exe or sihost.exe (also kiosk with its own shell), once per account
 $users = @()
@@ -98,7 +101,7 @@ foreach ($u in $users) {
   $of = Join-Path $dir ('o' + $i + '.txt')
   $out = ''
   if (Test-Path $of) { $out = (Get-Content -LiteralPath $of -Raw -Encoding Oem -ErrorAction SilentlyContinue) }
-  if ($out) { $out.Trim() }
+  if ($out) { PK-GpNo $out.Trim() }
   if (Test-Path $rf) {
     $rc = ((Get-Content -LiteralPath $rf -Raw -ErrorAction SilentlyContinue) -replace '\s', '')
     if ($rc -ne '0') { 'FEHLER: gpupdate beim Benutzer endete mit Code ' + $rc }

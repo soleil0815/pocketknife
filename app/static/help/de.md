@@ -1062,7 +1062,7 @@ Computer auswählen → **Tools ▾** oder Rechtsklick → Tools.
 | Wake-on-LAN | über einen erreichbaren Computer im selben Subnetz (Relay), mehrfach, mit Prüfung, ob er aufwacht – siehe unten |
 | Neustart / Herunterfahren … | ab 2.32.3 in einem Dialog: Neustart oder Herunterfahren wählen und die Wartezeit angeben (Sekunden oder Minuten, 0 = sofort bis 24 Stunden, Standard 60 Sekunden). Angemeldete Benutzer sehen solange die Meldung von Windows; der Standardtext nennt bei längeren Zeiten Minuten, ein eigener Text unter **Einstellungen → Am Client** gilt unverändert. Bei „sofort“ schließt Windows offene Programme ohne Rückfrage. Ab 2.34: Sind Server oder Domänencontroller dabei, nennt der Dialog sie samt Zahl der angemeldeten Benutzer und führt erst nach einem Häkchen „Ja, auch die Server“ aus |
 | Neustart/Herunterfahren abbrechen | stoppt einen angekündigten Neustart bzw. ein Herunterfahren, solange die Wartezeit läuft |
-| gpupdate /force | Gruppenrichtlinien aktualisieren: Computerrichtlinie und – in der Sitzung jedes angemeldeten Benutzers – dessen Benutzerrichtlinie (z. B. Browser-Lesezeichen, Laufwerke). Die Ausgabe zeigt jeden Teil einzeln. Ist niemand angemeldet, gilt die Benutzerrichtlinie bei der nächsten Anmeldung |
+| gpupdate /force | Gruppenrichtlinien aktualisieren: Computerrichtlinie und – in der Sitzung jedes angemeldeten Benutzers – dessen Benutzerrichtlinie (z. B. Browser-Lesezeichen, Laufwerke). Die Ausgabe zeigt jeden Teil einzeln. Ist niemand angemeldet, gilt die Benutzerrichtlinie bei der nächsten Anmeldung. Fragen nach Abmelden oder Neustart werden immer mit „Nein“ beantwortet; die Ausgabe sagt das dazu |
 | winget prüfen / nachinstallieren | stellt winget bereit, wo es fehlt |
 | Scannen mit Profil | sofortiger Scan |
 | Speicherplatz analysieren | Ordnergrößen als Ringdiagramm – siehe unten |
@@ -1108,8 +1108,10 @@ Groß-/Kleinschreibung beachten; unbekannte Werte werden durch einen leeren Text
 ```powershell
 # Beispiel: DNS-Cache leeren und Gruppenrichtlinien neu laden
 ipconfig /flushdns
-gpupdate /target:computer /force
+'N' | gpupdate /target:computer /force
 ```
+
+**gpupdate fragt nie nach:** Will gpupdate abmelden oder neu starten („(J/N)“), wartet ein Tool nie auf eine Antwort. POCKET KNIFE setzt beim Speichern vor jede einfache gpupdate-Zeile `echo N|` (cmd) bzw. `'N' |` (PowerShell) – die Antwort ist immer „Nein“, es wird nie abgemeldet oder neu gestartet (ab 2.46.1, auch bei vorhandenen Tools). Zeilen mit `/logoff` oder `/boot` bleiben, wie sie sind.
 
 ## Dateien (Explorer) {#files}
 

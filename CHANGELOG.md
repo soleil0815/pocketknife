@@ -2,6 +2,13 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.46.1 (12.11.2026)
+- **Fix - gpupdate asked "log off / restart? (J/N)" in tools:** a tool must never wait for an answer and never log off or restart
+  - cmd tools: every plain gpupdate line gets `echo N|` in front, PowerShell tools `'N' |` - when saving and once at start for existing tools (also the example tool "GPUPDATE /force"). Lines with `/logoff` or `/boot`, redirected output or an own answer stay as they are
+  - built-in tool "gpupdate /force": the question was already answered with "N", but the answer does not appear in the output - it now says "-> automatisch mit „Nein“ beantwortet – kein Abmelden, kein Neustart." (computer and user policy)
+- Help (de/en) and manual PDFs updated
+- **Self-test:** cmd/PowerShell lines, exceptions, idempotent, saving, existing tools at start, built-in output note in real PowerShell (Constrained Language)
+
 ## pocketknife-2.46.0 (12.11.2026)
 - **Several packages at once = one deployment per package:** deploying several packages together (deploy dialog or a schedule with several packages) no longer creates one combined deployment "2 Pakete: ...". Every package gets its own deployment and its own history entry (e.g. "Nacht: Microsoft Office Update", "Nacht: 7-Zip"), so each one can be found, filtered and run again on its own
   - the deployments are chained per computer: the next package starts on a computer only when the previous one is finished there (no two installers at the same time, no msiexec 1618); other computers are not held up

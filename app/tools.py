@@ -35,7 +35,8 @@ SEED = [
      "Suspend-BitLocker -MountPoint 'C:' -RebootCount 1 | Format-List MountPoint, ProtectionStatus", "service", 1,
      "Hält den Schutz für einen Neustart an, z. B. vor einem BIOS-Update."),
     ("BITLOCKER", "BitLocker C: fortsetzen", "powershell", "Resume-BitLocker -MountPoint 'C:' | Format-List MountPoint, ProtectionStatus", "service", 1, ""),
-    ("GPO", "GPUPDATE /force", "cmd", "gpupdate /target:computer /force", "service", 0, ""),
+    ("GPO", "GPUPDATE /force", "cmd", "echo N| gpupdate /target:computer /force", "service", 0,
+     "Fragen nach Abmelden oder Neustart beantwortet das Tool immer mit Nein."),
     ("GPO", "GPRESULT (Computer)", "cmd", "gpresult /r /scope computer", "service", 0, ""),
     ("NETZWERK", "IP-Konfiguration", "cmd", "ipconfig /all", "service", 0, ""),
     ("NETZWERK", "DNS-Cache leeren und neu registrieren", "cmd", "ipconfig /flushdns\r\nipconfig /registerdns", "service", 0, ""),
@@ -214,6 +215,32 @@ def _migrate_user_hotkeys():
     db.set_setting("hotkeys_migrated", "1")
 
 
+# 2.46.1: gpupdate asks "log off / restart? (J/N)" when a policy needs it - a tool must never wait for an answer
+# and never log off or restart. Plain gpupdate lines of cmd tools get "echo N|" in front (also the 2.32 example tool),
+# in PowerShell tools "'N' |".
+_GP_LINE = re.compile(r"^(\s*)(gpupdate(?:\.exe)?(?:\s+/(?!logoff\b|boot\b)[a-z]+(?::[a-z0-9]+)?)*)\s*$", re.I)
+
+
+def gpupdate_no(script, typ="cmd"):
+    """Script with every plain gpupdate line answered with "N" (no log-off, no restart)."""
+    pre = "'N' | " if typ == "powershell" else "echo N| "
+    out = []
+    for line in (script or "").split("\n"):
+        cr = line.endswith("\r")
+        m = _GP_LINE.match(line[:-1] if cr else line)
+        if m:
+            line = m.group(1) + pre + m.group(2) + ("\r" if cr else "")
+        out.append(line)
+    return "\n".join(out)
+
+
+def _migrate_gpupdate():
+    for r in db.q("SELECT id, type, script FROM tools WHERE type IN ('cmd', 'powershell') AND script LIKE '%gpupdate%'"):
+        new = gpupdate_no(r["script"], r["type"])
+        if new != r["script"]:
+            db.ex("UPDATE tools SET script=? WHERE id=?", (new, r["id"]))
+
+
 def init():
     db.conn().executescript(SCHEMA)
     have = {r["name"] for r in db.q("PRAGMA table_info(tools)")}
@@ -233,6 +260,10 @@ def init():
         _migrate_power_b()
     except Exception as e:  # pragma: no cover
         pklog.warn("tool", f"Tastenkürzel aus 2.32.3 nicht übernommen: {e}")
+    try:
+        _migrate_gpupdate()
+    except Exception as e:  # pragma: no cover
+        pklog.warn("tool", f"gpupdate-Tools nicht angepasst: {e}")
 
 
 def validate(d):
@@ -248,6 +279,8 @@ def validate(d):
         raise ValueError("Die URL muss mit einem Schema beginnen, z. B. http://, https:// oder vnc://")
     if d["type"] == "url" and re.match(r"^\s*(javascript|data|vbscript|blob)\s*:", d["script"], re.I):
         raise ValueError("Dieses URL-Schema ist nicht erlaubt.")
+    if d["type"] in ("cmd", "powershell"):
+        d["script"] = gpupdate_no(d["script"], d["type"])  # 2.46.1: never wait for "log off / restart?" - always "N"
     clean_extras(d)
 
 
