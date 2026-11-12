@@ -5915,5 +5915,9 @@
  "{0} Pakete nacheinander: Bereitstellungen {1} (nach einem Fehler werden die folgenden auf dem Computer übersprungen).": "{0} packages one after another: deployments {1} (after an error the following ones are skipped on the computer).",
  "{0} Pakete nacheinander: Bereitstellungen {1}.": "{0} packages one after another: deployments {1}.",
  "Zeitplan „{0}“ ({1}): Bereitstellungen {2} für {3} Computer{4}.": "Schedule \"{0}\" ({1}): deployments {2} for {3} computers{4}.",
- "Zeitplan „{0}“ ({1}): Bereitstellung {2} für {3} Computer{4}.": "Schedule \"{0}\" ({1}): deployment {2} for {3} computers{4}."
+ "Zeitplan „{0}“ ({1}): Bereitstellung {2} für {3} Computer{4}.": "Schedule \"{0}\" ({1}): deployment {2} for {3} computers{4}.",
+ "gpupdate-Tools nicht angepasst: {0}": "gpupdate tools not adjusted: {0}",
+ "Fragen nach Abmelden oder Neustart beantwortet das Tool immer mit Nein.": "The tool always answers questions about logging off or restarting with No.",
+ "echo N| ": null,
+ "echo N| gpupdate /target:computer /force": null
 }

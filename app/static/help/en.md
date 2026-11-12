@@ -1062,7 +1062,7 @@ Select computers → **Tools ▾** or right-click → Tools.
 | Wake-on-LAN | via a reachable computer in the same subnet (relay), several times, checking whether it wakes up – see below |
 | Restart / Shut down … | from 2.32.3 in one dialog: choose restart or shutdown and enter the delay (seconds or minutes, 0 = immediately up to 24 hours, default 60 seconds). Signed-in users see the Windows message during that time; for longer delays the default text states minutes, a custom text under **Settings → On the client** applies unchanged. With "immediately" Windows closes open programs without asking. From 2.34: if servers or domain controllers are included, the dialog lists them with the number of signed-in users and only runs after ticking "Yes, the servers too" |
 | Cancel restart/shutdown | stops an announced restart or shutdown while the delay is running |
-| gpupdate /force | refresh group policies: computer policy and – in the session of each signed-in user – their user policy (e.g. browser bookmarks, drives). The output shows each part separately. If nobody is signed in, user policy applies at the next sign-in |
+| gpupdate /force | refresh group policies: computer policy and – in the session of each signed-in user – their user policy (e.g. browser bookmarks, drives). The output shows each part separately. If nobody is signed in, user policy applies at the next sign-in. Questions about logging off or restarting are always answered with "No"; the output says so |
 | Check / install winget | provides winget where it is missing |
 | Scan with profile | immediate scan |
 | Analyse disk space | folder sizes as a ring chart – see below |
@@ -1108,8 +1108,10 @@ Case-sensitive; unknown values are replaced with an empty string. In a **URL** t
 ```powershell
 # Example: flush the DNS cache and reload group policies
 ipconfig /flushdns
-gpupdate /target:computer /force
+'N' | gpupdate /target:computer /force
 ```
+
+**gpupdate never waits for an answer:** if gpupdate wants to log off or restart ("(Y/N)"), a tool never waits. When saving, POCKET KNIFE puts `echo N|` (cmd) or `'N' |` (PowerShell) in front of every plain gpupdate line – the answer is always "No", it never logs off or restarts (from 2.46.1, also for existing tools). Lines with `/logoff` or `/boot` stay as they are.
 
 ## Files (Explorer) {#files}
 

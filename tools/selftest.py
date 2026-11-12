@@ -7460,6 +7460,55 @@ def _():
 
 
 
+@test("2.46.1 gpupdate in tools never waits for \"log off / restart? (J/N)\": always \"N\" (cmd and PowerShell, new and existing tools, built-in tool says so in the output)")
+def _():
+    import subprocess as _sp
+    from app import gpupdate, tools
+    g = tools.gpupdate_no
+    assert g("gpupdate /force") == "echo N| gpupdate /force"
+    assert g("ipconfig /flushdns\r\n  GPUPDATE.EXE /Target:Computer /Force\r\nipconfig") == "ipconfig /flushdns\r\n  echo N| GPUPDATE.EXE /Target:Computer /Force\r\nipconfig"
+    assert g("gpupdate /target:user /force /wait:0") == "echo N| gpupdate /target:user /force /wait:0"
+    assert g("gpupdate /target:computer /force", "powershell") == "'N' | gpupdate /target:computer /force"
+    for keep in ("gpupdate /force /logoff", "gpupdate /force /boot", "echo N| gpupdate /force", "gpupdate /force > C:\\x.txt", "rem gpupdate /force"):
+        assert g(keep) == keep, keep
+    assert g(g("gpupdate /force")) == "echo N| gpupdate /force", "idempotent"
+    assert [x for x in tools.SEED if x[1] == "GPUPDATE /force"][0][3] == "echo N| gpupdate /target:computer /force"
+    d = {"name": "GP", "type": "cmd", "run_as": "service", "script": "gpupdate /force"}
+    tools.validate(d)
+    assert d["script"] == "echo N| gpupdate /force", d
+    d = {"name": "GP", "type": "powershell", "run_as": "service", "script": "gpupdate /force"}
+    tools.validate(d)
+    assert d["script"] == "'N' | gpupdate /force", d
+    # existing tools (the 2.32 example tool unchanged, or an own one) are adjusted at start
+    tools.init()
+    ids = [db.ex("INSERT INTO tools(name, folder, type, script, run_as, confirm, created_at) VALUES('GP-alt', 'T', 'cmd', 'gpupdate /target:computer /force', 'service', 0, '')"),
+           db.ex("INSERT INTO tools(name, folder, type, script, run_as, confirm, created_at) VALUES('GP-ps', 'T', 'powershell', 'gpupdate /force', 'service', 0, '')"),
+           db.ex("INSERT INTO tools(name, folder, type, script, run_as, confirm, created_at) VALUES('GP-bat', 'T', 'cmd', 'gpupdate /force /logoff', 'service', 0, '')")]
+    try:
+        tools.init()
+        got = [db.val("SELECT script FROM tools WHERE id=?", (i,)) for i in ids]
+        assert got == ["echo N| gpupdate /target:computer /force", "'N' | gpupdate /force", "gpupdate /force /logoff"], got
+    finally:
+        for i in ids:
+            db.ex("DELETE FROM tools WHERE id=?", (i,))
+    sc = gpupdate.script("ab12")
+    assert "PK-GpNo ((& (Join-Path $sys 'cmd.exe') /d /c 'echo N| gpupdate.exe /target:computer /force'" in sc and "PK-GpNo $out.Trim()" in sc
+    assert "echo N| gpupdate.exe /target:user /force" in sc
+    pw = os.environ.get("PK_PWSH")
+    if pw and os.path.exists(pw):
+        fn = sc[sc.index("function PK-GpNo"):].split("\n")[0]
+        body = ("$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'\n" + fn + "\n"
+                "PK-GpNo 'Die Computerrichtlinie wurde aktualisiert.'\n'---'\n"
+                "PK-GpNo ('Computerrichtlinie wird aktualisiert...' + [char]10 + 'Möchten Sie sich abmelden? (J/N)')\n")
+        sf = os.path.join(TMP, "pk-gpno.ps1")
+        with open(sf, "w", encoding="utf-8-sig") as fh:
+            fh.write(body)
+        out = _sp.run([pw, "-NoProfile", "-File", sf], capture_output=True, text=True, timeout=60).stdout
+        a, b = out.split("---")
+        assert "Nein" not in a and "aktualisiert" in a, out
+        assert "(J/N)" in b and "automatisch mit „Nein“ beantwortet" in b, out
+
+
 @test("2.38.4 gpupdate: user policy in the session of every logged-in user (not only for the service account), CLM-compatible")
 def _():
     import subprocess as _sp

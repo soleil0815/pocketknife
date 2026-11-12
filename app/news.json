@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.46.1",
+   "date": "2026-11-12",
+   "items": [
+    {
+     "kind": "fixed",
+     "audience": "all",
+     "de": "gpupdate in Tools fragt nicht mehr nach Abmelden oder Neustart: die Antwort ist immer „Nein“ – auch in eigenen und vorhandenen Tools. Das Tool „gpupdate /force“ schreibt das in die Ausgabe.",
+     "en": "gpupdate in tools no longer asks about logging off or restarting: the answer is always \"No\" – also in own and existing tools. The \"gpupdate /force\" tool says so in the output."
+    }
+   ]
+  },
+  {
    "version": "2.46.0",
    "date": "2026-11-12",
    "items": [
