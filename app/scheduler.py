@@ -232,6 +232,7 @@ def tick():
     if _due("stuck", 2):
         _last["stuck"] = time.time()
         _bg("stuck", deploy.restart_stuck)
+        _bg("orphans", deploy.recover_orphans)   # 2.45: "running" targets without a run - ended without a restart
     if _due("integrity", 5):
         _last["integrity"] = time.time()
         from . import integrity

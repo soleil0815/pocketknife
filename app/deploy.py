@@ -931,6 +931,13 @@ def _computer_lock(cid):
 REQUEUE_SECONDS = 5
 
 
+# 2.45: targets a worker of this process is working on right now - a "running" target outside this set has no run
+# any more (e.g. the worker died) and is cleaned up without a restart
+_active_targets: set = set()
+_active_lock = threading.Lock()
+ORPHAN_GRACE_MIN = 5   # a target must be "running" at least this long before it can count as orphaned
+
+
 def _run_target_safe(did, tid):
     # Only one deployment at a time per computer (e.g. several uninstallations or winget updates as
     # separate deployments): two msiexec at once otherwise end with 1618. Whoever waits stays "in Warteschlange" (queued)
@@ -947,6 +954,8 @@ def _run_target_safe(did, tid):
         else:
             _finish_check(did)
         return
+    with _active_lock:
+        _active_targets.add(tid)
     try:
         _run_target(did, tid)
     except Exception as e:  # pragma: no cover
@@ -955,6 +964,8 @@ def _run_target_safe(did, tid):
         finally:
             _after_target(did, tid)  # schedule target would otherwise stay "running" permanently -> never supplied again
     finally:
+        with _active_lock:
+            _active_targets.discard(tid)
         if lk:
             lk.release()
         _finish_check(did)
@@ -1188,24 +1199,58 @@ def max_minutes(p):
     return int(best)
 
 
+def _end_hung(r, msg):
+    """Ends one "running" target without a run: failed, client cleanup noted, schedule/deployment updated."""
+    if not db.ex_count("UPDATE deployment_targets SET status='failed', message=?, finished_at=? WHERE id=? AND status='running'",
+                       (msg, util.now(), r["id"])):
+        return False
+    if r["computer_id"] and (r["dns_name"] or r["name"]):
+        try:
+            mm = max_minutes(json.loads(r["package_json"] or "{}"))
+        except ValueError:
+            mm = db.setting("deploy_timeout_minutes") or 60
+        db.ex("""INSERT INTO client_cleanup(computer_id, computer_name, host, prefix, max_minutes, deployment_id, target_id, created)
+                 VALUES(?,?,?,?,?,?,?,?)""", (r["computer_id"], r["name"] or r["computer_name"], r["dns_name"] or r["name"],
+                                              f"{r['deployment_id']}_{r['id']}_", mm, r["deployment_id"], r["id"], util.now()))
+    _after_target(r["deployment_id"], r["id"])
+    return True
+
+
+HUNG_SQL = """SELECT t.id, t.deployment_id, t.computer_id, t.computer_name, t.started_at, c.name, c.dns_name, d.package_json
+              FROM deployment_targets t LEFT JOIN computers c ON c.id = t.computer_id
+              LEFT JOIN deployments d ON d.id = t.deployment_id WHERE t.status='running'"""
+ORPHAN_MSG = "Abgebrochen – der Lauf war nicht mehr aktiv (hängengeblieben); Reste auf dem Computer werden entfernt, sobald er erreichbar ist"
+
+
+def recover_orphans():
+    """2.45, every minute: "running" targets without a worker in this process (worker died, thread lost) are ended
+    without a restart - otherwise they block their computer for every schedule. Deployments without open targets
+    get their final status."""
+    old = util.ago(minutes=ORPHAN_GRACE_MIN)
+    with _active_lock:
+        active = set(_active_targets)
+    n = 0
+    for r in db.q(HUNG_SQL + " AND t.started_at IS NOT NULL AND t.started_at <= ?", (old,)):
+        if r["id"] in active:
+            continue
+        if _end_hung(r, ORPHAN_MSG):
+            n += 1
+            _finish_check(r["deployment_id"])
+    if n:
+        pklog.warn("deploy", f"{n} hängengebliebene Bereitstellungsziele ohne aktiven Lauf beendet – auf den Computern wird "
+                             "aufgeräumt, sobald sie erreichbar sind.")
+    for d in db.q("""SELECT id FROM deployments d WHERE status='running' AND NOT EXISTS (SELECT 1 FROM deployment_targets t
+                     WHERE t.deployment_id = d.id AND t.status IN ('running', 'queued'))"""):
+        _finish_check(d["id"])
+    return n
+
+
 def recover():
     """After a container restart: end hanging targets as interrupted and note for each that the client
     has to be cleaned up (working folder, scheduled tasks, possibly a still running installer)."""
-    hung = db.q("""SELECT t.id, t.deployment_id, t.computer_id, t.computer_name, c.name, c.dns_name, d.package_json
-                   FROM deployment_targets t LEFT JOIN computers c ON c.id = t.computer_id
-                   LEFT JOIN deployments d ON d.id = t.deployment_id WHERE t.status='running'""")
+    hung = db.q(HUNG_SQL)
     for r in hung:
-        db.ex("UPDATE deployment_targets SET status='failed', message=?, finished_at=? WHERE id=? AND status='running'",
-              (INTERRUPTED_MSG + " – Reste auf dem Computer werden entfernt, sobald er erreichbar ist", util.now(), r["id"]))
-        if r["computer_id"] and (r["dns_name"] or r["name"]):
-            try:
-                mm = max_minutes(json.loads(r["package_json"] or "{}"))
-            except ValueError:
-                mm = db.setting("deploy_timeout_minutes") or 60
-            db.ex("""INSERT INTO client_cleanup(computer_id, computer_name, host, prefix, max_minutes, deployment_id, target_id, created)
-                     VALUES(?,?,?,?,?,?,?,?)""", (r["computer_id"], r["name"] or r["computer_name"], r["dns_name"] or r["name"],
-                                                  f"{r['deployment_id']}_{r['id']}_", mm, r["deployment_id"], r["id"], util.now()))
-        _after_target(r["deployment_id"], r["id"])
+        _end_hung(r, INTERRUPTED_MSG + " – Reste auf dem Computer werden entfernt, sobald er erreichbar ist")
     if hung:
         pklog.warn("deploy", f"{len(hung)} laufende Bereitstellungsziele wurden durch den Neustart unterbrochen – "
                              "auf den Computern wird aufgeräumt, sobald sie erreichbar sind.")

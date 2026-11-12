@@ -178,6 +178,31 @@ PKX 'virtual' {
   else { '' }
 }
 PKX 'locale' { $os.Locale }
+# 2.45: mainboard (manufacturer, model, serial number) - for self-built PCs and BIOS updates
+PKX 'board' {
+  $bb = @(Get-CimInstance -ClassName Win32_BaseBoard -ErrorAction Stop) | Select-Object -First 1
+  if ($bb) { [ordered]@{ vendor = ("" + $bb.Manufacturer).Trim(); model = ("" + $bb.Product).Trim(); serial = ("" + $bb.SerialNumber).Trim()
+                         version = ("" + $bb.Version).Trim() } }
+}
+# 2.45: Entra ID join (joined/hybrid) and MDM enrollment (Intune) from the registry - CLM-safe, no dsregcmd
+PKX 'entra' {
+  $cdj = 'HKLM:\SYSTEM\CurrentControlSet\Control\CloudDomainJoin'
+  $joined = @(Get-ChildItem ($cdj + '\JoinInfo') -ErrorAction SilentlyContinue).Count -gt 0
+  $tenant = ''
+  foreach ($ti in @(Get-ChildItem ($cdj + '\TenantInfo') -ErrorAction SilentlyContinue)) {
+    $tp = Get-ItemProperty -LiteralPath $ti.PSPath -ErrorAction SilentlyContinue
+    if ($tp -and $tp.DisplayName) { $tenant = ("" + $tp.DisplayName).Trim() }
+  }
+  $mdm = ''
+  foreach ($en in @(Get-ChildItem 'HKLM:\SOFTWARE\Microsoft\Enrollments' -ErrorAction SilentlyContinue)) {
+    $ep = Get-ItemProperty -LiteralPath $en.PSPath -ErrorAction SilentlyContinue
+    if (-not $ep -or -not ("" + $ep.ProviderID)) { continue }
+    $state = 0; try { $state = [int]$ep.EnrollmentState } catch {}
+    if ($state -ne 1) { continue }
+    $mdm = $(if (("" + $ep.ProviderID) -eq 'MS DM Server') { 'Intune' } else { ("" + $ep.ProviderID).Trim() })
+  }
+  [ordered]@{ join = $(if ($joined) { if ($cs.PartOfDomain) { 'Hybrid' } else { 'Entra ID' } } else { '' }); tenant = $tenant; mdm = $mdm }
+}
 PKX 'bios_mode' { $env:firmware_type }
 PKX 'secure_boot' { try { [bool](Confirm-SecureBootUEFI -ErrorAction Stop) } catch { $null } }
 PKX 'smb1_server' { try { [bool](Get-SmbServerConfiguration -ErrorAction Stop).EnableSMB1Protocol } catch { $null } }

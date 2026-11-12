@@ -569,6 +569,8 @@ Ist es unter **Einstellungen → Active Directory** eingeschaltet, legt der Abgl
 
 Ein Doppelklick auf einen Computer öffnet seine Detailansicht. Links stehen die Kategorien (Computer, Anwendungen, Hardware, Dienste, Laufwerke, Netzwerkkarten, Scans, Bereitstellungen …), rechts die Daten. Die Übersicht zeigt Betriebssystem, Hardware, Sicherheit (Defender, BitLocker, TPM, Firewall) und den Scanstatus.
 
+**Mainboard, Entra ID und MDM (ab 2.45):** Unter „System“ stehen Hersteller, Modell und Seriennummer des Mainboards; unter „Active Directory“ der **Entra-ID-Beitritt** („Entra ID“, „Hybrid“ oder „nicht eingebunden“, mit Mandant) und die **MDM-Registrierung** (z. B. „Intune“). Gelesen wird aus der Registry (CloudDomainJoin, Enrollments) – auch unter Softwareeinschränkung, ohne dsregcmd. Alles ist in dynamischen Sammlungen verwendbar, z. B. „MDM-Registrierung ist leer“ = noch nicht in Intune.
+
 **Angemeldete Benutzer (ab 2.32.6):** Neben jedem angemeldeten Benutzer steht, ob seine Sitzung **gesperrt** ist (Sperrbildschirm) oder **getrennt** (Remotedesktop geschlossen oder Benutzer gewechselt – seine Programme laufen weiter). Ohne Zusatz ist die Sitzung aktiv. Bei Online-Computern fragt POCKET KNIFE das beim Öffnen live ab, sonst gilt der Stand des letzten Scans; die Computerliste zeigt es in der Spalte „Benutzer“. Grundlage sind `quser` (getrennt) und der Sperrbildschirm-Prozess in der Sitzung (gesperrt); auf Windows Home ohne `quser` fehlt „getrennt“.
 
 ![Detailansicht eines Computers](img/de/computer.jpg)
@@ -941,6 +943,10 @@ Wurde außerhalb von POCKET KNIFE verschoben oder umbenannt (z. B. im Windows-Ex
 **Mehrere Pakete auf einmal:** In **Pakete** mehrere Zeilen anhaken (oder mit Strg/Umschalt markieren) und oben rechts auf **„N Pakete bereitstellen …“** klicken – oder Rechtsklick → „N Pakete bereitstellen …“. Im Dialog lassen sich weitere Pakete dazunehmen und die Reihenfolge durch Ziehen der Einträge ändern. Alle Pakete laufen als **eine** Bereitstellung: je Computer nacheinander in dieser Reihenfolge, nie zwei Installationen gleichzeitig (sonst meldet Windows Installer gern 1618 „eine andere Installation läuft“). Optional werden nach einem Fehler die weiteren Pakete für diesen Computer ausgelassen.
 
 Bereitstellen über den Knopf **Bereitstellen …** (Computerliste, Paket, Software) oder per Rechtsklick. Ziel sind ausgewählte Computer oder eine Sammlung; der Zeitpunkt ist sofort oder geplant.
+
+**Verlauf (ab 2.45):** Die Liste zeigt die neuesten 300 Bereitstellungen und aktualisiert sich laufend; unten lädt **„Ältere laden“** jeweils die nächsten 300 – so ist der ganze Verlauf erreichbar, ohne dass die Seite bei vielen Bereitstellungen langsam wird.
+
+**Hängengebliebene Ziele (ab 2.45):** Steht ein Ziel auf „läuft“, ohne dass POCKET KNIFE noch daran arbeitet (z. B. weil der Lauf intern abgebrochen ist), wird es nach spätestens 5 Minuten als fehlgeschlagen beendet – ohne Neustart. Auf dem Computer wird wie nach einem Neustart aufgeräumt (siehe unten), und der Computer ist für andere Bereitstellungen und Zeitpläne wieder frei.
 
 ![Ergebnis einer Bereitstellung](img/de/deployment.jpg)
 

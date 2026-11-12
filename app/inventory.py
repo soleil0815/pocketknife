@@ -72,7 +72,8 @@ MODULE_EXTRA = {
                  "domain_controller", "dotnet", "last_wu_install", "user_states", "virtual",
                  "os_edition", "os_install_type", "office_c2r",  # 2.40: update status
                  "os_esu",   # 2.43: Windows 10 ESU year (0 = none)
-                 "ps_language"],  # 2.44.4: PowerShell language mode on the client
+                 "ps_language",   # 2.44.4: PowerShell language mode on the client
+                 "board", "entra"],  # 2.45: mainboard, Entra ID join and MDM enrollment
     "security": ["defender", "bitlocker", "tpm", "firewall", "antivirus"],
     "memory": ["memory_slots", "memory_max"],
     "nics": ["fast_startup"],  # 2.31: Wake-on-LAN readiness

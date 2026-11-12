@@ -2915,7 +2915,10 @@ def api_package_repair_apply(pid: int, data: dict = Body(...), user=U):
 
 # --- Deployments ---------------------------------------------------------------------
 @app.get("/api/deployments")
-def api_deployments(limit: int = 300, user=U):
+def api_deployments(limit: int = 300, before: int = 0, user=U):
+    """Newest first; before = only deployments with a smaller ID (2.45: page through the whole history)."""
+    lim = max(1, min(limit, 2000))
+    bef = before if before and before > 0 else 2 ** 62
     if access.scoped(user):
         # OU admin: only deployments with at least one of their computers; numbers and names of their targets only
         mine = json.dumps(sorted(access.computer_ids(user)))
@@ -2930,9 +2933,9 @@ def api_deployments(limit: int = 300, user=U):
                           AND t.computer_id IN (SELECT value FROM json_each(?1))) ok,
                        (SELECT COUNT(*) FROM deployment_targets t WHERE t.deployment_id=d.id AND t.status='failed'
                           AND t.computer_id IN (SELECT value FROM json_each(?1))) failed
-                       FROM deployments d WHERE EXISTS (SELECT 1 FROM deployment_targets t WHERE t.deployment_id=d.id
+                       FROM deployments d WHERE d.id < ?3 AND EXISTS (SELECT 1 FROM deployment_targets t WHERE t.deployment_id=d.id
                           AND t.computer_id IN (SELECT value FROM json_each(?1)))
-                       ORDER BY d.id DESC LIMIT ?2""", (mine, max(1, min(limit, 2000))))
+                       ORDER BY d.id DESC LIMIT ?2""", (mine, lim, bef))
     return db.q("""SELECT d.id, d.name, d.source, d.status, d.created_by, d.created_at, d.scheduled_at, d.started_at,
                    d.finished_at, d.target_label,
                    (SELECT group_concat(computer_name, ', ') FROM (SELECT computer_name FROM deployment_targets t
@@ -2940,7 +2943,7 @@ def api_deployments(limit: int = 300, user=U):
                    (SELECT COUNT(*) FROM deployment_targets t WHERE t.deployment_id=d.id) total,
                    (SELECT COUNT(*) FROM deployment_targets t WHERE t.deployment_id=d.id AND t.status='success') ok,
                    (SELECT COUNT(*) FROM deployment_targets t WHERE t.deployment_id=d.id AND t.status='failed') failed
-                   FROM deployments d ORDER BY d.id DESC LIMIT ?""", (max(1, min(limit, 2000)),))
+                   FROM deployments d WHERE d.id < ? ORDER BY d.id DESC LIMIT ?""", (bef, lim))
 
 
 @app.post("/api/deployments")

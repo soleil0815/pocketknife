@@ -2,6 +2,14 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.45.0 (12.11.2026)
+- **New - Entra ID and MDM in the inventory:** the computer scan reads the Entra ID join (Entra ID / Hybrid, with tenant name) and the MDM enrollment (e.g. Intune) from the registry (CloudDomainJoin, Enrollments) - CLM-safe, no dsregcmd. Shown on the computer page under "Active Directory"; collection fields "Entra-ID-Beitritt", "Entra-ID-Mandant", "MDM-Registrierung" (e.g. "MDM-Registrierung ist leer" = not in Intune yet)
+- **New - mainboard:** manufacturer, model, version and serial number (Win32_BaseBoard) under "System"; collection fields "Mainboard-Hersteller", "Mainboard-Modell"
+- **Hung deployment targets end without a restart:** a target that is "running" although no worker of POCKET KNIFE is working on it any more is ended as failed after 5 minutes - with the same client cleanup as after a restart; deployments without open targets get their final status. Until now this only happened when the container restarted, and the computer stayed blocked for schedules
+- **Deployment history page by page:** the list loads the newest 300 and refreshes them; "Ältere laden" loads the next 300 each time (API parameter `before`) - the whole history is reachable without slowing the page down
+- Help (de/en) and manual PDFs updated
+- **Self-test:** mainboard and Entra/Intune block in real PowerShell (Constrained Language Mode, inactive and empty enrollments skipped, hybrid join), collection conditions, orphaned vs. active vs. young targets, paging without overlap
+
 ## pocketknife-2.44.4 (12.11.2026)
 - **Diagnostic package - everything that would have shown this week's problems early:**
   - `leistung.json` now also has: the duration of every page/query since start (median, 95 %, maximum per path), the size of the scan results per area (largest computer), the database per table plus log file (WAL), remote sessions (duration, data, ended by user/inactivity/logout), background tasks with errors and last duration, last daily runs (update status, database maintenance, backup, scheduler)

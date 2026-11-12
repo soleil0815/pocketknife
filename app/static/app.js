@@ -2603,14 +2603,20 @@ function pcOverview(c, link) {
       fRow('Übergeordneter Pfad', ouPath(c.dn)), fRow('Beschreibung', c.description), fRow('Domäne', e.domain, null, ['domain', e.domain]),
       fRow('Domänencontroller', e.domain_controller), fRow('Standort', c.ad_location, null, ['location', c.ad_location]), fRow('Letzte Anmeldung', fmtDate(c.ad_last_logon)),
       fRow('Erstellt', fmtDate(c.ad_created)), fRow('Aktiviert', c.ad_enabled ? 'Ja' : h('span.badge.err', 'Nein')),
-      fRow('Gruppen', c.counts.ad_groups ? `${c.counts.ad_groups} Gruppen` : '', link('ad_groups'))]),
+      fRow('Gruppen', c.counts.ad_groups ? `${c.counts.ad_groups} Gruppen` : '', link('ad_groups')),
+      // 2.45: Entra ID join and MDM enrollment (from the computer scan)
+      e.entra ? fRow('Entra ID', e.entra.join ? [tr(e.entra.join), e.entra.tenant].filter(Boolean).join(' · ') : tr('nicht eingebunden'), null, e.entra.join ? ['entra_join', e.entra.join] : null) : null,
+      e.entra ? fRow('MDM', e.entra.mdm || tr('nicht registriert'), null, e.entra.mdm ? ['mdm', e.entra.mdm] : null) : null]),
     fSection('System', [
       fRow('Hersteller', c.manufacturer, null, ['manufacturer', c.manufacturer]), fRow('Modell', c.model, null, ['model', c.model]), fRow('Arbeitsspeicher', ram, link('memory')),
       fRow('Prozessor', cpuText, link('cpus'), ['cpu', c.cpu]), fRow('Gehäuse', e.chassis_name, null, ['chassis', e.chassis_name]), e.virtual ? fRow('Virtualisierung', e.virtual, null, ['virtual', e.virtual]) : null,
       Number(e.product_type) === 2 ? fRow('Rolle', tr('Domänencontroller'), null, ['role', 'Domänencontroller']) : null, fRow('Seriennummer', c.serial),
       fRow('BIOS-Version', c.bios_version, null, ['bios_version', c.bios_version]), fRow('BIOS-Hersteller', e.bios_manufacturer, null, ['bios_manufacturer', e.bios_manufacturer]), fRow('BIOS-Datum', fmtDate(c.bios_date, false)),
       fRow('BIOS-Asset-Tag', e.asset_tag), fRow('Familie', e.family, null, ['family', e.family]), fRow('Version', e.product_version), fRow('SKU', e.sku, null, ['sku', e.sku]),
-      fRow('UUID', e.uuid), fRow('TPM', e.tpm ? `Version ${(e.tpm.version || '').split(',')[0]}` : '', null, e.tpm ? ['tpm_version', e.tpm.version] : null)]),
+      fRow('UUID', e.uuid), fRow('TPM', e.tpm ? `Version ${(e.tpm.version || '').split(',')[0]}` : '', null, e.tpm ? ['tpm_version', e.tpm.version] : null),
+      // 2.45: mainboard
+      e.board && (e.board.vendor || e.board.model) ? fRow('Mainboard', [e.board.vendor, e.board.model, e.board.version].filter(Boolean).join(' '), null, ['board_model', e.board.model]) : null,
+      e.board && e.board.serial ? fRow('Mainboard-Seriennummer', e.board.serial) : null]),
     fSection('Sicherheit', [
       fRow('Defender', e.defender ? (e.defender.enabled ? 'aktiv' : h('span.badge.err', 'inaktiv')) : ''),
       fRow('Echtzeitschutz', e.defender ? (e.defender.realtime ? 'ein' : h('span.badge.err', 'aus')) : ''),
@@ -4664,7 +4670,24 @@ function depTargetText(r) { return [r.target_label, depTargetNames(r)].filter(Bo
 
 async function viewDeployments() {
   setTop('Bereitstellungen', 'Verlauf und laufende Softwareverteilungen', btn('Neue Bereitstellung', () => deployDlg({}), { icon: 'send', cls: 'primary' }));
-  const load = () => GET('/api/deployments');
+  // 2.45: page by page - the newest 300 are refreshed, older pages are loaded on demand ("Ältere laden")
+  const PAGE = 300;
+  let older = [];
+  let more = true;
+  let first = await GET(`/api/deployments?limit=${PAGE}`);
+  more = first.length >= PAGE;
+  const rows = () => [...first, ...older];
+  const load = async () => { first = await GET(`/api/deployments?limit=${PAGE}`); const ids = new Set(first.map((r) => r.id)); older = older.filter((r) => !ids.has(r.id)); return rows(); };
+  const moreBtn = btn('Ältere laden', async () => {
+    const all = rows();
+    const minId = all.length ? Math.min(...all.map((r) => r.id)) : 0;
+    const page = await GET(`/api/deployments?limit=${PAGE}&before=${minId}`);
+    older = [...older, ...page];
+    more = page.length >= PAGE;
+    t.setRows(rows());
+    syncMore();
+  }, { cls: 'small', icon: 'download' });
+  const syncMore = () => { moreBtn.style.display = more ? '' : 'none'; };
   const t = table([
     { key: 'id', label: '#', cls: 'right' },
     { key: 'name', label: 'Name' },
@@ -4677,8 +4700,10 @@ async function viewDeployments() {
     { key: 'created_at', label: 'Erstellt', render: (r) => fmtDate(r.created_at) },
     { key: 'scheduled_at', label: 'Geplant', render: (r) => fmtDate(r.scheduled_at) },
     { key: 'finished_at', label: 'Beendet', render: (r) => fmtDate(r.finished_at) },
-  ], await load(), { sort: 'id', dir: -1, noun: 'Bereitstellungen', onRow: (r) => go(`#/deployment/${r.id}`) });
-  setContent(h('div', { style: { height: '100%', display: 'flex' } }, h('div.pane.card', t.el)));
+  ], rows(), { sort: 'id', dir: -1, noun: 'Bereitstellungen', onRow: (r) => go(`#/deployment/${r.id}`) });
+  syncMore();
+  setContent(h('div', { style: { height: '100%', display: 'flex', flexDirection: 'column' } }, h('div.pane.card', { style: { flex: '1', minHeight: 0 } }, t.el),
+    h('div.row.end', { style: { padding: '6px 0 0' } }, moreBtn)));
   every(5000, async () => { if (parseHash().parts[0] === 'deployments') t.setRows(await load()); });
 }
 
