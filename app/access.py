@@ -419,6 +419,7 @@ ROUTES = {
     ("POST", "/api/computers/{cid}/files/upload"): _p_cid,
     ("GET", "/api/computers/{cid}/eventlog"): _p_cid,
     ("GET", "/api/computers/{cid}/gphistory"): _p_cid,  # 2.47.0: Group Policy history
+    ("GET", "/api/computers/{cid}/gpresult"): _p_cid,   # 2.48.0: Resultant Set of Policy
     ("POST", "/api/computers/{cid}/live/{what}"): _p_cid,
     ("POST", "/api/computers/{cid}/secrets/{what}"): _p_cid,
     ("GET", "/api/computers/{cid}/diskusage"): _p_cid,

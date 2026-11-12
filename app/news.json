@@ -2,6 +2,24 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.48.0",
+   "date": "2026-11-12",
+   "items": [
+    {
+     "kind": "new",
+     "audience": "all",
+     "de": "Gruppenrichtlinien-Verlauf: neues „Richtlinienergebnis (gpresult)“ – zeigt jede wirksame Einstellung mit Wert und GPO, auch die Gruppenrichtlinien-Einstellungen (Laufwerke, Drucker, Registry …) samt Zielgruppenadressierung, und warum eine GPO nicht angewendet wurde. Klick auf eine GPO zeigt ihre Einstellungen.",
+     "en": "Group Policy history: new \"Resultant Set of Policy (gpresult)\" – shows every effective setting with value and GPO, including Group Policy Preferences (drives, printers, registry …) with item-level targeting, and why a GPO was not applied. Click a GPO to see its settings."
+    },
+    {
+     "kind": "improved",
+     "audience": "all",
+     "de": "Fehler einzelner GPP-Elemente (Ereignis 4098, z. B. ein Laufwerk, das sich nicht verbinden lässt) stehen jetzt bei der passenden Verarbeitung im Gruppenrichtlinien-Verlauf.",
+     "en": "Errors of single GPP items (event 4098, e.g. a drive that cannot be mapped) are now shown with the matching run in the Group Policy history."
+    }
+   ]
+  },
+  {
    "version": "2.47.0",
    "date": "2026-11-12",
    "items": [

@@ -7465,7 +7465,9 @@ GP_MOCK_PS = r'''function Get-WinEvent($FilterHashtable, $MaxEvents, $ErrorActio
   $b = [guid]'aaaaaaaa-2222-3333-4444-555555555555'
   $t = Get-Date '2026-11-12T15:43:33'
   function E($sec, $id, $lvl, $act, $msg, $props) { [pscustomobject]@{ TimeCreated = $t.AddSeconds($sec); Id = $id; Level = $lvl; ActivityId = $act; Message = $msg; Properties = @($props | ForEach-Object { [pscustomobject]@{ Value = $_ } }) } }
-  if ($FilterHashtable.LogName -eq 'System') {
+  if ($FilterHashtable.LogName -eq 'Application') {
+    @([pscustomobject]@{ TimeCreated = $t.AddSeconds(15); Id = 4098; Level = 3; ActivityId = $null; ProviderName = 'Group Policy Drive Maps'; Message = "Der Benutzer 'H:' konnte nicht mit Fehlercode '0x80070043' angewendet werden. Der Netzwerkname wurde nicht gefunden."; Properties = @() })
+  } elseif ($FilterHashtable.LogName -eq 'System') {
     @(E 20 1129 2 $b 'Die Verarbeitung der Gruppenrichtlinie ist aufgrund fehlender Netzwerkverbindung zu einem Domänencontroller fehlgeschlagen.' @())
   } else {
     @(
@@ -7526,7 +7528,7 @@ def _():
         assert ex["Sicherheit"].get("slowest") and not ex["Registrierung"].get("slowest"), ex
         assert c["system"] == [] and len(c["events"]) == 10, c
         assert u["target"] == "user" and u["reason"] == "Benutzer (manuell)" and u["seconds"] == 11.0 and u["end_id"] == 7005, u
-        assert "Fehler bei der Verarbeitung" in u["end_message"] and [x["id"] for x in u["system"]] == [1129], u
+        assert "Fehler bei der Verarbeitung" in u["end_message"] and [x["id"] for x in u["system"]] == [4098, 1129] and u["gpp_errors"] == 1, u
         assert u["extensions"] == [] and u["ext_seconds"] is None, u
     # run without a start inside the time window (only an end event) is left out; run without end = "open"
     t = "2026-11-12T10:00:00.000"
@@ -7548,6 +7550,202 @@ def _():
         res = _sp.run([pw, "-NoProfile", "-File", sf], capture_output=True, text=True, timeout=120)
         assert "PKJSON:" in res.stdout, res.stderr[:1500]
         check(gphistory.build(actions._json(res.stdout)))
+
+
+GP_RSOP_XML = r'''<?xml version="1.0" encoding="utf-16"?>
+<Rsop xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://www.microsoft.com/GroupPolicy/Rsop">
+  <ReadTime>2026-11-12T15:44:01.1234567Z</ReadTime>
+  <DataType>LoggingData</DataType>
+  <UserResults>
+    <Version>65538</Version>
+    <Name>FIRMA\anwender</Name>
+    <Domain>firma.local</Domain>
+    <SOM>firma.local/Benutzer/Buchhaltung</SOM>
+    <Site>Default-First-Site-Name</Site>
+    <SecurityGroup><Name xmlns="http://www.microsoft.com/GroupPolicy/Types">FIRMA\Domänen-Benutzer</Name><SID xmlns="http://www.microsoft.com/GroupPolicy/Types">S-1-5-21-1-513</SID></SecurityGroup>
+    <SecurityGroup><Name xmlns="http://www.microsoft.com/GroupPolicy/Types">FIRMA\GG-Buchhaltung</Name><SID xmlns="http://www.microsoft.com/GroupPolicy/Types">S-1-5-21-1-1201</SID></SecurityGroup>
+    <SlowLink>false</SlowLink>
+    <GPO>
+      <Name>Benutzer-Basis</Name>
+      <Path><Identifier xmlns="http://www.microsoft.com/GroupPolicy/Types">{aaaa1111-0000-0000-0000-000000000001}</Identifier><Domain xmlns="http://www.microsoft.com/GroupPolicy/Types">firma.local</Domain></Path>
+      <VersionDirectory>12</VersionDirectory><VersionSysvol>12</VersionSysvol>
+      <Enabled>true</Enabled><IsValid>true</IsValid><FilterAllowed>true</FilterAllowed><AccessDenied>false</AccessDenied>
+      <Link><SOMPath>firma.local/Benutzer</SOMPath><SOMOrder>1</SOMOrder><AppliedOrder>1</AppliedOrder><LinkOrder>1</LinkOrder><Enabled>true</Enabled><NoOverride>false</NoOverride></Link>
+      <ExtensionName>Registry</ExtensionName>
+    </GPO>
+    <GPO>
+      <Name>Laufwerke Buchhaltung</Name>
+      <Path><Identifier xmlns="http://www.microsoft.com/GroupPolicy/Types">{BBBB2222-0000-0000-0000-000000000002}</Identifier><Domain xmlns="http://www.microsoft.com/GroupPolicy/Types">firma.local</Domain></Path>
+      <VersionDirectory>4</VersionDirectory><VersionSysvol>4</VersionSysvol>
+      <Enabled>true</Enabled><IsValid>true</IsValid><FilterAllowed>true</FilterAllowed><AccessDenied>false</AccessDenied>
+      <Link><SOMPath>firma.local/Benutzer/Buchhaltung</SOMPath><SOMOrder>1</SOMOrder><AppliedOrder>2</AppliedOrder><LinkOrder>1</LinkOrder><Enabled>true</Enabled><NoOverride>true</NoOverride></Link>
+    </GPO>
+    <GPO>
+      <Name>Nur Notebooks</Name>
+      <Path><Identifier xmlns="http://www.microsoft.com/GroupPolicy/Types">{CCCC3333-0000-0000-0000-000000000003}</Identifier><Domain xmlns="http://www.microsoft.com/GroupPolicy/Types">firma.local</Domain></Path>
+      <Enabled>true</Enabled><IsValid>true</IsValid><FilterAllowed>false</FilterAllowed><AccessDenied>false</AccessDenied>
+      <FilterName>Notebook-Filter</FilterName>
+      <Link><SOMPath>firma.local/Benutzer</SOMPath><Enabled>true</Enabled><NoOverride>false</NoOverride></Link>
+    </GPO>
+    <GPO>
+      <Name>IT-Admins</Name>
+      <Path><Identifier xmlns="http://www.microsoft.com/GroupPolicy/Types">{DDDD4444-0000-0000-0000-000000000004}</Identifier><Domain xmlns="http://www.microsoft.com/GroupPolicy/Types">firma.local</Domain></Path>
+      <Enabled>true</Enabled><IsValid>true</IsValid><FilterAllowed>true</FilterAllowed><AccessDenied>true</AccessDenied>
+      <Link><SOMPath>firma.local/Benutzer</SOMPath><Enabled>true</Enabled><NoOverride>false</NoOverride></Link>
+    </GPO>
+    <ExtensionStatus><Name>Registry</Name><Identifier>{35378EAC-683F-11D2-A89A-00C04FBBCFA2}</Identifier><BeginTime>2026-11-12T15:43:45Z</BeginTime><EndTime>2026-11-12T15:43:46Z</EndTime><LoggingStatus>Complete</LoggingStatus><Error>0</Error></ExtensionStatus>
+    <ExtensionStatus><Name>Drive Maps</Name><Identifier>{5794DAFD-BE60-433f-88A2-1A31939AC01F}</Identifier><BeginTime>2026-11-12T15:43:46Z</BeginTime><EndTime>2026-11-12T15:43:53Z</EndTime><LoggingStatus>Complete</LoggingStatus><Error>2147942467</Error></ExtensionStatus>
+    <ExtensionData>
+      <Extension xmlns:q1="http://www.microsoft.com/GroupPolicy/Settings/Registry" xsi:type="q1:RegistrySettings">
+        <q1:Policy>
+          <q1:GPO><Identifier xmlns="http://www.microsoft.com/GroupPolicy/Types">{aaaa1111-0000-0000-0000-000000000001}</Identifier><Domain xmlns="http://www.microsoft.com/GroupPolicy/Types">firma.local</Domain></q1:GPO>
+          <q1:Precedence>1</q1:Precedence>
+          <q1:Name>Bildschirmschoner-Zeitlimit</q1:Name>
+          <q1:State>Enabled</q1:State>
+          <q1:Explain>Sehr langer Hilfetext …</q1:Explain>
+          <q1:Supported>Mindestens Windows 2000</q1:Supported>
+          <q1:Category>Systemsteuerung/Anpassung</q1:Category>
+          <q1:Numeric><q1:Name>Sekunden:</q1:Name><q1:State>Enabled</q1:State><q1:Value>600</q1:Value></q1:Numeric>
+        </q1:Policy>
+        <q1:Policy>
+          <q1:GPO><Identifier xmlns="http://www.microsoft.com/GroupPolicy/Types">{aaaa1111-0000-0000-0000-000000000001}</Identifier><Domain xmlns="http://www.microsoft.com/GroupPolicy/Types">firma.local</Domain></q1:GPO>
+          <q1:Precedence>1</q1:Precedence>
+          <q1:Name>Startseite festlegen</q1:Name>
+          <q1:State>Enabled</q1:State>
+          <q1:Category>Windows-Komponenten/Microsoft Edge</q1:Category>
+          <q1:DropDownList><q1:Name>Aktion beim Start</q1:Name><q1:State>Enabled</q1:State><q1:Value><q1:Name>Bestimmte Seiten öffnen</q1:Name></q1:Value></q1:DropDownList>
+          <q1:EditText><q1:Name>URL:</q1:Name><q1:State>Enabled</q1:State><q1:Value>https://intranet.firma.local</q1:Value></q1:EditText>
+          <q1:CheckBox><q1:Name>Auch bei neuem Tab</q1:Name><q1:State>Disabled</q1:State></q1:CheckBox>
+        </q1:Policy>
+        <q1:Policy>
+          <q1:GPO><Identifier xmlns="http://www.microsoft.com/GroupPolicy/Types">{BBBB2222-0000-0000-0000-000000000002}</Identifier><Domain xmlns="http://www.microsoft.com/GroupPolicy/Types">firma.local</Domain></q1:GPO>
+          <q1:Precedence>2</q1:Precedence>
+          <q1:Name>Bildschirmschoner-Zeitlimit</q1:Name>
+          <q1:State>Enabled</q1:State>
+          <q1:Category>Systemsteuerung/Anpassung</q1:Category>
+          <q1:Numeric><q1:Name>Sekunden:</q1:Name><q1:State>Enabled</q1:State><q1:Value>900</q1:Value></q1:Numeric>
+        </q1:Policy>
+      </Extension>
+      <Name>Registry</Name>
+    </ExtensionData>
+    <ExtensionData>
+      <Extension xmlns:q2="http://www.microsoft.com/GroupPolicy/Settings/DriveMaps" xsi:type="q2:DriveMapSettings">
+        <q2:DriveMapSettings clsid="{8FDDCC1A-0C3C-43cd-A6B4-71A6DF20DA8C}">
+          <q2:Drive clsid="{935D1B74-9CB8-4e3c-9914-7DD559B7A417}" name="H:" status="H:" image="2" changed="2026-10-01 08:00:00" uid="{11}" bypassErrors="1">
+            <q2:GPO><Identifier xmlns="http://www.microsoft.com/GroupPolicy/Types">{BBBB2222-0000-0000-0000-000000000002}</Identifier><Domain xmlns="http://www.microsoft.com/GroupPolicy/Types">firma.local</Domain></q2:GPO>
+            <q2:Precedence>1</q2:Precedence>
+            <q2:Properties action="U" thisDrive="NOCHANGE" allDrives="NOCHANGE" userName="" path="\\fs01\home$\%username%" label="Home" persistent="1" useLetter="1" letter="H"/>
+            <q2:Filters><q2:FilterGroup bool="AND" not="0" name="FIRMA\GG-Buchhaltung" sid="S-1-5-21-1-1201" userContext="1" primaryGroup="0" localGroup="0"/><q2:FilterComputer bool="AND" not="1" type="NETBIOS" name="SRV-01"/></q2:Filters>
+          </q2:Drive>
+        </q2:DriveMapSettings>
+      </Extension>
+      <Name>Drive Maps</Name>
+    </ExtensionData>
+  </UserResults>
+</Rsop>
+'''
+
+
+@test("2.48.0 Resultant Set of Policy (gpresult /x): GPOs with reason, settings per GPO incl. GPP (values, targeting, overridden), extension errors, user check, CLM-safe; GPP errors (4098) in the history")
+def _():
+    import stat as _stat
+    import subprocess as _sp
+    from fastapi import HTTPException
+    from app import access, gphistory, main as _m, remote
+    assert ("GET", "/api/computers/{cid}/gpresult") in access.ROUTES and access.ROUTES[("GET", "/api/computers/{cid}/gpresult")] is access._p_cid
+    r = gphistory.parse_rsop(GP_RSOP_XML)
+    assert r["name"] == "FIRMA\\anwender" and r["som"] == "firma.local/Benutzer/Buchhaltung" and "FIRMA\\GG-Buchhaltung" in r["groups"], r
+    g = {x["name"]: x for x in r["gpos"]}
+    assert g["Benutzer-Basis"]["applied"] and g["Benutzer-Basis"]["settings"] == 2 and g["Benutzer-Basis"]["id"] == "{AAAA1111-0000-0000-0000-000000000001}"
+    assert g["Laufwerke Buchhaltung"]["enforced"] and g["Laufwerke Buchhaltung"]["settings"] == 1, g
+    assert not g["Nur Notebooks"]["applied"] and g["Nur Notebooks"]["reason"] == "WMI-Filter trifft nicht zu (Notebook-Filter)"
+    assert not g["IT-Admins"]["applied"] and "Sicherheitsfilterung" in g["IT-Admins"]["reason"]
+    assert [x["name"] for x in r["extensions"] if x["error"] != "0"] == ["Drive Maps"]
+    st = r["settings"]
+    edge = [x for x in st if x["title"] == "Startseite festlegen"][0]
+    assert edge["kind"] == "Administrative Vorlage" and edge["state"] == "Enabled" and edge["category"] == "Windows-Komponenten/Microsoft Edge"
+    assert edge["details"] == [["Aktion beim Start", "Bestimmte Seiten öffnen"], ["URL:", "https://intranet.firma.local"], ["Auch bei neuem Tab", "Deaktiviert"]], edge
+    sv = sorted([x for x in st if x["title"] == "Bildschirmschoner-Zeitlimit"], key=lambda x: x["precedence"])
+    assert [x["precedence"] for x in sv] == [1, 2] and sv[1]["winner"] == "Benutzer-Basis" and sv[0]["details"] == [["Sekunden:", "600"]], sv
+    drv = [x for x in st if x["kind"] == "Laufwerk"][0]
+    assert drv["title"] == "H:" and drv["gpo"] == "Laufwerke Buchhaltung" and drv["ext"] == "Drive Maps", drv
+    assert drv["details"][:3] == [["Aktion", "Aktualisieren"], ["Laufwerksbuchstabe", "H"], ["Pfad", "\\\\fs01\\home$\\%username%"]], drv["details"]
+    assert drv["filters"] == ["Group: name=FIRMA\\GG-Buchhaltung, sid=S-1-5-21-1-1201, primaryGroup=0, localGroup=0", "NICHT Computer: type=NETBIOS, name=SRV-01"], drv["filters"]
+    assert not any(k in ("clsid", "uid", "image", "changed") for x in st for k, _v in x["details"])
+    # hostile or broken answers are refused
+    for bad in ('<!DOCTYPE x [<!ENTITY a "b">]><Rsop/>', "<Rsop xmlns='http://www.microsoft.com/GroupPolicy/Rsop'/>"):
+        try:
+            gphistory.parse_rsop(bad)
+            raise AssertionError("must be refused")
+        except ValueError:
+            pass
+    # user scope: only DOMAIN\name, quoted; scope checked
+    assert "'/user', 'FIRMA\\anna', '/scope', 'user'" in gphistory.rsop_script("user", "FIRMA\\anna")
+    for sc, u in (("user", ""), ("user", "anna"), ("user", "FIRMA\\a'; Remove-Item C:\\ -Recurse #"), ("all", None)):
+        try:
+            gphistory.rsop_script(sc, u)
+            raise AssertionError(("must be refused", sc, u))
+        except ValueError:
+            pass
+    try:
+        _m.api_gpresult(1, "all", "", user={"username": "x"})
+        raise AssertionError("scope 'all' must be refused")
+    except HTTPException as e:
+        assert e.status_code in (400, 404)
+    # no RSoP data for the user -> understandable message
+    cid = db.ex("INSERT INTO computers(name) VALUES('PC-GPR48')")
+    orig = remote.ps
+    try:
+        remote.ps = lambda host, sc, timeout=0: ("", 'gpresult: ERROR: The user "FIRMA\\nie" does not have RSoP data.', True)
+        try:
+            gphistory.rsop(cid, "user", "FIRMA\\nie")
+            raise AssertionError("must fail")
+        except remote.RemoteError as e:
+            assert "keine Richtliniendaten" in str(e) and "FIRMA\\nie" in str(e), e
+        remote.ps = lambda host, sc, timeout=0: ("PKXML:" + GP_RSOP_XML, "", False)
+        d = gphistory.rsop(cid, "computer")
+        assert d["scope"] == "computer" and len(d["settings"]) == 4
+    finally:
+        remote.ps = orig
+        db.ex("DELETE FROM computers WHERE id=?", (cid,))
+    # GPP item errors (Application log 4098) belong to the run during which they were written
+    data = {"ops": [{"t": "2026-11-12T10:00:00.000", "id": 4001, "act": "U", "p": ["FIRMA\\anna"]},
+                    {"t": "2026-11-12T10:00:08.000", "id": 8001, "act": "U", "p": []},
+                    {"t": "2026-11-12T09:00:00.000", "id": 4006, "act": "C", "p": []},
+                    {"t": "2026-11-12T09:00:03.000", "id": 8006, "act": "C", "p": []}],
+            "sys": [], "app": [{"t": "2026-11-12T10:00:06.000", "id": 4098, "lvl": 3, "src": "Group Policy Drive Maps", "msg": "H: 0x80070043"},
+                               {"t": "2026-11-12T12:00:00.000", "id": 4098, "lvl": 3, "src": "Group Policy Printers", "msg": "ausserhalb"}]}
+    runs = {x["act"]: x for x in gphistory.build(data)}
+    assert runs["U"]["gpp_errors"] == 1 and runs["U"]["system"][0]["log"] == "Anwendung" and runs["U"]["system"][0]["src"] == "Group Policy Drive Maps"
+    assert runs["C"]["gpp_errors"] == 0 and runs["C"]["status"] == "ok"
+    assert "LogName = 'Application'; Id = 4098" in gphistory.script(24)
+    # the client script in real PowerShell (Constrained Language) with a stand-in gpresult.exe (UTF-16 like the original)
+    pw = os.environ.get("PK_PWSH")
+    if pw and os.path.exists(pw):
+        root = tempfile.mkdtemp(prefix="pk-gpr-")
+        os.makedirs(os.path.join(root, "System32"))
+        os.makedirs(os.path.join(root, "tmp"))
+        with open(os.path.join(root, "r16.xml"), "wb") as fh:
+            fh.write(GP_RSOP_XML.encode("utf-16"))
+        fake = os.path.join(root, "System32", "gpresult.exe")
+        with open(fake, "w") as fh:
+            fh.write('#!/bin/sh\nif [ -n "$PK_FAKE_FAIL" ]; then echo "ERROR: The user does not have RSoP data."; exit 1; fi\n'
+                     'while [ $# -gt 0 ]; do if [ "$1" = "/x" ]; then shift; cp "' + root + '/r16.xml" "$1"; fi; shift; done\n')
+        os.chmod(fake, os.stat(fake).st_mode | _stat.S_IEXEC)
+        sf = os.path.join(root, "r.ps1")
+        for fail in ("", "1"):
+            with open(sf, "w", encoding="utf-8-sig") as fh:
+                fh.write("$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'\n" + gphistory.rsop_script("computer"))
+            env = {**os.environ, "SystemRoot": root, "TEMP": os.path.join(root, "tmp"), "PK_FAKE_FAIL": fail}
+            res = _sp.run([pw, "-NoProfile", "-File", sf], capture_output=True, text=True, timeout=120, env=env)
+            assert os.listdir(os.path.join(root, "tmp")) == [], "temporary gpresult file removed"
+            if fail:
+                assert "PKXML:" not in res.stdout and "RSoP" in res.stderr, (res.stdout, res.stderr)
+                continue
+            out = res.stdout
+            assert "PKXML:" in out and "Explain" not in out and "Supported" not in out, (out[:300], res.stderr[:800])
+            d = gphistory.parse_rsop(out[out.index("PKXML:") + 6:])
+            assert len(d["settings"]) == 4 and d["name"] == "FIRMA\\anwender", d
 
 
 @test("2.46.1 gpupdate in tools never waits for \"log off / restart? (J/N)\": always \"N\" (cmd and PowerShell, new and existing tools, built-in tool says so in the output)")
