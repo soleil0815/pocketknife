@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.45.0",
+   "date": "2026-11-12",
+   "items": [
+    {
+     "kind": "new",
+     "audience": "all",
+     "de": "Neu im Inventar: Entra-ID-Beitritt (Entra ID/Hybrid) und MDM-Registrierung (z. B. Intune) sowie das Mainboard – auch für dynamische Sammlungen. Hängengebliebene Bereitstellungsziele werden ohne Neustart beendet; der Bereitstellungsverlauf lässt sich seitenweise laden.",
+     "en": "New in the inventory: Entra ID join (Entra ID/Hybrid) and MDM enrollment (e.g. Intune) plus the mainboard – also for dynamic collections. Hung deployment targets end without a restart; the deployment history loads page by page."
+    }
+   ]
+  },
+  {
    "version": "2.44.4",
    "date": "2026-11-12",
    "items": [

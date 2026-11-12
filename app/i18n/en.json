@@ -5885,5 +5885,22 @@
  "Ungewöhnlich große Scan-Ergebnisse: {0}": "Unusually large scan results: {0}",
  "Admin": "Admin",
  "Benutzer/Verbindung": "User/connection",
- "Inaktivität": "Inactivity"
+ "Inaktivität": "Inactivity",
+ "Mainboard": "Mainboard",
+ "Mainboard-Seriennummer": "Mainboard serial number",
+ "nicht eingebunden": "not joined",
+ "nicht registriert": "not enrolled",
+ "Hybrid": "Hybrid",
+ "Entra ID": "Entra ID",
+ "MDM": "MDM",
+ "Ältere laden": "Load older",
+ "Mainboard-Hersteller": "Mainboard manufacturer",
+ "Mainboard-Modell": "Mainboard model",
+ "Entra-ID-Beitritt (Entra ID/Hybrid)": "Entra ID join (Entra ID/Hybrid)",
+ "Entra-ID-Mandant": "Entra ID tenant",
+ "MDM-Registrierung (z. B. Intune)": "MDM enrollment (e.g. Intune)",
+ "{0} hängengebliebene Bereitstellungsziele ohne aktiven Lauf beendet – auf den Computern wird aufgeräumt, sobald sie erreichbar sind.": "{0} hung deployment targets without an active run ended – the computers are cleaned up as soon as they are reachable.",
+ "Abgebrochen – der Lauf war nicht mehr aktiv (hängengeblieben); Reste auf dem Computer werden entfernt, sobald er erreichbar ist": "Aborted – the run was no longer active (hung); leftovers on the computer are removed as soon as it is reachable",
+ "NULLIF({0}, '')": null,
+ " AND t.started_at IS NOT NULL AND t.started_at <= ?": null
 }

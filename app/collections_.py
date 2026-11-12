@@ -93,6 +93,12 @@ COMPUTER_COLS = [
      "(SELECT ROUND(d.free / 1073741824.0, 1) FROM disks d WHERE d.computer_id = c.id AND d.drive = 'C:')"),
     ("memory_modules", "Anzahl Speichermodule", "number",
      "(SELECT json_array_length(d.json) FROM inventory_data d WHERE d.computer_id = c.id AND d.category = 'memory')"),
+    # 2.45: mainboard, Entra ID and MDM (Intune)
+    ("board_vendor", "Mainboard-Hersteller", "text", _x("board.vendor")),
+    ("board_model", "Mainboard-Modell", "text", _x("board.model")),
+    ("entra_join", "Entra-ID-Beitritt (Entra ID/Hybrid)", "text", f"NULLIF({_x('entra.join')}, '')"),
+    ("entra_tenant", "Entra-ID-Mandant", "text", f"NULLIF({_x('entra.tenant')}, '')"),
+    ("mdm", "MDM-Registrierung (z. B. Intune)", "text", f"NULLIF({_x('entra.mdm')}, '')"),
     ("bios_version", "BIOS-Version", "text", "c.bios_version"),
     ("bios_manufacturer", "BIOS-Hersteller", "text", _x("bios_manufacturer")),
     ("bios_mode", "BIOS-Modus (UEFI/Legacy)", "text", _x("bios_mode")),

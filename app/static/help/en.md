@@ -569,6 +569,8 @@ If enabled under **Settings → Active Directory**, the sync creates the OU stru
 
 Double-clicking a computer opens its detail view. The categories are on the left (Computer, Applications, Hardware, Services, Disks, Network Adapters, Scans, Deployments …), the data on the right. The overview shows the operating system, hardware, security (Defender, BitLocker, TPM, firewall) and scan status.
 
+**Mainboard, Entra ID and MDM (from 2.45):** "System" shows manufacturer, model and serial number of the mainboard; "Active Directory" shows the **Entra ID join** ("Entra ID", "Hybrid" or "not joined", with tenant) and the **MDM enrollment** (e.g. "Intune"). It is read from the registry (CloudDomainJoin, Enrollments) – also under software restriction, without dsregcmd. Everything can be used in dynamic collections, e.g. "MDM enrollment is empty" = not in Intune yet.
+
 **Signed-in users (from 2.32.6):** Next to each signed-in user it shows whether the session is **locked** (lock screen) or **disconnected** (Remote Desktop closed or user switched – their programs keep running). Without a note the session is active. For online computers POCKET KNIFE queries this live when the view opens, otherwise the last scan applies; the computer list shows it in the "User" column. It is based on `quser` (disconnected) and the lock screen process in the session (locked); on Windows Home without `quser`, "disconnected" is not available.
 
 ![Detail view of a computer](img/en/computer.jpg)
@@ -941,6 +943,10 @@ If something was moved or renamed outside POCKET KNIFE (e.g. in Windows Explorer
 **Several packages at once:** in **Packages**, tick several rows (or select with Ctrl/Shift) and click **"Deploy N packages …"** at the top right – or right-click → "Deploy N packages …". In the dialog you can add further packages and change the order by dragging the entries. All packages run as **one** deployment: one after another per computer in this order, never two installations at the same time (otherwise Windows Installer likes to report 1618 "another installation is in progress"). Optionally the remaining packages are skipped for a computer after an error.
 
 Deploy with the **Deploy …** button (computer list, package, software) or by right-clicking. The target is the selected computers or a collection; the time is immediate or scheduled.
+
+**History (from 2.45):** the list shows the newest 300 deployments and refreshes continuously; at the bottom **"Load older"** loads the next 300 each time – the whole history stays reachable without the page getting slow with many deployments.
+
+**Hung targets (from 2.45):** if a target shows "running" although POCKET KNIFE is no longer working on it (e.g. the run ended internally), it is ended as failed after 5 minutes at the latest – without a restart. The computer is cleaned up as after a restart (see below) and is free again for other deployments and schedules.
 
 ![Result of a deployment](img/en/deployment.jpg)
 

@@ -9045,6 +9045,93 @@ def _():
     assert "loadstats.request_done(" in msrc
 
 
+@test("2.45 PDQ parity: mainboard and Entra ID/Intune from the scan (CLM-safe, registry), collection fields; 'running' targets without a run end without a restart; deployment history page by page")
+def _():
+    import subprocess
+    from app import collections_, deploy, inventory, main as _m
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app")
+    src = open(os.path.join(root, "scan_modules.ps1"), encoding="utf-8").read()
+    assert "PKX 'board'" in src and "PKX 'entra'" in src and "dsregcmd" not in src.split("PKX 'entra'")[1][:2000]
+    assert {"board", "entra"} <= set(inventory.MODULE_EXTRA["computer"])
+    pw = os.environ.get("PK_PWSH")
+    if pw and os.path.exists(pw):
+        blk = src[src.index("PKX 'board'"):src.index("PKX 'bios_mode'")]
+        mocks = ("$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'\n$e = [ordered]@{}\n"
+                 "function PKX($name, $sb) { try { $v = & $sb; if ($null -ne $v) { $e[$name] = $v } } catch { $e[$name + '_error'] = $_.Exception.Message } }\n"
+                 "$cs = @{ PartOfDomain = $true }\n"
+                 "function Get-CimInstance { param($ClassName, $ErrorAction) @{ Manufacturer = 'ASUSTeK COMPUTER INC. '; Product = 'PRIME B650M-A'; SerialNumber = 'MB123'; Version = 'Rev 1.xx' } }\n"
+                 "function Get-ChildItem { param($Path, $ErrorAction)\n"
+                 "  if ($Path -like '*JoinInfo') { return @(@{ PSPath = 'J1' }) }\n"
+                 "  if ($Path -like '*TenantInfo') { return @(@{ PSPath = 'T1' }) }\n"
+                 "  if ($Path -like '*Enrollments') { return @(@{ PSPath = 'E0' }, @{ PSPath = 'E1' }, @{ PSPath = 'E2' }) }\n"
+                 "  return @() }\n"
+                 "function Get-ItemProperty { param($LiteralPath, $ErrorAction)\n"
+                 "  if ($LiteralPath -eq 'T1') { return @{ DisplayName = 'Firma GmbH' } }\n"
+                 "  if ($LiteralPath -eq 'E0') { return @{ ProviderID = 'MS DM Server'; EnrollmentState = 0 } }\n"
+                 "  if ($LiteralPath -eq 'E1') { return @{ ProviderID = '' } }\n"
+                 "  if ($LiteralPath -eq 'E2') { return @{ ProviderID = 'MS DM Server'; EnrollmentState = 1 } }\n"
+                 "  return $null }\n")
+        sf = os.path.join(TMP, "pk-entra.ps1")
+        with open(sf, "w", encoding="utf-8-sig") as fh:
+            fh.write(mocks + blk + "\nConvertTo-Json -InputObject $e -Compress -Depth 4\n")
+        r = subprocess.run([pw, "-NoLogo", "-NoProfile", "-NonInteractive", "-File", sf], capture_output=True, text=True, timeout=120)
+        out = json.loads([x for x in r.stdout.splitlines() if x.startswith("{")][0])
+        assert out["board"] == {"vendor": "ASUSTeK COMPUTER INC.", "model": "PRIME B650M-A", "serial": "MB123", "version": "Rev 1.xx"}, out
+        assert out["entra"] == {"join": "Hybrid", "tenant": "Firma GmbH", "mdm": "Intune"}, out
+    # collection fields
+    csrc = open(os.path.join(root, "collections_.py"), encoding="utf-8").read()
+    for k in ("board_vendor", "board_model", "entra_join", "entra_tenant", "mdm"):
+        assert f'("{k}",' in csrc, k
+    ids, dids = [], []
+    try:
+        cid = db.ex("INSERT INTO computers(name, extra) VALUES('ENTRA-PC', ?)", (json.dumps({"entra": {"join": "Entra ID", "tenant": "Firma", "mdm": "Intune"}, "board": {"vendor": "ASUS", "model": "B650"}}),))
+        cid2 = db.ex("INSERT INTO computers(name, extra) VALUES('ONPREM-PC', ?)", (json.dumps({"entra": {"join": "", "tenant": "", "mdm": ""}}),))
+        ids += [cid, cid2]
+        for cond, want in (({"field": "mdm", "op": "equals", "value": "Intune"}, {cid}), ({"field": "entra_join", "op": "empty", "value": ""}, {cid2}),
+                           ({"field": "board_model", "op": "equals", "value": "B650"}, {cid}), ({"field": "entra_join", "op": "equals", "value": "Entra ID"}, {cid})):
+            w, p = collections_.build([cond])
+            got = {r["id"] for r in db.q(f"SELECT c.id FROM computers c WHERE c.id IN (?, ?) AND ({w})", (cid, cid2, *p))}
+            assert got == want, (cond, got)
+        # orphaned "running" target: ended, active ones stay
+        pkg = {"name": "Orphan", "steps": {"main": [{"id": "s", "type": "command", "command": "echo"}]}}
+        did = db.ex("INSERT INTO deployments(name, status, package_json, created_at, source) VALUES('Orphan','running',?,?,'manual')", (json.dumps(pkg), util.now()))
+        dids.append(did)
+        old = util.ago(minutes=30)
+        t1 = db.ex("INSERT INTO deployment_targets(deployment_id, computer_id, computer_name, status, started_at) VALUES(?,?,?,'running',?)", (did, cid, "ENTRA-PC", old))
+        t2 = db.ex("INSERT INTO deployment_targets(deployment_id, computer_id, computer_name, status, started_at) VALUES(?,?,?,'running',?)", (did, cid2, "ONPREM-PC", old))
+        t3 = db.ex("INSERT INTO deployment_targets(deployment_id, computer_id, computer_name, status, started_at) VALUES(?,?,?,'running',?)", (did, cid2, "ONPREM-PC", util.now()))
+        with deploy._active_lock:
+            deploy._active_targets.add(t2)
+        try:
+            assert deploy.recover_orphans() == 1
+        finally:
+            with deploy._active_lock:
+                deploy._active_targets.discard(t2)
+        st = {r["id"]: (r["status"], r["message"]) for r in db.q("SELECT id, status, message FROM deployment_targets WHERE deployment_id=?", (did,))}
+        assert st[t1][0] == "failed" and "hängengeblieben" in st[t1][1], st
+        assert st[t2][0] == "running" and st[t3][0] == "running", "active run and young target stay"
+        assert db.val("SELECT COUNT(*) FROM client_cleanup WHERE target_id=?", (t1,)) == 1
+        # deployment history page by page
+        for i in range(5):
+            dids.append(db.ex("INSERT INTO deployments(name, status, package_json, created_at, source) VALUES(?, 'success', '{}', ?, 'manual')", (f"P{i}", util.now())))
+        adm = {"username": "haupt", "scope": None}
+        p1 = _m.api_deployments(2, 0, adm)
+        p2 = _m.api_deployments(2, p1[-1]["id"], adm)
+        assert len(p1) == 2 and len(p2) == 2 and p2[0]["id"] < p1[-1]["id"] and not {r["id"] for r in p1} & {r["id"] for r in p2}
+    finally:
+        for d in dids:
+            db.ex("DELETE FROM client_cleanup WHERE deployment_id=?", (d,))
+            db.ex("DELETE FROM deployment_targets WHERE deployment_id=?", (d,))
+            db.ex("DELETE FROM deployments WHERE id=?", (d,))
+        for i in ids:
+            db.ex("DELETE FROM computers WHERE id=?", (i,))
+    sch = open(os.path.join(root, "scheduler.py"), encoding="utf-8").read()
+    assert '_bg("orphans", deploy.recover_orphans)' in sch
+    js = open(os.path.join(root, "static", "app.js"), encoding="utf-8").read()
+    assert "btn('Ältere laden'" in js and "/api/deployments?limit=${PAGE}&before=${minId}" in js
+    assert "fRow('Mainboard'" in js and "fRow('Entra ID'" in js and "fRow('MDM'" in js
+
+
 @test("2.22 Self-test: diagnostic package test does not use fixed dates (time bomb once outside the 30-day window)")
 def _():
     import inspect
