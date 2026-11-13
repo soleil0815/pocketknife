@@ -7748,6 +7748,24 @@ def _():
             assert len(d["settings"]) == 4 and d["name"] == "FIRMA\\anwender", d
 
 
+@test("2.48.1 Coffee box at the end of the news: plain link, administration only, sidebar label German with translation")
+def _():
+    base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static")
+    js = open(os.path.join(base, "app.js"), encoding="utf-8").read()
+    i = js.index("function coffeeBox() {")
+    blk = js[i:js.index("\n}\n", i)]
+    assert "href: COFFEE" in blk and "rel: 'noopener noreferrer'" in blk and "target: '_blank'" in blk and "innerHTML" not in blk, blk
+    assert "Einen Kaffee spendieren" in blk and "Gefällt Ihnen POCKET KNIFE?" in blk
+    assert js.count("coffeeBox()") == 2, "defined once, used once"
+    nd = js[js.index("async function newsDlg("):js.index("\n}\n", js.index("async function newsDlg("))]
+    assert "coffeeBox()" in nd, "shown at the end of the news dialog"
+    assert "tr('Kaffee spendieren')" in js[js.index("function coffeeLink() {"):i]
+    en = json.load(open(os.path.join(base, "..", "i18n", "en.json"), encoding="utf-8"))
+    assert en["Kaffee spendieren"] == "Buy me a coffee" and en["Einen Kaffee spendieren"] == "Buy me a coffee"
+    css = open(os.path.join(base, "app.css"), encoding="utf-8").read()
+    assert ".coffee-box" in css and ".coffee-btn" in css and "url(" not in css[css.index(".coffee-box"):css.index(".coffee-btn svg")]
+
+
 @test("2.46.1 gpupdate in tools never waits for \"log off / restart? (J/N)\": always \"N\" (cmd and PowerShell, new and existing tools, built-in tool says so in the output)")
 def _():
     import subprocess as _sp

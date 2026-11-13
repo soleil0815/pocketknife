@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.48.1",
+   "date": "2026-11-13",
+   "items": [
+    {
+     "kind": "improved",
+     "audience": "admin",
+     "de": "Kaffee-Link wie in den anderen Programmen: am Ende der Neuigkeiten „Einen Kaffee spendieren“, unten in der Navigation „Kaffee spendieren“.",
+     "en": "Coffee link like in the other programs: \"Buy me a coffee\" at the end of the news and at the bottom of the navigation."
+    }
+   ]
+  },
+  {
    "version": "2.48.0",
    "date": "2026-11-12",
    "items": [

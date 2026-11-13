@@ -987,7 +987,13 @@ const WEBSITE = 'https://helfi.space';
 const COFFEE = 'https://buymeacoffee.com/soleil0815';
 function coffeeLink() {
   return h('a.coffee.raw', { href: COFFEE, target: '_blank', rel: 'noopener noreferrer', title: tr('Die Entwicklung von POCKET KNIFE unterstützen – öffnet buymeacoffee.com in einem neuen Tab') },
-    icon('coffee'), 'Buy me a coffee');
+    icon('coffee'), tr('Kaffee spendieren'));
+}
+// 2.48.1: thank-you box at the end of the news (like the other programs) – also only a plain link
+function coffeeBox() {
+  return h('div.coffee-box', h('span', tr('Gefällt Ihnen POCKET KNIFE? Über einen Kaffee freue ich mich.')),
+    h('a.coffee-btn.raw', { href: COFFEE, target: '_blank', rel: 'noopener noreferrer', title: tr('Die Entwicklung von POCKET KNIFE unterstützen – öffnet buymeacoffee.com in einem neuen Tab') },
+      icon('coffee'), tr('Einen Kaffee spendieren')));
 }
 
 function websiteLink(cls = '', loggedIn = true) {
@@ -1082,7 +1088,7 @@ async function newsDlg(focusUpdate = false) {
   };
   draw();
   modal(tr('Neuigkeiten'), h('div.news', ...parts, list, h('p.muted.small', { style: { marginTop: '10px' } },
-    tr('Alle Einzelheiten stehen im CHANGELOG und in der Hilfe.'), isOU() ? '' : ' ' + tr('Hinweise auf neue Versionen: Einstellungen → Wartung.'))),
+    tr('Alle Einzelheiten stehen im CHANGELOG und in der Hilfe.'), isOU() ? '' : ' ' + tr('Hinweise auf neue Versionen: Einstellungen → Wartung.')), coffeeBox()),
   [{ label: 'Schließen', cls: 'primary' }], { wide: true });
   if (focusUpdate) setTimeout(() => { const u = document.querySelector('.news-up'); if (u) u.scrollIntoView({ block: 'nearest' }); }, 50);
   if (NEWS.unseen) {

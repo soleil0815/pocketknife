@@ -1603,7 +1603,7 @@ POCKET KNIFE ist freie Software unter der **GNU Affero General Public License, V
 
 ## Unterstützen {#support}
 
-POCKET KNIFE ist kostenlos. Wer die Weiterentwicklung unterstützen möchte, kann einen Kaffee spendieren: **„Buy me a coffee“** unten in der Navigation (nur für Administratoren sichtbar) öffnet `https://buymeacoffee.com/soleil0815` in einem neuen Tab. Es wird dabei nichts aus dem Internet geladen, bevor Sie klicken.
+POCKET KNIFE ist kostenlos. Wer die Weiterentwicklung unterstützen möchte, kann einen Kaffee spendieren: **„Kaffee spendieren“** unten in der Navigation oder **„Einen Kaffee spendieren“** am Ende der Neuigkeiten (nur für Administratoren sichtbar) öffnet `https://buymeacoffee.com/soleil0815` in einem neuen Tab. Es wird dabei nichts aus dem Internet geladen, bevor Sie klicken.
 
 # Glossar {#glossary}
 
