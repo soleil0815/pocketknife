@@ -2,6 +2,11 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.48.1 (13.11.2026)
+- **Coffee link like in the other programs:** at the end of the news a small box "Gefällt Ihnen POCKET KNIFE? Über einen Kaffee freue ich mich." with the button "Einen Kaffee spendieren"; the button in the navigation now reads "Kaffee spendieren" (English: "Buy me a coffee"). Still a plain link that only opens on click, administration only (not on the login page, not in the kiosk), nothing loaded from the internet
+- Help (de/en) and manual PDFs updated
+- **Self-test:** coffee box only in the news dialog, plain link, translations, no external resources
+
 ## pocketknife-2.48.0 (12.11.2026)
 - **New - Resultant Set of Policy in the Group Policy history** (bottom of the page, "Richtlinienergebnis (gpresult)"): what actually takes effect on the computer or for a user on it - on click only, runs `gpresult /x` on the client (CLM-safe, temporary file removed, help texts dropped on the client to keep the answer small)
   - all GPOs with status: applied or not, and why not (WMI filter does not match, access denied = security filtering, disabled, link disabled, invalid), linked to, enforced, number of effective settings
