@@ -29,6 +29,8 @@ function PKO($o, [int]$max = 40) {
   }
   $h
 }
+# 2.50.1: numeric value of a CIM class -> the text the matching cmdlet shows (unknown numbers stay as they are)
+function PKEnum($map, $v) { if ($null -eq $v -or "$v" -eq '') { '' } elseif ($map.ContainsKey([int]$v)) { $map[[int]$v] } else { [string]$v } }
 function PKStr($a) { if ($a) { (($a | Where-Object { $_ -ne 0 } | ForEach-Object { [char]$_ }) -join '').Trim() } else { '' } }
 
 # @module active_directory | Active Directory
@@ -194,7 +196,9 @@ PKX 'entra' {
 }
 PKX 'bios_mode' { $env:firmware_type }
 PKX 'secure_boot' { try { [bool](Confirm-SecureBootUEFI -ErrorAction Stop) } catch { $null } }
-PKX 'smb1_server' { try { [bool](Get-SmbServerConfiguration -ErrorAction Stop).EnableSMB1Protocol } catch { $null } }
+# 2.50.1: CIM classes instead of module cmdlets (Get-SmbServerConfiguration, Get-NetAdapter, Get-PhysicalDisk ...): those load
+# generated Windows modules that script block logging records as dozens of "warning" entries per scan - same values
+PKX 'smb1_server' { try { [bool](Get-CimInstance -Namespace 'root\Microsoft\Windows\SMB' -ClassName MSFT_SmbServerConfiguration -ErrorAction Stop).EnableSMB1Protocol } catch { $null } }
 PKX 'smb1_client' { $s = Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Services\mrxsmb10' -ErrorAction SilentlyContinue; [bool]($s -and $s.Start -ne 4) }
 PKX 'ie_version' { $ie = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Internet Explorer' -ErrorAction SilentlyContinue; if ($ie.svcVersion) { $ie.svcVersion } else { $ie.Version } }
 PKX 'domain_controller' { (Get-CimInstance Win32_NTDomain | Where-Object { $_.DomainControllerName } | Select-Object -First 1).DomainControllerName }
@@ -364,7 +368,14 @@ $r.disks = @(Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3' | ForEach-O
   [ordered]@{ drive = $_.DeviceID; label = $_.VolumeName; fs = $_.FileSystem; size = [int64]$_.Size; free = [int64]$_.FreeSpace } })
 PKS 'physical_disks' {
   $pd = @{}
-  try { Get-PhysicalDisk -ErrorAction Stop | ForEach-Object { $pd["$($_.DeviceId)"] = $_ } } catch {}
+  # MSFT_PhysicalDisk (what Get-PhysicalDisk shows) - numbers translated like the cmdlet does
+  $pdMedia = @{ 0 = 'Unspecified'; 3 = 'HDD'; 4 = 'SSD'; 5 = 'SCM' }
+  $pdBus = @{ 0 = 'Unknown'; 1 = 'SCSI'; 2 = 'ATAPI'; 3 = 'ATA'; 4 = '1394'; 5 = 'SSA'; 6 = 'Fibre Channel'; 7 = 'USB'; 8 = 'RAID'; 9 = 'iSCSI'
+             10 = 'SAS'; 11 = 'SATA'; 12 = 'SD'; 13 = 'MMC'; 14 = 'Virtual'; 15 = 'File Backed Virtual'; 16 = 'Storage Spaces'; 17 = 'NVMe'; 18 = 'SCM'; 19 = 'UFS' }
+  $pdHealth = @{ 0 = 'Healthy'; 1 = 'Warning'; 2 = 'Unhealthy'; 5 = 'Unknown' }
+  try { Get-CimInstance -Namespace 'root\Microsoft\Windows\Storage' -ClassName MSFT_PhysicalDisk -ErrorAction Stop | ForEach-Object {
+    $pd["$($_.DeviceId)"] = @{ MediaType = (PKEnum $pdMedia $_.MediaType); BusType = (PKEnum $pdBus $_.BusType)
+                                             HealthStatus = (PKEnum $pdHealth $_.HealthStatus) } } } catch {}
   Get-CimInstance Win32_DiskDrive | ForEach-Object {
     $p = $pd["$($_.Index)"]
     [ordered]@{ model = ("" + $_.Model).Trim(); serial = ("" + $_.SerialNumber).Trim(); size = [int64]$_.Size
@@ -456,13 +467,20 @@ PKS 'nics' {
   $cfg = @{}; Get-CimInstance Win32_NetworkAdapterConfiguration | ForEach-Object { $cfg[[int]$_.Index] = $_ }
   # 2.31: Wake-on-LAN readiness per adapter – magic packet allowed, may wake the computer, driver settings,
   # wired (only cmdlets and powercfg, Constrained-Language-compatible)
-  $wolPm = @{}; try { Get-NetAdapterPowerManagement -ErrorAction Stop | ForEach-Object { $wolPm[[string]$_.InterfaceDescription] = [string]$_.WakeOnMagicPacket } } catch {}
+  $nsNet = 'root\StandardCimv2'
+  $wolPm = @{}; try { Get-CimInstance -Namespace $nsNet -ClassName MSFT_NetAdapterPowerManagementSettingData -ErrorAction Stop | ForEach-Object {
+    $wolPm[[string]$_.InterfaceDescription] = PKEnum @{ 0 = 'Unsupported'; 1 = 'Disabled'; 2 = 'Enabled' } $_.WakeOnMagicPacket } } catch {}
   # 2.32.8: Speed from Get-NetAdapter (asks the driver directly) – Win32_NetworkAdapter.Speed is outdated with some
   # drivers or reports 10 Mbit/s for disconnected adapters. Only for connected adapters.
   $wolMedia = @{}; $nSpeed = @{}; $nUp = @{}
-  try { Get-NetAdapter -Physical -ErrorAction Stop | ForEach-Object { $k = [string]$_.InterfaceDescription
-    $wolMedia[$k] = [string]$_.PhysicalMediaType; $nSpeed[$k] = $_.Speed; $nUp[$k] = ([string]$_.Status -eq 'Up') } } catch {}
-  $wolAdv = @{}; try { Get-NetAdapterAdvancedProperty -ErrorAction Stop | Where-Object { $_.RegistryKeyword -match 'Wake|WOL|PME|S5' } | ForEach-Object {
+  # MSFT_NetAdapter with ConnectorPresent = what Get-NetAdapter -Physical lists; NdisPhysicalMedium as text ("802.3" = wired)
+  $media = @{ 0 = 'Unspecified'; 1 = 'Wireless LAN'; 2 = 'Cable Modem'; 3 = 'Phone Line'; 4 = 'Power Line'; 5 = 'DSL'; 6 = 'FC'; 7 = '1394'
+              8 = 'Wireless WAN'; 9 = 'Native 802.11'; 10 = 'BlueTooth'; 11 = 'Infiniband'; 12 = 'WiMAX'; 13 = 'UWB'; 14 = '802.3'; 15 = '802.5'
+              16 = 'IRDA'; 17 = 'Wired WAN'; 18 = 'Wired Connection Oriented WAN'; 19 = 'Other' }
+  try { Get-CimInstance -Namespace $nsNet -ClassName MSFT_NetAdapter -Filter 'ConnectorPresent = TRUE' -ErrorAction Stop | ForEach-Object {
+    $k = [string]$_.InterfaceDescription
+    $wolMedia[$k] = PKEnum $media $_.NdisPhysicalMedium; $nSpeed[$k] = $_.Speed; $nUp[$k] = ([int]$_.InterfaceOperationalStatus -eq 1) } } catch {}
+  $wolAdv = @{}; try { Get-CimInstance -Namespace $nsNet -ClassName MSFT_NetAdapterAdvancedPropertySettingData -ErrorAction Stop | Where-Object { $_.RegistryKeyword -match 'Wake|WOL|PME|S5' } | ForEach-Object {
     $k = [string]$_.InterfaceDescription; $wolAdv[$k] = @($wolAdv[$k]) + @(([string]$_.DisplayName) + ': ' + ([string]$_.DisplayValue)) } } catch {}
   $wolArmed = @(); try { $wolArmed = @(& powercfg.exe /devicequery wake_armed 2>$null | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ }) } catch {}
   $wolTxt = @{ Enabled = 'an'; Disabled = 'aus'; Unsupported = 'nicht unterstützt'; Inactive = 'inaktiv' }
@@ -526,9 +544,10 @@ PKS 'product_keys' {
 try {
 # Defender status: the cmdlet (module "Defender"), otherwise directly the WMI class behind it – 2.33.4: on some Windows
 # servers the module is missing (Get-MpComputerStatus unknown), the class MSFT_MpComputerStatus exists anyway
+# 2.50.1: the class first (same values, no module load), the cmdlet only if the class cannot be read
 $mp = $null
-try { $mp = Get-MpComputerStatus -ErrorAction Stop } catch {
-  try { $mp = Get-CimInstance -Namespace 'root\Microsoft\Windows\Defender' -ClassName MSFT_MpComputerStatus -ErrorAction Stop } catch { $mp = $null } }
+try { $mp = Get-CimInstance -Namespace 'root\Microsoft\Windows\Defender' -ClassName MSFT_MpComputerStatus -ErrorAction Stop } catch {
+  try { $mp = Get-MpComputerStatus -ErrorAction Stop } catch { $mp = $null } }
 if ($mp) {
   $e.defender = [ordered]@{ enabled = $mp.AntivirusEnabled; realtime = $mp.RealTimeProtectionEnabled; signature = $mp.AntivirusSignatureVersion
                             signature_age = $mp.AntivirusSignatureAge; last_quick_scan = (D $mp.QuickScanEndTime) } }
@@ -536,7 +555,8 @@ try { $e.bitlocker = @(Get-BitLockerVolume -ErrorAction Stop | ForEach-Object {
   [ordered]@{ mount = $_.MountPoint; status = "$($_.VolumeStatus)"; protection = "$($_.ProtectionStatus)"; percent = $_.EncryptionPercentage } }) } catch {}
 try { $t = Get-CimInstance -Namespace 'root\cimv2\security\microsofttpm' -ClassName Win32_Tpm -ErrorAction Stop
   if ($t) { $e.tpm = [ordered]@{ present = $true; enabled = $t.IsEnabled_InitialValue; version = $t.SpecVersion } } } catch {}
-PKX 'firewall' { @(Get-NetFirewallProfile -ErrorAction Stop | ForEach-Object { [ordered]@{ profile = "$($_.Name)"; enabled = [bool]($_.Enabled -eq 'True' -or $_.Enabled -eq 1) } }) }
+PKX 'firewall' { @(Get-CimInstance -Namespace 'root\StandardCimv2' -ClassName MSFT_NetFirewallProfile -ErrorAction Stop | ForEach-Object {
+  [ordered]@{ profile = "$($_.Name)"; enabled = [bool]($_.Enabled -eq 'True' -or $_.Enabled -eq 1) } }) }
 PKX 'antivirus' {
   # Workstations: the Windows Security Center knows every registered antivirus product
   $av = @()
