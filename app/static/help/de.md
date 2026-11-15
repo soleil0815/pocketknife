@@ -915,6 +915,19 @@ Neue Dateien in einem benutzten Paketordner sind erlaubt (z. B. eine zusätzlich
 
 **Mandanten:** OU-Admins sehen und bearbeiten nur den Ordner ihres Mandanten; den Ordner selbst können sie nicht umbenennen, verschieben oder löschen. Darf ein Mandant eigene Pakete bauen und hat noch keinen Repository-Ordner, legt POCKET KNIFE **`Mandanten\<Name>`** selbst an – ein Ordner je Mandant, alle seine Admins teilen ihn; darunter legen sie eigene Unterordner an. Zwei Mandanten können sich keinen Ordner teilen (auch nicht ineinander verschachtelt). Das Repository und sein Server bleiben OU-Admins verborgen.
 
+
+## Texteditor {#repo-editor}
+
+Text- und Skriptdateien im Repository (`.ps1`, `.cmd`, `.bat`, `.vbs`, `.reg`, `.ini`, `.inf`, `.xml`, `.json`, `.txt` … bis 2 MB) lassen sich direkt im Browser ändern (ab 2.49.0): **Klick auf den Dateinamen** oder Rechtsklick → **Bearbeiten (Texteditor)**.
+
+- **Kein Bruch:** Eine Änderung im Editor ist eine bewusste Änderung. Beim Speichern bestätigt POCKET KNIFE den neuen Inhalt sofort für die Bruchprüfung (mit dem genauen Fingerabdruck dessen, was es geschrieben hat) und aktualisiert die Kennzeichen der Pakete, die die Datei benutzen. Oben im Editor steht, welche Pakete das sind. Wurde die Datei vorher schon außerhalb von POCKET KNIFE geändert, sagt der Editor das – gespeichert und bestätigt wird dann der Inhalt aus dem Editor.
+- **Kodierung und Zeilenende bleiben**, wie sie waren (UTF-8 mit/ohne BOM, UTF-16, ANSI; CRLF/LF) – oder lassen sich bewusst umstellen. Bei PowerShell-Skripten mit Umlauten in UTF-8 **ohne** BOM weist der Editor darauf hin, dass Windows PowerShell 5.1 sie falsch liest (Empfehlung: UTF-8 mit BOM).
+- **Nichts wird überschrieben, was jemand anderes inzwischen geändert hat:** Hat sich die Datei seit dem Öffnen geändert, speichert der Editor nicht und bietet an, den eigenen Text zu kopieren.
+- **Frühere Fassungen:** Vor jedem Speichern wird die bisherige Fassung aufbewahrt (die letzten 10 je Datei). **Frühere Fassungen** lädt eine davon in den Editor – übernommen wird sie erst mit **Speichern**.
+- Bedienung: **Strg+S** speichert, **Tab**/**Umschalt+Tab** rückt ein und aus, Zeilennummern links.
+- OU-Admins bearbeiten nur Dateien in ihrem Mandantenordner und nur Dateitypen, die sie auch hochladen dürfen; Dateien in Ordnern, die ein zentrales Paket oder ein anderer Mandant benutzt, nicht.
+- Jede Änderung steht im Protokoll (Datei, Kodierung, Fingerabdruck, betroffene Pakete).
+
 ## Repository umstrukturieren {#restructure}
 
 Ein gewachsenes Repository vor der Einführung von Mandantenordnern aufräumen – Hauptadmins, Knopf **Repository umstrukturieren …** oben rechts. Empfohlene Struktur: ein Ordner für die zentralen Pakete (z. B. `Zentral`) und `Mandanten` mit je einem Unterordner pro Mandant.
@@ -1498,6 +1511,7 @@ Unter **Einstellungen → Wartung → Diagnosepaket** erstellt POCKET KNIFE ein 
 | `leistung.json` – Ergänzungen ab 2.44.4 | Dauer jeder Seite/Abfrage seit dem Start (Median, 95 %, Maximum), Größe der Scan-Ergebnisse je Bereich (ein Bereich über 5 MB steht zusätzlich als Warnung im Protokoll), Datenbank je Tabelle und Begleitdatei (WAL), Fernsitzungen (Dauer, Datenmenge, wodurch beendet), Hintergrundaufgaben mit Fehlern, letzte tägliche Läufe |
 | `inventar.json` (ab 2.44.4) | Scan-Fehler je Bereich, winget-Zuordnung (sicher/unsicher, veraltet, MSIX), Clients je PowerShell-Version, Sprachmodus (ConstrainedLanguage = Softwareeinschränkung) und winget |
 | Ergänzungen ab 2.48.2 | `statistik.json`: **Ketten** (mehrere Pakete nacheinander – Anzahl, mit „Bei Fehler abbrechen“, wegen der Kette übersprungene und gerade wartende Ziele); `bereitstellungen.csv`: Kette und Position; `inventar.json`: Clients je Edition, ESU, Entra-ID-Beitritt, MDM, Virtualisierung, Office Klick-und-Los, Secure Boot, SMB1 … (nur Anzahlen, nie der Entra-Mandant), **Gruppenrichtlinien-Verlauf und gpresult seit dem Start** (Aufrufe, Fehler, Dauer und Auswertungsqualität, z. B. Verarbeitungen ohne GPO-Liste oder unbekannte Einstellungsarten – nie Computer-, Benutzer- oder GPO-Namen), Tools je Typ und gpupdate-Zeilen ohne Antwort |
+| Ergänzungen ab 2.49.0 | `statistik.json`: Änderungen im **Texteditor** des Repositorys (aufbewahrte Fassungen, Dateien, Kodierungen – nie Inhalte oder Pfade) |
 | `protokoll.csv`, `fehler.txt` | Protokoll des Zeitraums, Warnungen und Fehler gesondert |
 | `bereitstellungen.csv`, `fehlgeschlagen.json` | Bereitstellungen; bei Fehlschlägen das Ende der Ausgabe (höchstens 3000 Zeichen je Schritt) |
 | `scans.csv` | Scan-Läufe mit Dauer und Ergebnis |

@@ -490,6 +490,10 @@ ROUTES = {
     # 2.27: repository view - handler (repofiles.need_scope) allows only the own tenant folder
     ("GET", "/api/repository/info"): _p_repo,
     ("GET", "/api/repository/usage"): _p_repo,
+    ("GET", "/api/repository/text"): _p_repo,           # 2.49.0: text editor
+    ("POST", "/api/repository/text"): _p_repo,
+    ("GET", "/api/repository/text/history"): _p_repo,
+    ("GET", "/api/repository/text/version"): _p_repo,
     ("POST", "/api/repository/mkdir"): _p_repo,
     ("POST", "/api/repository/rename"): _p_repo,
     ("POST", "/api/repository/move"): _p_repo,

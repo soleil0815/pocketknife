@@ -739,3 +739,11 @@ fieldset.ro input, fieldset.ro select, fieldset.ro textarea, fieldset.ro button 
 
 /* 2.39.4: a dialog is loading (e.g. collection with its computer list) - visible feedback instead of clicking again */
 body.pk-busy, body.pk-busy * { cursor: progress !important; }
+
+/* 2.49.0: text editor in the repository */
+.code-box { display: flex; border: 1px solid var(--line); border-radius: 6px; height: min(64vh, 680px); overflow: hidden; background: var(--panel); }
+.code-gutter { flex: none; padding: 8px 6px 8px 10px; min-width: 3.2em; text-align: right; color: var(--muted); background: var(--panel-2, var(--bg));
+  border-right: 1px solid var(--line); overflow: hidden; white-space: pre; font: 12.5px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; user-select: none; }
+.code-edit { flex: 1; border: 0 !important; border-radius: 0 !important; resize: none; padding: 8px 10px; margin: 0; outline: none; tab-size: 4;
+  white-space: pre; overflow: auto; font: 12.5px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; background: transparent; color: var(--text, inherit); }
+.alert.info { background: var(--info-soft, rgba(37,99,235,.08)); border: 1px solid var(--line); border-radius: 6px; padding: 8px 12px; }

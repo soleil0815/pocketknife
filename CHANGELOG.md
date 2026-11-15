@@ -2,6 +2,20 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.49.0 (15.11.2026)
+- **New - text editor in the repository:** text and script files (.ps1, .cmd, .bat, .vbs, .reg, .ini, .inf, .xml, .json, .txt … up to 2 MB) open with a click on the name or right-click → "Bearbeiten (Texteditor)"
+  - **no break:** saving confirms the new content for the integrity check right away with the exact fingerprint of what POCKET KNIFE wrote (no recomputing), refreshes the identifiers of the packages that use the file (duplicate lock) and rechecks them; the editor shows which packages use the file and whether it was already changed outside POCKET KNIFE
+  - encoding (UTF-8 with/without BOM, UTF-16 LE/BE, ANSI) and line endings (CRLF/LF) are kept or can be changed on purpose; characters the chosen encoding cannot hold are refused; hint for PowerShell scripts with umlauts in UTF-8 without BOM (Windows PowerShell 5.1 reads them as ANSI)
+  - conflict check: if the file changed since it was opened, nothing is overwritten (HTTP 409, offer to copy the text)
+  - written to a temporary file first and swapped in; the old file is restored if swapping fails
+  - earlier versions: the previous content is kept before every save (compressed, last 10 per file) and can be loaded back into the editor
+  - line numbers, Ctrl+S, Tab/Shift+Tab indentation, asks before discarding changes
+  - OU admins: only in their tenant folder, only file types they may upload, never in folders used by a central package or another tenant
+  - every change is logged (file, encoding, fingerprint, affected packages)
+- Diagnostic package: changes in the text editor (kept versions, files, encodings - never contents or paths)
+- Help (de/en) and manual PDFs updated
+- **Self-test:** encodings and line endings round trip, binary/oversized/unknown files refused, integrity state confirmed without break, identifiers refreshed, conflict, file changed outside POCKET KNIFE, version history limit, encoding change and refusal, PowerShell BOM hint, OU scope, API 409, diagnostic package, same file types in browser and server
+
 ## pocketknife-2.48.2 (15.11.2026)
 - **Diagnostic package up to date with the program** (everything since 2.45):
   - `statistik.json`: chains (several packages one after another, 2.46) - number of chains, with "stop on failure", from schedules, targets skipped because of the chain, targets waiting right now, deployments with tenant/target label

@@ -2858,6 +2858,32 @@ def _repo_call(user, fn, *a, **kw):
         raise
 
 
+# 2.49.0: text editor for script and text files (integrity check takes over the new state)
+@app.get("/api/repository/text")
+def api_repository_text(path: str, user=U):
+    from . import repoedit
+    return _repo_call(user, repoedit.read, user, path)
+
+
+@app.post("/api/repository/text")
+def api_repository_text_save(data: dict = Body(...), user=U):
+    from . import repoedit
+    return _repo_call(user, repoedit.save, user, str(data.get("path") or ""), data.get("text"), data.get("sha256"),
+                      encoding=data.get("encoding") or None, newline=data.get("newline") or None)
+
+
+@app.get("/api/repository/text/history")
+def api_repository_text_history(path: str, user=U):
+    from . import repoedit
+    return _repo_call(user, repoedit.history, user, path)
+
+
+@app.get("/api/repository/text/version")
+def api_repository_text_version(path: str, id: int, user=U):
+    from . import repoedit
+    return _repo_call(user, repoedit.version, user, path, id)
+
+
 @app.post("/api/repository/mkdir")
 def api_repository_mkdir(data: dict = Body(...), user=U):
     if data.get("dirs") is not None:

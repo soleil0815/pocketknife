@@ -7841,6 +7841,155 @@ def _():
         db.ex("DELETE FROM computers WHERE id=?", (cid,))
 
 
+@test("2.49.0 Repository text editor: encodings and line endings kept, conflict check, integrity takes over the new state (no break), earlier versions, OU scope, only text files")
+def _():
+    import hashlib as _hl
+    import tempfile as _tf
+    import time as _time
+    import zipfile as _zf
+    import io as _io
+    from app import deploy, diagnostics, integrity, remote, repoedit, repofiles
+    from app import main as _m
+    from fastapi import HTTPException
+    admin = {"username": "haupt", "scope": None}
+    root = _tf.mkdtemp(prefix="pk-edit-", dir=TMP)
+
+    def w(rel, data):
+        f = os.path.join(root, *rel.split("\\"))
+        os.makedirs(os.path.dirname(f), exist_ok=True)
+        open(f, "wb").write(data)
+        return f
+
+    def rd(rel):
+        return open(os.path.join(root, *rel.split("\\")), "rb").read()
+    ps_raw = "﻿Write-Host 'Grüße'\r\n# Zeile 2\r\n".encode("utf-8")
+    w("Skripte\\install.ps1", ps_raw)
+    w("Skripte\\ansi.cmd", "@echo off\r\necho Größe\r\n".encode("cp1252"))
+    w("Skripte\\unix.ini", b"[a]\nb=1\n")
+    w("Skripte\\utf16.reg", "Windows Registry Editor Version 5.00\r\n\r\n[HKEY_LOCAL_MACHINE\\SOFTWARE\\Ä]\r\n".encode("utf-16"))
+    w("Skripte\\bild.png", b"\x89PNG\r\n\x1a\n\x00\x00")
+    w("Skripte\\binaer.txt", b"MZ\x00\x00\x90")
+    old_repo = db.setting("repo_path")
+    db.set_setting("repo_path", root)
+    remote.repo_cache_clear()
+    pid = None
+    try:
+        # decoding: BOM, ANSI, LF, UTF-16 - shown with "\n", saved back exactly as before
+        for rel, enc, nl in (("Skripte\\install.ps1", "utf-8-sig", "crlf"), ("Skripte\\ansi.cmd", "cp1252", "crlf"),
+                             ("Skripte\\unix.ini", "utf-8", "lf"), ("Skripte\\utf16.reg", "utf-16-le", "crlf")):
+            d = repoedit.read(admin, rel)
+            assert d["encoding"] == enc and d["newline"] == nl and "\r" not in d["text"], (rel, d["encoding"], d["newline"])
+            assert d["sha256"] == _hl.sha256(rd(rel)).hexdigest()
+            raw = rd(rel)
+            assert repoedit.encode(d["text"], enc, "\r\n" if nl == "crlf" else "\n") == raw, f"round trip unchanged: {rel}"
+        assert "Größe" in repoedit.read(admin, "Skripte\\ansi.cmd")["text"]
+        for bad in ("Skripte\\bild.png", "Skripte\\binaer.txt", "Skripte\\gibtsnicht.ps1", "..\\x.ps1"):
+            try:
+                repoedit.read(admin, bad)
+                raise AssertionError(f"must be refused: {bad}")
+            except repofiles.RepoError:
+                pass
+        # a package uses the script: confirmed state, then edit -> no break, exact fingerprint, identifiers refreshed
+        v = _m._pkg_values({"name": "Edit-Skript", "steps": {"main": [{"type": "install", "source": "file", "folder": "Skripte",
+                                                                       "install_file": "install.ps1", "install_type": "ps1"}]}}, user=admin)
+        cols = deploy.PKG_FIELDS + ["created_at", "updated_at"]
+        pid = db.ex(f"INSERT INTO packages({', '.join(cols)}) VALUES({', '.join('?' * len(cols))})",
+                    tuple(v[k] for k in deploy.PKG_FIELDS) + (util.now(), util.now()))
+        assert integrity.check_package(pid, queue_new=True)["state"] == "ok"
+        integrity.process_queue(seconds=30)
+        d = repoedit.read(admin, "Skripte\\install.ps1")
+        assert d["used_by"] == ["Paket „Edit-Skript“"] and not d["differs"], d
+        _time.sleep(1.1)
+        r = repoedit.save(admin, "Skripte\\install.ps1", d["text"] + "Write-Host 'neu'\n", d["sha256"])
+        new = rd("Skripte\\install.ps1")
+        assert new == ps_raw + b"Write-Host 'neu'\r\n", new
+        assert r["sha256"] == _hl.sha256(new).hexdigest() and r["confirmed"] and r["encoding"] == "utf-8-sig", r
+        b = db.q1("SELECT * FROM repo_baseline WHERE path=?", ("skripte\\install.ps1",))
+        assert b["sha256"] == r["sha256"] and b["size"] == len(new) and "(Editor)" in b["confirmed_by"], b
+        assert integrity.check_package(pid)["state"] == "ok", "no break after an edit in POCKET KNIFE"
+        assert db.val("SELECT sha256 FROM repo_hash WHERE path='skripte\\install.ps1'") == r["sha256"]
+        ids, _p = repofiles.idents(deploy.row_to_package(db.q1("SELECT * FROM packages WHERE id=?", (pid,))))
+        assert ("sha256", r["sha256"]) in ids, "duplicate lock knows the new fingerprint"
+        assert "im Editor geändert" in (db.val("SELECT message FROM logs WHERE category='repo' ORDER BY id DESC LIMIT 1") or "")
+        assert not [x for x in os.listdir(os.path.join(root, remote.UPLOAD_DIR)) if x.startswith("edit-")], "no temporary files left"
+        # conflict: loaded content is no longer current -> nothing is overwritten
+        try:
+            repoedit.save(admin, "Skripte\\install.ps1", "kaputt", d["sha256"])
+            raise AssertionError("conflict expected")
+        except repofiles.RepoError as e:
+            assert e.info.get("conflict") and e.info.get("status") == 409, e.info
+        assert rd("Skripte\\install.ps1") == new
+        # changed outside POCKET KNIFE -> the editor says so (and saving confirms the editor's content)
+        w("Skripte\\install.ps1", new + b"# extern\r\n")
+        integrity.process_queue(seconds=5)
+        d2 = repoedit.read(admin, "Skripte\\install.ps1")
+        assert d2["differs"] and integrity.check_package(pid)["state"] in ("broken", "warn"), d2
+        repoedit.save(admin, "Skripte\\install.ps1", d2["text"], d2["sha256"], encoding="utf-8-sig", newline="crlf")  # unchanged -> nothing
+        r2 = repoedit.save(admin, "Skripte\\install.ps1", d2["text"].replace("# extern\n", ""), d2["sha256"])
+        assert integrity.check_package(pid)["state"] == "ok" and rd("Skripte\\install.ps1") == new, r2
+        # earlier versions: kept compressed, at most 10, loadable
+        hs = repoedit.history(admin, "Skripte\\install.ps1")
+        assert len(hs) == 2 and hs[0]["user"] == "haupt", hs
+        assert repoedit.version(admin, "Skripte\\install.ps1", hs[-1]["id"])["text"] == d["text"]
+        for i in range(12):
+            cur = repoedit.read(admin, "Skripte\\unix.ini")
+            repoedit.save(admin, "Skripte\\unix.ini", cur["text"] + f"x{i}=1\n", cur["sha256"])
+        assert len(repoedit.history(admin, "Skripte\\unix.ini")) == repoedit.HISTORY_KEEP
+        assert rd("Skripte\\unix.ini").endswith(b"x11=1\n") and b"\r" not in rd("Skripte\\unix.ini"), "LF stays LF"
+        # change encoding on purpose; characters that ANSI cannot hold are refused
+        cur = repoedit.read(admin, "Skripte\\ansi.cmd")
+        repoedit.save(admin, "Skripte\\ansi.cmd", cur["text"], cur["sha256"], encoding="utf-8-sig")
+        assert rd("Skripte\\ansi.cmd").startswith(b"\xef\xbb\xbf@echo off\r\n")
+        cur = repoedit.read(admin, "Skripte\\ansi.cmd")
+        try:
+            repoedit.save(admin, "Skripte\\ansi.cmd", cur["text"] + "😀", cur["sha256"], encoding="cp1252")
+            raise AssertionError("emoji in ANSI must be refused")
+        except repofiles.RepoError as e:
+            assert "UTF-8" in str(e)
+        # hint: PowerShell 5.1 + UTF-8 without BOM + umlauts
+        w("Skripte\\ohnebom.ps1", "Write-Host 'Grüße'\r\n".encode("utf-8"))
+        assert "BOM" in repoedit.read(admin, "Skripte\\ohnebom.ps1")["hint"]
+        assert repoedit.read(admin, "Skripte\\unix.ini")["hint"] == ""
+        # OU admin: only in their tenant folder
+        tid = db.ex("INSERT INTO tenants(name, repo_folder, allow_packages, created_at) VALUES('Edit-Mandant', 'Mandanten\\Edit', 1, ?)", (util.now(),))
+        import app.access as _acc
+        _acc.flush()
+        w("Mandanten\\Edit\\a.ps1", b"Write-Host 1\r\n")
+        ou = {"username": "ou1", "scope": [tid], "role": "admin"}
+        try:
+            assert repoedit.read(ou, "Mandanten\\Edit\\a.ps1")["text"] == "Write-Host 1\n"
+            for bad in ("Skripte\\install.ps1", "Mandanten\\Anders\\x.ps1"):
+                try:
+                    repoedit.read(ou, bad)
+                    raise AssertionError(f"OU admin outside the own folder: {bad}")
+                except repofiles.RepoError:
+                    pass
+        finally:
+            db.ex("DELETE FROM tenants WHERE id=?", (tid,))
+            _acc.flush()
+        # API: conflict as 409 with the current fingerprint
+        try:
+            _m.api_repository_text_save({"path": "Skripte\\unix.ini", "text": "x", "sha256": "0" * 64}, user=admin)
+            raise AssertionError("409 expected")
+        except HTTPException as e:
+            assert e.status_code == 409 and e.detail["conflict"], e.detail
+        assert ("POST", "/api/repository/text") in __import__("app.access", fromlist=["ROUTES"]).ROUTES
+        # diagnostic package: edits counted, contents never
+        z = _zf.ZipFile(_io.BytesIO(diagnostics.build(1, True)[0]))
+        ed = json.loads(z.read("statistik.json"))["zeitraum"]["repo_edits"]
+        assert ed["edits"] >= 13 and ed["files"] >= 3, ed  # earlier versions kept (at most 10 per file)
+        assert "Grüße" not in "\n".join(z.read(n).decode("utf-8", "replace") for n in z.namelist())
+        js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
+        srv = {x.strip(" '") for x in js[js.index("const REPO_TEXT_EXT = new Set(["):js.index("]);", js.index("const REPO_TEXT_EXT"))].split("[", 1)[1].replace("\n", "").split(",")}
+        assert srv == repoedit.TEXT_EXT, "browser and server know the same file types"
+    finally:
+        if pid:
+            db.ex("DELETE FROM packages WHERE id=?", (pid,))
+        db.ex("DELETE FROM repo_edits")
+        db.set_setting("repo_path", old_repo or "")
+        remote.repo_cache_clear()
+
+
 @test("2.46.1 gpupdate in tools never waits for \"log off / restart? (J/N)\": always \"N\" (cmd and PowerShell, new and existing tools, built-in tool says so in the output)")
 def _():
     import subprocess as _sp

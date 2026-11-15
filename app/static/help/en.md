@@ -915,6 +915,19 @@ New files in a used package folder are allowed (e.g. an additional configuration
 
 **Tenants:** OU admins see and edit only their tenant's folder; they cannot rename, move or delete the folder itself. If a tenant may build its own packages and has no repository folder yet, POCKET KNIFE creates **`Mandanten\<Name>`** itself – one folder per tenant, shared by all its admins; below it they create their own subfolders. Two tenants can never share a folder (not even nested). The repository and its server stay hidden from OU admins.
 
+
+## Text editor {#repo-editor}
+
+Text and script files in the repository (`.ps1`, `.cmd`, `.bat`, `.vbs`, `.reg`, `.ini`, `.inf`, `.xml`, `.json`, `.txt` … up to 2 MB) can be changed directly in the browser (from 2.49.0): **click the file name** or right-click → **Edit (text editor)**.
+
+- **No break:** a change in the editor is a deliberate change. When saving, POCKET KNIFE confirms the new content for the integrity check right away (with the exact fingerprint of what it wrote) and refreshes the identifiers of the packages that use the file. The top of the editor shows which packages these are. If the file was already changed outside POCKET KNIFE, the editor says so – the content from the editor is then saved and confirmed.
+- **Encoding and line endings stay** as they were (UTF-8 with/without BOM, UTF-16, ANSI; CRLF/LF) – or can be changed on purpose. For PowerShell scripts with umlauts in UTF-8 **without** BOM the editor points out that Windows PowerShell 5.1 reads them wrongly (recommendation: UTF-8 with BOM).
+- **Nothing that someone else changed meanwhile is overwritten:** if the file changed since it was opened, the editor does not save and offers to copy your text.
+- **Earlier versions:** before every save the previous version is kept (the last 10 per file). **Earlier versions** loads one into the editor – it is only taken over with **Save**.
+- Usage: **Ctrl+S** saves, **Tab**/**Shift+Tab** indents and outdents, line numbers on the left.
+- OU admins only edit files in their tenant folder and only file types they may upload; not files in folders that a central package or another tenant uses.
+- Every change is in the log (file, encoding, fingerprint, affected packages).
+
 ## Restructure the repository {#restructure}
 
 Tidy up a grown repository before introducing tenant folders – main admins, button **Restructure repository …** at the top right. Recommended structure: one folder for the central packages (e.g. `Zentral`) and `Mandanten` with one subfolder per tenant.
@@ -1498,6 +1511,7 @@ Under **Settings → Maintenance → Diagnostics package**, POCKET KNIFE creates
 | `leistung.json` – additions from 2.44.4 | duration of every page/query since start (median, 95 %, maximum), size of the scan results per area (an area over 5 MB is also logged as a warning), database per table and log file (WAL), remote sessions (duration, data, how they ended), background tasks with errors, last daily runs |
 | `inventar.json` (from 2.44.4) | scan errors per area, winget assignment (sure/unsure, outdated, MSIX), clients per PowerShell version, language mode (ConstrainedLanguage = software restriction) and winget |
 | additions from 2.48.2 | `statistik.json`: **chains** (several packages one after another – count, with "stop on failure", targets skipped because of the chain and targets waiting right now); `bereitstellungen.csv`: chain and position; `inventar.json`: clients per edition, ESU, Entra ID join, MDM, virtualization, Office Click-to-Run, Secure Boot, SMB1 … (counts only, never the Entra tenant), **Group Policy history and gpresult since start** (calls, errors, duration and parse quality, e.g. runs without a GPO list or unknown setting kinds – never computer, user or GPO names), tools per type and gpupdate lines without an answer |
+| additions from 2.49.0 | `statistik.json`: changes in the repository **text editor** (kept versions, files, encodings – never contents or paths) |
 | `protokoll.csv`, `fehler.txt` | log of the period, warnings and errors separately |
 | `bereitstellungen.csv`, `fehlgeschlagen.json` | deployments; for failures the end of the output (at most 3000 characters per step) |
 | `scans.csv` | scan runs with duration and result |

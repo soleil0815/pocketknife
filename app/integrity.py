@@ -744,6 +744,28 @@ def _confirm(k, c, user, now):
     return 1
 
 
+def confirm_written(rel, size, mtime, sha, user):
+    """2.49.0: POCKET KNIFE itself wrote this content (text editor) - it is the confirmed state right away, with the
+    exact fingerprint (no recomputing, no "break"). Only for files the integrity check knows (or inside a confirmed
+    package folder). Returns True if a state was confirmed."""
+    k = key(rel)
+    now = util.now()
+    known = db.val("SELECT 1 FROM repo_baseline WHERE path=?", (k,))
+    if not known:
+        parts = k.split("\\")
+        known = any(db.val("SELECT 1 FROM repo_baseline_dirs WHERE path=?", ("\\".join(parts[:i]),)) for i in range(1, len(parts)))
+    if not known:
+        return False
+    db.ex("""INSERT INTO repo_baseline(path, disp, size, mtime, sha256, confirmed_at, confirmed_by, cur_size, cur_mtime, cur_sha256, cur_at, full_at)
+             VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(path) DO UPDATE SET disp=excluded.disp, size=excluded.size, mtime=excluded.mtime,
+             sha256=excluded.sha256, confirmed_at=excluded.confirmed_at, confirmed_by=excluded.confirmed_by, cur_size=excluded.cur_size,
+             cur_mtime=excluded.cur_mtime, cur_sha256=excluded.cur_sha256, cur_at=excluded.cur_at, full_at=excluded.full_at""",
+          (k, norm(rel), size, mtime, sha, now, f"{user} (Editor)", size, mtime, sha, now, now))
+    with _q_lock:
+        _hash_queue.pop(k, None)
+    return True
+
+
 def after_save(pid):
     """After saving a package: record the state of new files and check them (in the background); the hashes
     of the newly recorded files are computed by the single background worker, throttled."""
