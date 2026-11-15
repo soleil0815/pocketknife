@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.50.0",
+   "date": "2026-11-15",
+   "items": [
+    {
+     "kind": "improved",
+     "audience": "all",
+     "de": "Neues Aussehen aus einem Guss mit den anderen Programmen: Schriften Inter und IBM Plex Mono (eingebaut), ruhige Flächen, runde Karten und Dialoge, die Navigation folgt hell/dunkel dem System. Rot bleibt die Farbe von POCKET KNIFE.",
+     "en": "New look matching the other programs: fonts Inter and IBM Plex Mono (built in), calm surfaces, rounded cards and dialogs, the sidebar follows light/dark of the system. Red stays the colour of POCKET KNIFE."
+    }
+   ]
+  },
+  {
    "version": "2.49.0",
    "date": "2026-11-15",
    "items": [

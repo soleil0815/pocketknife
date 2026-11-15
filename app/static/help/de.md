@@ -3,7 +3,7 @@
 
 # Überblick {#overview}
 
-POCKET KNIFE ist eine Webanwendung, die Windows-Computer einer Active-Directory-Domäne (Microsoft AD oder Samba AD) inventarisiert und Software auf ihnen installiert, aktualisiert und entfernt. Sie läuft als Docker-Container; alle Daten liegen in einer SQLite-Datenbank im Datenverzeichnis `/data`. Die Oberfläche lädt nichts aus dem Internet – keine Schriften, Skripte oder Bilder von fremden Servern.
+POCKET KNIFE ist eine Webanwendung, die Windows-Computer einer Active-Directory-Domäne (Microsoft AD oder Samba AD) inventarisiert und Software auf ihnen installiert, aktualisiert und entfernt. Sie läuft als Docker-Container; alle Daten liegen in einer SQLite-Datenbank im Datenverzeichnis `/data`. Die Oberfläche lädt nichts aus dem Internet – keine Schriften, Skripte oder Bilder von fremden Servern (die Schriften Inter und IBM Plex Mono sind eingebaut).
 
 Webseite: [helfi.space](https://helfi.space)
 

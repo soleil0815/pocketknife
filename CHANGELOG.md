@@ -2,6 +2,15 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.50.0 (15.11.2026)
+- **Same look as the other programs** (WhatsOnMyNet, Helfi.Space, AssetLotse, Catalytix) - red stays the colour of POCKET KNIFE:
+  - fonts **Inter** (text) and **IBM Plex Mono** (code, paths, scripts, command output) - built in, nothing loaded from the internet (SIL Open Font License, `app/static/fonts/OFL.txt`)
+  - calm grey surfaces with hairlines and soft shadows, rounded cards (14 px) and dialogs (18 px), filled buttons, inputs with a soft focus ring, segmented tabs and switches, pill badges, translucent notifications, blurred dialog background
+  - the sidebar follows the theme: light and translucent in the light theme, dark in the dark theme (system setting unless chosen); active menu item as a soft red pill instead of a bar
+  - text 14 px (tables 13.5 px), page titles bolder; the kiosk header and the login page in the same style
+- README/help: fonts are built in
+- **Self-test:** fonts present and real WOFF2 files, every url() in the stylesheets is a local file (no internet, no @import), sidebar colours follow the theme, CSP allows only own fonts
+
 ## pocketknife-2.49.0 (15.11.2026)
 - **New - text editor in the repository:** text and script files (.ps1, .cmd, .bat, .vbs, .reg, .ini, .inf, .xml, .json, .txt … up to 2 MB) open with a click on the name or right-click → "Bearbeiten (Texteditor)"
   - **no break:** saving confirms the new content for the integrity check right away with the exact fingerprint of what POCKET KNIFE wrote (no recomputing), refreshes the identifiers of the packages that use the file (duplicate lock) and rechecks them; the editor shows which packages use the file and whether it was already changed outside POCKET KNIFE
