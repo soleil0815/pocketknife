@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.51.0",
+   "date": "2026-11-16",
+   "items": [
+    {
+     "kind": "improved",
+     "audience": "admin",
+     "de": "Sauber auf den Clients: Scan, Verteilung, Benachrichtigung, gpupdate und BitLocker erzeugen keine Warnungen mehr im PowerShell-Protokoll (Ereignis 4104). Geplante Aufgaben und BitLocker laufen direkt über CIM statt über Windows-Module, PowerShell startet ohne „Bypass“.",
+     "en": "Clean on the clients: scan, deployment, notification, gpupdate and BitLocker no longer leave warnings in the PowerShell log (event 4104). Scheduled tasks and BitLocker go directly through CIM instead of Windows modules, PowerShell starts without \"Bypass\"."
+    }
+   ]
+  },
+  {
    "version": "2.50.2",
    "date": "2026-11-15",
    "items": [

@@ -119,8 +119,8 @@ if (-not $d.compat) {
   # Did the user deliberately disable POCKET KNIFE in "Benachrichtigungen"? Then do NOT fall back to another
   # sender. "Im Benachrichtigungscenter anzeigen" off → the message came, it just is not in the history.
   $st = Get-ItemProperty -Path ($ns + $d.appid) -ErrorAction SilentlyContinue
-  if ($st -and $st.PSObject.Properties['Enabled'] -and $st.Enabled -eq 0) { Done 12 }
-  if (-not $threw -and $st -and $st.PSObject.Properties['ShowInActionCenter'] -and $st.ShowInActionCenter -eq 0) { Done 11 }
+  if ($st -and $null -ne $st.Enabled -and $st.Enabled -eq 0) { Done 12 }
+  if (-not $threw -and $st -and $null -ne $st.ShowInActionCenter -and $st.ShowInActionCenter -eq 0) { Done 11 }
 }
 # Fallback: sender "Windows PowerShell" - always registered in Windows
 Allow $d.psid
@@ -186,45 +186,37 @@ if ($have -ne '__SCRIPTHASH__') {   # checksum: even pure upper/lower-case chang
 $id = (Get-Date).ToString('yyMMddHHmm') + [guid]::NewGuid().ToString('N').Substring(0, 8)
 $build = [int](Get-CimInstance Win32_OperatingSystem).BuildNumber
 $pse = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-# Start method per user: normally -File (the script is under "Program Files" - there AppLocker/WDAC allows it even in
-# Constrained Language Mode; an encoded command would run restricted there and fail, 2.24.4). Only if a
-# group policy sets the execution policy to AllSigned/Restricted (then "-ExecutionPolicy Bypass" does not help
-# with -File), a short encoded starter that reads the script from "Program Files".
+__PSTASKS__
+# Start per user with -File (the script is under "Program Files" - there AppLocker/WDAC allows it even in Constrained
+# Language Mode). 2.51.0: if a group policy sets the execution policy to AllSigned/Restricted, the message is not
+# shown (result 15) - no encoded starter around the policy any more: that is exactly what monitoring software reports.
 function GpoPolicy($sid) {
   $m = Get-ItemProperty 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell' -ErrorAction SilentlyContinue
   $u = $null
   if ($sid) { $u = Get-ItemProperty ('Registry::HKEY_USERS\' + $sid + '\Software\Policies\Microsoft\Windows\PowerShell') -ErrorAction SilentlyContinue }
   foreach ($p in @($m, $u)) {
-    if ($p -and $p.PSObject.Properties['EnableScripts']) {
+    if ($p -and $null -ne $p.EnableScripts) {
       if ($p.EnableScripts -eq 0) { return 'Restricted' }
-      if ($p.PSObject.Properties['ExecutionPolicy']) { return [string]$p.ExecutionPolicy }
+      if ($null -ne $p.ExecutionPolicy) { return [string]$p.ExecutionPolicy }
     }
   }
   return ''
 }
-function Action($sid, $rid) {
-  $pol = GpoPolicy $sid
-  if (($pol -eq 'AllSigned' -or $pol -eq 'Restricted') -and $ExecutionContext.SessionState.LanguageMode -eq 'FullLanguage') {
-    $start = "& ([ScriptBlock]::Create([IO.File]::ReadAllText('" + ($ps -replace "'", "''") + "'))) '__DATA__' '" + $rid + "'; exit 1"
-    $a0 = '-NoLogo -NonInteractive -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -EncodedCommand ' +
-      [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($start))
-  } else {
-    $a0 = '-NoLogo -NonInteractive -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $ps + '" __DATA__ ' + $rid
-  }
-  if ($build -ge 18362) { return New-ScheduledTaskAction -Execute (Join-Path $env:SystemRoot 'System32\conhost.exe') -Argument ('--headless "' + $pse + '" ' + $a0) }
-  return New-ScheduledTaskAction -Execute $pse -Argument $a0
+function TaskXml($u, $rid) {
+  $a0 = '-NoLogo -NonInteractive -NoProfile -ExecutionPolicy Unrestricted -WindowStyle Hidden -File "' + $ps + '" __DATA__ ' + $rid
+  if ($build -ge 18362) { return PK-TaskXml (Join-Path $env:SystemRoot 'System32\conhost.exe') ('--headless "' + $pse + '" ' + $a0) '' 'limited' $u 2 }
+  return PK-TaskXml $pse $a0 '' 'limited' $u 2
 }
-$set = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes 2)
-$n = 0; $ok = 0; $sids = @{}
+$n = 0; $ok = 0; $sids = @{}; $nopol = @{}
 try {
   foreach ($u in $users) {
     $n++
     $sids[$n] = [string]$usid[$u]
+    $pol = GpoPolicy $sids[$n]
+    if ($pol -eq 'AllSigned' -or $pol -eq 'Restricted') { $nopol[$n] = $true; continue }
     try {
-      $act = Action $sids[$n] ('PK' + $id + '_' + $n)
-      $pr = New-ScheduledTaskPrincipal -UserId $u -LogonType Interactive -RunLevel Limited
-      Register-ScheduledTask -TaskName ('PK_Toast_' + $id + '_' + $n) -TaskPath '\POCKETKNIFE\' -Action $act -Principal $pr -Settings $set -Force | Out-Null
-      Start-ScheduledTask -TaskName ('PK_Toast_' + $id + '_' + $n) -TaskPath '\POCKETKNIFE\'
+      PK-TaskRegister ('PK_Toast_' + $id + '_' + $n) '\POCKETKNIFE\' (TaskXml $u ('PK' + $id + '_' + $n))
+      PK-TaskStart ('PK_Toast_' + $id + '_' + $n) '\POCKETKNIFE\'
       $ok++
     } catch { 'PK_TOAST:fail:' + $u + ':' + $_.Exception.Message }
   }
@@ -234,8 +226,8 @@ try {
     if (-not $sids[$k]) { return $null }
     $rk = 'Registry::HKEY_USERS\' + $sids[$k] + '\Software\PocketKnife\Toast'
     $nm = 'PK' + $id + '_' + $k
-    $v = Get-ItemProperty -Path $rk -Name $nm -ErrorAction SilentlyContinue
-    if ($v -and $v.PSObject.Properties[$nm]) { return [int]$v.$nm }
+    $v = Get-ItemPropertyValue -Path $rk -Name $nm -ErrorAction SilentlyContinue
+    if ($null -ne $v) { return [int]$v }
     return $null
   }
   $deadline = (Get-Date).AddSeconds(25)
@@ -243,14 +235,15 @@ try {
     Start-Sleep -Seconds 2
     $open = 0
     foreach ($k in 1..$n) {
-      if ($null -ne (Res $k)) { continue }
-      $ti = Get-ScheduledTaskInfo -TaskName ('PK_Toast_' + $id + '_' + $k) -TaskPath '\POCKETKNIFE\' -ErrorAction SilentlyContinue
+      if ($nopol[$k] -or $null -ne (Res $k)) { continue }
+      $ti = PK-TaskInfo ('PK_Toast_' + $id + '_' + $k) '\POCKETKNIFE\'
       if ($ti -and ($ti.LastTaskResult -eq 267009 -or $ti.LastTaskResult -eq 267011)) { $open++ }
     }
   } while ($open -gt 0 -and (Get-Date) -lt $deadline)
   foreach ($k in 1..$n) {
+    if ($nopol[$k]) { 'PK_TOAST:res:' + $users[$k - 1] + ':15'; continue }   # execution policy by group policy
     $r = Res $k
-    $ti = Get-ScheduledTaskInfo -TaskName ('PK_Toast_' + $id + '_' + $k) -TaskPath '\POCKETKNIFE\' -ErrorAction SilentlyContinue
+    $ti = PK-TaskInfo ('PK_Toast_' + $id + '_' + $k) '\POCKETKNIFE\'
     if ($null -ne $r) {
       'PK_TOAST:res:' + $users[$k - 1] + ':' + $r
       Remove-ItemProperty -Path ('Registry::HKEY_USERS\' + $sids[$k] + '\Software\PocketKnife\Toast') -Name ('PK' + $id + '_' + $k) -ErrorAction SilentlyContinue
@@ -269,17 +262,16 @@ try {
   foreach ($k in 1..$n) {
     if (-not $sids[$k]) { continue }
     $rp = 'Registry::HKEY_USERS\' + $sids[$k] + '\Software\PocketKnife\Toast'
-    $it = Get-ItemProperty -Path $rp -ErrorAction SilentlyContinue   # 2.38.10: value names without .NET (GetValueNames)
+    $it = Get-Item -Path $rp -ErrorAction SilentlyContinue   # 2.38.10: value names without .NET (GetValueNames) - the provider lists them
     if ($it) {
-      foreach ($vn in @($it.PSObject.Properties | ForEach-Object { $_.Name })) {
+      foreach ($vn in @($it.Property)) {
         if ($vn -match '^PK(\d{10})' -and $Matches[1] -lt $old) { Remove-ItemProperty -Path $rp -Name $vn -ErrorAction SilentlyContinue }
       }
     }
   }
 } finally {
   # Started tasks keep running even if the task is deleted
-  Get-ScheduledTask -TaskPath '\POCKETKNIFE\' -ErrorAction SilentlyContinue | Where-Object { $_.TaskName -like ('PK_Toast_' + $id + '_*') } |
-    Unregister-ScheduledTask -Confirm:$false -ErrorAction SilentlyContinue
+  PK-TaskList '\POCKETKNIFE\' ('PK_Toast_' + $id + '_*') | Remove-CimInstance -ErrorAction SilentlyContinue
 }
 'PK_TOAST:sent:' + $ok + ':' + ($users -join ',')
 """
@@ -398,7 +390,7 @@ def build_send_script(items):
     out = (SEND_PS.replace("__ICONHASH__", hashlib.sha256(ico).hexdigest().upper())
            .replace("__ICONBYTES__", ",".join(str(b) for b in ico))
            .replace("__SCRIPTHASH__", hashlib.sha256(_user_ps_bytes()).hexdigest().upper())
-           .replace("__DATA__", b64))
+           .replace("__DATA__", b64).replace("__PSTASKS__", util.PS_TASKS))
     # last: the display script as a text literal (its content is no longer replaced)
     return out.replace("__SCRIPT__", util.psq(USER_PS), 1), data
 
@@ -442,6 +434,8 @@ RESULT_TEXT = {
     14: (False, "Rückmeldung nicht lesbar – das Benutzerkonto ließ sich nicht auflösen (z. B. Entra-ID-/lokales Konto)"),
     13: (False, "Anzeigeskript ist beim Benutzer nicht gestartet – PowerShell ist dort per Richtlinie eingeschränkt "
                 "(Softwareeinschränkung/SRP, AppLocker/WDAC oder Ausführungsrichtlinie). Skripte aus „C:\\Program Files\\PocketKnife“ zulassen."),
+    15: (False, "nicht angezeigt – eine Gruppenrichtlinie erlaubt auf diesem Computer nur signierte bzw. keine PowerShell-Skripte "
+                "(Ausführungsrichtlinie AllSigned/Restricted); POCKET KNIFE umgeht das nicht"),
     12: (False, "nicht angezeigt – der Benutzer hat Benachrichtigungen dieses Absenders in den Windows-Einstellungen "
                 "abgeschaltet (wird respektiert)"),
     1: (False, "Fehler beim Anzeigen in der Benutzersitzung"),

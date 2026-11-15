@@ -2,7 +2,7 @@ English version: [README.en.md](README.en.md)
 
 # POCKET KNIFE
 
-Aktuelle Version: **pocketknife-2.50.2** – siehe `CHANGELOG.md`.
+Aktuelle Version: **pocketknife-2.51.0** – siehe `CHANGELOG.md`.
 
 Webseite: [helfi.space](https://helfi.space)
 
@@ -379,7 +379,7 @@ Unter **Einstellungen → Mandanten** (z. B. Kunden oder Standorte). Pakete und 
 | Prozess beenden | Computer → Prozesse | Vorher „Live vom Computer laden“, damit die Liste aktuell ist |
 | LAPS-Kennwort | Computer → Übersicht → Kennwörter & Schlüssel | Liest `msLAPS-Password` (Windows LAPS) bzw. `ms-Mcs-AdmPwd` (Legacy). Mit Verschlüsselung gespeicherte Windows-LAPS-Kennwörter können nur unter Windows entschlüsselt werden |
 | BitLocker-Schlüssel (AD) | ebenda | Liest die `msFVE-RecoveryInformation`-Objekte unter dem Computerkonto |
-| BitLocker vom Computer | ebenda | Liest die Wiederherstellungskennwörter direkt über WinRM (`Get-BitLockerVolume`) |
+| BitLocker vom Computer | ebenda | Liest die Wiederherstellungskennwörter direkt über WinRM (CIM-Klasse `Win32_EncryptableVolume`) |
 
 Damit das Dienstkonto LAPS-Kennwörter und BitLocker-Schlüssel lesen darf (einmalig, auf die OU der Computer):
 

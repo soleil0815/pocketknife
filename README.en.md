@@ -2,7 +2,7 @@ Deutsche Fassung: [README.md](README.md)
 
 # POCKET KNIFE
 
-Current version: **pocketknife-2.50.2** – see `CHANGELOG.md` (German).
+Current version: **pocketknife-2.51.0** – see `CHANGELOG.md` (German).
 
 Website: [helfi.space](https://helfi.space)
 
@@ -381,7 +381,7 @@ Under **Settings → Tenants** (e.g. customers or sites). Packages and schedules
 | End process | Computer → Processes | First "Load live from computer" so that the list is current |
 | LAPS password | Computer → Overview → Passwords & Keys | Reads `msLAPS-Password` (Windows LAPS) or `ms-Mcs-AdmPwd` (legacy). Windows LAPS passwords stored with encryption can only be decrypted under Windows |
 | BitLocker key (AD) | same place | Reads the `msFVE-RecoveryInformation` objects under the computer account |
-| BitLocker from the computer | same place | Reads the recovery passwords directly via WinRM (`Get-BitLockerVolume`) |
+| BitLocker from the computer | same place | Reads the recovery passwords directly via WinRM (CIM class `Win32_EncryptableVolume`) |
 
 To allow the service account to read LAPS passwords and BitLocker keys (once, on the OU of the computers):
 

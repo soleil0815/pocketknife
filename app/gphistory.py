@@ -33,23 +33,45 @@ function PK-Ev($filter, $max) {{
   try {{ @(Get-WinEvent -FilterHashtable $filter -MaxEvents $max -ErrorAction Stop) }}
   catch {{ if ("$($_.FullyQualifiedErrorId)" -like 'NoMatchingEventsFound*' -or "$($_.Exception.Message)" -like '*No events*') {{ @() }} else {{ throw }} }}
 }}
-function PK-Row($ev, $full) {{
+# 2.51.0: the event values (EventData) from the event XML - the value list of the event objects carries a word
+# PowerShell's script block logging reports as a warning (event 4104). Full language: the XML of the event; Constrained
+# Language (no .NET calls): once per log through wevtutil, matched by record number.
+$pkFull = $ExecutionContext.SessionState.LanguageMode -eq 'FullLanguage'
+function PK-Vals($x) {{
+  $v = @(); foreach ($d in @($x.Event.EventData.Data)) {{ if ($null -eq $d) {{ continue }}; if ($d -is [string]) {{ $v += $d }} else {{ $v += ("" + $d.InnerText) }} }}
+  ,$v
+}}
+function PK-Data($log, $xp, $max) {{
+  $h = @{{}}
+  if ($pkFull) {{ return $h }}
+  $raw = (@(& wevtutil.exe qe $log ('/q:' + $xp) /f:xml ('/c:' + $max) /rd:true 2>$null) -join '')
+  if (-not $raw) {{ return $h }}
+  try {{ $x = [xml]('<r>' + $raw + '</r>') }} catch {{ return $h }}
+  foreach ($n in @($x.r.Event)) {{ $h["" + $n.System.EventRecordID] = PK-Vals @{{ Event = $n }} }}
+  $h
+}}
+function PK-Row($ev, $full, $data) {{
   $m = "" + $ev.Message
   if (-not $full -and $m.Length -gt 600) {{ $m = $m.Substring(0, 600) }}
   if ($m.Length -gt 6000) {{ $m = $m.Substring(0, 6000) }}
-  $p = @(); foreach ($x in @($ev.Properties)) {{ $v = "" + $x.Value; if ($v.Length -gt 300) {{ $v = $v.Substring(0, 300) }}; $p += $v }}
+  $vals = $(if ($pkFull) {{ try {{ PK-Vals ([xml]$ev.ToXml()) }} catch {{ @() }} }} else {{ $data["" + $ev.RecordId] }})
+  $p = @(); foreach ($x in @($vals)) {{ if ($null -eq $x) {{ continue }}; $v = "" + $x; if ($v.Length -gt 300) {{ $v = $v.Substring(0, 300) }}; $p += $v }}
   [ordered]@{{ t = $ev.TimeCreated.ToString('yyyy-MM-ddTHH:mm:ss.fff'); id = [int]$ev.Id; lvl = [int]$ev.Level;
     act = "$($ev.ActivityId)"; src = "$($ev.ProviderName)"; msg = $m; p = $p }}
 }}
 $full = @({", ".join(str(i) for i in FULL_MSG_IDS)})
+$ms = {int(hours) * 3600000}
 $ops = PK-Ev @{{ LogName = 'Microsoft-Windows-GroupPolicy/Operational'; StartTime = $since }} {MAX_EVENTS}
+$opsD = PK-Data 'Microsoft-Windows-GroupPolicy/Operational' ('*[System[TimeCreated[timediff(@SystemTime) <= ' + $ms + ']]]') {MAX_EVENTS}
 $sys = PK-Ev @{{ LogName = 'System'; ProviderName = 'Microsoft-Windows-GroupPolicy'; Level = 1, 2, 3; StartTime = $since }} 300
+$sysD = PK-Data 'System' ("*[System[Provider[@Name='Microsoft-Windows-GroupPolicy'] and (Level=1 or Level=2 or Level=3) and TimeCreated[timediff(@SystemTime) <= " + $ms + ']]]') 300
 # 2.48.0: a failed Group Policy Preferences item (drive, printer, registry ...) is logged as 4098 in the Application log
 $app = PK-Ev @{{ LogName = 'Application'; Id = 4098; StartTime = $since }} 300
+$appD = PK-Data 'Application' ('*[System[EventID=4098 and TimeCreated[timediff(@SystemTime) <= ' + $ms + ']]]') 300
 'PKJSON:' + (ConvertTo-Json -Depth 4 -Compress -InputObject ([ordered]@{{
-  ops = @($ops | ForEach-Object {{ PK-Row $_ ($full -contains [int]$_.Id) }});
-  sys = @($sys | ForEach-Object {{ PK-Row $_ $true }});
-  app = @($app | ForEach-Object {{ PK-Row $_ $true }}) }}))
+  ops = @($ops | ForEach-Object {{ PK-Row $_ ($full -contains [int]$_.Id) $opsD }});
+  sys = @($sys | ForEach-Object {{ PK-Row $_ $true $sysD }});
+  app = @($app | ForEach-Object {{ PK-Row $_ $true $appD }}) }}))
 """
 
 

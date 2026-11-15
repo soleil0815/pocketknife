@@ -14,15 +14,17 @@ Constrained-Language-compatible: only cmdlets, CIM and programs from System32.
 """
 import secrets
 
+from . import util
+
 WAIT_SECONDS = 120  # wait at most this long for the user policies
 
 SCRIPT = r"""$ErrorActionPreference = 'Continue'
 $id = '__ID__'
 $pkTask = '\POCKETKNIFE\'
 $sys = Join-Path $env:SystemRoot 'System32'
-# remove leftovers of earlier runs (aborted, timed out) - running tasks stay
-Get-ScheduledTask -TaskPath $pkTask -ErrorAction SilentlyContinue | Where-Object { $_.TaskName -like 'PK_GP_*' -and $_.State -ne 'Running' } |
-  ForEach-Object { Unregister-ScheduledTask -TaskName $_.TaskName -TaskPath $pkTask -Confirm:$false -ErrorAction SilentlyContinue }
+__PSTASKS__
+# remove leftovers of earlier runs (aborted, timed out) - running tasks stay (2.51.0: CIM, see util.PS_TASKS)
+PK-TaskList $pkTask 'PK_GP_*' | Where-Object { (PK-TaskState $_) -ne 'Running' } | Remove-CimInstance -ErrorAction SilentlyContinue
 # 2.38.10 (Audit): delete with "rd /s /q" - it removes junctions/links themselves and never follows them. Remove-Item -Recurse
 # of Windows PowerShell 5.1 follows junctions: a user who can write in the folder (or created a pk_gp_* folder himself
 # under %SystemRoot%\Temp) could otherwise have arbitrary files deleted with administrator rights.
@@ -57,7 +59,6 @@ $dir = Join-Path $env:SystemRoot ('Temp\pk_gp_' + $id)
 New-Item -ItemType Directory -Path $dir -Force | Out-Null
 $build = 0
 try { $build = [int](Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -ErrorAction Stop).CurrentBuildNumber } catch {}
-$set = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes 5)
 $started = @{}
 $k = 0
 foreach ($u in $users) {
@@ -68,14 +69,10 @@ foreach ($u in $users) {
     & icacls.exe $dir /grant ($u + ':(OI)(CI)M') /Q | Out-Null
     # gpupdate output and exit code go into the folder; "N" answers prompts about logoff/restart
     $c = '/d /v:on /s /c "echo N| gpupdate.exe /target:user /force >"' + $of + '" 2>&1 & (echo !errorlevel!)>"' + $rf + '""'
-    if ($build -ge 18362) {
-      $a = New-ScheduledTaskAction -Execute (Join-Path $sys 'conhost.exe') -Argument ('--headless "' + (Join-Path $sys 'cmd.exe') + '" ' + $c)
-    } else {
-      $a = New-ScheduledTaskAction -Execute (Join-Path $sys 'cmd.exe') -Argument $c
-    }
-    $pr = New-ScheduledTaskPrincipal -UserId $u -LogonType Interactive -RunLevel Limited
-    Register-ScheduledTask -TaskName ('PK_GP_' + $id + '_' + $k) -TaskPath $pkTask -Action $a -Principal $pr -Settings $set -Force -ErrorAction Stop | Out-Null
-    Start-ScheduledTask -TaskName ('PK_GP_' + $id + '_' + $k) -TaskPath $pkTask -ErrorAction Stop
+    if ($build -ge 18362) { $x = PK-TaskXml (Join-Path $sys 'conhost.exe') ('--headless "' + (Join-Path $sys 'cmd.exe') + '" ' + $c) '' 'limited' $u 5 }
+    else { $x = PK-TaskXml (Join-Path $sys 'cmd.exe') $c '' 'limited' $u 5 }
+    PK-TaskRegister ('PK_GP_' + $id + '_' + $k) $pkTask $x
+    PK-TaskStart ('PK_GP_' + $id + '_' + $k) $pkTask
     $started[$k] = $true
   } catch {
     $started[$k] = $false
@@ -105,9 +102,9 @@ foreach ($u in $users) {
   if (Test-Path $rf) {
     $rc = ((Get-Content -LiteralPath $rf -Raw -ErrorAction SilentlyContinue) -replace '\s', '')
     if ($rc -ne '0') { 'FEHLER: gpupdate beim Benutzer endete mit Code ' + $rc }
-    Unregister-ScheduledTask -TaskName ('PK_GP_' + $id + '_' + $i) -TaskPath $pkTask -Confirm:$false -ErrorAction SilentlyContinue
+    PK-TaskRemove ('PK_GP_' + $id + '_' + $i) $pkTask
   } else {
-    $ti = Get-ScheduledTaskInfo -TaskName ('PK_GP_' + $id + '_' + $i) -TaskPath $pkTask -ErrorAction SilentlyContinue
+    $ti = PK-TaskInfo ('PK_GP_' + $id + '_' + $i) $pkTask
     if ($ti -and $ti.LastTaskResult -ne 267009 -and $ti.LastTaskResult -ne 267011 -and $ti.LastTaskResult -ne 0) {
       'FEHLER: Aufgabe in der Sitzung des Benutzers fehlgeschlagen (Code ' + $ti.LastTaskResult + ')'
     } else {
@@ -116,7 +113,7 @@ foreach ($u in $users) {
   }
   ''
 }
-if (-not (Get-ScheduledTask -TaskPath $pkTask -ErrorAction SilentlyContinue | Where-Object { $_.TaskName -like ('PK_GP_' + $id + '_*') })) {
+if (-not (PK-TaskList $pkTask ('PK_GP_' + $id + '_*'))) {
   PK-GpRemove $dir
 }
 """
@@ -126,5 +123,5 @@ def script(run_id=None):
     rid = run_id or secrets.token_hex(4)
     if not rid.isalnum():
         raise ValueError("Ungültige Lauf-ID")
-    return SCRIPT.replace("__ID__", rid).replace("__WAIT__", str(WAIT_SECONDS))
+    return SCRIPT.replace("__ID__", rid).replace("__WAIT__", str(WAIT_SECONDS)).replace("__PSTASKS__", util.PS_TASKS)
 

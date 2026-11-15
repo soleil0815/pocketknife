@@ -256,7 +256,7 @@ if ($global:PKExit -eq -1978335189 -or $global:PKExit -eq -1978335212) {{
 """
     if act:
         body += """
-# Detect Local System without .NET methods (Constrained Language Mode): the user name is then <computer>$
+# Detect Local System without .NET calls (Constrained Language Mode): the user name is then <computer>$
 $pkSys = ($env:USERNAME -eq ($env:COMPUTERNAME + '$')) -or ($env:USERPROFILE -like '*\\systemprofile')
 if ($global:PKExit -eq -1978335140 -and $pkSys) {
   # As Local System, extraction via the Windows shell often fails - retry once with tar.exe
