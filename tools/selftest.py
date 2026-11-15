@@ -455,11 +455,13 @@ def _():
         must_fail(remote.run_as_system, "pc1.firma.local", "x", "1_2_4_ab", 3600, None, "", "deploy", contains="ohne Ergebnis")
         # SYSTEM/user: scheduled task, never with a password; 2.39: only the opt-in service account mode passes one -
         # as a parameter, never in the script text
-        assert remote.REGISTER.count("-Password") == 1 and "-Password $PkPw" in remote.REGISTER and "PKPass" not in remote.REGISTER
+        # 2.51.0: through PK-TaskRegister (CIM RegisterByXml) - the password only in the service account branch
+        assert remote.REGISTER.count("$PkPw") == 1 and "PK-TaskRegister '__TASK__' '\\POCKETKNIFE\\' $pkXml $PkUser $PkPw" in remote.REGISTER \
+            and "PKPass" not in remote.REGISTER
     finally:
         remote.ps, remote.secure_workdir, remote.time.sleep = old
     from app import inventory
-    assert "LogonType)\" -eq 'Password'" in inventory.SCAN_END, "old tasks with a password are removed during the scan"
+    assert "[int]$t.Principal.LogonType -eq 1   # 1 = Password" in inventory.SCAN_END, "old tasks with a password are removed during the scan"
 
 
 @test("2.14 Repository: new server/new share only with the password of the access account")
