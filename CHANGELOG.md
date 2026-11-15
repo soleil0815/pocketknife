@@ -2,6 +2,16 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.50.2 (15.11.2026)
+- **Every scan without PowerShell warnings** (event 4104 "Microsoft-Windows-PowerShell/Operational"): PowerShell writes a script block as a warning as soon as it contains one of its "suspicious" words - even in a comment - or names a member through a variable. The scan script had several of them:
+  - "Anwendungen": the last-write time of the uninstall keys was read with a compiled C# helper (Add-Type/DllImport) - removed. **"Geändert" is now the time POCKET KNIFE first saw an installation or version** (unchanged entries keep their time, also the times read so far; the very first application scan of a computer leaves it empty). The install date (InstallDate) is unchanged
+  - MSIX apps: name, publisher and the package type are read from the manifest by element name
+  - local groups: members via `Get-LocalGroupMember` instead of ADSI with reflection; groups with orphaned SIDs (where the cmdlet fails) via CIM as before in Constrained Language Mode - orphaned SIDs are then not listed
+  - helper for own WMI/PowerShell scanners: property names from the CSV header (same order), values via Select-Object; registry values with written-out names
+  - comments reworded
+- Still logged as a warning (only when used): disk space analysis (compiled helper for speed), Group Policy history (event values), toast messages and package deployments (`-ExecutionPolicy Bypass`)
+- **Self-test:** the whole scan script (all modules and every kind of own scanner) passes PowerShell's own check; group members, MSIX manifest, property helper in Constrained Language; "Geändert" kept/set as described
+
 ## pocketknife-2.50.1 (15.11.2026)
 - **Quieter PowerShell logging on the clients** (event 4104 in "Microsoft-Windows-PowerShell/Operational"):
   - tools start with `Set-ExecutionPolicy -Scope Process Unrestricted` instead of `Bypass` - PowerShell writes every script block containing the word "Bypass" as a **warning**; the file POCKET KNIFE writes on the computer itself has no internet zone mark, so Unrestricted runs it just the same (if a policy forbids it, the existing probe notices it and the tool runs directly as before)

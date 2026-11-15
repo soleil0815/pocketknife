@@ -478,7 +478,7 @@ def save(cid, data, modules=None):
     modules = set(MODULE_ORDER if modules is None else modules)
     now = util.now()
     # Was there already an application scan? (old full scans without a profile count)
-    old_sw = db.q("SELECT name, version FROM software WHERE computer_id=?", (cid,)) if "applications" in modules else []
+    old_sw = db.q("SELECT name, version, arch, scope, modified FROM software WHERE computer_id=?", (cid,)) if "applications" in modules else []
     # Was there already an application scan? Existing software always counts (the scan history is trimmed after 14 days)
     had_apps = bool(old_sw) or db.val("SELECT 1 FROM scan_history h LEFT JOIN scan_profiles p ON p.id=h.profile_id "
                                       "WHERE h.computer_id=? AND h.status='OK' AND (h.profile_id IS NULL "
@@ -547,6 +547,12 @@ def _save_software(cid, data, old_sw, now):
     db.ex("DELETE FROM software WHERE computer_id=?", (cid,))
     seen, sw_rows = set(), []
     hide_builtin = bool(db.setting("msix_hide_builtin"))
+    # 2.50.2: "Geändert" no longer comes from the client (reading the last-write time of the registry key needs
+    # Add-Type, which PowerShell logs as a warning on every scan) - POCKET KNIFE notes when it first saw an
+    # installation or a version: unchanged entries keep their time, new ones get the time of this scan (not on the
+    # very first application scan - that would only be the time of the scan, not of the installation)
+    old_mod = {((r["name"] or "").lower(), (r["version"] or "").lower(), r["arch"], r["scope"]): r["modified"]
+               for r in (old_sw or []) if r["modified"]}
     for x in _L(data.get("software")):
         name = _s(x.get("name"), 400)
         if not name:
@@ -557,11 +563,12 @@ def _save_software(cid, data, old_sw, now):
         if key in seen:
             continue
         seen.add(key)
+        mod = _s(x.get("modified"), 30) or old_mod.get(key) or (now if old_sw is not None else None)
         sw_rows.append((cid, name, _s(x.get("version"), 100), _s(x.get("publisher"), 300),
                         _s(x.get("install_date"), 30), _s(x.get("key"), 300), _s(x.get("arch")),
                         _s(x.get("scope")), _s(x.get("uninstall"), 2000), _s(x.get("quiet"), 2000),
                         _s(x.get("hive"), 40), _s(x.get("reg_path"), 600), _s(x.get("location"), 600),
-                        x.get("size_kb") if isinstance(x.get("size_kb"), int) else None, _s(x.get("modified"), 30),
+                        x.get("size_kb") if isinstance(x.get("size_kb"), int) else None, mod,
                         _s(x.get("modify"), 1000), 1 if x.get("no_remove") else 0))
     db.exmany("""INSERT INTO software(computer_id, name, version, publisher, install_date, product_code, arch,
                  scope, uninstall_string, quiet_uninstall, hive, reg_path, install_location, size_kb, modified,

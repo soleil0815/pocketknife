@@ -38,10 +38,10 @@ $paths = @(Get-Item -Path {util.psq(target)} -ErrorAction SilentlyContinue)
 if ({'$true' if extra.get('recurse') else '$false'}) {{ $paths += @(Get-ChildItem -Path {util.psq(target)} {recurse} -ErrorAction SilentlyContinue) }}
 $pkFull = $ExecutionContext.SessionState.LanguageMode -eq 'FullLanguage'
 foreach ($k in $paths) {{
-  # 2.38: in Constrained Language Mode no methods of the registry classes - read values via Get-ItemProperty (without type)
+  # 2.38: in Constrained Language Mode GetValue() of the registry classes is blocked - read values via Get-ItemProperty (without type)
   $pv = if ($pkFull) {{ $null }} else {{ Get-ItemProperty -LiteralPath $k.PSPath -ErrorAction SilentlyContinue }}
   foreach ($n in $(if ($pkFull) {{ $k.GetValueNames() }} else {{ @($k.Property) }})) {{
-    $v = if ($pkFull) {{ $k.GetValue($n) }} elseif ($n -eq '(default)') {{ $pv.'(default)' }} else {{ $pv.$n }}
+    $v = if ($pkFull) {{ $k.GetValue($n) }} elseif ($n -eq '(default)') {{ $pv.'(default)' }} else {{ $pv | Select-Object -ExpandProperty $n -ErrorAction SilentlyContinue }}
     if ($v -is [array]) {{ $v = ($v | ForEach-Object {{ "$_" }}) -join ', ' }}
     [ordered]@{{ key = ($k.Name -replace '^HKEY_LOCAL_MACHINE', 'HKLM' -replace '^HKEY_CURRENT_USER', 'HKCU'); name = $(if ($n -and $n -ne '(default)') {{ $n }} else {{ '(Standard)' }}); value = "$v"
       type = $(if ($pkFull) {{ "$($k.GetValueKind($n))" }} else {{ '' }}) }}

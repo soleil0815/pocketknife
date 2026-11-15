@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.50.2",
+   "date": "2026-11-15",
+   "items": [
+    {
+     "kind": "improved",
+     "audience": "admin",
+     "de": "Kein Scan erzeugt mehr Warnungen im PowerShell-Protokoll (Ereignis 4104). Dafür zeigt „Geändert“ bei den Anwendungen jetzt, wann POCKET KNIFE eine Installation oder Version zuerst gesehen hat; das Installationsdatum bleibt.",
+     "en": "No scan leaves warnings in the PowerShell log any more (event 4104). In return, \"Geändert\" of the applications now shows when POCKET KNIFE first saw an installation or version; the install date stays."
+    }
+   ]
+  },
+  {
    "version": "2.50.1",
    "date": "2026-11-15",
    "items": [
