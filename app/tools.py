@@ -31,10 +31,10 @@ CREATE TABLE IF NOT EXISTS tools(
 SEED = [
     ("BITLOCKER", "TPM-Status", "powershell", "Get-Tpm | Format-List", "service", 0, "Zeigt den Zustand des TPM-Chips."),
     ("BITLOCKER", "BitLocker C: Status", "cmd", "manage-bde -status C:", "service", 0, ""),
-    ("BITLOCKER", "BitLocker C: anhalten (1 Neustart)", "powershell",
-     "Suspend-BitLocker -MountPoint 'C:' -RebootCount 1 | Format-List MountPoint, ProtectionStatus", "service", 1,
+    ("BITLOCKER", "BitLocker C: anhalten (1 Neustart)", "cmd",
+     "manage-bde -protectors -disable C: -RebootCount 1", "service", 1,
      "Hält den Schutz für einen Neustart an, z. B. vor einem BIOS-Update."),
-    ("BITLOCKER", "BitLocker C: fortsetzen", "powershell", "Resume-BitLocker -MountPoint 'C:' | Format-List MountPoint, ProtectionStatus", "service", 1, ""),
+    ("BITLOCKER", "BitLocker C: fortsetzen", "cmd", "manage-bde -protectors -enable C:", "service", 1, ""),
     ("GPO", "GPUPDATE /force", "cmd", "echo N| gpupdate /target:computer /force", "service", 0,
      "Fragen nach Abmelden oder Neustart beantwortet das Tool immer mit Nein."),
     ("GPO", "GPRESULT (Computer)", "cmd", "gpresult /r /scope computer", "service", 0, ""),
@@ -42,7 +42,8 @@ SEED = [
     ("NETZWERK", "DNS-Cache leeren und neu registrieren", "cmd", "ipconfig /flushdns\r\nipconfig /registerdns", "service", 0, ""),
     ("NETZWERK", "MAC-Adressen", "cmd", "getmac /v /fo list", "service", 0, ""),
     ("NETZWERK", "Offene Verbindungen", "powershell",
-     "Get-NetTCPConnection -State Established | Sort-Object RemoteAddress | Format-Table LocalPort, RemoteAddress, RemotePort, OwningProcess -AutoSize",
+     "Get-CimInstance -Namespace root/StandardCimv2 -ClassName MSFT_NetTCPConnection -Filter 'State = 5' | Sort-Object RemoteAddress | "
+     "Format-Table LocalPort, RemoteAddress, RemotePort, OwningProcess -AutoSize",
      "service", 0, ""),
     ("DRUCKER", "Druckwarteschlange neu starten", "powershell",
      "Restart-Service -Name Spooler -Force; Get-Service Spooler | Format-List Name, Status", "service", 1, ""),
@@ -235,6 +236,24 @@ def gpupdate_no(script, typ="cmd"):
     return "\n".join(out)
 
 
+# 2.51.0: example tools that loaded a module PowerShell logs as warnings (BitLocker, NetTCPIP) - replaced only if
+# still exactly as delivered: (old type, old script) -> (new type, new script)
+QUIET_TOOLS = {
+    ("powershell", "Suspend-BitLocker -MountPoint 'C:' -RebootCount 1 | Format-List MountPoint, ProtectionStatus"):
+        ("cmd", "manage-bde -protectors -disable C: -RebootCount 1"),
+    ("powershell", "Resume-BitLocker -MountPoint 'C:' | Format-List MountPoint, ProtectionStatus"):
+        ("cmd", "manage-bde -protectors -enable C:"),
+    ("powershell", "Get-NetTCPConnection -State Established | Sort-Object RemoteAddress | Format-Table LocalPort, RemoteAddress, RemotePort, OwningProcess -AutoSize"):
+        ("powershell", "Get-CimInstance -Namespace root/StandardCimv2 -ClassName MSFT_NetTCPConnection -Filter 'State = 5' | Sort-Object RemoteAddress | "
+                       "Format-Table LocalPort, RemoteAddress, RemotePort, OwningProcess -AutoSize"),
+}
+
+
+def _migrate_quiet_tools():
+    for (ot, os_), (nt, ns) in QUIET_TOOLS.items():
+        db.ex("UPDATE tools SET type=?, script=? WHERE type=? AND script=?", (nt, ns, ot, os_))
+
+
 def _migrate_gpupdate():
     for r in db.q("SELECT id, type, script FROM tools WHERE type IN ('cmd', 'powershell') AND script LIKE '%gpupdate%'"):
         new = gpupdate_no(r["script"], r["type"])
@@ -261,6 +280,10 @@ def init():
         _migrate_power_b()
     except Exception as e:  # pragma: no cover
         pklog.warn("tool", f"Tastenkürzel aus 2.32.3 nicht übernommen: {e}")
+    try:
+        _migrate_quiet_tools()
+    except Exception as e:  # pragma: no cover
+        pklog.warn("tool", f"Beispiel-Tools nicht angepasst: {e}")
     try:
         _migrate_gpupdate()
     except Exception as e:  # pragma: no cover

@@ -448,18 +448,20 @@ def _():
         code, out = remote.run_as_system("pc1.firma.local", "Write-Output 1", "1_2_3_ab", run_as="deploy")
         assert code == 0 and out == "fertig"
         start = sent[0]
-        assert "Register-ScheduledTask" not in start and "PKPass" not in start and "Password" not in start, "task/password"
+        assert "PK-TaskRegister" not in start and "PKPass" not in start and "Password" not in start, "task/password"
         assert any("taskkill" in s for s in sent[-1:]), "cleanup ends the process on abort"
         sent.clear()
         polls[:] = ["PK_PROC:gone", "PK_PROC:gone"]
         must_fail(remote.run_as_system, "pc1.firma.local", "x", "1_2_4_ab", 3600, None, "", "deploy", contains="ohne Ergebnis")
         # SYSTEM/user: scheduled task, never with a password; 2.39: only the opt-in service account mode passes one -
         # as a parameter, never in the script text
-        assert remote.REGISTER.count("-Password") == 1 and "-Password $PkPw" in remote.REGISTER and "PKPass" not in remote.REGISTER
+        # 2.51.0: through PK-TaskRegister (CIM RegisterByXml) - the password only in the service account branch
+        assert remote.REGISTER.count("$PkPw") == 1 and "PK-TaskRegister '__TASK__' '\\POCKETKNIFE\\' $pkXml $PkUser $PkPw" in remote.REGISTER \
+            and "PKPass" not in remote.REGISTER
     finally:
         remote.ps, remote.secure_workdir, remote.time.sleep = old
     from app import inventory
-    assert "LogonType)\" -eq 'Password'" in inventory.SCAN_END, "old tasks with a password are removed during the scan"
+    assert "[int]$t.Principal.LogonType -eq 1   # 1 = Password" in inventory.SCAN_END, "old tasks with a password are removed during the scan"
 
 
 @test("2.14 Repository: new server/new share only with the password of the access account")
@@ -1865,11 +1867,11 @@ def _():
     db.ex("DELETE FROM computers WHERE id=960")
 
 
-@test("2.24.3 PowerShell always with full path and fixed switches (-NoLogo -NonInteractive -NoProfile -ExecutionPolicy Bypass)")
+@test("2.24.3 PowerShell always with full path and fixed switches (-NoLogo -NonInteractive -NoProfile -ExecutionPolicy Unrestricted, 2.51.0: no \"Bypass\")")
 def _():
     import glob as _g
     from app import remote, steps, util
-    assert util.PS_FLAGS == "-NoLogo -NonInteractive -NoProfile -ExecutionPolicy Bypass"
+    assert util.PS_FLAGS == "-NoLogo -NonInteractive -NoProfile -ExecutionPolicy Unrestricted"
     root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app")
     for f in _g.glob(os.path.join(root, "*.py")):
         src = open(f, encoding="utf-8").read()
@@ -1878,7 +1880,7 @@ def _():
     b = steps.body_for({"type": "powershell", "script": "Write-Output 1", "id": "x"}, {})
     assert b.rstrip().endswith("PK-RunPs1 $pkF ''")
     w = remote.WRAPPER
-    assert 'PK-Run "$env:SystemRoot\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" ((\'-NoLogo -NonInteractive -NoProfile -ExecutionPolicy Bypass -File' in w
+    assert 'PK-Run "$env:SystemRoot\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" ((\'-NoLogo -NonInteractive -NoProfile -ExecutionPolicy Unrestricted -File' in w
 
 
 @test("2.24.4 Notification: switched off by the user is respected, start independent of the execution policy, permissions under \"Programme\" enforced")
@@ -1890,7 +1892,9 @@ def _():
     assert u.index("Done 12") < u.index("# Fallback: sender"), "check the switch-off BEFORE falling back to \"Windows PowerShell\""
     assert toast.RESULT_TEXT[12][0] is False
     script, _d = toast.build_send_script([("installed", "7-Zip", "26.00")])
-    assert "[ScriptBlock]::Create([IO.File]::ReadAllText(" in script and "$pol -eq 'AllSigned'" in script, "encoded starter only with GPO AllSigned/Restricted"
+    # 2.51.0: no encoded starter around a group policy any more - AllSigned/Restricted -> result 15 (not shown)
+    assert "EncodedCommand" not in script and "[ScriptBlock]::Create" not in script and "$pol -eq 'AllSigned'" in script and ":15'" in script
+    assert toast.RESULT_TEXT[15][0] is False and "umgeht das nicht" in toast.RESULT_TEXT[15][1]
     assert "/setowner '*S-1-5-32-544'" in script and "/reset" in script and "Unsichere Rechte" in script
 
 
@@ -1899,10 +1903,8 @@ def _():
     import re as _re
     from app import toast
     script, _d = toast.build_send_script([("installed", "7-Zip", "26.00")])
-    i_enc = script.index("-EncodedCommand"); i_file = script.index("-WindowStyle Hidden -File")
-    blk = script[script.index("function Action"):script.index("$set = New-ScheduledTaskSettingsSet")]
-    assert "if (($pol -eq 'AllSigned' -or $pol -eq 'Restricted') -and $ExecutionContext.SessionState.LanguageMode -eq 'FullLanguage')" in blk \
-        and "} else {" in blk and i_enc < i_file
+    blk = script[script.index("function TaskXml"):script.index("$n = 0; $ok = 0")]
+    assert "-ExecutionPolicy Unrestricted -WindowStyle Hidden -File" in blk and "'limited' $u 2" in blk
     assert "EnableScripts" in script and "HKEY_USERS" in script
     u = toast.USER_PS
     assert u.startswith("param([string]$Data, [string]$Rid)") and "function Done([int]$c)" in u and "trap { Done 1 }" in u
@@ -7345,7 +7347,7 @@ def _():
         "toast_setup": toast.build_send_script([("installed", "7-Zip", "26.00")])[0].replace(_u.psq(toast.USER_PS), "''").split("function Action")[0],
         "modules": open(os.path.join(root, "app", "scan_modules.ps1"), encoding="utf-8").read(),
         # 2.38.10 (Audit): also the sending part (after "function Action") and gpupdate
-        "toast_send": toast.build_send_script([("installed", "7-Zip", "26.00")])[0].split("\n}\n$set = New-ScheduledTaskSettingsSet", 1)[1],
+        "toast_send": toast.build_send_script([("installed", "7-Zip", "26.00")])[0].split("\n$n = 0; $ok = 0", 1)[1],
         "gpupdate": gpupdate.script(),
     }
     # Blocked in restricted mode: only allowed in lines that themselves check for FullLanguage
@@ -7465,13 +7467,25 @@ def _():
 
 
 
-GP_MOCK_PS = r'''function Get-WinEvent($FilterHashtable, $MaxEvents, $ErrorAction) {
+GP_MOCK_PS = r'''# 2.51.0: event values as event XML (ToXml with full language, wevtutil.exe in Constrained Language), by record number
+$global:pkRec = 100; $global:pkXml = @{}
+function wevtutil.exe { $l = [string]$args[1]; if (-not $global:pkXml.ContainsKey($l)) { return }; $global:pkXml[$l] -join "`r`n" }
+function Get-WinEvent($FilterHashtable, $MaxEvents, $ErrorAction) {
   $a = [guid]'11111111-2222-3333-4444-555555555555'
   $b = [guid]'aaaaaaaa-2222-3333-4444-555555555555'
   $t = Get-Date '2026-11-12T15:43:33'
-  function E($sec, $id, $lvl, $act, $msg, $props) { [pscustomobject]@{ TimeCreated = $t.AddSeconds($sec); Id = $id; Level = $lvl; ActivityId = $act; Message = $msg; Properties = @($props | ForEach-Object { [pscustomobject]@{ Value = $_ } }) } }
+  $lg = [string]$FilterHashtable.LogName
+  function E($sec, $id, $lvl, $act, $msg, $props, $prov = '') {
+    $global:pkRec++
+    $x = '<Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event"><System><EventID>' + $id + '</EventID><EventRecordID>' + $global:pkRec +
+         '</EventRecordID></System><EventData>' + ((@($props) | ForEach-Object { '<Data Name="v">' + ($_ -replace '&', '&amp;' -replace '<', '&lt;') + '</Data>' }) -join '') + '</EventData></Event>'
+    $global:pkXml[$lg] = @($global:pkXml[$lg]) + @($x)
+    $o = New-Object PSObject -Property @{ TimeCreated = $t.AddSeconds($sec); Id = $id; Level = $lvl; ActivityId = $act; Message = $msg; ProviderName = $prov; RecordId = $global:pkRec; XmlText = $x }
+    $o | Add-Member -MemberType ScriptMethod -Name ToXml -Value { $this.XmlText }
+    $o
+  }
   if ($FilterHashtable.LogName -eq 'Application') {
-    @([pscustomobject]@{ TimeCreated = $t.AddSeconds(15); Id = 4098; Level = 3; ActivityId = $null; ProviderName = 'Group Policy Drive Maps'; Message = "Der Benutzer 'H:' konnte nicht mit Fehlercode '0x80070043' angewendet werden. Der Netzwerkname wurde nicht gefunden."; Properties = @() })
+    @(E 15 4098 3 $null "Der Benutzer 'H:' konnte nicht mit Fehlercode '0x80070043' angewendet werden. Der Netzwerkname wurde nicht gefunden." @() 'Group Policy Drive Maps')
   } elseif ($FilterHashtable.LogName -eq 'System') {
     @(E 20 1129 2 $b 'Die Verarbeitung der Gruppenrichtlinie ist aufgrund fehlender Netzwerkverbindung zu einem Domänencontroller fehlgeschlagen.' @())
   } else {
@@ -7501,7 +7515,8 @@ def _():
     from fastapi import HTTPException
     from app import access, actions, gphistory, main as _m, tools
     sc = gphistory.script(24)
-    assert "ToXml" not in sc and "[xml]" not in sc.lower(), "method calls on event objects are blocked in Constrained Language"
+    # method calls on event objects are blocked in Constrained Language - 2.51.0: ToXml() only behind the language check
+    assert all("$pkFull" in ln for ln in sc.splitlines() if "ToXml" in ln) and "Properties" not in sc, "no value list (4104)"
     assert "Microsoft-Windows-GroupPolicy/Operational" in sc and "LogName = 'System'; ProviderName = 'Microsoft-Windows-GroupPolicy'" in sc
     assert ("GET", "/api/computers/{cid}/gphistory") in access.ROUTES and access.ROUTES[("GET", "/api/computers/{cid}/gphistory")] is access._p_cid
     assert "gphistory" in tools.BUILTIN_KEYS and tools.BUILTIN_NAMES["gphistory"] == "Gruppenrichtlinien-Verlauf …"
@@ -7550,11 +7565,12 @@ def _():
     pw = os.environ.get("PK_PWSH")
     if pw and os.path.exists(pw):
         sf = os.path.join(TMP, "pk-gphist.ps1")
-        with open(sf, "w", encoding="utf-8-sig") as fh:
-            fh.write(GP_MOCK_PS + "\n$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'\n" + sc)
-        res = _sp.run([pw, "-NoProfile", "-File", sf], capture_output=True, text=True, timeout=120)
-        assert "PKJSON:" in res.stdout, res.stderr[:1500]
-        check(gphistory.build(actions._json(res.stdout)))
+        for clm in (True, False):   # values from wevtutil (Constrained Language) and from ToXml (full language)
+            with open(sf, "w", encoding="utf-8-sig") as fh:
+                fh.write(GP_MOCK_PS + ("\n$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'\n" if clm else "\n") + sc)
+            res = _sp.run([pw, "-NoProfile", "-File", sf], capture_output=True, text=True, timeout=120)
+            assert "PKJSON:" in res.stdout, (clm, res.stderr[:1500])
+            check(gphistory.build(actions._json(res.stdout)))
 
 
 GP_RSOP_XML = r'''<?xml version="1.0" encoding="utf-16"?>
@@ -8246,6 +8262,148 @@ def _():
         remote.repo_cache_clear()
 
 
+@test("2.51.0 Clean on the client: no Windows module that PowerShell logs as warnings (task scheduler, BitLocker, NetTCPIP ...), no flagged words in any script POCKET KNIFE sends; scheduled tasks through CIM work the same")
+def _():
+    import ast as _ast
+    import glob as _g
+    import re as _re
+    import subprocess as _sp
+    from app import actions, deploy, gphistory, gpupdate, inventory, remote, scanners, steps, toast, tools, util as _u
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app")
+    # 1) no cmdlet of a generated/script module in any text POCKET KNIFE could send (every string of app/*.py, scan modules)
+    mod_rx = _re.compile(r"\b(Get|Set|New|Register|Unregister|Start|Stop|Enable|Disable|Suspend|Resume)-(ScheduledTask\w*|BitLocker\w*|"
+                         r"Net(Adapter|TCP|UDP|IP|Firewall|Route|Neighbor|ConnectionProfile)\w*|Smb\w+|PhysicalDisk|Disk|Volume|Partition|Dns\w+|Printer\w*)\b")
+    allowed = {k[1] for k in tools.QUIET_TOOLS}   # old texts, only to replace them in the database
+    found = []
+    for f in sorted(_g.glob(os.path.join(root, "*.py"))):
+        for node in _ast.walk(_ast.parse(open(f, encoding="utf-8").read())):
+            if isinstance(node, _ast.Constant) and isinstance(node.value, str) and node.value not in allowed:
+                for ln in node.value.splitlines():
+                    if mod_rx.search(ln) and not ln.lstrip().startswith("#"):
+                        found.append(f"{os.path.basename(f)}:{node.lineno}: {ln.strip()[:120]}")
+    for ln in open(os.path.join(root, "scan_modules.ps1"), encoding="utf-8").read().splitlines():
+        # Get-MpComputerStatus stays only as the fallback where the Defender class is missing (servers without Defender)
+        if mod_rx.search(ln) and not ln.lstrip().startswith("#"):
+            found.append("scan_modules.ps1: " + ln.strip()[:120])
+    assert not found, found
+    # 2) the assembled scripts: PowerShell's own check finds nothing (diskusage: compiled helper, see changelog)
+    body = steps.body_for(steps.normalize({"name": "x", "steps": {"main": [{"type": "command", "command": "echo 1"}]}})["steps"]["main"][0], {})
+    wrapper = remote.WRAPPER.replace("__BODY__", body)
+    reg = remote.REGISTER.replace("__CONTENT__", _u.psq(wrapper)).replace("__DIR__", "C:\\Windows\\Temp\\PocketKnife\\1_2_3_ab").replace("__TASK__", "PK_1_2_3_ab").replace("__TIMEOUT__", "65")
+    rows = [{"id": i, "name": "s", "type": t, "target": tg, "extra": "{}"} for i, (t, tg) in enumerate(
+        [("registry", "HKLM:\\SOFTWARE\\Firma"), ("files", "%SystemDrive%\\x\\*.log"), ("wmi", "SELECT * FROM Win32_BIOS"), ("powershell", "Get-Date")], 1)]
+    send = {"REGISTER_" + ra: reg.replace("__RUNAS__", ra).replace("__RUNSID__", "") for ra in ("system", "user", "service")}
+    send.update({"WRAPPER": wrapper, "POLL": remote.POLL, "CLEANUP": remote.CLEANUP, "CLEANUP_RUN": remote.CLEANUP_RUN,
+                 "START_DIRECT": remote.START_DIRECT, "SECURE_BASE": remote.SECURE_BASE, "SESSIONS": remote.SESSIONS_PS,
+                 "LOGGEDON": remote.LOGGEDON_PS, "IDENTIFY": remote.IDENTIFY_PS, "toast_send": toast.build_send_script([("installed", "7-Zip", "26")])[0],
+                 "toast_user": toast.USER_PS, "gpupdate": gpupdate.script("ab12"), "gphistory": gphistory.script(24), "bitlocker_keys": actions.BITLOCKER_PS,
+                 "scan": "\n".join([inventory.PRELUDE] + [v[1] for v in inventory.MODULES.values()] + [scanners.script_for(rows), inventory.SCAN_END]),
+                 "tool": tools.ps_tool_winrm("'x'"), "winget": deploy._winget_body({"type": "winget", "winget_id": "7zip.7zip", "winget_action": "install"}),
+                 "winget_find": deploy._winget_find()})
+    for k, v in send.items():
+        assert "Bypass" not in v and "EncodedCommand" not in v, k
+    pw = os.environ.get("PK_PWSH")
+    if not (pw and os.path.exists(pw)):
+        return
+    d = os.path.join(TMP, "pk-clean")
+    os.makedirs(d, exist_ok=True)
+    chk = ("$m = [System.Management.Automation.ScriptBlock].GetMethod('CheckSuspiciousContent', [System.Reflection.BindingFlags]'NonPublic,Static')\n"
+           "foreach ($f in $args) { $a = [System.Management.Automation.Language.Parser]::ParseInput((Get-Content -Raw -LiteralPath $f), [ref]$null, [ref]$null)\n"
+           "  $x = $m.Invoke($null, @($a)); if ($x) { 'SUSP ' + (Split-Path -Leaf $f) + ': ' + ([string]$x).Substring(0, [Math]::Min(120, ([string]$x).Length)) } }\n'CHECKED'\n")
+    open(os.path.join(d, "chk.ps1"), "w", encoding="utf-8").write(chk)
+    files = []
+    for k, v in send.items():
+        files.append(os.path.join(d, k + ".ps1"))
+        open(files[-1], "w", encoding="utf-8").write(v)
+    out = _sp.run([pw, "-NoProfile", "-File", os.path.join(d, "chk.ps1")] + files, capture_output=True, text=True, timeout=180).stdout
+    assert "CHECKED" in out and "SUSP" not in out, out
+    # 3) the task scheduler through CIM - in Constrained Language with the CIM cmdlets mocked
+    mock = r"""$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'
+$script:calls = @(); $script:tasks = @()
+function Get-CimInstance { param($Namespace, $ClassName, $Filter, $ErrorAction) $script:calls += ('LIST ' + $ClassName + ' ' + $Filter); $script:tasks }
+function Invoke-CimMethod { param($Namespace, $ClassName, $MethodName, $Arguments, $ErrorAction)
+  $script:calls += ($MethodName + ' ' + $Arguments.TaskName + ' ' + $Arguments.TaskPath + ' ' + $(if ($Arguments.Force) { 'F' }) + ' ' + $Arguments.User)
+  if ($MethodName -eq 'RegisterByXml') { $script:xml = [xml]$Arguments.Xml; $script:tasks += New-Object PSObject -Property @{ TaskName = $Arguments.TaskName; State = [uint32]4; Principal = @{ LogonType = 1 } } }
+  if ($MethodName -eq 'GetInfoByName') { return New-Object PSObject -Property @{ cmdletOutput = (New-Object PSObject -Property @{ LastTaskResult = 267009; LastRunTime = (Get-Date) }); ReturnValue = 0 } } }
+function Remove-CimInstance { param([Parameter(ValueFromPipeline = $true)]$InputObject) process { $script:calls += ('REMOVE ' + $InputObject.TaskName) } }
+""" + _u.PS_TASKS + r"""
+$x = PK-TaskXml 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe' ('-NoLogo -Command "& ''C:\a&b\pk_run.ps1''" <x>') 'C:\Windows\Temp\PocketKnife\1' 'password' 'FIRMA\svc' 65
+PK-TaskRegister 'PK_1' '\POCKETKNIFE\' $x 'FIRMA\svc' 'geheim'
+PK-TaskStart 'PK_1' '\POCKETKNIFE\'
+$t = @(PK-TaskList '\POCKETKNIFE\' 'PK_*')[0]
+'STATE:' + (PK-TaskState $t) + ':' + (PK-TaskInfo 'PK_1' '\POCKETKNIFE\').LastTaskResult
+PK-TaskStop 'PK_1' '\POCKETKNIFE\'
+PK-TaskRemove 'PK_1' '\POCKETKNIFE\'
+'ARGS:' + $script:xml.Task.Actions.Exec.Arguments
+'PRINC:' + $script:xml.Task.Principals.Principal.UserId + '|' + $script:xml.Task.Principals.Principal.LogonType + '|' + $script:xml.Task.Principals.Principal.RunLevel
+'LIMIT:' + $script:xml.Task.Settings.ExecutionTimeLimit + '|' + $script:xml.Task.Settings.MultipleInstancesPolicy + '|' + $script:xml.Task.Settings.DisallowStartIfOnBatteries
+'SYS:' + ([xml](PK-TaskXml 'a.exe' '' '' 'system' '' 5)).Task.Principals.Principal.UserId
+'CALLS:' + ($script:calls -join ' ; ')
+"""
+    open(os.path.join(d, "tasks.ps1"), "w", encoding="utf-8").write(mock)
+    r = _sp.run([pw, "-NoProfile", "-NonInteractive", "-File", os.path.join(d, "tasks.ps1")], capture_output=True, text=True, timeout=120)
+    o = {ln.split(":", 1)[0]: ln.split(":", 1)[1] for ln in r.stdout.splitlines() if ":" in ln}
+    assert o.get("STATE") == "Running:267009", (r.stdout, r.stderr[-800:])
+    assert o["ARGS"] == "-NoLogo -Command \"& 'C:\\a&b\\pk_run.ps1'\" <x>", o["ARGS"]
+    assert o["PRINC"] == "FIRMA\\svc|Password|HighestAvailable" and o["SYS"] == "S-1-5-18", o
+    assert o["LIMIT"] == "PT65M|IgnoreNew|false", o
+    c = o["CALLS"]
+    assert "RegisterByXml PK_1 \\POCKETKNIFE\\ F FIRMA\\svc" in c and "StartByPath PK_1 \\POCKETKNIFE\\" in c and "StopByPath PK_1" in c and "REMOVE PK_1" in c, c
+    assert "LIST MSFT_ScheduledTask TaskPath = '\\\\POCKETKNIFE\\\\'" in c, c
+    # POLL: without result file and process -> state of the task, as text like before ("PK_STATE:Running:...")
+    poll = remote.POLL.replace("__DIR__", os.path.join(d, "nix")).replace("__TASK__", "PK_1")
+    pm = mock.split("\n" + _u.PS_TASKS)[0].replace("$script:tasks = @()", "$script:tasks = @(New-Object PSObject -Property @{ TaskName = 'PK_1'; State = [uint32]3 })")
+    open(os.path.join(d, "poll.ps1"), "w", encoding="utf-8").write(pm + "\n" + poll)
+    r = _sp.run([pw, "-NoProfile", "-NonInteractive", "-File", os.path.join(d, "poll.ps1")], capture_output=True, text=True, timeout=120)
+    assert r.stdout.strip() == "PK_STATE:Ready:267009", (r.stdout, r.stderr[-800:])
+    # BitLocker: same texts as Get-BitLockerVolume, recovery passwords through the CIM methods
+    src = open(os.path.join(root, "scan_modules.ps1"), encoding="utf-8").read()
+    pre = src[src.index("# @prelude"):src.index("# @module active_directory")]
+    bl = src[src.index("# 2.51.0: BitLocker from its CIM class"):src.index("try { $t = Get-CimInstance -Namespace 'root\\cimv2\\security\\microsofttpm'")]
+    blm = r"""$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'
+function Get-CimInstance { param($Namespace, $ClassName, $ErrorAction)
+  @(@{ DriveLetter = 'C:'; DeviceID = '\\?\Volume{1}\'; ProtectionStatus = [uint32]1; ConversionStatus = [uint32]1 }, @{ DriveLetter = $null; DeviceID = '\\?\Volume{2}\'; ProtectionStatus = [uint32]0; ConversionStatus = [uint32]0 }) }
+function Invoke-CimMethod { param($InputObject, $MethodName, $Arguments, $ErrorAction)
+  if ($MethodName -eq 'GetConversionStatus') { return @{ ConversionStatus = $InputObject.ConversionStatus; EncryptionPercentage = $(if ($InputObject.ConversionStatus -eq 1) { 100 } else { 0 }) } }
+  if ($MethodName -eq 'GetKeyProtectors') { if ($Arguments.KeyProtectorType -ne 3) { throw 'type' }; if ($InputObject.DriveLetter) { return @{ VolumeKeyProtectorID = @('{AAA}') } }; return @{ VolumeKeyProtectorID = @() } }
+  if ($MethodName -eq 'GetKeyProtectorNumericalPassword') { return @{ NumericalPassword = '111111-222222-' + $Arguments.VolumeKeyProtectorID } } }
+"""
+    open(os.path.join(d, "bl.ps1"), "w", encoding="utf-8-sig").write(blm + pre + bl + "\n'BL:' + (ConvertTo-Json -InputObject @($e.bitlocker) -Compress)\n" + actions.BITLOCKER_PS)
+    r = _sp.run([pw, "-NoProfile", "-NonInteractive", "-File", os.path.join(d, "bl.ps1")], capture_output=True, text=True, timeout=120)
+    o = {ln.split(":", 1)[0]: ln.split(":", 1)[1] for ln in r.stdout.splitlines() if ln[:3] in ("BL:", "PKJ")}
+    assert json.loads(o["BL"]) == [{"mount": "C:", "status": "FullyEncrypted", "protection": "On", "percent": 100},
+                                   {"mount": "\\\\?\\Volume{2}\\", "status": "FullyDecrypted", "protection": "Off", "percent": 0}], (o, r.stderr[-600:])
+    assert json.loads(o["PKJSON"]) == [{"volume": "C:", "id": "{AAA}", "password": "111111-222222-{AAA}", "status": "On"}], o
+    # scan "Geplante Aufgaben": same fields, details only for tasks outside \Microsoft\
+    tk = src[src.index("# @module tasks"):src.index("# @module disk_usage")]
+    tm = r"""$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'
+$script:info = 0
+function Get-CimInstance { param($Namespace, $ClassName, $ErrorAction)
+  @(@{ TaskPath = '\'; TaskName = 'Backup'; State = [uint32]3; Author = 'FIRMA\admin'; Principal = @{ UserId = 'SYSTEM' }; Actions = @(@{ Execute = 'C:\b.exe'; Arguments = '/x' }) },
+    @{ TaskPath = '\Microsoft\Windows\Defrag\'; TaskName = 'ScheduledDefrag'; State = [uint32]1; Principal = @{ UserId = 'SYSTEM' }; Actions = @() }) }
+function Invoke-CimMethod { param($Namespace, $ClassName, $MethodName, $Arguments, $ErrorAction)
+  $script:info++; @{ cmdletOutput = @{ LastRunTime = (Get-Date '2026-11-16T03:00:00'); NextRunTime = $null; LastTaskResult = 0 } } }
+"""
+    open(os.path.join(d, "tk.ps1"), "w", encoding="utf-8-sig").write(tm + pre + tk + "\n'TK:' + (ConvertTo-Json -InputObject @($r.tasks) -Compress)\n'INFO:' + $script:info\n'ERR:' + ($r.errors -join '|')\n")
+    r = _sp.run([pw, "-NoProfile", "-NonInteractive", "-File", os.path.join(d, "tk.ps1")], capture_output=True, text=True, timeout=120)
+    o = {ln.split(":", 1)[0]: ln.split(":", 1)[1] for ln in r.stdout.splitlines() if ln[:3] in ("TK:", "INF", "ERR")}
+    tk = json.loads(o["TK"])
+    assert [(x["name"], x["state"], x["action"], x["last_run"], x["microsoft"]) for x in tk] == [
+        ("Backup", "Ready", "C:\\b.exe /x", "2026-11-16 03:00:00", False), ("ScheduledDefrag", "Disabled", "", None, True)], (tk, r.stderr[-600:])
+    assert o["INFO"] == "1" and o["ERR"] == "", o
+    # example tools: replaced only if unchanged
+    tools.init()
+    tid = db.ex("INSERT INTO tools(name, type, script, run_as, created_at) VALUES('BL-alt', 'powershell', ?, 'service', ?)",
+                (next(k[1] for k in tools.QUIET_TOOLS if "Suspend" in k[1]), util.now()))
+    tid2 = db.ex("INSERT INTO tools(name, type, script, run_as, created_at) VALUES('BL-eigen', 'powershell', 'Suspend-BitLocker -MountPoint D:', 'service', ?)", (util.now(),))
+    try:
+        tools._migrate_quiet_tools()
+        assert db.q1("SELECT type, script FROM tools WHERE id=?", (tid,))["script"] == "manage-bde -protectors -disable C: -RebootCount 1"
+        assert db.val("SELECT script FROM tools WHERE id=?", (tid2,)) == "Suspend-BitLocker -MountPoint D:", "own tools stay"
+    finally:
+        db.ex("DELETE FROM tools WHERE id IN (?,?)", (tid, tid2))
+
+
 @test("2.46.1 gpupdate in tools never waits for \"log off / restart? (J/N)\": always \"N\" (cmd and PowerShell, new and existing tools, built-in tool says so in the output)")
 def _():
     import subprocess as _sp
@@ -8302,7 +8460,7 @@ def _():
     sc = gpupdate.script("ab12")
     assert "__ID__" not in sc and "__WAIT__" not in sc
     # User: owner of explorer.exe/sihost.exe; task as this user, interactive, restricted, without password
-    assert "Name='explorer.exe' OR Name='sihost.exe'" in sc and "-LogonType Interactive -RunLevel Limited" in sc and "-Password" not in sc
+    assert "Name='explorer.exe' OR Name='sihost.exe'" in sc and "'limited' $u 5" in sc and "PK-TaskRegister ('PK_GP_' + $id + '_' + $k) $pkTask $x\n" in sc
     assert "gpupdate.exe /target:user /force" in sc and "conhost.exe" in sc and "--headless" in sc
     assert "Kein Benutzer angemeldet" in sc
     for bad in ("[IO.", "[Convert]", "[Environment]", "Add-Type", "[ScriptBlock]", "New-Object Security", "[ref]"):
@@ -8323,25 +8481,30 @@ def _():
         open(cmd, "w").write("#!/bin/sh\ncase \"$3\" in rd\\ /s\\ /q\\ *) d=${3#rd /s /q }; d=${d#\\\"}; rm -rf \"${d%\\\"}\"; exit 0;; esac\n"
                              "echo Computerrichtlinie aktualisiert\n")
         os.chmod(cmd, 0o755)
+        # 2.51.0: the task scheduler through its CIM classes (util.PS_TASKS) - mocked at the CIM cmdlets
         stub = r"""
-function Get-ScheduledTask { param($TaskPath, $ErrorAction) $script:tasks }
-function Unregister-ScheduledTask { param($TaskName, $TaskPath, $Confirm, $ErrorAction) $script:tasks = @($script:tasks | Where-Object { $_.TaskName -ne $TaskName }) }
-function Get-CimInstance { param($ClassName, $Filter, $ErrorAction) @(@{u='anna'}, @{u='anna'}, @{u='bob'}) }
-function Invoke-CimMethod { param($InputObject, $MethodName, $ErrorAction) New-Object PSObject -Property @{ User = $InputObject.u; Domain = 'FIRMA' } }
-function New-ScheduledTaskSettingsSet { 'set' }
-function New-ScheduledTaskAction { param($Execute, $Argument) 'a' }
-function New-ScheduledTaskPrincipal { param($UserId, $LogonType, $RunLevel) "PRINC $UserId" }
-function Register-ScheduledTask { param($TaskName, $TaskPath, $Action, $Principal, $Settings, [switch]$Force, $ErrorAction) $script:tasks += New-Object PSObject -Property @{ TaskName = $TaskName; State = 'Ready' } }
-function Start-ScheduledTask { param($TaskName, $TaskPath, $ErrorAction)
-  $d = Join-Path $env:SystemRoot 'Temp/pk_gp_ab12'; $k = $TaskName.Substring($TaskName.Length - 1)
-  Set-Content (Join-Path $d ('o' + $k + '.txt')) ('Benutzerrichtlinie ' + $k); Set-Content (Join-Path $d ('r' + $k + '.txt')) ([string]([int]$k - 1)) }
-function Get-ScheduledTaskInfo { param($TaskName, $TaskPath, $ErrorAction) $null }
+$script:xmls = @()
+function Get-CimInstance { param($Namespace, $ClassName, $Filter, $ErrorAction)
+  if ($ClassName -eq 'MSFT_ScheduledTask') { if ($Filter -ne "TaskPath = '\\POCKETKNIFE\\'") { throw ('Filter ' + $Filter) }; return $script:tasks }
+  @(@{u='anna'}, @{u='anna'}, @{u='bob'}) }
+function Invoke-CimMethod { param($Namespace, $ClassName, $InputObject, $MethodName, $Arguments, $ErrorAction)
+  if ($MethodName -eq 'GetOwner') { return New-Object PSObject -Property @{ User = $InputObject.u; Domain = 'FIRMA' } }
+  if ($MethodName -eq 'RegisterByXml') { $null = [xml]$Arguments.Xml; if (-not $Arguments.Force) { throw 'Force' }; $script:xmls += $Arguments.Xml
+    $script:tasks += New-Object PSObject -Property @{ TaskName = $Arguments.TaskName; State = 3 }; return }
+  if ($MethodName -eq 'StartByPath') { $TaskName = $Arguments.TaskName
+    $d = Join-Path $env:SystemRoot 'Temp/pk_gp_ab12'; $k = $TaskName.Substring($TaskName.Length - 1)
+    Set-Content (Join-Path $d ('o' + $k + '.txt')) ('Benutzerrichtlinie ' + $k); Set-Content (Join-Path $d ('r' + $k + '.txt')) ([string]([int]$k - 1)); return }
+  if ($MethodName -eq 'GetInfoByName') { return $null }
+  throw ('unexpected ' + $MethodName) }
+function Remove-CimInstance { param([Parameter(ValueFromPipeline = $true)]$InputObject)
+  process { $n = $InputObject.TaskName; $script:tasks = @($script:tasks | Where-Object { $_.TaskName -ne $n }) } }
 function icacls.exe { }
 function Get-ItemProperty { param($Path, $ErrorAction) New-Object PSObject -Property @{ CurrentBuildNumber = '22631' } }
 $script:tasks = @()
 """
         f = os.path.join(TMP, "gp.ps1")
-        open(f, "w", encoding="utf-8").write("$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'\n" + stub + sc)
+        open(f, "w", encoding="utf-8").write("$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'\n" + stub + sc
+                                              + "\n'XMLS:' + ($script:xmls -join '|')\n")
         r = _sp.run([pw, "-NoProfile", "-NonInteractive", "-File", f], capture_output=True, text=True, timeout=120,
                     env={**os.environ, "SystemRoot": root})
         out = r.stdout
@@ -8349,6 +8512,9 @@ $script:tasks = @()
         assert out.count("=== Benutzerrichtlinie: FIRMA\\anna ===") == 1 and "=== Benutzerrichtlinie: FIRMA\\bob ===" in out, out
         assert "Benutzerrichtlinie 1" in out and "Benutzerrichtlinie 2" in out and "endete mit Code 1" in out, out
         assert not os.path.exists(os.path.join(root, "Temp", "pk_gp_ab12")), "folder removed after the run"
+        xs = out.split("XMLS:", 1)[1]
+        assert xs.count("<LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel>") == 2 and "<UserId>FIRMA\\bob</UserId>" in xs, xs
+        assert "conhost.exe</Command><Arguments>--headless &quot;" in xs and "echo N| gpupdate.exe /target:user /force &gt;&quot;" in xs, xs
         assert not r.stderr.strip(), r.stderr
 
 
@@ -8704,7 +8870,7 @@ def _():
     assert weak(pf + "(A;OICI;0x1301bf;;;BU)") == ["BU"], "Modify for users"
     assert weak("O:BAD:(A;;FA;;;WD)(A;;GR;;;AU)") == ["WD"]
     assert weak("O:BAD:(A;;CCDCLC;;;S-1-5-21-1-2-3-513)") == ["S-1-5-21-1-2-3-513"] and weak("O:BAD:(D;;FA;;;BU)") == []
-    assert "foreach ($vn in @($it.PSObject.Properties | ForEach-Object { $_.Name }))" in ps
+    assert "foreach ($vn in @($it.Property))" in ps
 
 
 @test("2.39 Packages run as Local System by default (setting: service account through a short-lived task with its password, only after confirmation); existing packages migrated; the shown account is the one that runs")
@@ -8781,7 +8947,7 @@ def _():
 
     def fake_ps(host, script, timeout=None):
         calls.append(("ps", script, None))
-        if "Register-ScheduledTask" in script and "'PK_STARTED'" in script:
+        if "PK-TaskRegister '" in script and "'PK_STARTED'" in script:
             return "PK_STARTED", "", False
         return ("PK_DONE:0\n---PKLOG---\nok" if "PK_DONE" in script else ""), "", False
     old = (remote.ps, remote.ps_params, remote.secure_workdir, remote.time.sleep, config.service_login, config.service_password)
@@ -8794,7 +8960,8 @@ def _():
         assert kind == "params" and params == {"PkUser": "FIRMA\\svc-pocketknife", "PkPw": "Geheim-123'x"}
         assert script.startswith("param([string]$PkUser, [string]$PkPw)") and "Geheim" not in script and "$pkRunAs = 'service'" in script
         assert all("Geheim" not in (x[1] or "") for x in calls), "password never in a script text"
-        assert any(x[0] == "ps" and "Unregister-ScheduledTask" in x[1] for x in calls[-1:]), "task (and with it the password) removed afterwards"
+        assert any(x[0] == "ps" and "PK-TaskRemove '" in x[1] for x in calls[-1:]), "task (and with it the password) removed afterwards"
+        assert "PK-TaskXml $pkExe $pkArg $dir 'password' $PkUser" in script and "PK-TaskRegister '" in script and "$PkUser $PkPw" in script
         calls.clear()
         config.service_password = lambda: ""
         must_fail(remote.run_as_system, "pc-0001.firma.local", "x", "9_9_2_ab", 3600, None, "", "service", contains="kein Kennwort")

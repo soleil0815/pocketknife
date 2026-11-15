@@ -6208,5 +6208,10 @@
  "Datei wird von Paketen benutzt": "File is used by packages",
  "Ersetzen? Die Pakete verteilen danach die neue Datei. Ihr Stand wird für die Bruchprüfung gleich übernommen (kein „Bruch“), die Pakete werden neu geprüft.": "Replace? The packages then distribute the new file. Its state is taken over for the integrity check right away (no \"break\"), the packages are checked again.",
  "„{0}“ ersetzt – benutzt von {1}; neuer Stand für die Bruchprüfung übernommen.": "\"{0}\" replaced – used by {1}; new state taken over for the integrity check.",
- "„{0}“ wird benutzt von:": "\"{0}\" is used by:"
+ "„{0}“ wird benutzt von:": "\"{0}\" is used by:",
+ "nicht angezeigt – eine Gruppenrichtlinie erlaubt auf diesem Computer nur signierte bzw. keine PowerShell-Skripte (Ausführungsrichtlinie AllSigned/Restricted); POCKET KNIFE umgeht das nicht": "not shown – a group policy allows only signed or no PowerShell scripts on this computer (execution policy AllSigned/Restricted); POCKET KNIFE does not bypass that",
+ "Beispiel-Tools nicht angepasst: {0}": "Example tools not adjusted: {0}",
+ "manage-bde -protectors -disable C: -RebootCount 1": null,
+ "manage-bde -protectors -enable C:": null,
+ "-NoLogo -NonInteractive -NoProfile -ExecutionPolicy Unrestricted": null
 }

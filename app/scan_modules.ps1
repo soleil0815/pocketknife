@@ -539,8 +539,14 @@ try { $mp = Get-CimInstance -Namespace 'root\Microsoft\Windows\Defender' -ClassN
 if ($mp) {
   $e.defender = [ordered]@{ enabled = $mp.AntivirusEnabled; realtime = $mp.RealTimeProtectionEnabled; signature = $mp.AntivirusSignatureVersion
                             signature_age = $mp.AntivirusSignatureAge; last_quick_scan = (D $mp.QuickScanEndTime) } }
-try { $e.bitlocker = @(Get-BitLockerVolume -ErrorAction Stop | ForEach-Object {
-  [ordered]@{ mount = $_.MountPoint; status = "$($_.VolumeStatus)"; protection = "$($_.ProtectionStatus)"; percent = $_.EncryptionPercentage } }) } catch {}
+# 2.51.0: BitLocker from its CIM class (Get-BitLockerVolume loads a module) - same texts as the cmdlet shows
+try { $blConv = @{ 0 = 'FullyDecrypted'; 1 = 'FullyEncrypted'; 2 = 'EncryptionInProgress'; 3 = 'DecryptionInProgress'; 4 = 'EncryptionPaused'; 5 = 'DecryptionPaused' }
+  $blProt = @{ 0 = 'Off'; 1 = 'On'; 2 = 'Unknown' }
+  $e.bitlocker = @(Get-CimInstance -Namespace 'root\cimv2\Security\MicrosoftVolumeEncryption' -ClassName Win32_EncryptableVolume -ErrorAction Stop | ForEach-Object {
+  $blCs = Invoke-CimMethod -InputObject $_ -MethodName GetConversionStatus -ErrorAction SilentlyContinue
+  $blSt = $(if ($blCs -and $null -ne $blCs.ConversionStatus) { $blCs.ConversionStatus } else { $_.ConversionStatus })
+  [ordered]@{ mount = $(if ($_.DriveLetter) { "" + $_.DriveLetter } else { "" + $_.DeviceID }); status = (PKEnum $blConv $blSt)
+              protection = (PKEnum $blProt $_.ProtectionStatus); percent = $(if ($blCs) { $blCs.EncryptionPercentage } else { $null }) } }) } catch {}
 try { $t = Get-CimInstance -Namespace 'root\cimv2\security\microsofttpm' -ClassName Win32_Tpm -ErrorAction Stop
   if ($t) { $e.tpm = [ordered]@{ present = $true; enabled = $t.IsEnabled_InitialValue; version = $t.SpecVersion } } } catch {}
 PKX 'firewall' { @(Get-CimInstance -Namespace 'root\StandardCimv2' -ClassName MSFT_NetFirewallProfile -ErrorAction Stop | ForEach-Object {
@@ -594,11 +600,17 @@ PKS 'features' {
 
 # @module tasks | Geplante Aufgaben
 try {
-PKS 'tasks' { Get-ScheduledTask -ErrorAction Stop | ForEach-Object {
+# 2.51.0: straight from the CIM classes of the task scheduler (Get-ScheduledTask/-Info load a module that PowerShell
+# logs as warnings); same fields as before
+PKS 'tasks' {
+  $tns = 'Root/Microsoft/Windows/TaskScheduler'
+  $tst = @{ 0 = 'Unknown'; 1 = 'Disabled'; 2 = 'Queued'; 3 = 'Ready'; 4 = 'Running' }
+  Get-CimInstance -Namespace $tns -ClassName MSFT_ScheduledTask -ErrorAction Stop | ForEach-Object {
   $t = $_; $i = $null
-  if ($t.TaskPath -notlike '\Microsoft\*') { try { $i = $t | Get-ScheduledTaskInfo -ErrorAction Stop } catch {} }
+  if ($t.TaskPath -notlike '\Microsoft\*') {
+    try { $i = (Invoke-CimMethod -Namespace $tns -ClassName PS_ScheduledTask -MethodName GetInfoByName -Arguments @{ TaskName = $t.TaskName; TaskPath = $t.TaskPath } -ErrorAction Stop).cmdletOutput } catch {} }
   $act = (@($t.Actions) | ForEach-Object { (("" + $_.Execute) + ' ' + ("" + $_.Arguments)).Trim() }) -join ' | '
-  [ordered]@{ path = $t.TaskPath; name = $t.TaskName; state = "$($t.State)"; author = $t.Author; run_as = $t.Principal.UserId
+  [ordered]@{ path = $t.TaskPath; name = $t.TaskName; state = (PKEnum $tst $t.State); author = $t.Author; run_as = $t.Principal.UserId
     action = $act
     last_run = $(if ($i) { D $i.LastRunTime } else { $null }); next_run = $(if ($i) { D $i.NextRunTime } else { $null })
     last_result = $(if ($i) { $i.LastTaskResult } else { $null }); microsoft = ($t.TaskPath -like '\Microsoft\*') } } }

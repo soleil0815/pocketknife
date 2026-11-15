@@ -139,11 +139,18 @@ Stop-Process -Id {pid} -Force
 
 
 # --- BitLocker directly from the client ------------------------------------------------
-BITLOCKER_PS = r"""
-'PKJSON:' + (ConvertTo-Json -Compress -InputObject @(Get-BitLockerVolume -ErrorAction Stop | ForEach-Object {
+# 2.51.0: through the CIM class Win32_EncryptableVolume - Get-BitLockerVolume loads the BitLocker module
+BITLOCKER_PS = r"""$blProt = @{ 0 = 'Off'; 1 = 'On'; 2 = 'Unknown' }
+'PKJSON:' + (ConvertTo-Json -Compress -InputObject @(Get-CimInstance -Namespace 'root\cimv2\Security\MicrosoftVolumeEncryption' -ClassName Win32_EncryptableVolume -ErrorAction Stop | ForEach-Object {
   $v = $_
-  @($v.KeyProtector) | Where-Object { "$($_.KeyProtectorType)" -eq 'RecoveryPassword' } | ForEach-Object {
-    [ordered]@{ volume = $v.MountPoint; id = "$($_.KeyProtectorId)"; password = "$($_.RecoveryPassword)"; status = "$($v.ProtectionStatus)" } } }))
+  $mnt = $(if ($v.DriveLetter) { "" + $v.DriveLetter } else { "" + $v.DeviceID })
+  $st = $blProt[[int]$v.ProtectionStatus]; if (-not $st) { $st = "" + $v.ProtectionStatus }
+  # key protector type 3 = numerical password (recovery password)
+  $kp = Invoke-CimMethod -InputObject $v -MethodName GetKeyProtectors -Arguments @{ KeyProtectorType = [uint32]3 } -ErrorAction SilentlyContinue
+  foreach ($id in @($kp.VolumeKeyProtectorID)) {
+    if (-not $id) { continue }
+    $pw = Invoke-CimMethod -InputObject $v -MethodName GetKeyProtectorNumericalPassword -Arguments @{ VolumeKeyProtectorID = $id } -ErrorAction SilentlyContinue
+    [ordered]@{ volume = $mnt; id = "" + $id; password = "" + $pw.NumericalPassword; status = $st } } }))
 """
 
 

@@ -2,6 +2,19 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.51.0 (16.11.2026)
+- **Clean on the client - no warnings in the PowerShell log** (script block logging, event 4104 in "Microsoft-Windows-PowerShell/Operational"). Every WinRM session that used a scheduled-task cmdlet loaded the generated "ScheduledTasks" module, and PowerShell logs its code as some 18 warnings each time - during a deployment every few seconds (status query). Monitoring software (SIEM, Defender for Endpoint) can raise alerts on that. Now:
+  - **scheduled tasks through their CIM classes** (`MSFT_ScheduledTask`, `PS_ScheduledTask`: register from task XML, start, state, last result, stop, remove) - deployments, status queries, clean-up, gpupdate in the user sessions, notifications and the "Geplante Aufgaben" scan; same behaviour (SYSTEM, logged-on user, service account with password as before, time limit, "do not start a new instance")
+  - **every PowerShell start with `-ExecutionPolicy Unrestricted` instead of `Bypass`** - the same for the local files POCKET KNIFE writes, but "Bypass" is a classic alarm word
+  - **notification:** no encoded starter around a group policy any more - with execution policy AllSigned/Restricted by GPO the message is not shown (new result "Gruppenrichtlinie erlaubt hier keine … Skripte")
+  - **BitLocker** (scan and "BitLocker vom Computer") through `Win32_EncryptableVolume` instead of the BitLocker module - same texts (FullyEncrypted, On/Off, percent), recovery passwords via the CIM methods
+  - **Group Policy history:** event values from the event XML (wevtutil in Constrained Language) instead of the value list of the event objects
+  - example tools "BitLocker C: anhalten/fortsetzen" now with `manage-bde`, "Offene Verbindungen" with the CIM class - existing ones are replaced only if unchanged
+  - comments in client scripts reworded (PowerShell rates even words in comments)
+- Still a warning (only when used): the **disk space analysis** (compiled helper) - and of course the content of own scripts, tools and packages
+- Help: new section "Sauber im PowerShell-Protokoll"
+- **Self-test:** no string of the program contains a cmdlet of such a module; every script POCKET KNIFE sends passes PowerShell's own check; task scheduler, poll, BitLocker and the tasks scan run in Constrained Language with mocked CIM cmdlets
+
 ## pocketknife-2.50.2 (15.11.2026)
 - **Every scan without PowerShell warnings** (event 4104 "Microsoft-Windows-PowerShell/Operational"): PowerShell writes a script block as a warning as soon as it contains one of its "suspicious" words - even in a comment - or names a member through a variable. The scan script had several of them:
   - "Anwendungen": the last-write time of the uninstall keys was read with a compiled C# helper (Add-Type/DllImport) - removed. **"Geändert" is now the time POCKET KNIFE first saw an installation or version** (unchanged entries keep their time, also the times read so far; the very first application scan of a computer leaves it empty). The install date (InstallDate) is unchanged

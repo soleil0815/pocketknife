@@ -36,18 +36,19 @@ def _load_modules():
 
 PRELUDE, MODULES, MODULE_ORDER = _load_modules()
 
-SCAN_END = r"""
+SCAN_END = util.PS_TASKS + r"""
 # Clean-up: leftovers of aborted deployments (restart of POCKET KNIFE, connection loss) - older than 2 days
 try {
   $pkOld = (Get-Date).AddDays(-2)
-  Get-ScheduledTask -TaskPath '\POCKETKNIFE\' -ErrorAction SilentlyContinue | Where-Object {
-    $i = $_ | Get-ScheduledTaskInfo -ErrorAction SilentlyContinue; $_.State -ne 'Running' -and $i -and $i.LastRunTime -lt $pkOld } |
-    Unregister-ScheduledTask -Confirm:$false -ErrorAction SilentlyContinue
-  # Remove tasks with the service account's stored password immediately if they are not running (older versions up to 2.13;
-  # 2.39 service account tasks left over after an interrupted run)
-  Get-ScheduledTask -TaskPath '\POCKETKNIFE\' -ErrorAction SilentlyContinue | Where-Object {
-    $_.State -ne 'Running' -and "$($_.Principal.LogonType)" -eq 'Password' } |
-    Unregister-ScheduledTask -Confirm:$false -ErrorAction SilentlyContinue
+  # 2.51.0: through the CIM classes of the task scheduler (util.PS_TASKS) - the cmdlets load a module that
+  # PowerShell logs as warnings. Remove tasks with the service account's stored password immediately if they are
+  # not running (older versions up to 2.13; 2.39 service account tasks left over after an interrupted run)
+  foreach ($t in @(PK-TaskList '\POCKETKNIFE\')) {
+    if ((PK-TaskState $t) -eq 'Running') { continue }
+    $old = [int]$t.Principal.LogonType -eq 1   # 1 = Password
+    if (-not $old) { $i = PK-TaskInfo $t.TaskName '\POCKETKNIFE\'; $old = $i -and $i.LastRunTime -and $i.LastRunTime -lt $pkOld }
+    if ($old) { $t | Remove-CimInstance -ErrorAction SilentlyContinue }
+  }
   $pkBase = Join-Path $env:windir 'Temp\PocketKnife'
   Get-ChildItem -LiteralPath $pkBase -Directory -Force -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -lt $pkOld } |
     ForEach-Object { & cmd.exe /c rmdir /s /q "$($_.FullName)" 2>$null }

@@ -7,7 +7,10 @@ import socket
 # execution policy bypassed) - otherwise Windows complains depending on policy/PATH, and every script would have to do it itself.
 PS_EXE = r"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"           # display (preview)
 PS_EXE_PS = r'"$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"'     # as a PowerShell expression
-PS_FLAGS = "-NoLogo -NonInteractive -NoProfile -ExecutionPolicy Bypass"
+# 2.51.0: "Unrestricted" instead of "Bypass" - for the local files POCKET KNIFE writes (no internet zone mark) both run
+# them the same way, but "Bypass" on a command line or in a script is a classic alarm signal for monitoring software
+# (PowerShell's script block logging writes every script containing the word as a warning, event 4104)
+PS_FLAGS = "-NoLogo -NonInteractive -NoProfile -ExecutionPolicy Unrestricted"
 # 2.32.2: Start scripts first quite normally as a file (-File or & 'file' - same exit codes, $PSScriptRoot, and with
 # AppLocker/WDAC allowed files continue to run in FullLanguage). Only if Windows refuses the file is its
 # content loaded: an execution policy from group policy (MachinePolicy/UserPolicy) cannot be overridden with
@@ -29,6 +32,54 @@ PS_LOAD_POST_Q = PS_LOAD_POST.replace("'", "''")
 PS_START_PARTS = ("-Command \"try { & '", "' } catch { if ($_.FullyQualifiedErrorId -eq 'UnauthorizedAccess' -and "
                   "([string]$_).Contains('pk_run.ps1')) { Invoke-Expression ((Get-Content -LiteralPath '",
                   "' -Raw -Encoding UTF8)) } else { throw } }\"")
+
+
+# 2.51.0: scheduled tasks straight through their CIM classes - the cmdlets (Get-/Register-/Start-ScheduledTask ...)
+# load the generated "ScheduledTasks" module in every WinRM session, and PowerShell logs its code as some 18 warnings
+# (event 4104) each time. Constrained-Language-safe: only CIM cmdlets and strings. Task path like '\POCKETKNIFE\'.
+PS_TASKS = r"""$PKTns = 'Root/Microsoft/Windows/TaskScheduler'
+$PKTState = @{ 0 = 'Unknown'; 1 = 'Disabled'; 2 = 'Queued'; 3 = 'Ready'; 4 = 'Running' }
+function PK-TaskList([string]$TaskPath, [string]$Like = '*') {
+  @(Get-CimInstance -Namespace $PKTns -ClassName MSFT_ScheduledTask -Filter ("TaskPath = '" + ($TaskPath -replace '\\', '\\' -replace "'", "\'") + "'") -ErrorAction SilentlyContinue |
+    Where-Object { $_.TaskName -like $Like })
+}
+function PK-TaskState($Task) { $s = $PKTState[[int]$Task.State]; if ($s) { $s } else { "" + $Task.State } }
+function PK-TaskInfo([string]$TaskName, [string]$TaskPath) {
+  $r = Invoke-CimMethod -Namespace $PKTns -ClassName PS_ScheduledTask -MethodName GetInfoByName -Arguments @{ TaskName = $TaskName; TaskPath = $TaskPath } -ErrorAction SilentlyContinue
+  if ($r) { $r.cmdletOutput }
+}
+function PK-TaskStart([string]$TaskName, [string]$TaskPath) {
+  $null = Invoke-CimMethod -Namespace $PKTns -ClassName PS_ScheduledTask -MethodName StartByPath -Arguments @{ TaskName = $TaskName; TaskPath = $TaskPath } -ErrorAction Stop
+}
+function PK-TaskStop([string]$TaskName, [string]$TaskPath) {
+  $null = Invoke-CimMethod -Namespace $PKTns -ClassName PS_ScheduledTask -MethodName StopByPath -Arguments @{ TaskName = $TaskName; TaskPath = $TaskPath } -ErrorAction SilentlyContinue
+}
+function PK-TaskRemove([string]$TaskName, [string]$TaskPath) {
+  PK-TaskList $TaskPath | Where-Object { $_.TaskName -eq $TaskName } | Remove-CimInstance -ErrorAction SilentlyContinue
+}
+function PK-Xml([string]$Text) { $Text -replace '&', '&amp;' -replace '<', '&lt;' -replace '>', '&gt;' -replace '"', '&quot;' }
+# Principal: 'system', 'interactive' (logged-on user, highest rights), 'limited' (logged-on user, normal rights) or
+# 'password' (account with a password - given to PK-TaskRegister, Windows stores it while the task exists)
+function PK-TaskXml([string]$Execute, [string]$Argument, [string]$WorkingDirectory, [string]$Principal, [string]$UserId, [int]$Minutes) {
+  $pr = switch ($Principal) {
+    'system' { '<UserId>S-1-5-18</UserId><RunLevel>HighestAvailable</RunLevel>' }
+    'interactive' { '<UserId>' + (PK-Xml $UserId) + '</UserId><LogonType>InteractiveToken</LogonType><RunLevel>HighestAvailable</RunLevel>' }
+    'limited' { '<UserId>' + (PK-Xml $UserId) + '</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel>' }
+    'password' { '<UserId>' + (PK-Xml $UserId) + '</UserId><LogonType>Password</LogonType><RunLevel>HighestAvailable</RunLevel>' }
+    default { throw ('PK-TaskXml: unknown principal ' + $Principal) } }
+  '<?xml version="1.0" encoding="UTF-16"?><Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">' +
+  '<Principals><Principal id="Author">' + $pr + '</Principal></Principals><Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>' +
+  '<DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>' +
+  '<ExecutionTimeLimit>PT' + $Minutes + 'M</ExecutionTimeLimit><Enabled>true</Enabled></Settings><Actions Context="Author"><Exec>' +
+  '<Command>' + (PK-Xml $Execute) + '</Command>' + $(if ($Argument) { '<Arguments>' + (PK-Xml $Argument) + '</Arguments>' }) +
+  $(if ($WorkingDirectory) { '<WorkingDirectory>' + (PK-Xml $WorkingDirectory) + '</WorkingDirectory>' }) + '</Exec></Actions></Task>'
+}
+function PK-TaskRegister([string]$TaskName, [string]$TaskPath, [string]$Xml, [string]$User, [string]$Password) {
+  $a = @{ Xml = $Xml; TaskName = $TaskName; TaskPath = $TaskPath; Force = $true }
+  if ($User) { $a.User = $User; $a.Password = $Password }
+  $null = Invoke-CimMethod -Namespace $PKTns -ClassName PS_ScheduledTask -MethodName RegisterByXml -Arguments $a -ErrorAction Stop
+}
+"""
 
 
 def ps_start_expr(var):

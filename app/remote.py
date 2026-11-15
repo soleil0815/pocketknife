@@ -1234,8 +1234,8 @@ def smb_probe(server, auth, user=None, password=None, share="ADMIN$"):
 # Therefore: move a foreign folder aside and restrict the permissions to SYSTEM + Administrators.
 SECURE_BASE = r"""$ErrorActionPreference = 'Stop'
 $b = Join-Path $env:windir 'Temp\PocketKnife'
-# Only cmdlets, properties and icacls - stays safe even in Constrained Language Mode (SRP/AppLocker).
-# Owner and permissions come from the SDDL (language-independent, no .NET methods).
+# Only cmdlets and icacls - stays safe even in Constrained Language Mode (SRP/AppLocker).
+# Owner and permissions come from the SDDL (language-independent, no .NET calls).
 $me = ''
 try { $me = ((@(& whoami.exe /user /fo csv /nh) | Select-Object -Last 1) -split ',')[-1].Trim().Trim('"') } catch {}
 $okSids = @('SY', 'BA', 'S-1-5-18', 'S-1-5-32-544')
@@ -1468,7 +1468,9 @@ Set-Content -LiteralPath (Join-Path $dir 'pk_run.ps1') -Value __CONTENT__ -Encod
 __EXTRA__
 # Windows PowerShell with the full path and fixed switches (see util.PS_FLAGS)
 $pkRunF = Join-Path $dir 'pk_run.ps1'
-$a = New-ScheduledTaskAction -Execute "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -Argument __PKSTART__ -WorkingDirectory $dir
+__PSTASKS__
+$pkExe = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
+$pkArg = __PKSTART__
 $pkRunAs = '__RUNAS__'
 if ($pkRunAs -eq 'user') {
   # As the logged-on user (e.g. for software that is installed only in the user profile)
@@ -1487,25 +1489,24 @@ if ($pkRunAs -eq 'user') {
   }
   $u = $sess[0].Name
   & icacls.exe $dir /grant ($u + ':(OI)(CI)M') /T /Q | Out-Null
-  $p = New-ScheduledTaskPrincipal -UserId $u -LogonType Interactive -RunLevel Highest
-} elseif ($pkRunAs -ne 'service') {
-  $p = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
-}
-$s = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes __TIMEOUT__) -MultipleInstances IgnoreNew
-if ($pkRunAs -eq 'service') {
+  $pkXml = PK-TaskXml $pkExe $pkArg $dir 'interactive' $u __TIMEOUT__
+  PK-TaskRegister '__TASK__' '\POCKETKNIFE\' $pkXml
+} elseif ($pkRunAs -eq 'service') {
   # 2.39: service account with a local logon (only if chosen in the settings). Windows keeps the password while the
   # task exists; POCKET KNIFE deletes the task right after the step (also on abort). User name and password come as
   # parameters, never in the script text (script block logging).
-  Register-ScheduledTask -TaskName '__TASK__' -TaskPath '\POCKETKNIFE\' -Action $a -Settings $s -User $PkUser -Password $PkPw -RunLevel Highest -Force | Out-Null
+  $pkXml = PK-TaskXml $pkExe $pkArg $dir 'password' $PkUser __TIMEOUT__
+  PK-TaskRegister '__TASK__' '\POCKETKNIFE\' $pkXml $PkUser $PkPw
 } else {
-  # Without a password: principal SYSTEM or the logged-on user (Interactive) - nothing is stored on the client
-  Register-ScheduledTask -TaskName '__TASK__' -TaskPath '\POCKETKNIFE\' -Action $a -Principal $p -Settings $s -Force | Out-Null
+  # Without a password: SYSTEM - nothing is stored on the client
+  $pkXml = PK-TaskXml $pkExe $pkArg $dir 'system' '' __TIMEOUT__
+  PK-TaskRegister '__TASK__' '\POCKETKNIFE\' $pkXml
 }
-Start-ScheduledTask -TaskName '__TASK__' -TaskPath '\POCKETKNIFE\'
+PK-TaskStart '__TASK__' '\POCKETKNIFE\'
 'PK_STARTED'
 """
 WRAPPER = WRAPPER.replace("__PSFLAGS__", util.PS_FLAGS).replace("__PSLOADPRE__", util.PS_LOAD_PRE_Q).replace("__PSLOADPOST__", util.PS_LOAD_POST_Q)
-REGISTER = REGISTER.replace("__PKSTART__", util.ps_start_expr("$pkRunF"))
+REGISTER = REGISTER.replace("__PKSTART__", util.ps_start_expr("$pkRunF")).replace("__PSTASKS__", util.PS_TASKS)
 
 # Service account: start directly as a process of the service account. Win32_Process.Create runs with the identity of
 # the WinRM session (full administrator rights), but the process does not belong to the WinRM session and therefore
@@ -1576,8 +1577,9 @@ elseif (Test-Path $f) {
   $l = Join-Path $dir 'pk_output.log'
   if (Test-Path $l) { $c = Get-Content $l -Raw -Encoding UTF8; if ($c -and $c.Length -gt 60000) { $c = $c.Substring($c.Length - 60000) }; $c }
 } else {
-  $t = Get-ScheduledTask -TaskName '__TASK__' -TaskPath '\POCKETKNIFE\' -ErrorAction SilentlyContinue
-  if (-not $t) { 'PK_MISSING' } else { $i = $t | Get-ScheduledTaskInfo; 'PK_STATE:' + $t.State + ':' + $i.LastTaskResult }
+__PSTASKS__
+  $t = @(PK-TaskList '\POCKETKNIFE\' | Where-Object { $_.TaskName -eq '__TASK__' })[0]
+  if (-not $t) { 'PK_MISSING' } else { $i = PK-TaskInfo '__TASK__' '\POCKETKNIFE\'; 'PK_STATE:' + (PK-TaskState $t) + ':' + $i.LastTaskResult }
 }
 """
 
@@ -1588,8 +1590,9 @@ if (Test-Path $pf) {
   $p = Get-CimInstance Win32_Process -Filter ('ProcessId=' + $id) -ErrorAction SilentlyContinue
   if ($id -gt 0 -and $p -and $p.CommandLine -and $p.CommandLine.Contains('__DIR__')) { & taskkill.exe /PID $id /T /F 2>$null | Out-Null; Start-Sleep -Seconds 2 }
 }
-Stop-ScheduledTask -TaskName '__TASK__' -TaskPath '\POCKETKNIFE\' -ErrorAction SilentlyContinue
-Unregister-ScheduledTask -TaskName '__TASK__' -TaskPath '\POCKETKNIFE\' -Confirm:$false -ErrorAction SilentlyContinue
+__PSTASKS__
+PK-TaskStop '__TASK__' '\POCKETKNIFE\'
+PK-TaskRemove '__TASK__' '\POCKETKNIFE\'
 # rmdir /s does not follow links (junctions) - Remove-Item -Recurse in Windows PowerShell 5.1 can,
 # and in the user context the user could have created a link to foreign folders
 if (Test-Path -LiteralPath '__DIR__') { & cmd.exe /c rmdir /s /q "__DIR__" 2>$null }
@@ -1607,7 +1610,8 @@ $pre = '__PREFIX__'
 $max = __MAXMIN__
 $busy = 0; $killed = 0; $removed = 0; $codes = @()
 $dirs = @(Get-ChildItem -LiteralPath $b -Directory -Force -Filter ($pre + '*'))
-$tasks = @(Get-ScheduledTask -TaskPath '\POCKETKNIFE\' | Where-Object { $_.TaskName -like ('PK_' + $pre + '*') })
+__PSTASKS__
+$tasks = @(PK-TaskList '\POCKETKNIFE\' ('PK_' + $pre + '*'))
 foreach ($d in $dirs) {
   $ef = Join-Path $d.FullName 'pk_exit.txt'
   if (Test-Path -LiteralPath $ef) { $codes += ((Get-Content -LiteralPath $ef -Raw).Trim()) }
@@ -1624,17 +1628,19 @@ foreach ($d in $dirs) {
   }
 }
 foreach ($t in $tasks) {
-  if ("$($t.State)" -eq 'Running') {
-    $i = $t | Get-ScheduledTaskInfo
+  if ((PK-TaskState $t) -eq 'Running') {
+    $i = PK-TaskInfo $t.TaskName '\POCKETKNIFE\'
     if ($i -and ((Get-Date) - $i.LastRunTime).TotalMinutes -lt $max) { $busy++; continue }
-    Stop-ScheduledTask -TaskName $t.TaskName -TaskPath '\POCKETKNIFE\'; $killed++; Start-Sleep -Seconds 2
+    PK-TaskStop $t.TaskName '\POCKETKNIFE\'; $killed++; Start-Sleep -Seconds 2
   }
 }
 if ($busy -gt 0) { 'PK_BUSY:' + $busy; return }
-foreach ($t in $tasks) { Unregister-ScheduledTask -TaskName $t.TaskName -TaskPath '\POCKETKNIFE\' -Confirm:$false }
+foreach ($t in $tasks) { $t | Remove-CimInstance -ErrorAction SilentlyContinue }
 foreach ($d in $dirs) { & cmd.exe /c rmdir /s /q ('"' + $d.FullName + '"') 2>$null; $removed++ }
 'PK_CLEAN:' + $removed + ':' + $tasks.Count + ':' + $killed + ':' + ($codes -join ',')
 """
+
+POLL, CLEANUP, CLEANUP_RUN = (x.replace("__PSTASKS__", util.PS_TASKS) for x in (POLL, CLEANUP, CLEANUP_RUN))
 
 
 def cleanup_run(host, prefix, max_minutes):
