@@ -10,6 +10,8 @@ The client script is Constrained-Language-safe: no ToXml() (method calls on non-
 only properties of the events.
 """
 import re
+import threading
+import time
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -185,16 +187,75 @@ def build(data):
     return runs
 
 
+# 2.48.2: usage and parse quality since the start (for the diagnostic package) - counts and names of XML elements only,
+# never computer, user or GPO names. Shows e.g. whether the GPO lists stay empty on a Windows language.
+_STATS_LOCK = threading.Lock()
+_STATS: dict[str, dict[str, Any]] = {}
+_GUID_RE = re.compile(r"^\{?[0-9a-fA-F-]{36}\}?$")
+
+
+def _note(kind, ms, error=None, **counts):
+    with _STATS_LOCK:
+        st = _STATS.setdefault(kind, {"calls": 0, "errors": 0, "ms": [], "last_error": None, "last_at": None})
+        st["calls"] += 1
+        st["last_at"] = util.now()
+        st["ms"] = (st["ms"] + [int(ms)])[-50:]
+        if error:
+            st["errors"] += 1
+            st["last_error"] = str(error)[:300]
+        for k, v in counts.items():
+            if isinstance(v, dict):
+                d = st.setdefault(k, {})
+                for kk, vv in v.items():
+                    d[kk] = d.get(kk, 0) + vv
+            else:
+                st[k] = st.get(k, 0) + (v or 0)
+
+
+def stats():
+    """Copy for the diagnostic package (median/max instead of single durations)."""
+    with _STATS_LOCK:
+        out = {}
+        for k, v in _STATS.items():
+            ms = sorted(v["ms"])
+            out[k] = {**{x: y for x, y in v.items() if x != "ms"},
+                      "ms_median": ms[len(ms) // 2] if ms else None, "ms_max": ms[-1] if ms else None}
+            for dk in ("unknown_kinds",):
+                if isinstance(out[k].get(dk), dict):
+                    out[k][dk] = dict(sorted(out[k][dk].items(), key=lambda x: -x[1])[:20])
+        return out
+
+
 def history(cid, hours=24):
     hours = int(hours or 24)
     if hours not in HOURS:
         raise ValueError("Zeitraum nicht erlaubt")
-    _c, host = actions._host(cid)
-    out, err, _ = remote.ps(host, script(hours), timeout=180)
-    if "PKJSON:" not in out:
-        raise remote.RemoteError(util.first_line(err, "Gruppenrichtlinien-Protokoll konnte nicht gelesen werden")[:400])
-    runs = build(actions._json(out))
+    t0 = time.time()
+    try:
+        _c, host = actions._host(cid)
+        out, err, _ = remote.ps(host, script(hours), timeout=180)
+        if "PKJSON:" not in out:
+            raise remote.RemoteError(util.first_line(err, "Gruppenrichtlinien-Protokoll konnte nicht gelesen werden")[:400])
+        runs = build(actions._json(out))
+    except Exception as e:
+        _note("history", (time.time() - t0) * 1000, error=e)
+        raise
+    ok = [r for r in runs if r["status"] == "ok"]
+    _note("history", (time.time() - t0) * 1000, runs=len(runs),
+          runs_ok_without_gpos=sum(1 for r in ok if not r["gpos"]),
+          runs_ok_without_extensions=sum(1 for r in ok if not r["extensions"]),
+          runs_without_dc=sum(1 for r in runs if not r["dc"]),
+          extensions_unnamed=sum(1 for r in runs for x in r["extensions"] if not x["name"] or _GUID_RE.match(x["name"])),
+          gpp_errors=sum(r.get("gpp_errors", 0) for r in runs),
+          status=_count(r["status"] for r in runs))
     return {"hours": hours, "runs": runs}
+
+
+def _count(it):
+    d: dict[str, int] = {}
+    for x in it:
+        d[x] = d.get(x, 0) + 1
+    return d
 
 
 # --- 2.48.0: Resultant Set of Policy (gpresult /x) ----------------------------------------------------------------
@@ -452,14 +513,29 @@ def parse_rsop(xml_text):
 
 
 def rsop(cid, scope="computer", user=None):
-    _c, host = actions._host(cid)
-    out, err, _ = remote.ps(host, rsop_script(scope, user), timeout=240)
-    i = out.find("PKXML:")
-    if i < 0:
-        msg = util.first_line(err, "gpresult hat kein Ergebnis geliefert")
-        if scope == "user" and re.search(r"RSoP|RSOP", msg):
-            msg = f"Für {user} gibt es auf diesem Computer keine Richtliniendaten (noch nie angemeldet?). – {msg}"
-        raise remote.RemoteError(msg[:500])
-    r = parse_rsop(out[i + 6:])
+    t0 = time.time()
+    try:
+        _c, host = actions._host(cid)
+        out, err, _ = remote.ps(host, rsop_script(scope, user), timeout=240)
+        i = out.find("PKXML:")
+        if i < 0:
+            msg = util.first_line(err, "gpresult hat kein Ergebnis geliefert")
+            if scope == "user" and re.search(r"RSoP|RSOP", msg):
+                msg = f"Für {user} gibt es auf diesem Computer keine Richtliniendaten (noch nie angemeldet?). – {msg}"
+            raise remote.RemoteError(msg[:500])
+        r = parse_rsop(out[i + 6:])
+    except Exception as e:
+        # the user name is part of some messages - only the reason is kept
+        _note("gpresult", (time.time() - t0) * 1000, error=re.sub(r"[\w.\- ]+\\[\w.\-$ ]+", "<Benutzer>", str(e)))
+        raise
+    known = set(KINDS.values())
+    st = r["settings"]
+    _note("gpresult", (time.time() - t0) * 1000, **{f"scope_{scope}": 1}, xml_kb=len(out) // 1024,
+          gpos=len(r["gpos"]), gpos_not_applied=sum(1 for g in r["gpos"] if not g["applied"]),
+          settings=len(st), settings_untitled=sum(1 for x in st if not x["title"] or x["title"] == x["kind"]),
+          settings_without_details=sum(1 for x in st if not x["details"] and not x["state"]),
+          gpp_with_targeting=sum(1 for x in st if x["filters"]),
+          extension_errors=sum(1 for x in r["extensions"] if str(x.get("error") or "0") != "0"),
+          unknown_kinds=_count(x["kind"] for x in st if x["kind"] not in known))
     r["scope"], r["user"] = scope, user or ""
     return r

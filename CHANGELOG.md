@@ -2,6 +2,17 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.48.2 (15.11.2026)
+- **Diagnostic package up to date with the program** (everything since 2.45):
+  - `statistik.json`: chains (several packages one after another, 2.46) - number of chains, with "stop on failure", from schedules, targets skipped because of the chain, targets waiting right now, deployments with tenant/target label
+  - `bereitstellungen.csv` / `fehlgeschlagen.json`: chain ID and position/length
+  - `inventar.json`: clients per Windows edition, installation type, ESU year, Entra ID join, MDM, mainboard vendor, virtualization, Office Click-to-Run present, pending reboot, Secure Boot, BIOS mode, SMB1 server, fast startup (counts only, never the Entra tenant)
+  - `inventar.json`: Group Policy history and gpresult since start - calls, errors (user names removed), duration, parse quality (runs without GPO list/extensions/DC, unnamed extensions, GPP errors, settings without title/details, unknown setting kinds, GPOs not applied, item-level targeting) - never computer, user or GPO names
+  - `inventar.json`: tools per type and gpupdate lines that would still wait for an answer (must stay 0)
+- **Stays up to date:** every database column and every scan value must appear in the diagnostic package or be listed with a reason in `NOT_IN_DIAGNOSTICS` - the self-test fails otherwise, so new features cannot be forgotten
+- Help (de/en) and manual PDFs updated
+- **Self-test:** coverage of all columns/scan values, chains, new client values, Group Policy statistics (also from a real gpresult call, user names removed), tools, anonymization
+
 ## pocketknife-2.48.1 (13.11.2026)
 - **Coffee link like in the other programs:** at the end of the news a small box "Gefällt Ihnen POCKET KNIFE? Über einen Kaffee freue ich mich." with the button "Einen Kaffee spendieren"; the button in the navigation now reads "Kaffee spendieren" (English: "Buy me a coffee"). Still a plain link that only opens on click, administration only (not on the login page, not in the kiosk), nothing loaded from the internet
 - Help (de/en) and manual PDFs updated

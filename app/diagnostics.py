@@ -560,7 +560,55 @@ def _stats(since, an):
         "log_top_warnings": collections.Counter(_norm_msg(an(r["message"])) for r in db.q(
             "SELECT message FROM logs WHERE ts >= ? AND level IN ('WARN','ERROR')", (since,))).most_common(40),
         "kiosk_requests": {r["status"]: r["n"] for r in db.q("SELECT status, COUNT(*) n FROM kiosk_requests WHERE created_at >= ? GROUP BY status", (since,))},
+        "chains": _chains(since),
     }
+
+
+# 2.48.2: The diagnostic package follows the program. Every new database column (db.MIGRATIONS) and every new scan value
+# (inventory.MODULE_EXTRA) must either appear in this file or be listed here with the reason why it is not needed -
+# the self-test enforces it, so a new feature cannot be forgotten in the package.
+_NN_PRIVATE = "persönliche/identifizierende Angabe je PC oder Benutzer – nicht nötig für die Fehlersuche am Programm"
+_NN_INVENTORY = "Inventarwert je PC – steht im Inventar, für die Fehlersuche am Programm nicht nötig"
+_NN_CONFIG = "Einstellung je Objekt – Wirkung ist an Protokoll, Bereitstellungen und Scans sichtbar"
+_NN_INTERNAL = "interner Zeitstempel/Verweis ohne Aussage für die Fehlersuche"
+NOT_IN_DIAGNOSTICS = {
+    **{k: _NN_PRIVATE for k in ("sessions.confirmed_at", "sessions.last_active", "tenants.admin_group_sid", "computers.ad_location",
+                                "collections.ad_dn", "extra.asset_tag", "extra.uuid", "extra.os_serial", "extra.user_states",
+                                "software.reg_path", "software.install_location", "software.modify_path", "kiosk_items.icon")},
+    **{k: _NN_INVENTORY for k in ("extra.timezone", "extra.chassis", "extra.chassis_name", "extra.bios_manufacturer", "extra.family",
+                                  "extra.product_version", "extra.sku", "extra.system_drive", "extra.product_type", "extra.locale",
+                                  "extra.smb1_client", "extra.ie_version", "extra.domain_controller", "extra.dotnet",
+                                  "extra.last_wu_install", "extra.defender", "extra.bitlocker", "extra.tpm", "extra.firewall",
+                                  "extra.antivirus", "extra.memory_slots", "extra.memory_max", "software.size_kb", "software.modified",
+                                  "software.no_remove", "software.excluded", "computers.win_update_info")},
+    **{k: _NN_CONFIG for k in ("tenants.allow_packages", "tenants.ou_ever", "tenants.allow_scripts", "tenants.collection_ids",
+                               "tenants.quota_mb", "update_rules.rule_type", "update_rules.package_id", "update_rules.migrated",
+                               "collections.ad_kind", "computers.scan_allowed", "winget_cache.detect_version", "winget_cache.ignore_hash",
+                               "winget_cache.remote_sig", "winget_cache.inst_arch", "scan_profiles.scanner_types",
+                               "scan_profiles.builtin_key", "packages.conditions", "packages.folder_name", "packages.rescan_profile_id",
+                               "packages.notify_user", "packages.integrity", "packages.ou_edit", "schedules.ou_edit",
+                               "kiosk_items.icon_type", "schedules.window")},
+    **{k: _NN_INTERNAL for k in ("computers.verified_at", "computers.addr_detail", "computers.addr_checked_at",
+                                 "computers.ad_missing_since", "computers.online_since", "scan_history.profile_id",
+                                 "kiosk_items.icon_at", "packages.ident_at", "deployments.chain_prev", "winget_releases.base")},
+}
+
+
+def _chains(since):
+    """2.48.2: several packages at once = one deployment per package, chained per computer (2.46)."""
+    v = lambda sql, *a: db.val(sql, a, default=0) or 0  # noqa: E731
+    return {"chains": v("SELECT COUNT(DISTINCT chain_id) FROM deployments WHERE chain_id IS NOT NULL AND created_at >= ?", since),
+            "deployments_in_chains": v("SELECT COUNT(*) FROM deployments WHERE chain_id IS NOT NULL AND created_at >= ?", since),
+            "longest": v("SELECT MAX(chain_len) FROM deployments WHERE created_at >= ?", since),
+            "stop_on_fail": v("SELECT COUNT(DISTINCT chain_id) FROM deployments WHERE chain_stop=1 AND created_at >= ?", since),
+            "from_schedules": v("SELECT COUNT(DISTINCT chain_id) FROM deployments WHERE chain_id IS NOT NULL AND schedule_id IS NOT NULL AND created_at >= ?", since),
+            "targets_skipped_by_chain": v("SELECT COUNT(*) FROM deployment_targets t JOIN deployments d ON d.id=t.deployment_id "
+                                          "WHERE d.chain_id IS NOT NULL AND t.status='skipped' AND t.message LIKE 'Übersprungen – vorheriges Paket%' "
+                                          "AND d.created_at >= ?", since),
+            "targets_waiting_now": v("SELECT COUNT(*) FROM deployment_targets t JOIN deployments d ON d.id=t.deployment_id "
+                                     "WHERE d.chain_id IS NOT NULL AND t.status='queued' AND COALESCE(d.chain_pos, 1) > 1"),
+            "with_tenant": v("SELECT COUNT(*) FROM deployments WHERE tenant_id IS NOT NULL AND created_at >= ?", since),
+            "with_target_label": v("SELECT COUNT(*) FROM deployments WHERE COALESCE(target_label,'')<>'' AND created_at >= ?", since)}
 
 
 def _performance(an):
@@ -680,8 +728,29 @@ def _inventory_info(since, an):
         f"SELECT {expr} k, COUNT(*) n FROM computers WHERE last_scan IS NOT NULL GROUP BY 1 ORDER BY n DESC LIMIT 15")}
     clients = {"powershell": cl("json_extract(extra, '$.ps_version')"), "language_mode": cl("json_extract(extra, '$.ps_language')"),
                "winget": cl("CASE WHEN COALESCE(json_extract(extra, '$.winget'), '') = '' THEN 'fehlt' ELSE 'vorhanden' END"),
-               "os_build": cl("os_build")}
-    return {"since": since, "scan_errors_by_area": scan_errors, "winget": wg, "clients": clients}
+               "os_build": cl("os_build"),
+               # 2.48.2: what the scan learned since 2.40 - categories and counts only
+               "os_edition": cl("json_extract(extra, '$.os_edition')"), "os_install_type": cl("json_extract(extra, '$.os_install_type')"),
+               "os_esu": cl("json_extract(extra, '$.os_esu')"), "virtual": cl("COALESCE(NULLIF(json_extract(extra, '$.virtual'), ''), 'physisch')"),
+               "entra_join": cl("COALESCE(NULLIF(json_extract(extra, '$.entra.join'), ''), 'nein')"),
+               "mdm": cl("COALESCE(NULLIF(json_extract(extra, '$.entra.mdm'), ''), 'nein')"),
+               "board_vendor": cl("json_extract(extra, '$.board.vendor')"),
+               "office_c2r": cl("CASE WHEN json_extract(extra, '$.office_c2r') IS NULL THEN 'nein' ELSE 'ja' END"),
+               "pending_reboot": cl("json_extract(extra, '$.pending_reboot')"), "secure_boot": cl("json_extract(extra, '$.secure_boot')"),
+               "bios_mode": cl("json_extract(extra, '$.bios_mode')"), "smb1_server": cl("json_extract(extra, '$.smb1_server')"),
+               "fast_startup": cl("json_extract(extra, '$.fast_startup')")}
+    from . import gphistory, tools
+    gp: dict = gphistory.stats()
+    for v_ in gp.values():
+        if v_.get("last_error"):
+            v_["last_error"] = an(v_["last_error"])
+    tl = db.q("SELECT type, script FROM tools")
+    tool_info = {"by_type": dict(collections.Counter(r["type"] for r in tl)),
+                 # 2.46.1: gpupdate lines that would still wait for "log off/restart?" - must stay 0
+                 "gpupdate_unanswered": sum(1 for r in tl if r["type"] in ("cmd", "powershell")
+                                            and tools.gpupdate_no(r["script"], r["type"]) != r["script"])}
+    return {"since": since, "scan_errors_by_area": scan_errors, "winget": wg, "clients": clients,
+            "group_policy_since_start": gp, "tools": tool_info}
 
 
 def _update_status():
@@ -748,16 +817,20 @@ Dateien
   behobene_fehler.txt  Behobene Fehler, die der Selbsttest bei jeder Version prüft
   umgebung.json        Version, Umgebung, Zähler, Zustand der Hintergrundaufgaben (ohne Kennwörter/Schlüssel)
   einstellungen.json   Einstellungen (ohne Kennwörter, Keytab, Schlüssel)
-  statistik.json       Bereitstellungen und Scans im Zeitraum: Ergebnisse, Exitcodes, häufigste Fehler, Dauer
+  statistik.json       Bereitstellungen und Scans im Zeitraum: Ergebnisse, Exitcodes, häufigste Fehler, Dauer,
+                       Ketten (mehrere Pakete nacheinander: Anzahl, übersprungene Ziele, wartende Ziele)
   leistung.json        Rechenlast und Lastspitzen, Dauer der wichtigsten Abfragen, langsamste Sammlungen, größte Felder
                        (nur Feldnamen und Größen, keine Inhalte)
   update_status.json   Update-Status: Microsoft-Abgleich, Stände je Status, Office-Installationen je Produkt/Kanal/Version
                        leistung.json enthält außerdem: Dauer jeder Seite seit dem Start, Größe der Scan-Ergebnisse je Bereich,
                        Datenbank je Tabelle, Fernsitzungen, Hintergrundaufgaben und tägliche Läufe (mit Fehlern)
-  inventar.json        Scan-Fehler je Bereich, winget-Zuordnung, Clients (PowerShell-Version, Sprachmodus, winget)
+  inventar.json        Scan-Fehler je Bereich, winget-Zuordnung, Clients (PowerShell-Version, Sprachmodus, winget, Edition,
+                       ESU, Entra/MDM, Virtualisierung, Office Klick-und-Los, Secure Boot, SMB1 … – nur Anzahlen),
+                       Gruppenrichtlinien-Verlauf und gpresult seit dem Start (Aufrufe, Fehler, Dauer, Auswertungsqualität),
+                       Tools (je Typ, gpupdate-Zeilen ohne Antwort)
   protokoll.csv        Protokoll des Zeitraums (höchstens {MAX_LOG_ROWS} Einträge, neueste zuerst)
   fehler.txt           Warnungen und Fehler mit technischen Details
-  bereitstellungen.csv Ziele der Bereitstellungen im Zeitraum
+  bereitstellungen.csv Ziele der Bereitstellungen im Zeitraum (mit Kette: chain_id, Position/Länge)
   fehlgeschlagen.json  Fehlgeschlagene Ziele mit Schrittergebnissen und gekürzter Ausgabe
   scans.csv            Scan-Verlauf im Zeitraum
 
@@ -800,7 +873,8 @@ def _build(days, anonymize, user):
         r["version"] = vat(r["ts"])
     errors = [f"{r['ts']} [{r['version']}] {r['level']} [{r['category']}] {r['computer'] or ''} {r['message']}"
               for r in logs if r["level"] in ("WARN", "ERROR")]
-    targets = db.q("""SELECT t.id, t.deployment_id, d.name AS deployment, d.source, d.created_by, t.computer_name, t.status, t.exit_code,
+    targets = db.q("""SELECT t.id, t.deployment_id, d.name AS deployment, d.source, d.chain_id, d.chain_pos, d.chain_len, d.created_by,
+                             t.computer_name, t.status, t.exit_code,
                              t.message, t.started_at, t.finished_at, t.steps, t.output, d.created_at
                       FROM deployment_targets t JOIN deployments d ON d.id = t.deployment_id
                       WHERE COALESCE(t.finished_at, t.started_at, d.created_at) >= ? ORDER BY t.id DESC LIMIT ?""", (since, MAX_TARGETS))
@@ -822,7 +896,7 @@ def _build(days, anonymize, user):
                 for k, v in list(s.items()):
                     if isinstance(v, str) and k not in ("phase", "type", "status", "run_as", "started", "finished", "sid"):
                         s[k] = an(v)  # title (first command line, paths), message …
-            failed.append({k: r[k] for k in ("version", "deployment_id", "deployment", "source", "computer_name", "exit_code", "message",
+            failed.append({k: r[k] for k in ("version", "deployment_id", "deployment", "source", "chain_pos", "chain_len", "computer_name", "exit_code", "message",
                                               "started_at", "finished_at")} | {"steps": steps, "output_tail": an((r["output"] or "")[-MAX_OUTPUT:])})
     scans = db.q("""SELECT h.ts, c.name AS computer, h.status, h.duration_ms, h.profile_name, h.error, h.warnings FROM scan_history h
                     LEFT JOIN computers c ON c.id = h.computer_id WHERE h.ts >= ? ORDER BY h.id DESC LIMIT 20000""", (since,))
@@ -860,8 +934,8 @@ def _build(days, anonymize, user):
                 z.writestr(fname, json.dumps({"error": an(str(e))[:500]}, ensure_ascii=False))
         z.writestr("protokoll.csv", _csv(logs, ["ts", "version", "level", "category", "computer", "username", "message"]))
         z.writestr("fehler.txt", "\n".join(errors) or "Keine Warnungen oder Fehler im Zeitraum.\n")
-        z.writestr("bereitstellungen.csv", _csv(targets, ["version", "deployment_id", "deployment", "source", "created_by", "computer_name",
-                                                          "status", "exit_code", "message", "started_at", "finished_at"]))
+        z.writestr("bereitstellungen.csv", _csv(targets, ["version", "deployment_id", "deployment", "source", "chain_id", "chain_pos", "chain_len",
+                                                          "created_by", "computer_name", "status", "exit_code", "message", "started_at", "finished_at"]))
         z.writestr("fehlgeschlagen.json", json.dumps(failed, ensure_ascii=False, indent=1, default=str))
         z.writestr("scans.csv", _csv(scans, ["ts", "version", "computer", "status", "duration_ms", "profile_name", "error", "warnings"]))
     an.flush()  # remember new placeholders permanently (lookup, same placeholders in the next package)

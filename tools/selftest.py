@@ -7766,6 +7766,81 @@ def _():
     assert ".coffee-box" in css and ".coffee-btn" in css and "url(" not in css[css.index(".coffee-box"):css.index(".coffee-btn svg")]
 
 
+@test("2.48.2 Diagnostic package follows the program: every new DB column/scan value is in the package or justified; chains, new client values, Group Policy history/gpresult quality, tools")
+def _():
+    import io as _io
+    import re as _re
+    import zipfile as _zf
+    from app import diagnostics, gphistory, inventory, tools
+    # (1) coverage: nothing new may be forgotten in the diagnostic package
+    src = open(diagnostics.__file__, encoding="utf-8").read()
+    body = src[:src.index("NOT_IN_DIAGNOSTICS = {")] + src[src.index("def _chains(since):"):]
+    items = [(f"{t}.{c}", c) for t, c, *_ in db.MIGRATIONS] + [(f"extra.{k}", k) for v in inventory.MODULE_EXTRA.values() for k in v]
+    nn = diagnostics.NOT_IN_DIAGNOSTICS
+    missing = [n for n, c in items if n not in nn and not _re.search(r"\b" + _re.escape(c) + r"\b", body)]
+    assert not missing, ("Diagnosepaket anpassen (app/diagnostics.py) oder in NOT_IN_DIAGNOSTICS begründen", missing)
+    stale = [k for k in nn if k not in dict(items)]
+    assert not stale, ("NOT_IN_DIAGNOSTICS enthält Einträge, die es nicht mehr gibt", stale)
+    assert all(isinstance(v, str) and len(v) > 20 for v in nn.values()), "every exception has a reason"
+    # (2) content
+    tools.init()
+    cid = db.ex("INSERT INTO computers(name, last_scan, extra) VALUES('PC-DIAG482', '2026-11-15 10:00:00', ?)", (json.dumps({
+        "entra": {"join": "Hybrid", "tenant": "Firma GmbH", "mdm": "Intune"}, "virtual": "VMware", "os_edition": "Enterprise",
+        "os_esu": 1, "office_c2r": {"version": "16.0.1", "channel": "MonthlyEnterprise"}, "secure_boot": True,
+        "board": {"vendor": "LENOVO", "model": "X1"}}),))
+    dids = []
+    for i in (1, 2):
+        dids.append(db.ex("INSERT INTO deployments(name, status, created_by, created_at, chain_id, chain_pos, chain_len, chain_stop) VALUES(?, 'done', 'admin', ?, 0, ?, 2, 1)",
+                          (f"Diag-Kette {i}", util.now(), i)))
+    db.ex("UPDATE deployments SET chain_id=? WHERE id IN (?, ?)", (dids[0], dids[0], dids[1]))
+    db.ex("INSERT INTO deployment_targets(deployment_id, computer_id, computer_name, status, message, finished_at) VALUES(?, ?, 'PC-DIAG482', 'failed', 'Exitcode 1603', ?)",
+          (dids[0], cid, util.now()))
+    db.ex("INSERT INTO deployment_targets(deployment_id, computer_id, computer_name, status, message, finished_at) VALUES(?, ?, 'PC-DIAG482', 'skipped', ?, ?)",
+          (dids[1], cid, "Übersprungen – vorheriges Paket „Diag-Kette 1“ war nicht erfolgreich", util.now()))
+    tid = db.ex("INSERT INTO tools(name, folder, type, script, run_as, confirm, created_at) VALUES('GP-diag', 'T', 'cmd', 'gpupdate /force', 'service', 0, '')")
+    old = dict(gphistory._STATS)
+    gphistory._STATS.clear()
+    try:
+        gphistory._note("history", 1200, runs=3, runs_ok_without_gpos=1, extensions_unnamed=2, status={"ok": 2, "err": 1})
+        gphistory._note("gpresult", 5000, scope_user=1, settings=10, unknown_kinds={"ExoticItem": 2})
+        gphistory._note("gpresult", 300, error=_re.sub(r"[\w.\- ]+\\[\w.\-$ ]+", "<Benutzer>", 'Für FIRMA\\hmueller gibt es keine Richtliniendaten'))
+        # a real gpresult call records its parse quality (settings, GPOs) - user names never
+        from app import remote
+        orig = remote.ps
+        try:
+            remote.ps = lambda host, sc, timeout=0: ("PKXML:" + GP_RSOP_XML, "", False)
+            gphistory.rsop(cid, "user", "FIRMA\\anwender")
+        finally:
+            remote.ps = orig
+        assert gphistory.stats()["gpresult"]["settings"] == 14 and gphistory.stats()["gpresult"]["gpos_not_applied"] == 2, gphistory.stats()
+        z = _zf.ZipFile(_io.BytesIO(diagnostics.build(1, True)[0]))
+        inv = json.loads(z.read("inventar.json"))
+        cl = inv["clients"]
+        assert cl["entra_join"].get("Hybrid") == 1 and cl["mdm"].get("Intune") == 1 and cl["virtual"].get("VMware") == 1, cl
+        assert cl["office_c2r"].get("ja") == 1 and cl["os_esu"].get("1") == 1 and cl["board_vendor"].get("LENOVO") == 1, cl
+        gp = inv["group_policy_since_start"]
+        assert gp["history"]["calls"] == 1 and gp["history"]["runs_ok_without_gpos"] == 1 and gp["history"]["status"] == {"ok": 2, "err": 1}, gp
+        assert gp["gpresult"]["calls"] == 3 and gp["gpresult"]["errors"] == 1 and gp["gpresult"]["unknown_kinds"] == {"ExoticItem": 2}, gp
+        assert gp["gpresult"]["ms_max"] == 5000 and "hmueller" not in json.dumps(gp).lower(), gp
+        assert inv["tools"]["gpupdate_unanswered"] >= 1 and inv["tools"]["by_type"].get("cmd", 0) >= 1, inv["tools"]
+        ch = json.loads(z.read("statistik.json"))["zeitraum"]["chains"]
+        assert ch["chains"] >= 1 and ch["deployments_in_chains"] >= 2 and ch["longest"] >= 2 and ch["stop_on_fail"] >= 1, ch
+        assert ch["targets_skipped_by_chain"] >= 1, ch
+        csv_head = z.read("bereitstellungen.csv").decode("utf-8-sig").splitlines()[0]
+        assert "chain_id" in csv_head and "chain_pos" in csv_head and "chain_len" in csv_head, csv_head
+        readme = z.read("LIESMICH.txt").decode("utf-8")
+        assert "Ketten" in readme and "Gruppenrichtlinien-Verlauf" in readme and "Entra/MDM" in readme
+        blob = "\n".join(z.read(n).decode("utf-8", "replace") for n in z.namelist())
+        assert "PC-DIAG482" not in blob and "Firma GmbH" not in blob, "anonymized; Entra tenant never in the package"
+    finally:
+        gphistory._STATS.clear()
+        gphistory._STATS.update(old)
+        db.ex("DELETE FROM tools WHERE id=?", (tid,))
+        db.ex("DELETE FROM deployment_targets WHERE deployment_id IN (?, ?)", tuple(dids))
+        db.ex("DELETE FROM deployments WHERE id IN (?, ?)", tuple(dids))
+        db.ex("DELETE FROM computers WHERE id=?", (cid,))
+
+
 @test("2.46.1 gpupdate in tools never waits for \"log off / restart? (J/N)\": always \"N\" (cmd and PowerShell, new and existing tools, built-in tool says so in the output)")
 def _():
     import subprocess as _sp
