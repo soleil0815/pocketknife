@@ -424,7 +424,10 @@ def ps_tool_winrm(script, workdir=None):
             + (f"Set-Location -LiteralPath {util.psq(workdir)}\n" if workdir else "")
             + "$pkF = Join-Path $env:TEMP ('pk_tool_' + [guid]::NewGuid().ToString('N') + '.ps1')\n"
             + util.ps_write("$pkF", script)
-            + "try { Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force -ErrorAction Stop } catch {}\n"
+            # 2.50.1: "Unrestricted" is enough for the file POCKET KNIFE has just written on the computer itself (no
+            # internet zone mark) - PowerShell script block logging records every script containing the policy name
+            # "Bypass" as a warning. If a policy forbids it, the probe below notices it and the tool runs directly.
+            + "try { Set-ExecutionPolicy -Scope Process -ExecutionPolicy Unrestricted -Force -ErrorAction Stop } catch {}\n"
             # 2.38.1: may a script run from %TEMP% here at all? (software restriction/AppLocker by path)
             + "$pkP = Join-Path $env:TEMP ('pk_probe_' + [guid]::NewGuid().ToString('N') + '.ps1')\n"
             + util.ps_write("$pkP", "'PKPROBE'")

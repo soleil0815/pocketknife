@@ -38,6 +38,11 @@ db.init()
 RESULTS = []
 
 
+def _re_search(pat, text):
+    import re as _r
+    return _r.search(pat, text)
+
+
 def test(name):
     def deco(fn):
         RESULTS.append((name, fn))
@@ -5662,16 +5667,16 @@ def _():
     pw = os.environ.get("PK_PWSH")
     if pw and os.path.exists(pw):
         mocks = ("$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'\n"
-                 "function Get-CimInstance { param($ClassName, $Filter)\n"
+                 "function Get-CimInstance { param($ClassName, $Filter, $Namespace, $ErrorAction)\n"
+                 "  if ($ClassName -eq 'MSFT_NetAdapter') { if ($Filter -ne 'ConnectorPresent = TRUE') { throw 'only physical adapters' }\n"
+                 "    return @(@{ InterfaceDescription = 'Intel Ethernet'; NdisPhysicalMedium = [uint32]14; Speed = [uint64]1000000000; InterfaceOperationalStatus = [uint32]1 },\n"
+                 "             @{ InterfaceDescription = 'Realtek USB'; NdisPhysicalMedium = [uint32]14; Speed = [uint64]0; InterfaceOperationalStatus = [uint32]2 }) }\n"
                  "  if ($ClassName -eq 'Win32_NetworkAdapter') { return @(\n"
                  "    @{ Name = 'Intel Ethernet'; Index = 1; NetConnectionStatus = 2; Speed = 10000000; MACAddress = 'AA'; NetEnabled = $true },\n"
                  "    @{ Name = 'Realtek USB'; Index = 2; NetConnectionStatus = 7; Speed = 10000000; MACAddress = 'BB'; NetEnabled = $true },\n"
                  "    @{ Name = 'Alt-Karte'; Index = 3; NetConnectionStatus = 2; Speed = 100000000; MACAddress = 'CC'; NetEnabled = $true }) }\n"
                  "  return @() }\n"
-                 "function Get-NetAdapter { param([switch]$Physical, $ErrorAction)\n"
-                 "  @(@{ InterfaceDescription = 'Intel Ethernet'; PhysicalMediaType = '802.3'; Speed = 1000000000; Status = 'Up' },\n"
-                 "    @{ InterfaceDescription = 'Realtek USB'; PhysicalMediaType = '802.3'; Speed = 0; Status = 'Disconnected' }) }\n"
-                 "function Get-NetAdapterPowerManagement { @() }\nfunction Get-NetAdapterAdvancedProperty { @() }\nfunction powercfg.exe { }\n")
+                 "function powercfg.exe { }\n")
         sf = os.path.join(TMP, "pk-nics.ps1")
         with open(sf, "w", encoding="utf-8-sig") as fh:
             fh.write(mocks + pre + nics + "\nConvertTo-Json -InputObject @($r.nics) -Compress\n'ERR:' + ($r.errors -join ' | ')\n")
@@ -8016,6 +8021,72 @@ def _():
     nav_rules = "\n".join(l for l in css.splitlines() if l.startswith(".nav ") or l.startswith(".brand "))
     assert "#fff" not in nav_rules.lower(), nav_rules
     assert "font-src 'self'" in _m.CSP
+
+
+@test("2.50.1 Quieter PowerShell logging: tool start without \"Bypass\" (PowerShell's own check finds nothing), scan reads CIM classes instead of module cmdlets with the same texts")
+def _():
+    import subprocess
+    from app import tools
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app")
+    w = tools.ps_tool_winrm("Write-Host 'hallo'\nexit 3")
+    assert "Bypass" not in w and "-ExecutionPolicy Unrestricted" in w and "pk_probe_" in w, "probe/fallback stays"
+    src = open(os.path.join(root, "scan_modules.ps1"), encoding="utf-8").read()
+    code = "\n".join(l for l in src.splitlines() if not l.lstrip().startswith("#"))
+    for cmd in ("Get-NetAdapter", "Get-NetAdapterPowerManagement", "Get-NetAdapterAdvancedProperty", "Get-PhysicalDisk",
+                "Get-SmbServerConfiguration", "Get-NetFirewallProfile"):
+        assert not _re_search(r"\b" + cmd + r"\b(?!\w)", code.replace("Get-NetAdapterPowerManagement", "x").replace("Get-NetAdapterAdvancedProperty", "x")
+                              if cmd == "Get-NetAdapter" else code), f"{cmd} loads a generated Windows module"
+    assert code.index("MSFT_MpComputerStatus") < code.index("Get-MpComputerStatus"), "Defender class first, cmdlet only as fallback"
+    pw = os.environ.get("PK_PWSH")
+    if not (pw and os.path.exists(pw)):
+        return
+    # PowerShell's own "suspicious content" check (the one that writes 4104 warnings) finds nothing in the tool start
+    chk = ("$m = [System.Management.Automation.ScriptBlock].GetMethod('CheckSuspiciousContent', [System.Reflection.BindingFlags]'NonPublic,Static')\n"
+           "$t = Get-Content -Raw -LiteralPath $args[0]\n"
+           "$a = [System.Management.Automation.Language.Parser]::ParseInput($t, [ref]$null, [ref]$null)\n"
+           "'SUSP:[' + $m.Invoke($null, @($a)) + ']'\n")
+    cf, wf = os.path.join(TMP, "pk-susp.ps1"), os.path.join(TMP, "pk-wrapper.ps1")
+    open(cf, "w", encoding="utf-8").write(chk)
+    open(wf, "w", encoding="utf-8").write(w)
+    out = subprocess.run([pw, "-NoProfile", "-File", cf, wf], capture_output=True, text=True, timeout=60).stdout
+    assert "SUSP:[]" in out, out
+    open(wf, "w", encoding="utf-8").write(w.replace("Unrestricted", "Bypass"))
+    assert "SUSP:[Bypass]" in subprocess.run([pw, "-NoProfile", "-File", cf, wf], capture_output=True, text=True, timeout=60).stdout, "check works"
+    # scan blocks with CIM mocks in Constrained Language: same texts as the cmdlets showed
+    pre = src[src.index("# @prelude"):src.index("# @module active_directory")]
+    disks = src[src.index("PKS 'physical_disks' {"):]
+    disks = disks[:disks.index("\nPKS 'volumes' {")]
+    sec = src[src.index("# @module security"):src.index("# @module tasks")]
+    mocks = ("$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'\n"
+             "$global:calls = @()\n"
+             "function Get-CimInstance { param($ClassName, $Filter, $Namespace, $ErrorAction)\n"
+             "  $global:calls += $ClassName\n"
+             "  switch ($ClassName) {\n"
+             "    'MSFT_PhysicalDisk' { return @(@{ DeviceId = '0'; MediaType = [uint16]4; BusType = [uint16]17; HealthStatus = [uint16]0 },\n"
+             "                                   @{ DeviceId = '1'; MediaType = [uint16]3; BusType = [uint16]11; HealthStatus = [uint16]1 },\n"
+             "                                   @{ DeviceId = '2'; MediaType = [uint16]0; BusType = [uint16]99; HealthStatus = [uint16]5 }) }\n"
+             "    'Win32_DiskDrive' { return @(@{ Index = 0; Model = 'NVMe A'; Size = 1 }, @{ Index = 1; Model = 'HDD B'; Size = 2 }, @{ Index = 2; Model = 'X'; Size = 3 }, @{ Index = 3; Model = 'USB'; Size = 4; MediaType = 'Removable Media'; Status = 'OK' }) }\n"
+             "    'MSFT_MpComputerStatus' { return @{ AntivirusEnabled = $true; RealTimeProtectionEnabled = $true; AntivirusSignatureVersion = '1.2'; AntivirusSignatureAge = 0 } }\n"
+             "    'MSFT_NetFirewallProfile' { return @(@{ Name = 'Domain'; Enabled = [uint16]1 }, @{ Name = 'Private'; Enabled = [uint16]0 }, @{ Name = 'Public'; Enabled = [uint16]2 }) }\n"
+             "    'MSFT_SmbServerConfiguration' { return @{ EnableSMB1Protocol = $false } }\n"
+             "    default { return @() } } }\n"
+             "function Get-MpComputerStatus { throw 'module cmdlet must not be used' }\n"
+             "function Get-BitLockerVolume { @() }\n"
+             "$os = @{ ProductType = 3 }\n")
+    body = (mocks + pre + "\n$r.physical_disks = @(" + disks.split("{", 1)[1].rsplit("}", 1)[0] + ")\n" + sec
+            + "\n'PKENUM:' + (PKEnum @{ 0 = 'Unsupported'; 1 = 'Disabled'; 2 = 'Enabled' } ([uint32]2)) + '|' + (PKEnum @{ 0 = 'a' } ([uint32]7)) + '|' + (PKEnum @{ 0 = 'a' } $null) + '|'\n"
+            + "'DISKS:' + (ConvertTo-Json -InputObject @($r.physical_disks) -Compress)\n"
+            + "'FW:' + (ConvertTo-Json -InputObject @($e.firewall) -Compress)\n'DEF:' + $e.defender.signature\n'CALLS:' + ($global:calls -join ',')\n'ERR:' + ($r.errors -join ' | ')\n")
+    sf = os.path.join(TMP, "pk-quiet.ps1")
+    open(sf, "w", encoding="utf-8-sig").write(body)
+    r = subprocess.run([pw, "-NoLogo", "-NoProfile", "-NonInteractive", "-File", sf], capture_output=True, text=True, timeout=120)
+    o = {l.split(":", 1)[0]: l.split(":", 1)[1] for l in r.stdout.splitlines() if ":" in l and l.split(":", 1)[0] in ("PKENUM", "DISKS", "FW", "DEF", "CALLS", "ERR")}
+    assert o.get("PKENUM") == "Enabled|7||", (o, r.stderr[-800:])
+    d = json.loads(o["DISKS"])
+    assert [(x["media"], x["bus"], x["health"]) for x in d] == [("SSD", "NVMe", "Healthy"), ("HDD", "SATA", "Warning"), ("Unspecified", "99", "Unknown"),
+                                                               ("Removable Media", "", "OK")], d
+    assert json.loads(o["FW"]) == [{"profile": "Domain", "enabled": True}, {"profile": "Private", "enabled": False}, {"profile": "Public", "enabled": False}], o["FW"]
+    assert o["DEF"] == "1.2" and "MSFT_MpComputerStatus" in o["CALLS"] and o["ERR"] == "", o
 
 
 @test("2.46.1 gpupdate in tools never waits for \"log off / restart? (J/N)\": always \"N\" (cmd and PowerShell, new and existing tools, built-in tool says so in the output)")

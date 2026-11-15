@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.50.1",
+   "date": "2026-11-15",
+   "items": [
+    {
+     "kind": "improved",
+     "audience": "admin",
+     "de": "Leiseres PowerShell-Protokoll auf den Clients: Werkzeuge starten ohne „Bypass“ und der Scan liest Netzwerkkarten, Datenträger, Defender, Firewall und SMB direkt über CIM-Klassen – dadurch deutlich weniger Warnungen (Ereignis 4104).",
+     "en": "Quieter PowerShell logging on the clients: tools start without \"Bypass\" and the scan reads network adapters, disks, Defender, firewall and SMB straight from CIM classes - far fewer warnings (event 4104)."
+    }
+   ]
+  },
+  {
    "version": "2.50.0",
    "date": "2026-11-15",
    "items": [

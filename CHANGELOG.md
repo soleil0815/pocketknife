@@ -2,6 +2,13 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.50.1 (15.11.2026)
+- **Quieter PowerShell logging on the clients** (event 4104 in "Microsoft-Windows-PowerShell/Operational"):
+  - tools start with `Set-ExecutionPolicy -Scope Process Unrestricted` instead of `Bypass` - PowerShell writes every script block containing the word "Bypass" as a **warning**; the file POCKET KNIFE writes on the computer itself has no internet zone mark, so Unrestricted runs it just the same (if a policy forbids it, the existing probe notices it and the tool runs directly as before)
+  - the scan reads SMB 1, physical disks, network adapters (speed, medium, Wake-on-LAN), Microsoft Defender and the firewall profiles straight from the CIM classes (`MSFT_SmbServerConfiguration`, `MSFT_PhysicalDisk`, `MSFT_NetAdapter*`, `MSFT_MpComputerStatus`, `MSFT_NetFirewallProfile`) instead of loading the generated Windows modules (Get-NetAdapter, Get-PhysicalDisk, …) - those modules are logged as warnings when they load; the shown texts stay the same (SSD/HDD, NVMe/SATA, Healthy, 802.3 …), `Get-MpComputerStatus` remains only as a fallback
+  - still logged: package deployments (scheduled task via the ScheduledTasks module, `-ExecutionPolicy Bypass` for package scripts), toast messages and other agents on the computer
+- **Self-test:** PowerShell's own suspicious-content check finds nothing in the tool start; the scan blocks run in Constrained Language with CIM mocks and show the same texts
+
 ## pocketknife-2.50.0 (15.11.2026)
 - **Same look as the other programs** (WhatsOnMyNet, Helfi.Space, AssetLotse, Catalytix) - red stays the colour of POCKET KNIFE:
   - fonts **Inter** (text) and **IBM Plex Mono** (code, paths, scripts, command output) - built in, nothing loaded from the internet (SIL Open Font License, `app/static/fonts/OFL.txt`)
