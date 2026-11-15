@@ -6148,5 +6148,14 @@
  "Not Configured": null,
  "Kaffee spendieren": "Buy me a coffee",
  "Einen Kaffee spendieren": "Buy me a coffee",
- "Gefällt Ihnen POCKET KNIFE? Über einen Kaffee freue ich mich.": "Do you like POCKET KNIFE? I am happy about a coffee."
+ "Gefällt Ihnen POCKET KNIFE? Über einen Kaffee freue ich mich.": "Do you like POCKET KNIFE? I am happy about a coffee.",
+ "CASE WHEN json_extract(extra, '$.office_c2r') IS NULL THEN 'nein' ELSE 'ja' END": null,
+ "COALESCE(NULLIF(json_extract(extra, '$.entra.join'), ''), 'nein')": null,
+ "COALESCE(NULLIF(json_extract(extra, '$.entra.mdm'), ''), 'nein')": null,
+ "COALESCE(NULLIF(json_extract(extra, '$.virtual'), ''), 'physisch')": null,
+ "Einstellung je Objekt – Wirkung ist an Protokoll, Bereitstellungen und Scans sichtbar": null,
+ "Inventarwert je PC – steht im Inventar, für die Fehlersuche am Programm nicht nötig": null,
+ "interner Zeitstempel/Verweis ohne Aussage für die Fehlersuche": null,
+ "persönliche/identifizierende Angabe je PC oder Benutzer – nicht nötig für die Fehlersuche am Programm": null,
+ "<Benutzer>": null
 }

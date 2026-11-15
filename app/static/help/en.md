@@ -1497,9 +1497,12 @@ Under **Settings → Maintenance → Diagnostics package**, POCKET KNIFE creates
 | `update_status.json` (from 2.44.3) | update status: Microsoft comparison (builds, Office channels), count per status, Office installations per product, channel and version |
 | `leistung.json` – additions from 2.44.4 | duration of every page/query since start (median, 95 %, maximum), size of the scan results per area (an area over 5 MB is also logged as a warning), database per table and log file (WAL), remote sessions (duration, data, how they ended), background tasks with errors, last daily runs |
 | `inventar.json` (from 2.44.4) | scan errors per area, winget assignment (sure/unsure, outdated, MSIX), clients per PowerShell version, language mode (ConstrainedLanguage = software restriction) and winget |
+| additions from 2.48.2 | `statistik.json`: **chains** (several packages one after another – count, with "stop on failure", targets skipped because of the chain and targets waiting right now); `bereitstellungen.csv`: chain and position; `inventar.json`: clients per edition, ESU, Entra ID join, MDM, virtualization, Office Click-to-Run, Secure Boot, SMB1 … (counts only, never the Entra tenant), **Group Policy history and gpresult since start** (calls, errors, duration and parse quality, e.g. runs without a GPO list or unknown setting kinds – never computer, user or GPO names), tools per type and gpupdate lines without an answer |
 | `protokoll.csv`, `fehler.txt` | log of the period, warnings and errors separately |
 | `bereitstellungen.csv`, `fehlgeschlagen.json` | deployments; for failures the end of the output (at most 3000 characters per step) |
 | `scans.csv` | scan runs with duration and result |
+
+**Stays up to date:** every new feature that stores data or scans new values must be in the diagnostic package – or the program states why it is not needed there. The self-test checks this with every version.
 
 Passwords, the vault, sessions, keytab and certificates are **never** included – not even without anonymization. Passwords in command lines of steps and outputs (e.g. `PASSWORD=…`, `net use … /user:account password`, `ConvertTo-SecureString '…'`) are replaced by `***`.
 

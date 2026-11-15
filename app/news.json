@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.48.2",
+   "date": "2026-11-15",
+   "items": [
+    {
+     "kind": "improved",
+     "audience": "admin",
+     "de": "Diagnosepaket auf dem aktuellen Stand: Ketten mehrerer Pakete, Entra/MDM, ESU, Virtualisierung, Office und Statistik zu Gruppenrichtlinien-Verlauf und gpresult (nur Anzahlen). Neue Funktionen kommen künftig immer mit hinein – der Selbsttest prüft das.",
+     "en": "Diagnostic package up to date: chains of several packages, Entra/MDM, ESU, virtualization, Office and statistics for the Group Policy history and gpresult (counts only). New features will always be included – the self-test checks it."
+    }
+   ]
+  },
+  {
    "version": "2.48.1",
    "date": "2026-11-13",
    "items": [

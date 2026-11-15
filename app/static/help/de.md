@@ -1497,9 +1497,12 @@ Unter **Einstellungen → Wartung → Diagnosepaket** erstellt POCKET KNIFE ein 
 | `update_status.json` (ab 2.44.3) | Update-Status: Microsoft-Abgleich (Builds, Office-Kanäle), Anzahl je Status, Office-Installationen je Produkt, Kanal und Version |
 | `leistung.json` – Ergänzungen ab 2.44.4 | Dauer jeder Seite/Abfrage seit dem Start (Median, 95 %, Maximum), Größe der Scan-Ergebnisse je Bereich (ein Bereich über 5 MB steht zusätzlich als Warnung im Protokoll), Datenbank je Tabelle und Begleitdatei (WAL), Fernsitzungen (Dauer, Datenmenge, wodurch beendet), Hintergrundaufgaben mit Fehlern, letzte tägliche Läufe |
 | `inventar.json` (ab 2.44.4) | Scan-Fehler je Bereich, winget-Zuordnung (sicher/unsicher, veraltet, MSIX), Clients je PowerShell-Version, Sprachmodus (ConstrainedLanguage = Softwareeinschränkung) und winget |
+| Ergänzungen ab 2.48.2 | `statistik.json`: **Ketten** (mehrere Pakete nacheinander – Anzahl, mit „Bei Fehler abbrechen“, wegen der Kette übersprungene und gerade wartende Ziele); `bereitstellungen.csv`: Kette und Position; `inventar.json`: Clients je Edition, ESU, Entra-ID-Beitritt, MDM, Virtualisierung, Office Klick-und-Los, Secure Boot, SMB1 … (nur Anzahlen, nie der Entra-Mandant), **Gruppenrichtlinien-Verlauf und gpresult seit dem Start** (Aufrufe, Fehler, Dauer und Auswertungsqualität, z. B. Verarbeitungen ohne GPO-Liste oder unbekannte Einstellungsarten – nie Computer-, Benutzer- oder GPO-Namen), Tools je Typ und gpupdate-Zeilen ohne Antwort |
 | `protokoll.csv`, `fehler.txt` | Protokoll des Zeitraums, Warnungen und Fehler gesondert |
 | `bereitstellungen.csv`, `fehlgeschlagen.json` | Bereitstellungen; bei Fehlschlägen das Ende der Ausgabe (höchstens 3000 Zeichen je Schritt) |
 | `scans.csv` | Scan-Läufe mit Dauer und Ergebnis |
+
+**Bleibt aktuell:** Jede neue Funktion, die Daten speichert oder neue Werte scannt, muss ins Diagnosepaket – oder es ist im Programm begründet, warum sie dort nicht gebraucht wird. Der Selbsttest prüft das bei jeder Version.
 
 Kennwörter, der Tresor, Sitzungen, Keytab und Zertifikate sind **nie** enthalten – auch nicht ohne Anonymisierung. Kennwörter in Befehlszeilen von Schritten und Ausgaben (z. B. `PASSWORD=…`, `net use … /user:konto kennwort`, `ConvertTo-SecureString '…'`) werden durch `***` ersetzt.
 
