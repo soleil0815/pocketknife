@@ -6200,5 +6200,13 @@
  "Wird benutzt von: ": "Used by: ",
  "Zeile {0}, Spalte {1}": "Line {0}, column {1}",
  "Zeilenende": "Line ending",
- "nach dem Speichern übernimmt die Bruchprüfung den neuen Stand automatisch, die nächsten Bereitstellungen verwenden ihn.": "after saving the integrity check takes over the new state automatically, the next deployments use it."
+ "nach dem Speichern übernimmt die Bruchprüfung den neuen Stand automatisch, die nächsten Bereitstellungen verwenden ihn.": "after saving the integrity check takes over the new state automatically, the next deployments use it.",
+ "Editor": null,
+ "Upload": null,
+ "Repository: „{0}“ ersetzt ({1}, SHA-256 {2}…) – benutzt von {3}; neuer Stand für die Bruchprüfung übernommen.": "Repository: \"{0}\" replaced ({1}, SHA-256 {2}…) – used by {3}; new state taken over for the integrity check.",
+ "Alle ersetzen": "Replace all",
+ "Datei wird von Paketen benutzt": "File is used by packages",
+ "Ersetzen? Die Pakete verteilen danach die neue Datei. Ihr Stand wird für die Bruchprüfung gleich übernommen (kein „Bruch“), die Pakete werden neu geprüft.": "Replace? The packages then distribute the new file. Its state is taken over for the integrity check right away (no \"break\"), the packages are checked again.",
+ "„{0}“ ersetzt – benutzt von {1}; neuer Stand für die Bruchprüfung übernommen.": "\"{0}\" replaced – used by {1}; new state taken over for the integrity check.",
+ "„{0}“ wird benutzt von:": "\"{0}\" is used by:"
 }

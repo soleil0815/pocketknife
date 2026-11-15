@@ -19,13 +19,18 @@ function PKX([string]$name, [scriptblock]$sb) {
 }
 function PKO($o, [int]$max = 40) {
   $h = [ordered]@{}; $i = 0
-  foreach ($p in $o.PSObject.Properties) {
-    if ($p.Name -match '^(PS|Cim)' -or $i -ge $max) { continue }
-    $v = $p.Value
+  # 2.50.2: names in their original order from the CSV header, values via Select-Object - the member list of
+  # PSObject and members named by a variable count as "suspicious" for PowerShell's script block logging (warning
+  # 4104), and this function is part of every scan
+  $hdr = @($o | Select-Object -First 1 | ConvertTo-Csv -NoTypeInformation)
+  $names = @(); if ($hdr.Count) { $names = @(([string]$hdr[0]).Trim('"') -split '","' | ForEach-Object { $_ -replace '""', '"' }) }
+  foreach ($pn in $names) {
+    if (-not $pn -or $pn -match '^(PS|Cim)' -or $i -ge $max) { continue }
+    $v = $o | Select-Object -ExpandProperty $pn -ErrorAction SilentlyContinue
     if ($v -is [datetime]) { $v = $v.ToString('yyyy-MM-dd HH:mm:ss') }
     elseif ($v -is [array]) { $v = ($v | ForEach-Object { "$_" }) -join ', ' }
     elseif ($null -ne $v) { $v = "$v" }
-    $h[$p.Name] = $v; $i++
+    $h[$pn] = $v; $i++
   }
   $h
 }
@@ -227,28 +232,11 @@ $paths = @(
 foreach ($u in (Get-ChildItem Registry::HKEY_USERS | Where-Object { $_.PSChildName -match '^S-1-5-21-[\d-]+$' })) {
   $paths += @{ p = "Registry::HKEY_USERS\$($u.PSChildName)\Software\Microsoft\Windows\CurrentVersion\Uninstall\*"; a = ''; s = 'Benutzer' }
 }
-$pkFull = $ExecutionContext.SessionState.LanguageMode -eq 'FullLanguage'
-try {
-  # 2.38: only with full language mode (software restriction/AppLocker/App Control: Constrained Language Mode – no Add-Type)
-  if (-not $pkFull) { throw 'CLM' }
-  Add-Type -ErrorAction Stop -TypeDefinition @"
-using System; using System.Runtime.InteropServices;
-public static class PKReg {
-  [DllImport("advapi32.dll", CharSet = CharSet.Unicode)]
-  static extern int RegQueryInfoKey(Microsoft.Win32.SafeHandles.SafeRegistryHandle h, IntPtr c, IntPtr cl, IntPtr r, IntPtr sk, IntPtr msk, IntPtr mcl, IntPtr v, IntPtr mvn, IntPtr mvl, IntPtr sd, out long ft);
-  public static string LastWrite(Microsoft.Win32.RegistryKey k) {
-    long ft;
-    if (RegQueryInfoKey(k.Handle, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, out ft) == 0)
-      return DateTime.FromFileTime(ft).ToString("yyyy-MM-dd HH:mm:ss");
-    return null;
-  }
-}
-"@
-  $pkLw = $true
-} catch { $pkLw = $false }
-# 2.38: values via Get-ItemProperty (properties) instead of the GetValue method – methods of the registry classes are
-# blocked in Constrained Language Mode
-function PKRegVal($pv, $n) { $v = $pv.$n; if ($null -eq $v) { '' } else { ("" + $v).Trim() } }
+# 2.50.2: the last-write time of the uninstall key is no longer read - it needed a compiled C# helper, and PowerShell
+# logs every script containing one as a warning (event 4104). "Geändert" is now the time POCKET KNIFE first saw the entry.
+# 2.38: values via Get-ItemProperty instead of GetValue() of the registry classes (blocked in Constrained Language Mode)
+# 2.50.2: value names written out ($pv.DisplayName) - a name taken from a variable counts as "suspicious" (warning 4104)
+function PKRegVal($v) { if ($null -eq $v) { '' } else { ("" + $v).Trim() } }
 $sw = @()
 try {
 $sw = foreach ($x in $paths) {
@@ -256,15 +244,13 @@ $sw = foreach ($x in $paths) {
     $k = $_
     $pv = Get-ItemProperty -LiteralPath $k.PSPath -ErrorAction SilentlyContinue
     if (-not $pv) { return }
-    $dn = PKRegVal $pv 'DisplayName'
-    if (-not $dn -or $pv.SystemComponent -eq 1 -or $pv.ParentKeyName -or (PKRegVal $pv 'ReleaseType') -match 'Update|Hotfix') { return }
-    $lw = $null
-    if ($pkLw) { try { $lw = [PKReg]::LastWrite($k) } catch {} }
+    $dn = PKRegVal $pv.DisplayName
+    if (-not $dn -or $pv.SystemComponent -eq 1 -or $pv.ParentKeyName -or (PKRegVal $pv.ReleaseType) -match 'Update|Hotfix') { return }
     $parts = $k.Name -split '\\', 2
-    [ordered]@{ name = $dn; version = (PKRegVal $pv 'DisplayVersion'); publisher = (PKRegVal $pv 'Publisher')
-                install_date = (PKRegVal $pv 'InstallDate'); key = $k.PSChildName; arch = $x.a; scope = $x.s
-                uninstall = (PKRegVal $pv 'UninstallString'); quiet = (PKRegVal $pv 'QuietUninstallString'); modify = (PKRegVal $pv 'ModifyPath')
-                location = (PKRegVal $pv 'InstallLocation'); size_kb = $pv.EstimatedSize; modified = $lw
+    [ordered]@{ name = $dn; version = (PKRegVal $pv.DisplayVersion); publisher = (PKRegVal $pv.Publisher)
+                install_date = (PKRegVal $pv.InstallDate); key = $k.PSChildName; arch = $x.a; scope = $x.s
+                uninstall = (PKRegVal $pv.UninstallString); quiet = (PKRegVal $pv.QuietUninstallString); modify = (PKRegVal $pv.ModifyPath)
+                location = (PKRegVal $pv.InstallLocation); size_kb = $pv.EstimatedSize; modified = $null
                 hive = $parts[0]; reg_path = $(if ($parts.Count -gt 1) { $parts[1] } else { '' })
                 no_remove = [bool]($pv.NoRemove -eq 1) } } }
 } catch { $r.software_error = $_.Exception.Message }
@@ -308,14 +294,18 @@ try {
       try {
         if (Test-Path -LiteralPath $mp) {
           $xm = [xml]((Get-Content -LiteralPath $mp -ErrorAction Stop) -join "`n")
-          $pp = $xm.Package.Properties
-          if ($pp) {
-            # 2.41.2: sparse packages (AllowExternalContent) are only an identity of a normal program for the Windows 11
-            # context menu (Notepad++ 1.0.0.0, Adobe Acrobat Reader 26.0.0.1 ...) - the program itself is in the uninstall registry
-            $fw = ("" + $pp.Framework) -eq 'true' -or ("" + $pp.ResourcePackage) -eq 'true' -or ("" + $pp.AllowExternalContent) -eq 'true'
-            $d = ("" + $pp.DisplayName).Trim(); if ($d -and $d -notmatch '^ms-resource:') { $dn = $d }
-            $d = ("" + $pp.PublisherDisplayName).Trim(); if ($d -and $d -notmatch '^ms-resource:') { $pub = $d }
+          # 2.50.2: the identity values by their element name (first occurrence = the package description block,
+          # it comes right after <Identity>); also finds uap10:AllowExternalContent
+          $pp = @{}
+          foreach ($nd in @($xm.GetElementsByTagName('*'))) {
+            $ln = $nd.LocalName
+            if (@('DisplayName', 'PublisherDisplayName', 'Framework', 'ResourcePackage', 'AllowExternalContent') -contains $ln -and -not $pp.ContainsKey($ln)) { $pp[$ln] = ("" + $nd.InnerText).Trim() }
           }
+          # 2.41.2: sparse packages (AllowExternalContent) are only an identity of a normal program for the Windows 11
+          # context menu (Notepad++ 1.0.0.0, Adobe Acrobat Reader 26.0.0.1 ...) - the program itself is in the uninstall registry
+          $fw = $pp['Framework'] -eq 'true' -or $pp['ResourcePackage'] -eq 'true' -or $pp['AllowExternalContent'] -eq 'true'
+          $d = "" + $pp['DisplayName']; if ($d -and $d -notmatch '^ms-resource:') { $dn = $d }
+          $d = "" + $pp['PublisherDisplayName']; if ($d -and $d -notmatch '^ms-resource:') { $pub = $d }
         }
       } catch {}
       if ($fw) { continue }
@@ -418,15 +408,13 @@ $r.hotfixes = @(Get-CimInstance Win32_QuickFixEngineering | ForEach-Object {
 
 # @module local_groups | Benutzer & Gruppen: lokale Gruppen (inkl. Administratoren)
 try {
-# 2.38: members via ADSI (fast, also orphaned SIDs) – in Constrained Language Mode via CIM (Win32_GroupUser)
+# 2.50.2: members via Get-LocalGroupMember (no ADSI/reflection - PowerShell logs that as a warning); it fails on
+# groups with orphaned SIDs (error 1332) - then via CIM (Win32_GroupUser), as before in Constrained Language Mode
 function PK-GroupMembers($grp) {
-  if ($ExecutionContext.SessionState.LanguageMode -eq 'FullLanguage') {
-    $g = [ADSI]("WinNT://$env:COMPUTERNAME/" + $grp.Name + ",group")
-    @($g.psbase.Invoke('Members') | ForEach-Object {
-      $p = $_.GetType().InvokeMember('ADsPath', 'GetProperty', $null, $_, $null)
-      $c = $_.GetType().InvokeMember('Class', 'GetProperty', $null, $_, $null)
-      [ordered]@{ name = (($p -replace '^WinNT://', '') -replace '/', '\'); type = $c } })
-  } else {
+  try {
+    @(Get-LocalGroupMember -SID $grp.SID -ErrorAction Stop | ForEach-Object {
+      [ordered]@{ name = [string]$_.Name; type = $(if ("$($_.ObjectClass)" -match 'Gruppe|Group') { 'Group' } else { 'User' }) } })
+  } catch {
     @(Get-CimAssociatedInstance -InputObject $grp -Association Win32_GroupUser -ErrorAction Stop | ForEach-Object {
       [ordered]@{ name = ($_.Domain + '\' + $_.Name); type = $(if ($_.CimClass.CimClassName -eq 'Win32_Group') { 'Group' } else { 'User' }) } })
   }

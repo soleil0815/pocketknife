@@ -7359,7 +7359,7 @@ def _():
                 raise AssertionError(f"{name}: blocked in Constrained Language Mode: {ln.strip()[:160]}")
     # Add-Type/.NET registry/ADSI only behind a language mode check
     m = scripts["modules"]
-    assert "if (-not $pkFull) { throw 'CLM' }" in m and m.index("if (-not $pkFull)") < m.index("Add-Type -ErrorAction")
+    assert "Add-Type" not in m and "[ADSI]" not in m, "2.50.2: the scan needs neither (warning 4104)"
     assert "Get-CimAssociatedInstance -InputObject $grp -Association Win32_GroupUser" in m and "$k.GetValue(" not in m
     assert "if ($ExecutionContext.SessionState.LanguageMode -ne 'FullLanguage') {\n    try { PK-RegClm" in scripts["reg"]
     assert "([int]-1)" in scripts["reg"] and "([long]-1)" in scripts["reg"], "DWORD/QWORD already converted"
@@ -8087,6 +8087,163 @@ def _():
                                                                ("Removable Media", "", "OK")], d
     assert json.loads(o["FW"]) == [{"profile": "Domain", "enabled": True}, {"profile": "Private", "enabled": False}, {"profile": "Public", "enabled": False}], o["FW"]
     assert o["DEF"] == "1.2" and "MSFT_MpComputerStatus" in o["CALLS"] and o["ERR"] == "", o
+
+
+@test("2.50.2 Every scan without PowerShell warnings: no flagged words, no member names from variables (all modules + every kind of own scanner); same values in Constrained Language; \"Geändert\" = first seen by POCKET KNIFE")
+def _():
+    import subprocess
+    from app import db, inventory, scanners
+    rows = [{"id": 1, "name": "R", "type": "registry", "target": "HKLM:\\SOFTWARE\\Firma", "extra": json.dumps({"recurse": True})},
+            {"id": 2, "name": "F", "type": "files", "target": "%SystemDrive%\\x\\*.log", "extra": "{}"},
+            {"id": 3, "name": "W", "type": "wmi", "target": "SELECT * FROM Win32_BIOS", "extra": "{}"},
+            {"id": 4, "name": "P", "type": "powershell", "target": "Get-Date", "extra": "{}"}]
+    full = "\n".join([inventory.PRELUDE] + [v[1] for v in inventory.MODULES.values()] + [scanners.script_for(rows), inventory.SCAN_END])
+    for w in ("Add-Type", "DllImport", "InvokeMember", "GetProperty", "Bypass", "EncodedCommand"):
+        assert w.lower() not in full.lower(), w
+    assert not _re_search(r"(?i)\b(properties|methods)\b", full), "words in comments count too"
+    assert not _re_search(r"[\w)\]]\.\$[A-Za-z_(]", full), "member name from a variable ($o.$n) counts as suspicious"
+    # first application scan: no time; later: unchanged keeps its time, new/updated gets the scan time
+    c = db.ex("INSERT INTO computers(name, dns_name, created_at) VALUES('GEAEND-PC', 'geaend-pc.firma.local', ?)", (util.now(),))
+    try:
+        sw = lambda *names: {"software": [{"name": n, "version": v, "arch": "x64", "scope": "Computer"} for n, v in names]}
+        inventory._save_software(c, sw(("7-Zip", "25.00"), ("VLC", "3.0")), None, "2026-11-01 10:00:00")
+        assert {r["name"]: r["modified"] for r in db.q("SELECT name, modified FROM software WHERE computer_id=?", (c,))} == {"7-Zip": None, "VLC": None}
+        db.ex("UPDATE software SET modified='2026-10-01 08:00:00' WHERE computer_id=? AND name='VLC'", (c,))
+        old = db.q("SELECT name, version, arch, scope, modified FROM software WHERE computer_id=?", (c,))
+        inventory._save_software(c, sw(("7-Zip", "26.00"), ("VLC", "3.0"), ("Notepad++", "8.8")), old, "2026-11-15 12:00:00")
+        got = {r["name"]: r["modified"] for r in db.q("SELECT name, modified FROM software WHERE computer_id=?", (c,))}
+        assert got == {"7-Zip": "2026-11-15 12:00:00", "VLC": "2026-10-01 08:00:00", "Notepad++": "2026-11-15 12:00:00"}, got
+        old = db.q("SELECT name, version, arch, scope, modified FROM software WHERE computer_id=?", (c,))
+        inventory._save_software(c, sw(("7-Zip", "26.00"), ("VLC", "3.0"), ("Notepad++", "8.8")), old, "2026-11-16 12:00:00")
+        assert {r["name"]: r["modified"] for r in db.q("SELECT name, modified FROM software WHERE computer_id=?", (c,))} == got, "unchanged keeps"
+    finally:
+        db.ex("DELETE FROM software WHERE computer_id=?", (c,))
+        db.ex("DELETE FROM software_changes WHERE computer_id=?", (c,))
+        db.ex("DELETE FROM computers WHERE id=?", (c,))
+    pw = os.environ.get("PK_PWSH")
+    if not (pw and os.path.exists(pw)):
+        return
+    chk = ("$m = [System.Management.Automation.ScriptBlock].GetMethod('CheckSuspiciousContent', [System.Reflection.BindingFlags]'NonPublic,Static')\n"
+           "$a = [System.Management.Automation.Language.Parser]::ParseInput((Get-Content -Raw -LiteralPath $args[0]), [ref]$null, [ref]$null)\n"
+           "$x = $m.Invoke($null, @($a)); 'SUSP:[' + $(if ($x) { ([string]$x).Substring(0, [Math]::Min(200, ([string]$x).Length)) }) + ']'\n")
+    cf, sf = os.path.join(TMP, "pk-susp2.ps1"), os.path.join(TMP, "pk-scan-all.ps1")
+    open(cf, "w", encoding="utf-8").write(chk)
+    open(sf, "w", encoding="utf-8").write(full)
+    out = subprocess.run([pw, "-NoProfile", "-File", cf, sf], capture_output=True, text=True, timeout=120).stdout
+    assert "SUSP:[]" in out, out
+    # the check recognises what it should (so an empty answer means something)
+    for bad in ("$o.$n", "$x.Properties", "# methods"):
+        open(sf, "w", encoding="utf-8").write(bad)
+        assert "SUSP:[]" not in subprocess.run([pw, "-NoProfile", "-File", cf, sf], capture_output=True, text=True, timeout=60).stdout, bad
+    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "scan_modules.ps1"), encoding="utf-8").read()
+    pre = src[src.index("# @prelude"):src.index("# @module active_directory")]
+    grp = src[src.index("function PK-GroupMembers"):src.index("$admins = @()")]
+    mx = src[src.index("          $xm = [xml]"):src.index("          $d = \"\" + $pp['PublisherDisplayName']")]
+    man = os.path.join(TMP, "pk-AppxManifest.xml")
+    open(man, "w", encoding="utf-8").write(
+        '<?xml version="1.0" encoding="utf-8"?><Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10" '
+        'xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10" xmlns:uap10="http://schemas.microsoft.com/appx/manifest/uap/windows10/10">'
+        '<Identity Name="Firma.App" Version="1.2.3.0"/><Properties><DisplayName>Firma App</DisplayName><PublisherDisplayName>Firma GmbH</PublisherDisplayName>'
+        '<uap10:AllowExternalContent>true</uap10:AllowExternalContent></Properties><Applications><Application Id="A"><uap:VisualElements DisplayName="X"/>'
+        '<Extensions><uap:Extension><uap:FileTypeAssociation><uap:DisplayName>Datei</uap:DisplayName></uap:FileTypeAssociation></uap:Extension></Extensions>'
+        '</Application></Applications></Package>')
+    body = ("$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'\n" + pre +
+            "function Get-LocalGroupMember { param($SID, $ErrorAction) if ($SID -eq 'S-1-5-32-544') { @(@{ Name = 'PC\\Administrator'; ObjectClass = 'Benutzer' }, @{ Name = 'FIRMA\\Domänen-Admins'; ObjectClass = 'Gruppe' }) } else { throw 'Fehler 1332' } }\n"
+            "function Get-CimAssociatedInstance { param($InputObject, $Association, $ErrorAction) @(@{ Domain = 'PC'; Name = 'Gast'; CimClass = @{ CimClassName = 'Win32_UserAccount' } }) }\n"
+            + grp +
+            "'GRP1:' + (ConvertTo-Json -InputObject @(PK-GroupMembers @{ SID = 'S-1-5-32-544' }) -Compress)\n"
+            "'GRP2:' + (ConvertTo-Json -InputObject @(PK-GroupMembers @{ SID = 'S-1-5-32-546' }) -Compress)\n"
+            "$o = New-Object PSObject; $o | Add-Member -NotePropertyName Zeta -NotePropertyValue 1; $o | Add-Member -NotePropertyName Alpha -NotePropertyValue @('a', 'b')\n"
+            "$o | Add-Member -NotePropertyName PSComputerName -NotePropertyValue 'x'; $o | Add-Member -NotePropertyName Leer -NotePropertyValue $null\n"
+            "'PKO:' + (ConvertTo-Json -InputObject (PKO $o) -Compress)\n"
+            + [l for l in src.splitlines() if l.startswith("function PKRegVal(")][0] + "\n"
+            "'REG:[' + (PKRegVal '  7-Zip ') + '|' + (PKRegVal $null) + ']'\n"
+            f"$mp = {util.psq(man)}; $dn = 'roh'; $pub = ''\n" + "try {\n" + mx + "} catch { 'MXERR:' + $_ }\n"
+            "'MX:' + $dn + '|' + $pp['PublisherDisplayName'] + '|' + $fw\n")
+    bf = os.path.join(TMP, "pk-quiet2.ps1")
+    open(bf, "w", encoding="utf-8-sig").write(body)
+    r = subprocess.run([pw, "-NoLogo", "-NoProfile", "-NonInteractive", "-File", bf], capture_output=True, text=True, timeout=120)
+    o = {l.split(":", 1)[0]: l.split(":", 1)[1] for l in r.stdout.splitlines() if ":" in l}
+    assert json.loads(o["GRP1"]) == [{"name": "PC\\Administrator", "type": "User"}, {"name": "FIRMA\\Domänen-Admins", "type": "Group"}], (o, r.stderr[-600:])
+    assert json.loads(o["GRP2"]) == [{"name": "PC\\Gast", "type": "User"}], o
+    assert list(json.loads(o["PKO"]).items()) == [("Zeta", "1"), ("Alpha", "a, b"), ("Leer", None)], o["PKO"]
+    assert o["REG"] == "[7-Zip|]", o
+    assert o["MX"] == "Firma App|Firma GmbH|True" and "MXERR" not in o, (o, r.stderr[-600:])
+
+
+@test("2.50.2 Repository upload replaces a file packages use after asking: packages use the new file, its fingerprint is the confirmed state (no break), identifiers refreshed; deleting stays blocked")
+def _():
+    import hashlib as _hl
+    import tempfile as _tf
+    from app import deploy, diagnostics, integrity, remote, repoedit, repofiles
+    from app import main as _m
+    admin = {"username": "haupt", "scope": None}
+    root = _tf.mkdtemp(prefix="pk-repl-", dir=TMP)
+    os.makedirs(os.path.join(root, "Tools", "WOMN"))
+    open(os.path.join(root, "Tools", "WOMN", "womn-host.ps1"), "wb").write(b"# alt\r\n")
+    old_repo = db.setting("repo_path")
+    db.set_setting("repo_path", root)
+    remote.repo_cache_clear()
+    pid = None
+    orig_after = repoedit._after
+    after = []
+    repoedit._after = lambda pids: after.append(list(pids))
+    try:
+        v = _m._pkg_values({"name": "WhatsonMyNet", "steps": {"main": [{"type": "install", "source": "file", "folder": "Tools\\WOMN",
+                                                                         "install_file": "womn-host.ps1", "install_type": "ps1"}]}}, user=admin)
+        cols = deploy.PKG_FIELDS + ["created_at", "updated_at"]
+        pid = db.ex(f"INSERT INTO packages({', '.join(cols)}) VALUES({', '.join('?' * len(cols))})",
+                    tuple(v[k] for k in deploy.PKG_FIELDS) + (util.now(), util.now()))
+        assert integrity.check_package(pid, queue_new=True)["state"] == "ok"
+        integrity.process_queue(seconds=30)
+        new = b"# neu\r\nWrite-Host 'x'\r\n"
+        # without asking: refused, but the UI may offer to replace
+        try:
+            repofiles.upload_start(admin, "Tools\\WOMN", "womn-host.ps1", len(new), overwrite=True)
+            raise AssertionError("must ask first")
+        except repofiles.Blocked as e:
+            assert e.info["used_by"] == ["Paket „WhatsonMyNet“"] and e.info.get("replaceable"), e.info
+        n0 = repofiles.STATS["replaced_in_use"]
+        s = repofiles.upload_start(admin, "Tools\\WOMN", "womn-host.ps1", len(new), overwrite=True, replace_used=True)
+        repofiles.upload_chunk(admin, s["token"], 0, new)
+        fin = repofiles.upload_finish(admin, s["token"])
+        assert open(os.path.join(root, "Tools", "WOMN", "womn-host.ps1"), "rb").read() == new
+        sha = _hl.sha256(new).hexdigest()
+        assert fin["sha256"] == sha and fin["confirmed"] and fin["replaced_for"] == ["Paket „WhatsonMyNet“"], fin
+        b = db.q1("SELECT * FROM repo_baseline WHERE path=?", ("tools\\womn\\womn-host.ps1",))
+        assert b["sha256"] == sha and "(Upload)" in b["confirmed_by"], dict(b)
+        assert integrity.check_package(pid)["state"] == "ok", "no break after replacing via POCKET KNIFE"
+        assert after == [[pid]], after
+        assert repofiles.STATS["replaced_in_use"] == n0 + 1
+        assert "ersetzt" in (db.val("SELECT message FROM logs WHERE category='repo' ORDER BY id DESC LIMIT 1") or "")
+        assert diagnostics._repo_edits("2000-01-01")["uploads_replaced_in_use"] == n0 + 1
+        # a plain overwrite request (overwrite=1) is checked again at the end
+        s = repofiles.upload_start(admin, "Tools\\WOMN", "womn-host.ps1", 3, overwrite=True, replace_used=True)
+        db.ex("UPDATE repo_uploads SET overwrite=1 WHERE token=?", (s["token"],))
+        repofiles.upload_chunk(admin, s["token"], 0, b"abc")
+        try:
+            repofiles.upload_finish(admin, s["token"])
+            raise AssertionError("blocked at the end without the permission")
+        except repofiles.Blocked:
+            pass
+        try:
+            repofiles.delete(admin, ["Tools\\WOMN\\womn-host.ps1"])
+            raise AssertionError("deleting stays blocked")
+        except repofiles.Blocked:
+            pass
+        js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
+        assert "replace_used: !!it.replaceUsed" in js and "e.info.replaceable && !it.replaceUsed" in js
+        msrc = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "main.py"), encoding="utf-8").read()
+        assert 'replace_used=bool(data.get("replace_used"))' in msrc
+    finally:
+        repoedit._after = orig_after
+        if pid:
+            db.ex("DELETE FROM packages WHERE id=?", (pid,))
+        db.ex("DELETE FROM repo_uploads")
+        db.ex("DELETE FROM repo_baseline")
+        db.ex("DELETE FROM repo_baseline_dirs")
+        db.set_setting("repo_path", old_repo or "")
+        remote.repo_cache_clear()
 
 
 @test("2.46.1 gpupdate in tools never waits for \"log off / restart? (J/N)\": always \"N\" (cmd and PowerShell, new and existing tools, built-in tool says so in the output)")

@@ -401,11 +401,13 @@ def _block_foreign(user, rel, refs=None):
                       "bzw. dessen Besitzer etwas ablegen.", {"used_by": sorted({_owner_text(h[4]) for h in hits})})
 
 
-def _block_if_used(rel, what):
+def _block_if_used(rel, what, replaceable=False):
     hits = usage(rel)
     if hits:
-        raise Blocked(f"„{rel}“ wird noch benutzt – {what} nicht möglich: {usage_summary(hits)}.",
-                      {"used_by": sorted({_owner_text(h[4]) for h in hits})})
+        info: dict = {"used_by": sorted({_owner_text(h[4]) for h in hits})}
+        if replaceable:
+            info["replaceable"] = True  # 2.50.2: the upload may replace it after asking
+        raise Blocked(f"„{rel}“ wird noch benutzt – {what} nicht möglich: {usage_summary(hits)}.", info)
 
 
 # --- Rewriting paths ---------------------------------------------------------------------------------------------
@@ -909,7 +911,13 @@ def cleanup_uploads():
     return n
 
 
-def upload_start(user, folder, name, size, overwrite=False, allow_dup=False):
+# 2.50.2: replacing a file that packages use (upload with "Ersetzen"): counts for the diagnostic package
+STATS = {"replaced_in_use": 0, "replaced_packages": 0}
+
+
+def upload_start(user, folder, name, size, overwrite=False, allow_dup=False, replace_used=False):
+    """overwrite: replace an existing file; replace_used: also when packages use it (2.50.2 - the packages then use
+    the new file, its fingerprint is confirmed for the integrity check like a save in the text editor)."""
     folder = need_scope(user, folder)
     name = valid_name(name)
     rel = _join(folder, name)
@@ -937,8 +945,10 @@ def upload_start(user, folder, name, size, overwrite=False, allow_dup=False):
     if kind == "file":
         if not overwrite:
             raise RepoError(f"„{name}“ gibt es hier schon.", {"exists": True})
-        _block_if_used(rel, "Überschreiben")
+        if not replace_used:
+            _block_if_used(rel, "Überschreiben", replaceable=True)
     _block_foreign(user, rel)
+    ow = (2 if replace_used else 1) if overwrite else 0
     tid = tenant_of_path(rel)
     q = quota_bytes(tid) if access.scoped(user) else 0
     if q:
@@ -965,7 +975,7 @@ def upload_start(user, folder, name, size, overwrite=False, allow_dup=False):
                 pass
             _hashers.pop(old["token"], None)
         db.ex("UPDATE repo_uploads SET received=?, overwrite=?, allow_dup=?, updated=? WHERE token=?",
-              (got, 1 if overwrite else 0, 1 if allow_dup and not access.scoped(user) else 0, util.now(), old["token"]))
+              (got, ow, 1 if allow_dup and not access.scoped(user) else 0, util.now(), old["token"]))
         return {"token": old["token"], "received": got, "chunk": CHUNK, "resumed": got > 0}
     token = secrets.token_hex(16)
     if remote.repo_stat(remote.UPLOAD_DIR) != "dir":
@@ -973,7 +983,7 @@ def upload_start(user, folder, name, size, overwrite=False, allow_dup=False):
     with remote.repo_open_write(_tmp_rel(token), "wb"):
         pass
     db.ex("INSERT INTO repo_uploads(token, username, folder, name, size, received, overwrite, allow_dup, created, updated) "
-          "VALUES(?,?,?,?,?,0,?,?,?,?)", (token, username, folder, name, size, 1 if overwrite else 0,
+          "VALUES(?,?,?,?,?,0,?,?,?,?)", (token, username, folder, name, size, ow,
                                            1 if allow_dup and not access.scoped(user) else 0, util.now(), util.now()))
     return {"token": token, "received": 0, "chunk": CHUNK, "resumed": False}
 
@@ -1087,7 +1097,8 @@ def upload_finish(user, token, allow_dup=False):
             if kind == "file":
                 if not r["overwrite"]:
                     raise RepoError(f"„{r['name']}“ gibt es inzwischen schon.", {"exists": True})
-                _block_if_used(rel, "Überschreiben")
+                if int(r["overwrite"] or 0) < 2:
+                    _block_if_used(rel, "Überschreiben", replaceable=True)
                 remote.repo_delete(rel)
             remote.repo_rename(_tmp_rel(r["token"]), rel)
         db.ex("DELETE FROM repo_uploads WHERE token=?", (r["token"],))
@@ -1097,6 +1108,19 @@ def upload_finish(user, token, allow_dup=False):
           (rel.lower(), rel, st[0], st[1], sha, (msi_info or {}).get("product_code"), (msi_info or {}).get("version"), util.now()))
     remote.repo_cache_apply("add", rel, size=st[0], mtime=st[1])
     hits = usage(rel)
+    if hits and kind == "file":
+        # 2.50.2: replaced a file packages use - exactly this content is the new confirmed state for the integrity
+        # check (no "break"), the packages get their identifiers (duplicate lock) refreshed and are checked again
+        from . import integrity, repoedit
+        info["confirmed"] = integrity.confirm_written(rel, st[0], st[1], sha, user["username"], how="Upload")
+        pids = sorted({h[4][1] for h in hits if h[4][0] == "pkg"})
+        repoedit._after(pids)
+        info["replaced_for"] = sorted({_owner_text(h[4]) for h in hits})
+        STATS["replaced_in_use"] += 1
+        STATS["replaced_packages"] += len(pids)
+        _log(user, f"Repository: „{rel}“ ersetzt ({_mb(size)}, SHA-256 {sha[:12]}…) – benutzt von {usage_summary(hits, 6)}; "
+                   "neuer Stand für die Bruchprüfung übernommen.", tid)
+        return info
     if hits:
         info["in_package_folder"] = usage_summary(hits)
     _log(user, f"Repository: „{rel}“ hochgeladen ({_mb(size)}" + (", überschrieben" if r["overwrite"] and kind == "file" else "")

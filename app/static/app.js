@@ -8548,6 +8548,7 @@ function repoUploader(getInfo, onChange) {
   const q = [];
   let running = false;
   let overwriteAll = null;  // null = ask, true = overwrite all, false = skip all
+  let replaceAll = null;    // 2.50.2: the same for files that packages use
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   function drawHead() {
@@ -8605,13 +8606,30 @@ function repoUploader(getInfo, onChange) {
       { label: 'Alle überschreiben', cls: 'danger', onClick: () => { overwriteAll = true; res(true); } },
       { label: 'Überschreiben', cls: 'danger', onClick: () => res(true) }], { onClose: () => res(false) }));
   }
+  // 2.50.2: replace a file that packages use - they then use the new file, its state is taken over for the integrity check
+  async function askReplaceUsed(it, used) {
+    if (replaceAll !== null) return replaceAll;
+    return new Promise((res) => modal(tr('Datei wird von Paketen benutzt'), h('div',
+      h('p', fmtT('„{0}“ wird benutzt von:', it.name)),
+      h('ul', { style: { maxHeight: '240px', overflow: 'auto' } }, used.slice(0, 50).map((u) => h('li', u))),
+      used.length > 50 ? h('p.muted.small', fmtT('… und {0} weitere', used.length - 50)) : null,
+      h('p', tr('Ersetzen? Die Pakete verteilen danach die neue Datei. Ihr Stand wird für die Bruchprüfung gleich übernommen (kein „Bruch“), die Pakete werden neu geprüft.'))), [
+      { label: 'Überspringen', onClick: () => res(false) },
+      { label: 'Alle überspringen', onClick: () => { replaceAll = false; res(false); } },
+      { label: 'Alle ersetzen', cls: 'danger', onClick: () => { replaceAll = true; res(true); } },
+      { label: 'Ersetzen', cls: 'danger', onClick: () => res(true) }], { onClose: () => res(false) }));
+  }
   async function one(it) {
     it.state = 'run'; it.draw();
     let s;
-    try { s = await POST('/api/repository/upload', { folder: it.folder, name: it.name, size: it.size, overwrite: !!it.overwrite }); }
+    try { s = await POST('/api/repository/upload', { folder: it.folder, name: it.name, size: it.size, overwrite: !!it.overwrite, replace_used: !!it.replaceUsed }); }
     catch (e) {
       if (e.info && e.info.exists && !it.overwrite) {
         if (await askOverwrite(it)) { it.overwrite = true; return one(it); }
+        it.state = 'skipped'; it.draw(); return;
+      }
+      if (e.status === 409 && e.info && e.info.used_by && e.info.replaceable && !it.replaceUsed) {
+        if (await askReplaceUsed(it, e.info.used_by)) { it.replaceUsed = true; return one(it); }
         it.state = 'skipped'; it.draw(); return;
       }
       if (e.status === 409 && e.info && e.info.used_by) { it.state = 'error'; it.msg = tr('wird von einem Paket benutzt – nicht überschrieben'); it.draw(); repoBlockedDlg(e); return; }
@@ -8658,6 +8676,7 @@ function repoUploader(getInfo, onChange) {
       }
     }
     it.state = 'done'; it.sha = fin.sha256; it.draw();
+    if (fin.replaced_for && fin.replaced_for.length) toast(fmtT('„{0}“ ersetzt – benutzt von {1}; neuer Stand für die Bruchprüfung übernommen.', it.name, fin.replaced_for.join(', ')), 'ok');
     if (fin.in_package_folder) toast(fmtT('„{0}“ liegt im Paketordner von {1} – das Paket zeigt „neu im Paketordner“, bis jemand den neuen Stand übernimmt.', it.name, fin.in_package_folder), 'err');
     if (fin.same_file_at && fin.same_file_at.length) toast(fmtT('Hinweis: dieselbe Datei liegt schon unter {0}', fin.same_file_at.join(', ')), 'ok');
   }
@@ -8672,7 +8691,7 @@ function repoUploader(getInfo, onChange) {
         drawHead();
         if (onChange) onChange();
       }
-    } finally { running = false; overwriteAll = null; drawHead(); }
+    } finally { running = false; overwriteAll = null; replaceAll = null; drawHead(); }
   }
   return { el: box, add, busy: () => running };
 }

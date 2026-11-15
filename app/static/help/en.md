@@ -901,7 +901,7 @@ The view works like the file explorer for clients:
 
 | Action | blocked if … |
 |---|---|
-| Delete, overwrite | a package (also a disabled step or a nested package), a scheduled or running deployment, a tenant (its folder) or the winget offline copy uses the file or folder – the message names the packages |
+| Delete (overwrite: see below) | a package (also a disabled step or a nested package), a scheduled or running deployment, a tenant (its folder) or the winget offline copy uses the file or folder – the message names the packages |
 | Rename/move a file **inside** a used package folder | this would silently change the package (e.g. an MST referenced in the arguments) – move the whole folder or adjust the package; the installation file itself may be renamed |
 | Moving a central package into a tenant folder | that tenant's admins could change the files there (likewise: saving a central package with files from a tenant folder) |
 | OU admin: uploading, creating folders, moving into a folder used by a central package or another tenant | otherwise e.g. a DLL could be placed next to someone else's installation file; if someone puts something there directly on the share, the break detection reports it as a **break** |
@@ -909,7 +909,7 @@ The view works like the file explorer for clients:
 | Names | characters such as `\ / : * ? " < > |`, reserved Windows names (`CON`, `NUL`, `COM1` …), trailing dot or space |
 | Links (junctions/symlinks) in the path | POCKET KNIFE never writes through a link – the file server would resolve it on its side |
 
-New files in a used package folder are allowed (e.g. an additional configuration); the package then shows "new in package folder" until someone accepts the new state. **Who uses this?** shows the packages for each entry, the column **Used by** is right in the list. Every action is logged (category "Repository") with user and tenant.
+New files in a used package folder are allowed (e.g. an additional configuration); the package then shows "new in package folder" until someone accepts the new state. **Replacing a used file** (e.g. a new version of a script): just upload it – POCKET KNIFE names the packages and asks **Replace?**. The packages then distribute the new file; its fingerprint is the confirmed state of the integrity check right away (no "break"), the packages are checked again and the duplicate lock knows the new fingerprint. The log notes "replaced" with the packages. **Who uses this?** shows the packages for each entry, the column **Used by** is right in the list. Every action is logged (category "Repository") with user and tenant.
 
 **Limits:** maximum file size (default 4096 MB) under **Settings → Packages & Repository → Upload to the repository**; for OU admins additionally the allowed file types (MSI, MSP, MSU, MST, EXE, CMD/BAT, PS1, REG, ZIP, 7Z, CAB, MSIX/APPX, INI/INF, XML/JSON/TXT/CFG, certificates, ISO/WIM and similar) and a **storage quota** per tenant (on the tenant, empty = default from the settings, 0 = unlimited).
 
@@ -1511,7 +1511,7 @@ Under **Settings → Maintenance → Diagnostics package**, POCKET KNIFE creates
 | `leistung.json` – additions from 2.44.4 | duration of every page/query since start (median, 95 %, maximum), size of the scan results per area (an area over 5 MB is also logged as a warning), database per table and log file (WAL), remote sessions (duration, data, how they ended), background tasks with errors, last daily runs |
 | `inventar.json` (from 2.44.4) | scan errors per area, winget assignment (sure/unsure, outdated, MSIX), clients per PowerShell version, language mode (ConstrainedLanguage = software restriction) and winget |
 | additions from 2.48.2 | `statistik.json`: **chains** (several packages one after another – count, with "stop on failure", targets skipped because of the chain and targets waiting right now); `bereitstellungen.csv`: chain and position; `inventar.json`: clients per edition, ESU, Entra ID join, MDM, virtualization, Office Click-to-Run, Secure Boot, SMB1 … (counts only, never the Entra tenant), **Group Policy history and gpresult since start** (calls, errors, duration and parse quality, e.g. runs without a GPO list or unknown setting kinds – never computer, user or GPO names), tools per type and gpupdate lines without an answer |
-| additions from 2.49.0 | `statistik.json`: changes in the repository **text editor** (kept versions, files, encodings – never contents or paths) |
+| additions from 2.49.0 | `statistik.json`: changes in the repository **text editor** (kept versions, files, encodings – never contents or paths); from 2.50.2 also **used files replaced** by upload since the start (number of files and affected packages) |
 | `protokoll.csv`, `fehler.txt` | log of the period, warnings and errors separately |
 | `bereitstellungen.csv`, `fehlgeschlagen.json` | deployments; for failures the end of the output (at most 3000 characters per step) |
 | `scans.csv` | scan runs with duration and result |

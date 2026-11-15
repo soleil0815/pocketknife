@@ -597,8 +597,10 @@ NOT_IN_DIAGNOSTICS = {
 
 def _repo_edits(since):
     """2.49.0: text editor in the repository (counts only, never contents or paths)."""
-    from . import repoedit
-    return repoedit.stats(since)
+    from . import repoedit, repofiles
+    # 2.50.2: uploads that replaced a file packages use (since the start of the service)
+    return {**repoedit.stats(since), "uploads_replaced_in_use": repofiles.STATS["replaced_in_use"],
+            "uploads_replaced_packages": repofiles.STATS["replaced_packages"]}
 
 
 def _chains(since):
@@ -826,7 +828,8 @@ Dateien
   einstellungen.json   Einstellungen (ohne Kennwörter, Keytab, Schlüssel)
   statistik.json       Bereitstellungen und Scans im Zeitraum: Ergebnisse, Exitcodes, häufigste Fehler, Dauer,
                        Ketten (mehrere Pakete nacheinander: Anzahl, übersprungene Ziele, wartende Ziele),
-                       Änderungen im Texteditor des Repositorys (Anzahl, Dateien, Kodierung – nie Inhalte)
+                       Änderungen im Texteditor des Repositorys (Anzahl, Dateien, Kodierung – nie Inhalte),
+                       per Hochladen ersetzte benutzte Dateien (Anzahl, betroffene Pakete)
   leistung.json        Rechenlast und Lastspitzen, Dauer der wichtigsten Abfragen, langsamste Sammlungen, größte Felder
                        (nur Feldnamen und Größen, keine Inhalte)
   update_status.json   Update-Status: Microsoft-Abgleich, Stände je Status, Office-Installationen je Produkt/Kanal/Version
