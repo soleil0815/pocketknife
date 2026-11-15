@@ -8171,6 +8171,81 @@ def _():
     assert o["MX"] == "Firma App|Firma GmbH|True" and "MXERR" not in o, (o, r.stderr[-600:])
 
 
+@test("2.50.2 Repository upload replaces a file packages use after asking: packages use the new file, its fingerprint is the confirmed state (no break), identifiers refreshed; deleting stays blocked")
+def _():
+    import hashlib as _hl
+    import tempfile as _tf
+    from app import deploy, diagnostics, integrity, remote, repoedit, repofiles
+    from app import main as _m
+    admin = {"username": "haupt", "scope": None}
+    root = _tf.mkdtemp(prefix="pk-repl-", dir=TMP)
+    os.makedirs(os.path.join(root, "Tools", "WOMN"))
+    open(os.path.join(root, "Tools", "WOMN", "womn-host.ps1"), "wb").write(b"# alt\r\n")
+    old_repo = db.setting("repo_path")
+    db.set_setting("repo_path", root)
+    remote.repo_cache_clear()
+    pid = None
+    orig_after = repoedit._after
+    after = []
+    repoedit._after = lambda pids: after.append(list(pids))
+    try:
+        v = _m._pkg_values({"name": "WhatsonMyNet", "steps": {"main": [{"type": "install", "source": "file", "folder": "Tools\\WOMN",
+                                                                         "install_file": "womn-host.ps1", "install_type": "ps1"}]}}, user=admin)
+        cols = deploy.PKG_FIELDS + ["created_at", "updated_at"]
+        pid = db.ex(f"INSERT INTO packages({', '.join(cols)}) VALUES({', '.join('?' * len(cols))})",
+                    tuple(v[k] for k in deploy.PKG_FIELDS) + (util.now(), util.now()))
+        assert integrity.check_package(pid, queue_new=True)["state"] == "ok"
+        integrity.process_queue(seconds=30)
+        new = b"# neu\r\nWrite-Host 'x'\r\n"
+        # without asking: refused, but the UI may offer to replace
+        try:
+            repofiles.upload_start(admin, "Tools\\WOMN", "womn-host.ps1", len(new), overwrite=True)
+            raise AssertionError("must ask first")
+        except repofiles.Blocked as e:
+            assert e.info["used_by"] == ["Paket „WhatsonMyNet“"] and e.info.get("replaceable"), e.info
+        n0 = repofiles.STATS["replaced_in_use"]
+        s = repofiles.upload_start(admin, "Tools\\WOMN", "womn-host.ps1", len(new), overwrite=True, replace_used=True)
+        repofiles.upload_chunk(admin, s["token"], 0, new)
+        fin = repofiles.upload_finish(admin, s["token"])
+        assert open(os.path.join(root, "Tools", "WOMN", "womn-host.ps1"), "rb").read() == new
+        sha = _hl.sha256(new).hexdigest()
+        assert fin["sha256"] == sha and fin["confirmed"] and fin["replaced_for"] == ["Paket „WhatsonMyNet“"], fin
+        b = db.q1("SELECT * FROM repo_baseline WHERE path=?", ("tools\\womn\\womn-host.ps1",))
+        assert b["sha256"] == sha and "(Upload)" in b["confirmed_by"], dict(b)
+        assert integrity.check_package(pid)["state"] == "ok", "no break after replacing via POCKET KNIFE"
+        assert after == [[pid]], after
+        assert repofiles.STATS["replaced_in_use"] == n0 + 1
+        assert "ersetzt" in (db.val("SELECT message FROM logs WHERE category='repo' ORDER BY id DESC LIMIT 1") or "")
+        assert diagnostics._repo_edits("2000-01-01")["uploads_replaced_in_use"] == n0 + 1
+        # a plain overwrite request (overwrite=1) is checked again at the end
+        s = repofiles.upload_start(admin, "Tools\\WOMN", "womn-host.ps1", 3, overwrite=True, replace_used=True)
+        db.ex("UPDATE repo_uploads SET overwrite=1 WHERE token=?", (s["token"],))
+        repofiles.upload_chunk(admin, s["token"], 0, b"abc")
+        try:
+            repofiles.upload_finish(admin, s["token"])
+            raise AssertionError("blocked at the end without the permission")
+        except repofiles.Blocked:
+            pass
+        try:
+            repofiles.delete(admin, ["Tools\\WOMN\\womn-host.ps1"])
+            raise AssertionError("deleting stays blocked")
+        except repofiles.Blocked:
+            pass
+        js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
+        assert "replace_used: !!it.replaceUsed" in js and "e.info.replaceable && !it.replaceUsed" in js
+        msrc = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "main.py"), encoding="utf-8").read()
+        assert 'replace_used=bool(data.get("replace_used"))' in msrc
+    finally:
+        repoedit._after = orig_after
+        if pid:
+            db.ex("DELETE FROM packages WHERE id=?", (pid,))
+        db.ex("DELETE FROM repo_uploads")
+        db.ex("DELETE FROM repo_baseline")
+        db.ex("DELETE FROM repo_baseline_dirs")
+        db.set_setting("repo_path", old_repo or "")
+        remote.repo_cache_clear()
+
+
 @test("2.46.1 gpupdate in tools never waits for \"log off / restart? (J/N)\": always \"N\" (cmd and PowerShell, new and existing tools, built-in tool says so in the output)")
 def _():
     import subprocess as _sp

@@ -10,7 +10,9 @@ New entries are in English. Entries up to and including 2.38.4-s1 (November 2026
   - helper for own WMI/PowerShell scanners: property names from the CSV header (same order), values via Select-Object; registry values with written-out names
   - comments reworded
 - Still logged as a warning (only when used): disk space analysis (compiled helper for speed), Group Policy history (event values), toast messages and package deployments (`-ExecutionPolicy Bypass`)
-- **Self-test:** the whole scan script (all modules and every kind of own scanner) passes PowerShell's own check; group members, MSIX manifest, property helper in Constrained Language; "Geändert" kept/set as described
+- **Repository: replace a file packages use** by uploading it: instead of "Nicht möglich" POCKET KNIFE names the packages and asks **Ersetzen?** (also "Alle ersetzen"/"Alle überspringen"). The packages then distribute the new file; its fingerprint is the confirmed state of the integrity check right away (no "break", like a save in the text editor), the packages get their identifiers (duplicate lock) refreshed and are checked again; logged as "ersetzt" with the packages. Deleting a used file stays blocked
+- Diagnostic package (`statistik.json` → `repo_edits`): used files replaced by upload since the start (files, affected packages)
+- **Self-test:** the whole scan script (all modules and every kind of own scanner) passes PowerShell's own check; replacing a used file asks first, confirms the new fingerprint and leaves the package without a break; group members, MSIX manifest, property helper in Constrained Language; "Geändert" kept/set as described
 
 ## pocketknife-2.50.1 (15.11.2026)
 - **Quieter PowerShell logging on the clients** (event 4104 in "Microsoft-Windows-PowerShell/Operational"):

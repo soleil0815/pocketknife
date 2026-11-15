@@ -10,6 +10,12 @@
      "audience": "admin",
      "de": "Kein Scan erzeugt mehr Warnungen im PowerShell-Protokoll (Ereignis 4104). Dafür zeigt „Geändert“ bei den Anwendungen jetzt, wann POCKET KNIFE eine Installation oder Version zuerst gesehen hat; das Installationsdatum bleibt.",
      "en": "No scan leaves warnings in the PowerShell log any more (event 4104). In return, \"Geändert\" of the applications now shows when POCKET KNIFE first saw an installation or version; the install date stays."
+    },
+    {
+     "kind": "improved",
+     "audience": "admin",
+     "de": "Repository: Eine Datei, die Pakete benutzen, lässt sich jetzt durch Hochladen ersetzen – POCKET KNIFE nennt die Pakete und fragt nach. Die Pakete verteilen danach die neue Datei, die Bruchprüfung übernimmt den neuen Stand sofort.",
+     "en": "Repository: a file that packages use can now be replaced by uploading it – POCKET KNIFE names the packages and asks first. The packages then distribute the new file, the integrity check takes over the new state right away."
     }
    ]
   },

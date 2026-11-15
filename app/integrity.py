@@ -744,7 +744,7 @@ def _confirm(k, c, user, now):
     return 1
 
 
-def confirm_written(rel, size, mtime, sha, user):
+def confirm_written(rel, size, mtime, sha, user, how="Editor"):
     """2.49.0: POCKET KNIFE itself wrote this content (text editor) - it is the confirmed state right away, with the
     exact fingerprint (no recomputing, no "break"). Only for files the integrity check knows (or inside a confirmed
     package folder). Returns True if a state was confirmed."""
@@ -760,7 +760,7 @@ def confirm_written(rel, size, mtime, sha, user):
              VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(path) DO UPDATE SET disp=excluded.disp, size=excluded.size, mtime=excluded.mtime,
              sha256=excluded.sha256, confirmed_at=excluded.confirmed_at, confirmed_by=excluded.confirmed_by, cur_size=excluded.cur_size,
              cur_mtime=excluded.cur_mtime, cur_sha256=excluded.cur_sha256, cur_at=excluded.cur_at, full_at=excluded.full_at""",
-          (k, norm(rel), size, mtime, sha, now, f"{user} (Editor)", size, mtime, sha, now, now))
+          (k, norm(rel), size, mtime, sha, now, f"{user} ({how})", size, mtime, sha, now, now))
     with _q_lock:
         _hash_queue.pop(k, None)
     return True

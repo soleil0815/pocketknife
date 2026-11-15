@@ -2915,7 +2915,8 @@ def api_repository_delete(data: dict = Body(...), user=U):
 @app.post("/api/repository/upload")
 def api_repository_upload_start(data: dict = Body(...), user=U):
     return _repo_call(user, repofiles.upload_start, user, data.get("folder") or "", data.get("name") or "", data.get("size"),
-                      overwrite=bool(data.get("overwrite")), allow_dup=bool(data.get("allow_duplicate")))
+                      overwrite=bool(data.get("overwrite")), allow_dup=bool(data.get("allow_duplicate")),
+                      replace_used=bool(data.get("replace_used")))
 
 
 @app.put("/api/repository/upload/{token}")
