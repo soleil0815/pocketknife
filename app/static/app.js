@@ -8857,7 +8857,9 @@ async function viewRepository(_parts, params) {
     tbl = table([
       { key: 'name', label: 'Name', render: (r) => h('span.row', { style: { gap: '6px', flexWrap: 'nowrap' } },
         h('span.ic', { style: { color: r.dir ? 'var(--accent)' : 'var(--muted)' } }, icon(r.dir ? 'folder' : 'file')),
-        r.dir && !r.link ? h('a.raw', { href: '#', onclick: (e) => { e.preventDefault(); open(r); } }, r.name) : h('span.raw', r.name),
+        r.dir && !r.link ? h('a.raw', { href: '#', onclick: (e) => { e.preventDefault(); open(r); } }, r.name)
+          : repoEditable(r) ? h('a.raw', { href: '#', title: tr('Im Texteditor öffnen'), onclick: (e) => { e.preventDefault(); e.stopPropagation(); repoTextEditor(r.path, () => load(cur, true)); } }, r.name)
+            : h('span.raw', r.name),
         r.link ? h('span.badge', { title: tr('Verknüpfung (Junction/Symlink) – POCKET KNIFE folgt ihr nicht und schreibt dort nicht') }, '↗') : null,
         (r.used_by || []).length ? h('span.badge.info', { title: r.used_by.map((x) => tr(x)).join('\n') }, tr('benutzt')) : null) },
       { key: 'size', label: 'Größe', cls: 'right', render: (r) => (r.dir ? '' : fmtBytes(r.size)), sort: (r) => (r.dir ? -1 : r.size) },
@@ -8877,6 +8879,7 @@ async function viewRepository(_parts, params) {
         const many = sel.length > 1;
         contextMenu(e.clientX, e.clientY, [
           !many && r.dir && !r.link ? { label: 'Öffnen', icon: 'folder', onClick: () => open(r) } : null,
+          !many && repoEditable(r) ? { label: 'Bearbeiten (Texteditor)', icon: 'edit', onClick: () => repoTextEditor(r.path, () => load(cur, true)) } : null,
           { label: `Verschieben nach …${many ? ` (${sel.length})` : ''}`, icon: 'send', onClick: async () => {
             const dest = await repoPickFolder(cur);
             if (dest !== undefined && dest !== null) moveTo(sel.map((x) => x.path), dest);
@@ -8897,6 +8900,123 @@ async function viewRepository(_parts, params) {
   }
 
   load(cur);
+}
+
+// 2.49.0: Text editor for script and text files in the repository. Saving confirms the new content for the integrity
+// check right away (no "break"), keeps encoding and line endings, refuses to overwrite a file someone changed meanwhile.
+const REPO_TEXT_EXT = new Set(['txt', 'log', 'md', 'csv', 'ps1', 'psm1', 'psd1', 'ps1xml', 'cmd', 'bat', 'vbs', 'js', 'wsf', 'reg', 'ini', 'inf',
+  'cfg', 'conf', 'config', 'xml', 'json', 'yml', 'yaml', 'iss', 'nsi', 'properties', 'manifest', 'lst', 'ahk', 'sh', 'py']);
+function repoEditable(r) {
+  if (!r || r.dir || r.link) return false;
+  const n = String(r.name || '');
+  const i = n.lastIndexOf('.');
+  return i > 0 && REPO_TEXT_EXT.has(n.slice(i + 1).toLowerCase()) && (r.size === undefined || r.size <= 2 * 1024 * 1024);
+}
+
+async function repoTextEditor(path, onSaved) {
+  let d;
+  try { d = await GET(`/api/repository/text?path=${encodeURIComponent(path)}`); } catch (e) { toast(e.message, 'err'); return; }
+  let sha = d.sha256;
+  let saved = d.text;
+  const ta = h('textarea.raw.code-edit', { spellcheck: false, wrap: 'off', autocomplete: 'off', autocapitalize: 'off' });
+  ta.value = d.text;
+  const gutter = h('div.code-gutter', { 'aria-hidden': 'true' });
+  const encSel = sel(Object.entries(d.encodings).map(([k, v]) => [k, v]), d.encoding);
+  const nlSel = sel([['crlf', 'CRLF (Windows)'], ['lf', 'LF (Unix)']], d.newline);
+  const pos = h('span.muted.small');
+  const state = h('span.small');
+  const hint = h('div');
+  const dirty = () => ta.value !== saved || encSel.value !== d.encoding || nlSel.value !== d.newline;
+  const drawGutter = () => {
+    const n = ta.value.split('\n').length;
+    if (gutter.childElementCount !== n) gutter.textContent = Array.from({ length: n }, (_x, i) => i + 1).join('\n');
+    gutter.scrollTop = ta.scrollTop;
+  };
+  const drawPos = () => {
+    const before = ta.value.slice(0, ta.selectionStart);
+    const line = before.split('\n').length;
+    pos.textContent = fmtT('Zeile {0}, Spalte {1}', line, before.length - before.lastIndexOf('\n'));
+    state.textContent = dirty() ? tr('geändert') : '';
+    state.className = dirty() ? 'small badge warn' : 'small';
+  };
+  const drawHint = (text) => {
+    const ps = /\.(ps1|psm1|psd1)$/i.test(path) && encSel.value === 'utf-8' && /[^\x00-\x7f]/.test(ta.value);
+    hint.replaceChildren(...[
+      d.differs ? h('div.alert.warn', tr('Diese Datei weicht schon vom bestätigten Stand der Bruchprüfung ab (außerhalb von POCKET KNIFE geändert). Beim Speichern wird der Inhalt aus dem Editor als neuer Stand bestätigt.')) : null,
+      (d.used_by || []).length ? h('div.alert.info', { style: { marginBottom: '6px' } }, h('b', tr('Wird benutzt von: ')), d.used_by.map((x) => tr(x)).join(', '), ' – ',
+        tr('nach dem Speichern übernimmt die Bruchprüfung den neuen Stand automatisch, die nächsten Bereitstellungen verwenden ihn.')) : null,
+      ps || text ? h('div.alert.warn', { style: { marginBottom: '6px' } }, text || tr('Windows PowerShell 5.1 liest UTF-8 ohne BOM als ANSI – Umlaute und Sonderzeichen werden auf dem Client falsch. Empfehlung: als „UTF-8 mit BOM“ speichern.')) : null,
+    ].filter(Boolean));
+  };
+  ta.addEventListener('input', () => { drawGutter(); drawPos(); drawHint(); });
+  ta.addEventListener('scroll', () => { gutter.scrollTop = ta.scrollTop; });
+  ta.addEventListener('click', drawPos);
+  ta.addEventListener('keyup', drawPos);
+  encSel.addEventListener('change', () => { drawPos(); drawHint(); });
+  nlSel.addEventListener('change', drawPos);
+  ta.addEventListener('keydown', (e) => {
+    if (e.key === 'Tab' && !e.ctrlKey && !e.altKey) {
+      // Tab inserts spaces (indent) instead of leaving the editor; Shift+Tab removes them
+      e.preventDefault();
+      const a = ta.selectionStart; const b = ta.selectionEnd;
+      if (!e.shiftKey) { ta.setRangeText('    ', a, b, 'end'); } else {
+        const ls = ta.value.lastIndexOf('\n', a - 1) + 1;
+        const m = ta.value.slice(ls, ls + 4).match(/^ {1,4}/);
+        if (m) { ta.setRangeText('', ls, ls + m[0].length, 'end'); }
+      }
+      ta.dispatchEvent(new Event('input'));
+    } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+      e.preventDefault();
+      save();
+    }
+  });
+  async function save() {
+    if (!dirty()) { toast(tr('Keine Änderungen.'), 'ok'); return true; }
+    try {
+      const r = await POST('/api/repository/text', { path: d.path, text: ta.value, sha256: sha, encoding: encSel.value, newline: nlSel.value });
+      sha = r.sha256; saved = ta.value; d.encoding = encSel.value; d.newline = nlSel.value; d.differs = false;
+      toast(r.unchanged ? tr('Keine Änderungen.') : (r.used_by || []).length ? tr('Gespeichert – Bruchprüfung hat den neuen Stand übernommen') : tr('Gespeichert'), 'ok');
+      drawPos(); drawHint(r.hint);
+      if (onSaved) onSaved();
+      return true;
+    } catch (e) {
+      if (e.status === 409) {
+        modal('Datei inzwischen geändert', h('p', tr('Jemand hat die Datei geändert, seit sie hier geöffnet wurde. Ihre Änderungen sind NICHT gespeichert. Kopieren Sie Ihren Text bei Bedarf und laden Sie die Datei neu.')),
+          [{ label: 'Text kopieren', onClick: () => { copyText(ta.value); return false; } }, { label: 'OK', cls: 'primary' }]);
+      } else toast(e.message, 'err');
+      return false;
+    }
+  }
+  async function versions() {
+    let hs;
+    try { hs = await GET(`/api/repository/text/history?path=${encodeURIComponent(d.path)}`); } catch (e) { toast(e.message, 'err'); return; }
+    if (!hs.length) { toast(tr('Noch keine früheren Fassungen – sie entstehen beim Speichern im Editor.'), 'ok'); return; }
+    const dlg = modal('Frühere Fassungen', h('div', h('p.muted.small', tr('Vor jedem Speichern im Editor wird die bisherige Fassung aufbewahrt (die letzten 10). „Laden“ holt sie in den Editor – gespeichert wird erst mit „Speichern“.')),
+      h('table.tbl', h('thead', h('tr', h('th', 'Gespeichert'), h('th', 'Von'), h('th', 'Größe'), h('th', ''))),
+        h('tbody', hs.map((x) => h('tr', h('td', fmtDate(x.at)), h('td.raw', x.user || ''), h('td', fmtBytes(x.size)),
+          h('td', btn('Laden', async () => {
+            try {
+              const v = await GET(`/api/repository/text/version?path=${encodeURIComponent(d.path)}&id=${x.id}`);
+              ta.value = v.text; encSel.value = v.encoding; nlSel.value = v.newline;
+              ta.dispatchEvent(new Event('input'));
+              dlg.close();
+              toast(tr('Frühere Fassung geladen – mit „Speichern“ übernehmen'), 'ok');
+            } catch (e) { toast(e.message, 'err'); }
+          }, { cls: 'small' }))))))), [{ label: 'Schließen' }]);
+  }
+  const body = h('div.code-wrap',
+    hint,
+    h('div.row', { style: { gap: '8px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '6px' } },
+      h('span.raw.small', d.path), h('div.spacer'), state, pos,
+      h('label.row', { style: { gap: '4px', alignItems: 'center' } }, h('span.small', tr('Kodierung')), encSel),
+      h('label.row', { style: { gap: '4px', alignItems: 'center' } }, h('span.small', tr('Zeilenende')), nlSel)),
+    h('div.code-box', gutter, ta));
+  modal(fmtT('Bearbeiten: {0}', d.path.split('\\').pop()), body, [
+    { label: d.history ? fmtT('Frühere Fassungen ({0})', d.history) : 'Frühere Fassungen', onClick: () => { versions(); return false; } },
+    { label: 'Schließen', onClick: async () => !dirty() || confirmDlg('Editor schließen? Nicht gespeicherte Änderungen gehen verloren.', 'Verwerfen', true) },
+    { label: 'Speichern', cls: 'primary', onClick: () => save().then(() => false) },
+  ], { xwide: true, sticky: true, dirty });
+  drawGutter(); drawPos(); drawHint(d.hint);
 }
 
 // Wizard "Repository umstrukturieren" (main admin): move folders into a new main folder in one go

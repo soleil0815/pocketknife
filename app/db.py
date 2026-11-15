@@ -242,6 +242,10 @@ CREATE TABLE IF NOT EXISTS repo_baseline(
   cur_size INTEGER, cur_mtime INTEGER, cur_sha256 TEXT, cur_at TEXT, full_at TEXT);
 -- Ordner, deren Dateiliste bestätigt ist (sonst gälte jede Datei darin als „neu hinzugekommen“)
 CREATE TABLE IF NOT EXISTS repo_baseline_dirs(path TEXT PRIMARY KEY, confirmed_at TEXT);
+-- 2.49.0: Texteditor im Repository – frühere Fassungen je Datei (komprimiert, höchstens 10 je Datei)
+CREATE TABLE IF NOT EXISTS repo_edits(id INTEGER PRIMARY KEY AUTOINCREMENT, path TEXT NOT NULL, disp TEXT, at TEXT,
+  username TEXT, size INTEGER, sha_before TEXT, sha_after TEXT, encoding TEXT, content BLOB);
+CREATE INDEX IF NOT EXISTS ix_repo_edits_path ON repo_edits(path, id);
 
 -- 2.27: Upload in Stücken (Fortsetzen nach Abbruch), Fingerabdrücke/MSI-Daten von Repository-Dateien,
 -- Kennzeichen je Paket für die Duplikatsperre (winget-ID, MSI-Produktcode, SHA-256 der Installationsdatei)

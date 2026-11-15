@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.49.0",
+   "date": "2026-11-15",
+   "items": [
+    {
+     "kind": "new",
+     "audience": "admin",
+     "de": "Texteditor im Repository: Skript- und Textdateien (.ps1, .cmd, .ini, .xml …) direkt im Browser ändern – per Klick auf den Dateinamen. Die Bruchprüfung übernimmt den neuen Stand automatisch, Kodierung und Zeilenenden bleiben erhalten, frühere Fassungen lassen sich zurückholen.",
+     "en": "Text editor in the repository: change script and text files (.ps1, .cmd, .ini, .xml …) directly in the browser – click the file name. The integrity check takes over the new state automatically, encoding and line endings are kept, earlier versions can be restored."
+    }
+   ]
+  },
+  {
    "version": "2.48.2",
    "date": "2026-11-15",
    "items": [

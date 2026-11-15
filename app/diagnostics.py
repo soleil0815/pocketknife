@@ -561,6 +561,7 @@ def _stats(since, an):
             "SELECT message FROM logs WHERE ts >= ? AND level IN ('WARN','ERROR')", (since,))).most_common(40),
         "kiosk_requests": {r["status"]: r["n"] for r in db.q("SELECT status, COUNT(*) n FROM kiosk_requests WHERE created_at >= ? GROUP BY status", (since,))},
         "chains": _chains(since),
+        "repo_edits": _repo_edits(since),
     }
 
 
@@ -592,6 +593,12 @@ NOT_IN_DIAGNOSTICS = {
                                  "computers.ad_missing_since", "computers.online_since", "scan_history.profile_id",
                                  "kiosk_items.icon_at", "packages.ident_at", "deployments.chain_prev", "winget_releases.base")},
 }
+
+
+def _repo_edits(since):
+    """2.49.0: text editor in the repository (counts only, never contents or paths)."""
+    from . import repoedit
+    return repoedit.stats(since)
 
 
 def _chains(since):
@@ -818,7 +825,8 @@ Dateien
   umgebung.json        Version, Umgebung, Zähler, Zustand der Hintergrundaufgaben (ohne Kennwörter/Schlüssel)
   einstellungen.json   Einstellungen (ohne Kennwörter, Keytab, Schlüssel)
   statistik.json       Bereitstellungen und Scans im Zeitraum: Ergebnisse, Exitcodes, häufigste Fehler, Dauer,
-                       Ketten (mehrere Pakete nacheinander: Anzahl, übersprungene Ziele, wartende Ziele)
+                       Ketten (mehrere Pakete nacheinander: Anzahl, übersprungene Ziele, wartende Ziele),
+                       Änderungen im Texteditor des Repositorys (Anzahl, Dateien, Kodierung – nie Inhalte)
   leistung.json        Rechenlast und Lastspitzen, Dauer der wichtigsten Abfragen, langsamste Sammlungen, größte Felder
                        (nur Feldnamen und Größen, keine Inhalte)
   update_status.json   Update-Status: Microsoft-Abgleich, Stände je Status, Office-Installationen je Produkt/Kanal/Version
