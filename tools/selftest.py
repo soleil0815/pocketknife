@@ -4885,7 +4885,7 @@ def _():
         rows = reports.run("wol", {})["rows"]
         assert any(r["computer"] == "WL-ZIEL" and r["wol_magic"] == "an" and r["wake_armed"] == "ja" for r in rows), rows
         script = inventory.build_script(["nics"])
-        assert "Get-NetAdapterPowerManagement" in script and "wake_armed" in script and "'fast_startup'" in script
+        assert "MSFT_NetAdapterPowerManagementSettingData" in script and "wake_armed" in script and "'fast_startup'" in script
         assert "fast_startup" in inventory.MODULE_EXTRA["nics"]
         pw = os.environ.get("PK_PWSH")
         if pw and os.path.exists(pw):
