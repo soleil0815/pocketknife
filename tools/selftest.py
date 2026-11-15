@@ -7990,6 +7990,34 @@ def _():
         remote.repo_cache_clear()
 
 
+@test("2.50.0 Same look as the other programs: Inter/IBM Plex Mono built in (no internet), every url() in the stylesheets is a local file, light/dark sidebar follows the theme")
+def _():
+    import re as _re
+    from app import main as _m
+    base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static")
+    for f in ("inter-latin-wght-normal.woff2", "inter-latin-ext-wght-normal.woff2", "ibm-plex-mono-latin-400-normal.woff2",
+              "ibm-plex-mono-latin-500-normal.woff2", "OFL.txt"):
+        p = os.path.join(base, "fonts", f)
+        assert os.path.isfile(p) and os.path.getsize(p) > 1000, f
+        if f.endswith(".woff2"):
+            assert open(p, "rb").read(4) == b"wOF2", f"{f} is a real WOFF2 file"
+    assert "SIL OPEN FONT LICENSE" in open(os.path.join(base, "fonts", "OFL.txt"), encoding="utf-8").read().upper()
+    for css in ("app.css", "kiosk.css", "remote.css"):
+        txt = open(os.path.join(base, css), encoding="utf-8").read()
+        for u in _re.findall(r"url\(\s*['\"]?([^'\")]+)", txt):
+            assert not _re.match(r"(?i)(https?:)?//", u), (css, u)
+            if not u.startswith("data:"):
+                assert os.path.isfile(os.path.join(base, u)), (css, u)
+        assert not _re.search(r"@import", txt), css
+    css = open(os.path.join(base, "app.css"), encoding="utf-8").read()
+    assert "font-family: 'Inter'" in css and "--font: 'Inter'" in css and "--mono: 'Plex Mono'" in css
+    # the sidebar uses its own colours in both themes (light: translucent, dark: dark) - never fixed white text
+    assert css.count("--side:") == 3 and ".nav { background: var(--side)" in css
+    nav_rules = "\n".join(l for l in css.splitlines() if l.startswith(".nav ") or l.startswith(".brand "))
+    assert "#fff" not in nav_rules.lower(), nav_rules
+    assert "font-src 'self'" in _m.CSP
+
+
 @test("2.46.1 gpupdate in tools never waits for \"log off / restart? (J/N)\": always \"N\" (cmd and PowerShell, new and existing tools, built-in tool says so in the output)")
 def _():
     import subprocess as _sp

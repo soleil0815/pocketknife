@@ -2,7 +2,7 @@ Deutsche Fassung: [README.md](README.md)
 
 # POCKET KNIFE
 
-Current version: **pocketknife-2.49.0** – see `CHANGELOG.md` (German).
+Current version: **pocketknife-2.50.0** – see `CHANGELOG.md` (German).
 
 Website: [helfi.space](https://helfi.space)
 
@@ -13,7 +13,7 @@ Web application for **inventory** and **software deployment** for Windows comput
 - Runs as a Docker container; data (SQLite, logs, certificate, winget index) is stored under `/data`
 - Sign-in with domain accounts via **LDAPS**; only members of a specified AD group have access
 - The DCs' LDAPS certificate is **trusted automatically**; its SHA-256 fingerprint is stored and any change is logged
-- The interface loads **nothing from the internet** (no fonts, CDNs or libraries; strict Content Security Policy)
+- The interface loads **nothing from the internet** (no fonts, CDNs or libraries from other servers – the fonts Inter and IBM Plex Mono are built in; strict Content Security Policy)
 
 ## Screenshots
 
@@ -645,4 +645,4 @@ POCKET KNIFE is free software: you may use, redistribute and modify it under the
 
 In short: use, including in companies, is free. Anyone who modifies POCKET KNIFE and distributes it **or makes it available to others over a network** must offer the modified source code under the same license.
 
-Bundled third-party components keep their own licenses (e.g. Apache Guacamole: `app/static/vendor/guacamole-LICENSE.txt`, Python libraries: see `requirements.lock`).
+Bundled third-party components keep their own licenses (e.g. Apache Guacamole: `app/static/vendor/guacamole-LICENSE.txt`, fonts Inter and IBM Plex Mono: SIL Open Font License, `app/static/fonts/OFL.txt`, Python libraries: see `requirements.lock`).

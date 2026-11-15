@@ -2,7 +2,7 @@ English version: [README.en.md](README.en.md)
 
 # POCKET KNIFE
 
-Aktuelle Version: **pocketknife-2.49.0** – siehe `CHANGELOG.md`.
+Aktuelle Version: **pocketknife-2.50.0** – siehe `CHANGELOG.md`.
 
 Webseite: [helfi.space](https://helfi.space)
 
@@ -13,7 +13,7 @@ Webanwendung zur **Inventarisierung** und **Softwareverteilung** für Windows-Co
 - Läuft als Docker-Container, Daten (SQLite, Logs, Zertifikat, winget-Index) liegen unter `/data`
 - Anmeldung mit Domänenkonten über **LDAPS**; nur Mitglieder einer festgelegten AD-Gruppe haben Zugriff
 - Das LDAPS-Zertifikat der DCs wird **automatisch vertraut**; der SHA-256-Fingerabdruck wird gespeichert und eine Änderung protokolliert
-- Die Oberfläche lädt **nichts aus dem Internet** (keine Fonts, CDNs oder Bibliotheken; strenge Content-Security-Policy)
+- Die Oberfläche lädt **nichts aus dem Internet** (keine Fonts, CDNs oder Bibliotheken von fremden Servern – die Schriften Inter und IBM Plex Mono sind eingebaut; strenge Content-Security-Policy)
 
 ## Bilder
 
@@ -643,4 +643,4 @@ POCKET KNIFE ist freie Software: Sie dürfen es unter den Bedingungen der **GNU 
 
 Kurz gesagt: Nutzung, auch im Unternehmen, ist frei. Wer POCKET KNIFE verändert und weitergibt **oder anderen über das Netzwerk zur Verfügung stellt**, muss den geänderten Quellcode unter derselben Lizenz anbieten.
 
-Mitgelieferte Fremdkomponenten behalten ihre eigenen Lizenzen (z. B. Apache Guacamole: `app/static/vendor/guacamole-LICENSE.txt`, Python-Bibliotheken: siehe `requirements.lock`).
+Mitgelieferte Fremdkomponenten behalten ihre eigenen Lizenzen (z. B. Apache Guacamole: `app/static/vendor/guacamole-LICENSE.txt`, Schriften Inter und IBM Plex Mono: SIL Open Font License, `app/static/fonts/OFL.txt`, Python-Bibliotheken: siehe `requirements.lock`).
