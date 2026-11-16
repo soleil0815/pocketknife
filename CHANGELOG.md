@@ -2,6 +2,16 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.53.1 (16.11.2026)
+- **No more "System error." (event 4100) during scans:** `Select-Object -First` ends the commands before it with an internal exception, and Windows PowerShell 5.1 logs every such stop as error event 4100 ("System error."/"Systemfehler") although nothing failed - 6 per scan (computer details 4, memory 2), found with a per-module test on a workstation. All 26 uses in POCKET KNIFE's client scripts (scan, own scanners, deployment/winget, failure analysis of a run, file search on a client, disk space, logged-in users) now take the first elements by index (`@(...)[0]`, `@(...)[0..N]`)
+  - failure analysis of a run: `Get-WinEvent` without `-ErrorAction Stop` (it throws "no events found", also logged as 4100)
+  - file search on a client: the readability check opens the folder with a name that matches nothing - no exception, no full listing
+  - example tool "CPU-Last (5 Sekunden)" migrated if still as delivered
+- **Editor hint** (PowerShell steps, tools, "Befehl ausführen", own scanners, .ps1 in the repository editor): also for `Select-Object -First`/`-Index`, with the alternative; counted in the diagnostic package
+  - the check strips quoted strings in one linear pass (no regex backtracking on long unclosed strings - CodeQL)
+- Help: table "Eigener PowerShell-Code ohne Warnungen" and "Sauber im PowerShell-Protokoll" extended
+- **Self-test:** no `Select-Object -First/-Index` left in any client script, the hint, index slices in real PowerShell (at most N, nothing for no output), example tool migration, `Get-WinEvent` without Stop
+
 ## pocketknife-2.53.0 (16.11.2026)
 - **Disk space analysis without warnings** (tool "Speicherplatz analysieren" and the scanner "Speicherplatz"): instead of a compiled C# helper (Add-Type - PowerShell logs every such script as a warning, event 4104) the client lists the folder with `robocopy /L` (listing only, nothing is copied; `/XJ` never through junctions/links; UTF-16 log, so any file name works) and sums up per folder in PowerShell; the server builds and prunes the tree as before (at most 40 entries per folder, nothing below 0.1 %, deeper levels as a sum). Same view and stored format
   - also works in **Constrained Language Mode** now (software restriction, AppLocker, App Control) - before "needs full PowerShell"

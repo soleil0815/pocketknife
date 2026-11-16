@@ -7,6 +7,9 @@ Three things trigger it:
    part of a longer word (case-insensitive: "CimClassMethods" contains "Methods")
 2. a member named through a variable ($obj.$name) - PowerShell rates that as obfuscation
 3. a cmdlet of a generated (CDXML) Windows module - loading the module writes its own code as a series of warnings
+2.53.1: and one thing PowerShell logs as event 4100 ("System error.") although nothing failed:
+4. Select-Object -First/-Index - it stops the commands before it with an internal exception, and Windows PowerShell
+   5.1 logs every such stop
 
 The word list is PowerShell's own (checked against its CheckSuspiciousContent in the self-test).
 """
@@ -76,13 +79,37 @@ MODULES = (
 _MOD_RX = [(re.compile(r"(?i)\b(?:" + rx + r")\b"), name, alt) for rx, name, alt in MODULES]
 # member through a variable or an expression ($o.$n, $o.$($n), $o.("x")) - not inside quoted strings ("$a.$b" is text)
 _DYN_RX = re.compile(r"[\w)\]}]\.(?:\$|\()")
-_STR_RX = re.compile(r"'[^']*'|\"(?:[^\"`]|`.)*\"")
+
+
+def _strip_strings(ln):
+    """Quoted strings -> '' ('...' literal, "..." with backtick escapes); one linear pass (no regex backtracking on
+    long unclosed strings). An unclosed string stays as it is."""
+    out = []
+    i, n = 0, len(ln)
+    while i < n:
+        c = ln[i]
+        if c not in "'\"":
+            out.append(c)
+            i += 1
+            continue
+        j = i + 1
+        while j < n and ln[j] != c:
+            j += 2 if (c == '"' and ln[j] == "`") else 1
+        if j >= n:  # not closed
+            out.append(ln[i:])
+            break
+        out.append("''")
+        i = j + 1
+    return "".join(out)
+# Select-Object -First/-Index (also abbreviated "select", "-f", "-fir", "-ind") - not -Last/-Skip, they read everything
+_STOP_RX = re.compile(r"(?i)(?:^\s*|[|;({]\s*)(?:Select-Object|select)\b[^|;]{0,300}?\s-(?:f(?:i(?:r(?:st?)?)?)?|i(?:n(?:d(?:ex?)?)?)?)\b")
+STOP_HINT = "das erste Element per Index nehmen: @(Befehl)[0] bzw. @(Befehl)[0..9]"
 _lock = threading.Lock()
-STATS = {"checks": 0, "with_findings": 0, "words": 0, "modules": 0, "dynamic": 0}
+STATS = {"checks": 0, "with_findings": 0, "words": 0, "modules": 0, "dynamic": 0, "stops": 0}
 
 
 def check(text):
-    """[{line, kind (word|module|dynamic), what, hint}] - at most one entry per kind and thing, in text order."""
+    """[{line, kind (word|module|dynamic|stop), what, hint}] - at most one entry per kind and thing, in text order."""
     out: list = []
     seen: set = set()
     lines = str(text or "").splitlines()
@@ -98,17 +125,22 @@ def check(text):
                 seen.add(("m", m.group(0).lower()))
                 out.append({"line": no, "kind": "module", "what": m.group(0), "module": name, "hint": alt})
         if not ln.lstrip().startswith("#"):
-            m = _DYN_RX.search(_STR_RX.sub("''", ln.split(" #", 1)[0]))
+            code = _strip_strings(ln.split(" #", 1)[0])
+            m = _DYN_RX.search(code)
             if m and ("d", no) not in seen:
                 seen.add(("d", no))
                 out.append({"line": no, "kind": "dynamic", "what": ln.strip()[:80],
                             "hint": "Eigenschaft ausschreiben ($obj.Name) oder Select-Object -ExpandProperty $name"})
+            m = _STOP_RX.search(code)
+            if m and ("s", no) not in seen:
+                seen.add(("s", no))
+                out.append({"line": no, "kind": "stop", "what": m.group(0).lstrip("|;({ \t"), "hint": STOP_HINT})
     with _lock:
         STATS["checks"] += 1
         if out:
             STATS["with_findings"] += 1
         for f in out:
-            STATS[{"word": "words", "module": "modules", "dynamic": "dynamic"}[str(f["kind"])]] += 1
+            STATS[{"word": "words", "module": "modules", "dynamic": "dynamic", "stop": "stops"}[str(f["kind"])]] += 1
     return out[:50]
 
 

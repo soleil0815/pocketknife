@@ -2,6 +2,24 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.53.1",
+   "date": "2026-11-16",
+   "items": [
+    {
+     "kind": "fixed",
+     "audience": "admin",
+     "de": "Scans erzeugen auf den Computern keine Fehler „Systemfehler“ (Ereignis 4100) mehr im PowerShell-Protokoll. Ursache war „Select-Object -First“, das PowerShell bei jedem Abbruch protokolliert – POCKET KNIFE nimmt das erste Element jetzt anders.",
+     "en": "Scans no longer cause \"System error.\" errors (event 4100) in the PowerShell log on the computers. The cause was \"Select-Object -First\", which PowerShell logs every time it stops a pipeline – POCKET KNIFE now takes the first element differently."
+    },
+    {
+     "kind": "improved",
+     "audience": "admin",
+     "de": "Der Hinweis im Editor für eigenen PowerShell-Code meldet jetzt auch „Select-Object -First“ und nennt die Alternative.",
+     "en": "The editor hint for own PowerShell code now also reports \"Select-Object -First\" and names the alternative."
+    }
+   ]
+  },
+  {
    "version": "2.53.0",
    "date": "2026-11-16",
    "items": [

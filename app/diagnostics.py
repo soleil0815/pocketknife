@@ -837,7 +837,8 @@ Dateien
                        Ketten (mehrere Pakete nacheinander: Anzahl, übersprungene Ziele, wartende Ziele),
                        Änderungen im Texteditor des Repositorys (Anzahl, Dateien, Kodierung – nie Inhalte),
                        per Hochladen ersetzte benutzte Dateien (Anzahl, betroffene Pakete),
-                       Hinweise zu eigenem PowerShell-Code (Prüfungen, Funde je Art – nie der Code)
+                       Hinweise zu eigenem PowerShell-Code (Prüfungen, Funde je Art inkl.
+                       Select-Object -First – nie der Code)
   leistung.json        Rechenlast und Lastspitzen, Dauer der wichtigsten Abfragen, langsamste Sammlungen, größte Felder
                        (nur Feldnamen und Größen, keine Inhalte)
   update_status.json   Update-Status: Microsoft-Abgleich, Stände je Status, Office-Installationen je Produkt/Kanal/Version

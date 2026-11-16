@@ -6046,7 +6046,7 @@ def _():
     vm = ps[ps.index("PKX 'virtual' {"):]
     vm = vm[:vm.index("\n}\n")]
     assert vm.index("'VMware'") < vm.index("'Hyper-V'") and "'KVM/QEMU" in vm and "Proxmox" in vm and "HypervisorPresent" not in vm.replace("(HypervisorPresent", ""), "manufacturer/model, not HypervisorPresent"
-    wg = ps[ps.index("if ($os.ProductType -eq 1) {\n  try { $ai = Get-AppxPackage"):ps.index("$e.pending_reboot")]
+    wg = ps[ps.index("if ($os.ProductType -eq 1) {\n  try { $ai = @(Get-AppxPackage"):ps.index("$e.pending_reboot")]
     assert "^(Applications|InboxApplications|S-1-.*)$" in wg, "not EndOfLife/Staged"
     assert "AppxAllUserStore" in wg and "-Recurse -Depth" not in wg and "Get-AppxPackage -AllUsers" in wg.split("} else {")[0], "server: registry instead of all profiles"
     disp = ps[ps.index("PKS 'displays'"):ps.index("# @module environment")]
@@ -8437,7 +8437,7 @@ def _():
         except _m.HTTPException as e:
             assert e.status_code == 400
     st = diagnostics._pslint()
-    assert st["checks"] >= 3 and st["with_findings"] >= 2 and set(st) == {"checks", "with_findings", "words", "modules", "dynamic"}, st
+    assert st["checks"] >= 3 and st["with_findings"] >= 2 and set(st) == {"checks", "with_findings", "words", "modules", "dynamic", "stops"}, st
     js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
     for hook in ("return h('div', a, psLintBox(a))", "psLintBox(target, () => type.value === 'powershell')", "psLintBox(script, () => type === 'powershell')",
                  "psLintBox(script, () => type.value === 'powershell')", "/\\.(ps1|psm1|psd1)$/i.test(path) ? psLintBox(ta) : null,"):
@@ -8542,6 +8542,62 @@ def _():
         r = _sp.run([pw, "-NoProfile", "-NonInteractive", "-File", os.path.join(d, "tw.ps1")], capture_output=True, text=True, timeout=120,
                     env={**os.environ, "TEMP": d})
         assert ("SETP:1" if called else "SETP:0") in r.stdout and "ok" in r.stdout, (gpo, r.stdout[-400:], r.stderr[-400:])
+
+
+@test("2.53.1 No 'Select-Object -First/-Index' in POCKET KNIFE's client PowerShell (it stops the pipeline with an exception Windows PowerShell logs as event 4100 'System error.'): first elements by index, editor hint, example tool migrated, Get-WinEvent without -ErrorAction Stop")
+def _():
+    import glob as _glob
+    import subprocess as _sp
+    from app import clientfiles, diskusage, pslint, remote, scanners, tools
+    k = lambda t: [(f["kind"], f["what"]) for f in pslint.check(t)]  # noqa: E731
+    assert k("Get-Process | Select-Object -First 3") == [("stop", "Select-Object -First")]
+    assert k("$x = Get-X | select -f 1") == [("stop", "select -f")] and k("Get-X |\n  Select-Object Name -Index 2") == [("stop", "Select-Object Name -Index")]
+    for ok in ("Get-X | Select-Object -Last 3", "$a | Select-Object -Skip 1", "Get-X | Select-Object -ExpandProperty First", "# Select -First 1",
+               'Write-Output "select -first"', "@(Get-X)[0..9]", "Select-String -Pattern x -List"):
+        assert k(ok) == [], (ok, k(ok))
+    assert "@(Befehl)[0]" in pslint.check("Get-X | Select -First 1")[0]["hint"]
+    # linear on hostile input (the API checks any text up to 500k): long unclosed strings, many "select"
+    import time as _time
+    t0 = _time.monotonic()
+    for bad in ('"' + '`"' * 100_000, "select " * 60_000, "'" * 200_000, "| Select-Object " + "x " * 200_000):
+        pslint.check(bad)
+    assert _time.monotonic() - t0 < 5, "pslint must stay linear"
+    assert pslint._strip_strings('x "a`"b" $a.$b \'c\'') == "x '' $a.$b ''" and pslint._strip_strings('"open $a.$b') == '"open $a.$b'
+    # every source file with client PowerShell: none left (comments and the old text of the migrated example tool excepted)
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app")
+    for f in sorted(_glob.glob(os.path.join(root, "*.py")) + _glob.glob(os.path.join(root, "*.ps1"))):
+        if f.endswith(("pslint.py", "diagnostics.py")):
+            continue
+        src = open(f, encoding="utf-8").read()
+        if "QUIET_TOOLS = {" in src:  # the old texts of migrated example tools
+            q = src.index("QUIET_TOOLS = {")
+            src = src[:q] + src[src.index("\n}\n", q):]
+        bad = [ln.strip() for ln in src.splitlines() if not ln.strip().startswith("#") and pslint._STOP_RX.search(ln)]
+        assert not bad, (os.path.basename(f), bad[:3])
+    # the example tool "CPU-Last" is migrated when still as delivered
+    cpu = [x for x in tools.SEED if x[1].startswith("CPU-Last")][0][3]
+    assert "[0..9]" in cpu and not pslint._STOP_RX.search(cpu)
+    assert any(v == ("powershell", cpu) and "Select-Object -First 10" in o for (_t, o), v in tools.QUIET_TOOLS.items())
+    # the failure analysis of a run: Get-WinEvent throws "no events found" with -ErrorAction Stop (logged as 4100)
+    gone = remote.POLL[remote.POLL.index("PK_PROC:gone"):]
+    wev = [ln for ln in gone.splitlines() if "Get-WinEvent -" in ln]
+    assert len(wev) == 4 and not [ln for ln in wev if "-ErrorAction Stop" in ln], wev
+    assert "Get-ChildItem -LiteralPath $start -Force -Filter 'pk-nichts-?-*.none' -ErrorAction SilentlyContinue -ErrorVariable pkDen" in clientfiles.SEARCH_PS
+    assert f"[0..({diskusage.MAX_DRIVES} - 1)]" in diskusage._fixed_script(2)
+    pw = os.environ.get("PK_PWSH")
+    if not (pw and os.path.exists(pw)):
+        return
+    # index slices behave like -First: at most N, nothing for no output, no $null row
+    d = os.path.join(TMP, "pk-first")
+    os.makedirs(d, exist_ok=True)
+    rows = []
+    for tgt in ("1..700", "$null", "@{ a = 1; b = 2 }"):
+        sc = scanners._body({"type": "powershell", "target": tgt}) + "\n"
+        path = os.path.join(d, "s.ps1")
+        open(path, "w", encoding="utf-8").write("function PKO($o) { @{ o = \"$o\" } }\n$n = @(& {" + sc + "}).Count\n'COUNT:' + $n")
+        r = _sp.run([pw, "-NoProfile", "-NonInteractive", "-File", path], capture_output=True, text=True, timeout=120)
+        rows.append(r.stdout.strip().splitlines()[-1] if r.stdout.strip() else r.stderr)
+    assert rows == ["COUNT:%d" % scanners.MAX_ROWS, "COUNT:0", "COUNT:1"], rows
 
 
 @test("2.46.1 gpupdate in tools never waits for \"log off / restart? (J/N)\": always \"N\" (cmd and PowerShell, new and existing tools, built-in tool says so in the output)")

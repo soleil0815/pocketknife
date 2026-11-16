@@ -1555,20 +1555,22 @@ if ($st -eq 'PK_PROC:gone') {
   # 2.32.5: only events that can match this run (PowerShell, cmd, WMI start, working folder) - not e.g.
   # the constant blocks of the lsass rule or a virus finding somewhere on the machine
   $rel = 'powershell|cmd\.exe|wmiprvse|PocketKnife|amsi:'
-  try { Get-WinEvent -FilterHashtable @{ LogName = 'Microsoft-Windows-Windows Defender/Operational'; Id = 1121, 1122; StartTime = $since } -MaxEvents 20 -ErrorAction Stop |
-    Where-Object { [string]$_.Message -match $rel } | Select-Object -First 6 | ForEach-Object {
+  # 2.53.1: no "-ErrorAction Stop" (Get-WinEvent throws when nothing is found - PowerShell logs that as event 4100)
+  # and no "Select-Object -First" (stops the pipeline with an exception, also logged): take the first ones by index
+  try { @(Get-WinEvent -FilterHashtable @{ LogName = 'Microsoft-Windows-Windows Defender/Operational'; Id = 1121, 1122; StartTime = $since } -MaxEvents 20 -ErrorAction SilentlyContinue |
+    Where-Object { [string]$_.Message -match $rel })[0..5] | ForEach-Object {
     $m = [string]$_.Message; $rid = $(if ($m -match $rx) { $matches[1] } else { '?' })
     $(if ($_.Id -eq 1121) { 'PK_ASRBLOCK:' } else { 'PK_ASRAUDIT:' }) + $rid } } catch {}
   # Antivirus detected the script as a threat (AMSI) - 1116 detected, 1117 action taken
-  try { Get-WinEvent -FilterHashtable @{ LogName = 'Microsoft-Windows-Windows Defender/Operational'; Id = 1116; StartTime = $since } -MaxEvents 10 -ErrorAction Stop |
-    Where-Object { [string]$_.Message -match $rel } | Select-Object -First 1 | ForEach-Object { 'PK_AV:' + ((($_.Message -replace '\s+', ' ').Trim()) -replace '^(.{0,400}).*$', '$1') } } catch {}
+  try { @(Get-WinEvent -FilterHashtable @{ LogName = 'Microsoft-Windows-Windows Defender/Operational'; Id = 1116; StartTime = $since } -MaxEvents 10 -ErrorAction SilentlyContinue |
+    Where-Object { [string]$_.Message -match $rel })[0] | ForEach-Object { 'PK_AV:' + ((($_.Message -replace '\s+', ' ').Trim()) -replace '^(.{0,400}).*$', '$1') } } catch {}
   foreach ($q in @(@{ LogName = 'Microsoft-Windows-AppLocker/EXE and DLL'; Id = 8004 }, @{ LogName = 'Microsoft-Windows-AppLocker/MSI and Script'; Id = 8007 })) {
-    try { $q.StartTime = $since; Get-WinEvent -FilterHashtable $q -MaxEvents 10 -ErrorAction Stop | Where-Object { [string]$_.Message -match $rel } |
-      Select-Object -First 2 | ForEach-Object { 'PK_BLOCK:AppLocker: ' + ((($_.Message -replace '\s+', ' ').Trim()) -replace '^(.{0,300}).*$', '$1') } } catch {}
+    try { $q.StartTime = $since; @(Get-WinEvent -FilterHashtable $q -MaxEvents 10 -ErrorAction SilentlyContinue | Where-Object { [string]$_.Message -match $rel })[0..1] |
+      ForEach-Object { 'PK_BLOCK:AppLocker: ' + ((($_.Message -replace '\s+', ' ').Trim()) -replace '^(.{0,300}).*$', '$1') } } catch {}
   }
   # crashed? (application error 1000 for powershell.exe/cmd.exe)
-  try { Get-WinEvent -FilterHashtable @{ LogName = 'Application'; Id = 1000; StartTime = $since } -MaxEvents 5 -ErrorAction Stop |
-    Where-Object { $_.Message -match 'powershell\.exe|cmd\.exe' } | Select-Object -First 1 | ForEach-Object { 'PK_CRASH:' + ((($_.Message -replace '\s+', ' ').Trim()) -replace '^(.{0,300}).*$', '$1') } } catch {}
+  try { @(Get-WinEvent -FilterHashtable @{ LogName = 'Application'; Id = 1000; StartTime = $since } -MaxEvents 5 -ErrorAction SilentlyContinue |
+    Where-Object { $_.Message -match 'powershell\.exe|cmd\.exe' })[0] | ForEach-Object { 'PK_CRASH:' + ((($_.Message -replace '\s+', ' ').Trim()) -replace '^(.{0,300}).*$', '$1') } } catch {}
 }
 elseif ($st) { $st }
 elseif (Test-Path $f) {

@@ -22,7 +22,9 @@ function PKO($o, [int]$max = 40) {
   # 2.50.2: names in their original order from the CSV header, values via Select-Object - the member list of
   # PSObject and members named by a variable count as "suspicious" for PowerShell's script block logging (warning
   # 4104), and this function is part of every scan
-  $hdr = @($o | Select-Object -First 1 | ConvertTo-Csv -NoTypeInformation)
+  # 2.53.1: first element by index - "Select-Object -First" stops the pipeline with an exception that PowerShell logs
+  # as event 4100 ("System error.") even though nothing failed
+  $hdr = @(@($o)[0] | ConvertTo-Csv -NoTypeInformation)
   $names = @(); if ($hdr.Count) { $names = @(([string]$hdr[0]).Trim('"') -split '","' | ForEach-Object { $_ -replace '""', '"' }) }
   foreach ($pn in $names) {
     if (-not $pn -or $pn -match '^(PS|Cim)' -or $i -ge $max) { continue }
@@ -98,14 +100,14 @@ if ([int]$os.BuildNumber -ge 22000 -and $osName -match 'Windows 10') { $osName =
 $r.system = [ordered]@{
   manufacturer = $cs.Manufacturer; model = $cs.Model; ram = [int64]$cs.TotalPhysicalMemory; user = $pkUser
   serial = $bios.SerialNumber; bios = $bios.SMBIOSBIOSVersion; bios_date = (D $bios.ReleaseDate)
-  cpu = ("" + ($cpu | Select-Object -First 1).Name).Trim()
+  cpu = ("" + @($cpu)[0].Name).Trim()
   cores = [int](($cpu | Measure-Object -Property NumberOfCores -Sum).Sum)
   threads = [int](($cpu | Measure-Object -Property NumberOfLogicalProcessors -Sum).Sum)
   os_name = $osName; os_version = $os.Version; os_build = ("" + $os.BuildNumber + $(if ($cv.UBR -ne $null) { '.' + $cv.UBR } else { '' }))
   display_version = $dv; os_arch = $os.OSArchitecture; install_date = (D $os.InstallDate); last_boot = (D $os.LastBootUpTime)
 }
 if ($os.ProductType -eq 1) {
-  try { $ai = Get-AppxPackage -AllUsers -Name Microsoft.DesktopAppInstaller -ErrorAction Stop | Sort-Object Version -Descending | Select-Object -First 1
+  try { $ai = @(Get-AppxPackage -AllUsers -Name Microsoft.DesktopAppInstaller -ErrorAction SilentlyContinue | Sort-Object Version -Descending)[0]
     if ($ai) { $e.winget = "$($ai.Version)" } } catch {}
 } else {
   # 2.34: Server – Get-AppxPackage -AllUsers walks through all user profiles (on terminal servers with many profiles
@@ -176,7 +178,7 @@ PKX 'virtual' {
 PKX 'locale' { $os.Locale }
 # 2.45: mainboard (manufacturer, model, serial number) - for self-built PCs and BIOS updates
 PKX 'board' {
-  $bb = @(Get-CimInstance -ClassName Win32_BaseBoard -ErrorAction Stop) | Select-Object -First 1
+  $bb = @(Get-CimInstance -ClassName Win32_BaseBoard -ErrorAction Stop)[0]
   if ($bb) { [ordered]@{ vendor = ("" + $bb.Manufacturer).Trim(); model = ("" + $bb.Product).Trim(); serial = ("" + $bb.SerialNumber).Trim()
                          version = ("" + $bb.Version).Trim() } }
 }
@@ -209,7 +211,7 @@ PKX 'secure_boot' { $sb = Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Contr
 PKX 'smb1_server' { try { [bool](Get-CimInstance -Namespace 'root\Microsoft\Windows\SMB' -ClassName MSFT_SmbServerConfiguration -ErrorAction Stop).EnableSMB1Protocol } catch { $null } }
 PKX 'smb1_client' { $s = Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Services\mrxsmb10' -ErrorAction SilentlyContinue; [bool]($s -and $s.Start -ne 4) }
 PKX 'ie_version' { $ie = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Internet Explorer' -ErrorAction SilentlyContinue; if ($ie.svcVersion) { $ie.svcVersion } else { $ie.Version } }
-PKX 'domain_controller' { (Get-CimInstance Win32_NTDomain | Where-Object { $_.DomainControllerName } | Select-Object -First 1).DomainControllerName }
+PKX 'domain_controller' { @(Get-CimInstance Win32_NTDomain | Where-Object { $_.DomainControllerName })[0].DomainControllerName }
 PKX 'dotnet' {
   $v = @()
   $n35 = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\NET Framework Setup\NDP\v3.5' -ErrorAction SilentlyContinue
@@ -352,8 +354,8 @@ PKS 'memory' { Get-CimInstance Win32_PhysicalMemory | ForEach-Object { [ordered]
   speed = $(if ($_.ConfiguredClockSpeed) { $_.ConfiguredClockSpeed } else { $_.Speed })
   manufacturer = ("" + $_.Manufacturer).Trim(); part = ("" + $_.PartNumber).Trim(); serial = ("" + $_.SerialNumber).Trim()
   form_factor = $_.FormFactor; type = $_.SMBIOSMemoryType } } }
-PKX 'memory_slots' { (Get-CimInstance Win32_PhysicalMemoryArray | Select-Object -First 1).MemoryDevices }
-PKX 'memory_max' { $ma = Get-CimInstance Win32_PhysicalMemoryArray | Select-Object -First 1; if ($ma.MaxCapacityEx) { [int64]$ma.MaxCapacityEx * 1024 } else { [int64]$ma.MaxCapacity * 1024 } }
+PKX 'memory_slots' { @(Get-CimInstance Win32_PhysicalMemoryArray)[0].MemoryDevices }
+PKX 'memory_max' { $ma = @(Get-CimInstance Win32_PhysicalMemoryArray)[0]; if ($ma.MaxCapacityEx) { [int64]$ma.MaxCapacityEx * 1024 } else { [int64]$ma.MaxCapacity * 1024 } }
 } catch { $r.errors += ('memory: ' + $_.Exception.Message) }
 
 # @module disk_drives | Laufwerke

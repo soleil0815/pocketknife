@@ -153,11 +153,11 @@ function PK-WingetProxy {
 function PK-FindWinget {
   $c = @(Resolve-Path "$env:ProgramFiles\WindowsApps\Microsoft.DesktopAppInstaller_*_*__8wekyb3d8bbwe\winget.exe" -ErrorAction SilentlyContinue)
   if ($c.Count -gt 0) {
-    return ($c | Sort-Object { try { [version](($_.Path -split '_')[1]) } catch { [version]'0.0' } } -Descending | Select-Object -First 1).Path
+    return @($c | Sort-Object { try { [version](($_.Path -split '_')[1]) } catch { [version]'0.0' } } -Descending)[0].Path
   }
   # Fallback via PATH only with a valid Microsoft signature - otherwise a planted winget.exe would run as SYSTEM
   # from a PATH folder writable by users (Audit 2.29)
-  $g = Get-Command winget.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+  $g = @(Get-Command winget.exe -CommandType Application -ErrorAction SilentlyContinue)[0]
   if ($g) {
     $sig = Get-AuthenticodeSignature -LiteralPath $g.Source -ErrorAction SilentlyContinue
     if ($sig -and "$($sig.Status)" -eq 'Valid' -and "$($sig.SignerCertificate.Subject)" -match 'O=Microsoft Corporation') { return $g.Source }
@@ -174,10 +174,10 @@ function PK-InstallWinget {
   }
   Write-Output 'winget fehlt – installiere den App-Installer aus dem Repository …'
   foreach ($z in @(Get-ChildItem $src -Filter *.zip -ErrorAction SilentlyContinue)) { Expand-Archive -Path $z.FullName -DestinationPath (Join-Path $src 'deps') -Force }
-  $bundle = Get-ChildItem $src -Filter *.msixbundle | Select-Object -First 1
+  $bundle = @(Get-ChildItem $src -Filter *.msixbundle)[0]
   if (-not $bundle) { throw 'Keine App-Installer-Datei (*.msixbundle) gefunden.' }
   $deps = @(Get-ChildItem $src -Recurse -Include *.appx, *.msix | Where-Object { $_.FullName -match ('\\' + $arch + '\\') -or $_.Name -match ('_' + $arch + '(_|\.)') })
-  $lic = Get-ChildItem $src -Filter '*License*.xml' | Select-Object -First 1
+  $lic = @(Get-ChildItem $src -Filter '*License*.xml')[0]
   $ap = @{ Online = $true; PackagePath = $bundle.FullName }
   if ($deps) { $ap.DependencyPackagePath = @($deps.FullName) }
   if ($lic) { $ap.LicensePath = $lic.FullName } else { $ap.SkipLicense = $true }
@@ -296,8 +296,8 @@ def _detect(p):
     if not name:
         return ""
     return f"""
-$pkDet = Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*','HKLM:\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*' -ErrorAction SilentlyContinue |
-  Where-Object {{ $_.DisplayName -like {util.psq(name)} }} | Select-Object -First 1
+$pkDet = @(Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*','HKLM:\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*' -ErrorAction SilentlyContinue |
+  Where-Object {{ $_.DisplayName -like {util.psq(name)} }})[0]
 if ($pkDet) {{
   $need = {util.psq(p.get('version') or '')}
   $have = "" + $pkDet.DisplayVersion
@@ -352,7 +352,7 @@ MSI_LOG_TAIL = r"""
 if ($global:PKExit -ne 0 -and $global:PKExit -ne 3010 -and $global:PKExit -ne 1641 -and (Test-Path $PKMsiLog)) {
   Write-Output '--- Auszug aus dem MSI-Protokoll ---'
   $ml = Get-Content $PKMsiLog -ErrorAction SilentlyContinue
-  $hit = @($ml | Select-String -Pattern 'Return value 3|Error \d{4}|Fehler \d{4}' -Context 6,2 | Select-Object -First 3)
+  $hit = @(@($ml | Select-String -Pattern 'Return value 3|Error \d{4}|Fehler \d{4}' -Context 6,2)[0..2])
   if ($hit) { $hit | ForEach-Object { $_.Context.PreContext; $_.Line; $_.Context.PostContext } } else { $ml | Select-Object -Last 30 }
 }
 """
