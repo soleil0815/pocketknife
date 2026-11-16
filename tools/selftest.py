@@ -6237,8 +6237,8 @@ def _():
     must_fail(wc.choose, {"Installers": [{"Architecture": "x64", "InstallerType": "msix"}, {"Architecture": "x64", "InstallerType": "zip", "NestedInstallerType": "msi"}]},
               contains="Kein passender Installer")
     must_fail(wc.choose, {"Installers": [{"Architecture": "arm64", "InstallerType": "msi"}]}, "x64", contains="Kein passender")
-    assert wc._file_name("https://x/dl?id=5", "Test.App", "1.0", "msi") == "Test.App_1.0.msi"
-    assert wc._file_name("https://x/a/My%20Setup.msi", "T", "1", "msi") == "My_Setup.msi"
+    assert wc.download_name({"PackageName": "Test App", "PackageVersion": "1.0", "PackageLocale": "en-US"}, i) == "Test App_1.0_Machine_X64_msi_de-DE.msi"
+    assert wc.download_name({"PackageIdentifier": "A.B"}, {"InstallerType": "exe", "Architecture": "x86"}) == "A.B_X86_exe.exe"
     assert wc.os_ok({"os_version": "10.0.14393", "os_build": "14393.6897"}, "10.0.0.0")
     assert not wc.os_ok({"os_version": "6.3.9600", "os_build": "9600"}, "10.0.0.0") and wc.os_ok({}, "10.0.17763.0")
     assert not wc.os_ok({"os_version": "10.0.14393", "os_build": "14393"}, "10.0.17763.0")
@@ -6297,13 +6297,17 @@ def _():
         e = wc.refresh_entry(eid)
         assert e["status"] == "ok" and e["version"] == "1.0" and e["winget_id"] == "Test.App", dict(e)
         d10 = "1.0_" + _h.sha256(b"MZ-eins" * 1000).hexdigest()[:8]
-        assert e["folder"] == "winget-cache\\Test.App\\" + d10 and e["file"] == "testapp-1.0.exe", e["folder"]
-        assert open(os.path.join(root, "winget-cache", "Test.App", d10, "testapp-1.0.exe"), "rb").read() == b"MZ-eins" * 1000
+        # 2.55.0: stored like "winget download": the vendor's file unchanged under winget's name, the manifest YAML next to it
+        assert e["folder"] == "winget-cache\\Test.App\\" + d10 and e["file"] == "Test App_1.0_Machine_X64_inno.exe", (e["folder"], e["file"])
+        assert open(os.path.join(root, "winget-cache", "Test.App", d10, "Test App_1.0_Machine_X64_inno.exe"), "rb").read() == b"MZ-eins" * 1000
+        ytxt = open(os.path.join(root, "winget-cache", "Test.App", d10, "Test App_1.0_Machine_X64_inno.yaml"), encoding="utf-8").read()
+        assert "winget download" in ytxt and "PackageIdentifier: Test.App" in ytxt and "InstallerUrl: https://dl.example.test/testapp-1.0.exe" in ytxt, ytxt
+        assert sorted(os.listdir(os.path.join(root, "winget-cache", "Test.App", d10))) == ["Test App_1.0_Machine_X64_inno.exe", "Test App_1.0_Machine_X64_inno.yaml"]
         assert not [f for f in os.listdir(os.path.join(root, "winget-cache", "Test.App", d10)) if f.endswith(".pk-part")]
         pk = db.q1("SELECT * FROM packages WHERE id=?", (e["package_id"],))
         st = _j.loads(pk["steps"])["main"][0]
         assert pk["name"] == "Test App (winget-Cache)" and pk["version"] == "1.0" and pk["winget_id"] == "Test.App" and pk["type"] == "custom"
-        assert st["install_type"] == "exe" and st["folder"] == "winget-cache\\Test.App\\" + d10 and st["install_file"] == "testapp-1.0.exe"
+        assert st["install_type"] == "exe" and st["folder"] == "winget-cache\\Test.App\\" + d10 and st["install_file"] == "Test App_1.0_Machine_X64_inno.exe"
         assert st["arguments"] == "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /ALLUSERS" and st["detect_name"] == "Test App"
         n = len(calls)
         assert wc.refresh_entry(eid)["status"] == "ok" and not any("testapp" in u for u in calls[n:]), "same version: do not reload"
@@ -6314,7 +6318,7 @@ def _():
         assert e1b["folder"].endswith(d10b) and sorted(os.listdir(os.path.join(root, "winget-cache", "Test.App"))) == [d10b], dict(e1b)
         # new version: load, switch package (same ID), old version gone – not while a deployment needs it
         dep = db.ex("INSERT INTO deployments(name, status, package_json) VALUES('WC-läuft', 'running', ?)",
-                    (_j.dumps({"steps": {"pre": [], "main": [{"type": "install", "source": "file", "folder": e1b["folder"], "install_file": "testapp-1.0.exe"}], "post": []}}),))
+                    (_j.dumps({"steps": {"pre": [], "main": [{"type": "install", "source": "file", "folder": e1b["folder"], "install_file": "Test App_1.0_Machine_X64_inno.exe"}], "post": []}}),))
         publish("1.1", b"MZ-zwei" * 1000)
         e2 = wc.refresh_entry(eid)
         d11 = "1.1_" + _h.sha256(b"MZ-zwei" * 1000).hexdigest()[:8]
@@ -6323,7 +6327,7 @@ def _():
         db.ex("DELETE FROM deployments WHERE id=?", (dep,))
         wc.cleanup("selftest")
         assert sorted(os.listdir(os.path.join(root, "winget-cache", "Test.App"))) == [d11], "only the current version in the cache"
-        assert _j.loads(db.val("SELECT steps FROM packages WHERE id=?", (e["package_id"],)))["main"][0]["install_file"] == "testapp-1.1.exe"
+        assert _j.loads(db.val("SELECT steps FROM packages WHERE id=?", (e["package_id"],)))["main"][0]["install_file"] == "Test App_1.1_Machine_X64_inno.exe"
         # Vendor swaps the file: checksum wrong -> adopt nothing, old one stays
         publish("1.2", b"MZ-drei" * 1000, sha="0" * 64)
         e3 = wc.refresh_entry(eid)
@@ -6656,12 +6660,15 @@ def _():
                 "  InstallerSwitches:\n    Silent: /auto\n", "https://dl.example.test/zt.zip", z)
         ids.append(wc.add("Zip.Tool"))
         e = wc.refresh_entry(ids[-1])
-        assert e["status"] == "ok" and e["installer_type"] == "zip/nullsoft" and e["file"] == "sub\\setup.exe", dict(e)
+        assert e["status"] == "ok" and e["installer_type"] == "zip/nullsoft" and e["file"] == "installer\\sub\\setup.exe", dict(e)
         d = os.path.join(root, *e["folder"].split("\\"))
-        assert open(os.path.join(d, "sub", "setup.exe"), "rb").read() == b"MZ-zip" * 100 and os.path.isfile(os.path.join(d, "sub", "data.cab"))
+        # 2.55.0: the ZIP unchanged (like winget download) + manifest YAML, extracted into "installer"
+        assert sorted(os.listdir(d)) == ["Zip.Tool_5.1_Machine_X64_nullsoft.yaml", "Zip.Tool_5.1_Machine_X64_nullsoft.zip", "installer"], os.listdir(d)
+        assert open(os.path.join(d, "Zip.Tool_5.1_Machine_X64_nullsoft.zip"), "rb").read() == z
+        assert open(os.path.join(d, "installer", "sub", "setup.exe"), "rb").read() == b"MZ-zip" * 100 and os.path.isfile(os.path.join(d, "installer", "sub", "data.cab"))
         assert not [x for x in os.listdir(os.path.dirname(d)) if x.endswith(".pk-part")], "no half folder"
         st = _j.loads(db.val("SELECT steps FROM packages WHERE id=?", (e["package_id"],)))["main"][0]
-        assert st["folder"] == e["folder"] + "\\sub" and st["install_file"] == "setup.exe" and st["arguments"] == "/auto", st
+        assert st["folder"] == e["folder"] + "\\installer\\sub" and st["install_file"] == "setup.exe" and st["arguments"] == "/auto", st
         # ZIP with path to the outside: rejected, nothing written outside
         evil = zipbytes([("../../boese.exe", b"x"), ("setup.exe", b"MZ")])
         publish("Zip.Evil", "1.0", "  InstallerType: zip\n  NestedInstallerType: exe\n  NestedInstallerFiles:\n  - RelativeFilePath: setup.exe\n"
@@ -6716,9 +6723,47 @@ def _():
                 "https://dl.example.test/zc.zip", zipbytes([("Setup.EXE", b"MZ")]))
         ids.append(wc.add("Zip.Case"))
         e9 = wc.refresh_entry(ids[-1])
-        assert e9["status"] == "ok" and e9["file"] == "Setup.EXE", dict(e9)
+        assert e9["status"] == "ok" and e9["file"] == "installer\\Setup.EXE", dict(e9)
         from app import main as _m
         assert ("PUT", "/api/wingetcache/{eid}") not in _m.access.ROUTES
+        # --- 2.55.0: entries from before (layout of 2.54): switch on the next check
+        import shutil as _sh
+        # (a) single installer under its old name, same checksum: only renamed - no new download - and the YAML added
+        publish("Alt.Exe", "2.0", "  InstallerType: nullsoft\n", "https://dl.example.test/alt-2.0.exe", b"MZ-alt" * 50)
+        ids.append(wc.add("Alt.Exe"))
+        ea = wc.refresh_entry(ids[-1])
+        da = os.path.join(root, *ea["folder"].split("\\"))
+        new_name = "Alt.Exe_2.0_Machine_X64_nullsoft.exe"
+        os.rename(os.path.join(da, new_name), os.path.join(da, "alt-2.0.exe"))
+        os.remove(os.path.join(da, "Alt.Exe_2.0_Machine_X64_nullsoft.yaml"))
+        db.ex("UPDATE winget_cache SET file='alt-2.0.exe' WHERE id=?", (ids[-1],))
+        wc.remote.repo_cache_clear()
+        n = len(calls)
+        ea2 = wc.refresh_entry(ids[-1])
+        assert ea2["status"] == "ok" and ea2["file"] == new_name and not [c for c in calls[n:] if c[1].endswith("alt-2.0.exe")], ("no download", calls[n:])
+        assert sorted(os.listdir(da)) == ["Alt.Exe_2.0_Machine_X64_nullsoft.exe", "Alt.Exe_2.0_Machine_X64_nullsoft.yaml"], os.listdir(da)
+        st = _j.loads(db.val("SELECT steps FROM packages WHERE id=?", (ea2["package_id"],)))["main"][0]
+        assert st["install_file"] == new_name and st["folder"] == ea2["folder"]
+        # (b) ZIP extracted directly into the version folder: the ZIP is loaded again, extracted into "installer", the
+        # old extracted files are removed once nothing uses them
+        zb = zipbytes([("setup.exe", b"MZ-z" * 40), ("daten.cab", b"cab")])
+        publish("Alt.Zip", "3.0", "  InstallerType: zip\n  NestedInstallerType: nullsoft\n  NestedInstallerFiles:\n  - RelativeFilePath: setup.exe\n",
+                "https://dl.example.test/alt.zip", zb)
+        ids.append(wc.add("Alt.Zip"))
+        ez = wc.refresh_entry(ids[-1])
+        dz = os.path.join(root, *ez["folder"].split("\\"))
+        for x in os.listdir(dz):
+            (_sh.rmtree if os.path.isdir(os.path.join(dz, x)) else os.remove)(os.path.join(dz, x))
+        open(os.path.join(dz, "setup.exe"), "wb").write(b"MZ-z" * 40)
+        open(os.path.join(dz, "daten.cab"), "wb").write(b"cab")
+        db.ex("UPDATE winget_cache SET file='setup.exe' WHERE id=?", (ids[-1],))
+        wc.remote.repo_cache_clear()
+        ez2 = wc.refresh_entry(ids[-1])
+        assert ez2["status"] == "ok" and ez2["file"] == "installer\\setup.exe", dict(ez2)
+        assert sorted(os.listdir(dz)) == ["Alt.Zip_3.0_Machine_X64_nullsoft.yaml", "Alt.Zip_3.0_Machine_X64_nullsoft.zip", "installer"], os.listdir(dz)
+        assert sorted(os.listdir(os.path.join(dz, "installer"))) == ["daten.cab", "setup.exe"]
+        st = _j.loads(db.val("SELECT steps FROM packages WHERE id=?", (ez2["package_id"],)))["main"][0]
+        assert st["folder"] == ez2["folder"] + "\\installer" and st["install_file"] == "setup.exe", st
     finally:
         wc.proxy.urlopen = old_open
         for i in ids:
@@ -8871,7 +8916,7 @@ def _():
     assert r.stdout.strip().startswith("PKCHK_NOW:") and "PKCHK_EV" not in r.stdout, r.stdout
 
 
-@test("2.54.3 winget cache: of several equally fitting installers the MSI (Paint.NET: ZIP with the setup EXE and ZIP with an MSI - the setup EXE crashed as SYSTEM); language and architecture still come first")
+@test("2.55.0 winget cache picks the installer like winget (language, architecture, installer type MSI before EXE ...; else the first in the manifest) - Paint.NET: the MSI ZIP, not the setup EXE that crashed as SYSTEM")
 def _():
     from app import wingetcache as wc
     pdn = {"PackageIdentifier": "dotPDN.PaintDotNet", "PackageVersion": "5.2", "InstallerType": "zip", "Installers": [
@@ -8904,6 +8949,31 @@ def _():
     assert wc.choose(man, "x64", "machine", "de-DE")["InstallerUrl"].endswith("en.msi")
     man["Installers"].reverse()
     assert wc.choose(man, "x64", "machine", "de-DE")["InstallerUrl"].endswith("en.msi")
+    # winget's order of installer types: MSIX, MSI, WiX, Burn, Nullsoft, Inno, EXE
+    def m(*types):
+        return {"Installers": [{"Architecture": "x64", "InstallerType": t, "InstallerUrl": f"https://e.invalid/{t}", "InstallerSwitches": {"Silent": "/s"}} for t in types]}
+    for types, want in ((("exe", "inno", "burn"), "burn"), (("inno", "nullsoft"), "nullsoft"), (("exe", "wix", "msi"), "msi"), (("exe", "exe"), "exe")):
+        assert wc.choose(m(*types), "x64", "machine", "de-DE")["InstallerUrl"].endswith(want), (types, want)
+    two = m("exe", "exe")
+    two["Installers"][1]["InstallerUrl"] = "https://e.invalid/zweite"
+    assert wc.choose(two, "x64", "machine", "de-DE")["InstallerUrl"] == "https://e.invalid/exe", "equal: the first in the manifest"
+    # architecture: own one strong (x64 EXE before x86 MSI), x86 before neutral (like winget)
+    ar = {"Installers": [{"Architecture": "x86", "InstallerType": "msi", "InstallerUrl": "https://e.invalid/x86.msi"},
+                         {"Architecture": "x64", "InstallerType": "exe", "InstallerUrl": "https://e.invalid/x64.exe", "InstallerSwitches": {"Silent": "/s"}}]}
+    assert wc.choose(ar, "x64", "machine", "de-DE")["InstallerUrl"].endswith("x64.exe")
+    nx = {"Installers": [{"Architecture": "neutral", "InstallerType": "msi", "InstallerUrl": "https://e.invalid/n.msi"},
+                         {"Architecture": "x86", "InstallerType": "msi", "InstallerUrl": "https://e.invalid/x86.msi"}]}
+    assert wc.choose(nx, "x64", "machine", "de-DE")["InstallerUrl"].endswith("x86.msi")
+    # language before architecture (winget compares the language first): German x86 before English x64
+    la = {"Installers": [{"Architecture": "x64", "InstallerType": "msi", "InstallerLocale": "en-US", "InstallerUrl": "https://e.invalid/en64.msi"},
+                         {"Architecture": "x86", "InstallerType": "msi", "InstallerLocale": "de-DE", "InstallerUrl": "https://e.invalid/de86.msi"}]}
+    assert wc.choose(la, "x64", "machine", "de-DE")["InstallerUrl"].endswith("de86.msi")
+    # no language matches: one without a language is weakly better, but the own architecture is strong
+    nl = {"Installers": [{"Architecture": "x64", "InstallerType": "msi", "InstallerLocale": "en-US", "InstallerUrl": "https://e.invalid/en.msi"},
+                         {"Architecture": "x64", "InstallerType": "msi", "InstallerUrl": "https://e.invalid/ohne.msi"}]}
+    assert wc.choose(nl, "x64", "machine", "fr-FR")["InstallerUrl"].endswith("ohne.msi")
+    # file name like "winget download"
+    assert wc.download_name({"PackageName": "paint.net", "PackageVersion": "5.2", "PackageLocale": "en-US"}, i) == "paint.net_5.2_Machine_X64_wix_en-US.zip"
 
 
 def _js_calls(src, name):
