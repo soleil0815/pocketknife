@@ -35,6 +35,9 @@ _loaded = False
 PROBE = r"""Start-Sleep -Milliseconds 1500
 $pkN = Get-Date
 'PKCHK_NOW:' + $pkN.ToString('o')
+# who runs this look (the service account): its SID marks POCKET KNIFE's own sessions
+$pkMe = @(& (Join-Path $env:SystemRoot 'System32\whoami.exe') /user /fo csv /nh 2>$null)
+if ($pkMe.Count -and ("" + $pkMe[0]) -match '"(S-1-[0-9-]+)"') { 'PKCHK_ME:' + $matches[1] }
 if ('__SINCE__') {
   $pkS = Get-Date -Date '__SINCE__'
   foreach ($x in @(Get-WinEvent -FilterHashtable @{ LogName = 'Microsoft-Windows-PowerShell/Operational'; Id = 4100, 4104; StartTime = $pkS } -MaxEvents 300 -ErrorAction SilentlyContinue)) {
@@ -42,7 +45,7 @@ if ('__SINCE__') {
     if ($x.TimeCreated -ge $pkN) { continue }
     $m = [string]$x.Message
     if ($m.Length -gt 6000) { $m = $m.Substring(0, 6000) }
-    'PKCHK_EV:' + (ConvertTo-Json -Compress -InputObject @{ t = $x.TimeCreated.ToString('o'); id = $x.Id; lvl = [int]$x.Level; m = $m })
+    'PKCHK_EV:' + (ConvertTo-Json -Compress -InputObject @{ t = $x.TimeCreated.ToString('o'); id = $x.Id; lvl = [int]$x.Level; u = [string]$x.UserId; m = $m })
   }
 }
 """
@@ -61,6 +64,7 @@ def _load():
         with open(_path(), encoding="utf-8") as f:
             d = json.load(f)
         STATE["calls"] = dict(d.get("calls") or {})
+        STATE["other"] = int(d.get("other") or 0)
         STATE["findings"] = list(d.get("findings") or [])[-MAX_FINDINGS:]
         STATE["started"] = d.get("started")
     except (OSError, ValueError):
@@ -71,7 +75,8 @@ def _save():
     try:
         tmp = _path() + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
-            json.dump({"calls": STATE["calls"], "findings": STATE["findings"], "started": STATE["started"]}, f, ensure_ascii=False)
+            json.dump({"calls": STATE["calls"], "findings": STATE["findings"], "started": STATE["started"],
+                       "other": STATE.get("other", 0)}, f, ensure_ascii=False)
         os.replace(tmp, _path())
     except OSError:
         pass
@@ -108,7 +113,7 @@ def set_enabled(on, user=""):
 def clear(user=""):
     from . import pklog
     with _lock:
-        STATE["calls"], STATE["findings"], STATE["since"] = {}, [], {}
+        STATE["calls"], STATE["findings"], STATE["since"], STATE["other"] = {}, [], {}, 0
         STATE["started"] = util.now() if enabled() else None
         _save()
     pklog.info("system", "Ergebnisse des Prüfmodus PowerShell-Protokoll gelöscht.", user=user)
@@ -141,6 +146,10 @@ def _field(m, *names):
 def parse_event(e):
     """One event from the probe -> finding (short texts; for 4104 the flagged spots by pslint)."""
     from . import pslint
+    if e.get("crash"):
+        app, _, why = str(e["crash"]).partition(" – ")
+        return {"time": str(e.get("t") or "")[:19].replace("T", " "), "event": 1000, "message": f"{app}: {why}"[:500],
+                "host_app": "", "user": ""}
     m = str(e.get("m") or "")
     eid = int(e.get("id") or 0)
     f = {"time": str(e.get("t") or "")[:19].replace("T", " "), "event": eid,
@@ -161,21 +170,36 @@ def parse_event(e):
 
 
 def probe(host, run_raw):
-    """One look into the log. run_raw(host, script) -> stdout. Returns (now, [events])."""
+    """One look into the log. run_raw(host, script) -> stdout. Returns (now, [events of POCKET KNIFE]) - entries of other
+    software and users are left out (see is_pk)."""
     with _lock:
         since = STATE["since"].get(str(host).lower(), "")
     out = run_raw(host, PROBE.replace("__SINCE__", since.replace("'", "")))
-    now, evs = "", []
+    now, evs, me = "", [], ""
     for ln in str(out or "").splitlines():
         ln = ln.strip()
         if ln.startswith("PKCHK_NOW:"):
             now = ln[len("PKCHK_NOW:"):]
+        elif ln.startswith("PKCHK_ME:"):
+            me = ln[len("PKCHK_ME:"):]
         elif ln.startswith("PKCHK_EV:"):
             try:
                 evs.append(json.loads(ln[len("PKCHK_EV:"):]))
             except ValueError:
                 pass
-    return now, evs
+    keep = [e for e in evs if is_pk(e, me)]
+    with _lock:
+        STATE["other"] = STATE.get("other", 0) + len(evs) - len(keep)
+    return now, keep
+
+
+def is_pk(e, me_sid):
+    """Only what POCKET KNIFE causes: the service account's own sessions (same SID as the look itself), or a script /
+    host application in POCKET KNIFE's work folder (tasks as SYSTEM or in the user's session). Other software (e.g. a
+    monitoring agent as SYSTEM) and users' own PowerShell stay out."""
+    if me_sid and str(e.get("u") or "") == me_sid:
+        return True
+    return "pocketknife" in str(e.get("m") or "").lower()
 
 
 def wrap(host, fn, run_raw, op=None):
@@ -191,20 +215,33 @@ def wrap(host, fn, run_raw, op=None):
             except Exception:
                 pass
         err = None
+        result = None
         try:
             result = fn()
         except Exception as e:
             err = e
+        try:
+            crashes = _crash_lines(result)
+        except Exception:
+            crashes = []
         # not reachable / no answer: nothing ran there, and a look would only wait for the same timeout again
         if type(err).__name__ not in ("RemoteConnectError", "RemoteTimeout"):
             try:
                 now, evs = probe(host, run_raw)
-                record(host, op, now, evs)
+                record(host, op, now, evs + crashes)
             except Exception:
                 pass
         if err is not None:
             raise err
         return result
+
+
+def _crash_lines(result):
+    """2.54.1: a program that POCKET KNIFE started crashed (line of PK-CrashInfo in the call's output) -> pseudo event."""
+    from . import remote
+    out = result[0] if isinstance(result, tuple) and result else ""
+    return [{"id": 1000, "crash": ln.strip()[len(remote.CRASH_PREFIX):], "t": util.now()}
+            for ln in str(out or "").splitlines() if ln.strip().startswith(remote.CRASH_PREFIX)]
 
 
 def record(host, op, now, evs):
@@ -215,12 +252,13 @@ def record(host, op, now, evs):
         if now:
             STATE["since"][key] = now
         STATE["last_op"][key] = op
-        c = STATE["calls"].setdefault(op, {"calls": 0, "e4100": 0, "e4104": 0})
+        c = STATE["calls"].setdefault(op, {"calls": 0, "e4100": 0, "e4104": 0, "crash": 0})
         c["calls"] += 1
         for e in evs:
             f = parse_event(e)
             f.update(op=op, prev_op=prev if prev != op else "", host=str(host), seen=util.now())
-            c["e4100" if f["event"] == 4100 else "e4104"] += 1
+            k = {4100: "e4100", 4104: "e4104"}.get(f["event"], "crash")
+            c[k] = c.get(k, 0) + 1
             STATE["findings"].append(f)
         del STATE["findings"][:-MAX_FINDINGS]
         if evs or c["calls"] % 20 == 1:
@@ -230,8 +268,8 @@ def record(host, op, now, evs):
 def summary():
     with _lock:
         _load()
-        calls = {k: dict(v) for k, v in STATE["calls"].items()}
-        return {"enabled": enabled(), "started": STATE["started"], "calls": calls,
+        calls = {k: dict({"crash": 0}, **v) for k, v in STATE["calls"].items()}
+        return {"enabled": enabled(), "started": STATE["started"], "calls": calls, "other": STATE.get("other", 0),
                 "findings": list(STATE["findings"][-500:]), "total": len(STATE["findings"]), "run": dict(RUN) if RUN else None}
 
 
@@ -242,24 +280,31 @@ def stats():
             "calls": sum(v["calls"] for v in s["calls"].values()),
             "event_4100": sum(v["e4100"] for v in s["calls"].values()),
             "event_4104": sum(v["e4104"] for v in s["calls"].values()),
-            "per_function": {k: [v["calls"], v["e4100"], v["e4104"]] for k, v in sorted(s["calls"].items())}}
+            "crashed_programs": sum(v["crash"] for v in s["calls"].values()),
+            "other_software_left_out": s["other"],
+            "per_function": {k: [v["calls"], v["e4100"], v["e4104"], v["crash"]] for k, v in sorted(s["calls"].items())}}
 
 
-def report(anon_hosts=True):
-    """Text to copy and send: per function the calls and every distinct finding (host names replaced)."""
+def report(anon_hosts=True, hostname=None):
+    """Text to copy and send: per function the calls and every distinct finding (host names replaced).
+    hostname: own replacement (the diagnostic package uses its placeholders, the same as in its other files)."""
     s = summary()
     hosts: dict = {}
 
     def hn(h):
+        if hostname:
+            return hostname(h)
         if not anon_hosts:
             return h
         return hosts.setdefault(str(h).lower(), f"PC-{len(hosts) + 1:03d}")
     lines = [f"POCKET KNIFE {config.VERSION} – Prüfmodus PowerShell-Protokoll",
              f"Aktiv seit: {s['started'] or '—'} · Funktionen geprüft: {len(s['calls'])} · "
              f"Aufrufe: {sum(v['calls'] for v in s['calls'].values())}", ""]
-    lines.append("Funktion | Aufrufe | 4100 | 4104")
-    for k, v in sorted(s["calls"].items(), key=lambda kv: (-(kv[1]["e4100"] + kv[1]["e4104"]), kv[0])):
-        lines.append(f"{k} | {v['calls']} | {v['e4100']} | {v['e4104']}")
+    lines.append("Funktion | Aufrufe | 4100 | 4104 | Absturz")
+    for k, v in sorted(s["calls"].items(), key=lambda kv: (-(kv[1]["e4100"] + kv[1]["e4104"] + kv[1]["crash"]), kv[0])):
+        lines.append(f"{k} | {v['calls']} | {v['e4100']} | {v['e4104']} | {v['crash']}")
+    if s["other"]:
+        lines.append(f"(Einträge anderer Software oder Benutzer ausgelassen: {s['other']})")
     seen: dict = {}
     with _lock:
         allf = list(STATE["findings"])
@@ -274,7 +319,7 @@ def report(anon_hosts=True):
         lines += ["", "Funde (gleiche zusammengefasst):"]
     for f in seen.values():
         lines.append("")
-        lines.append(f"[{f['event']}] {f['op']}" + (f" (seit dem vorigen Aufruf: {f['prev_op']})" if f.get("prev_op") else "")
+        lines.append(f"[{'Absturz' if f['event'] == 1000 else f['event']}] {f['op']}" + (f" (seit dem vorigen Aufruf: {f['prev_op']})" if f.get("prev_op") else "")
                      + f" · {f['n']}× auf {', '.join(sorted(f['hosts']))}")
         lines.append(f"  Meldung: {f.get('message', '')}")
         for lab, key in (("Fehler-ID", "error_id"), ("Befehl", "command"), ("Skript", "script"), ("Hostanwendung", "host_app"),
@@ -284,7 +329,7 @@ def report(anon_hosts=True):
         if f.get("flagged"):
             lines.append(f"  Auffällig laut Prüfung: {', '.join(f['flagged'])}")
     if not seen:
-        lines += ["", "Keine Einträge 4100 oder 4104 (Warnung) durch POCKET KNIFE."]
+        lines += ["", "Keine Einträge 4100 oder 4104 (Warnung) und keine Abstürze durch POCKET KNIFE."]
     return "\n".join(lines) + "\n"
 
 

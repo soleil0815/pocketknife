@@ -2,6 +2,13 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.54.1 (16.11.2026)
+- **Check mode collects only what POCKET KNIFE causes:** an entry counts if it comes from the service account's own sessions (same SID as the look itself, via whoami.exe) or names POCKET KNIFE's work folder (tasks as SYSTEM or in the user's session). Entries of other software (e.g. a monitoring agent running as SYSTEM) and users' own PowerShell are left out and only counted
+- **Crashes** of programs POCKET KNIFE started (the "Absturz laut Ereignisprotokoll" lines of 2.53.2 in a call's output) are recorded as findings of that function - new column "Absturz"
+- **Diagnostic package:** the full report as `powershell_protokoll.txt`, names, domain, users and addresses replaced like in every other file (without data: a short note how to switch the check mode on); statistics with crashes and the count of left-out entries
+- Help: "Nur POCKET KNIFE", "Auswertung über das Diagnosepaket"
+- **Self-test:** own session / work folder kept, monitoring agent and users left out and counted, crash line recorded, report and diagnostic file with names replaced, note without data
+
 ## pocketknife-2.54.0 (16.11.2026)
 - **Check mode "PowerShell-Protokoll"** (Settings → Maintenance, main admins): when on, every call POCKET KNIFE makes on a computer is followed by a short look into that computer's PowerShell log; every entry 4100 (error) and 4104 (warning) is remembered with the POCKET KNIFE function that caused it (first frame outside the remote layer). It runs in a separate WinRM session, so the production scripts stay unchanged. Per computer the computer's own time of the last look is the start of the next window, so whatever a background task (deployment, tool as SYSTEM) logs in between is attributed to the next call, with the previous call noted. Calls to one computer are serialized while it is on. Off by default; about 2 seconds more per call
   - **Prüflauf:** runs every reading function once on a chosen computer: scan, services, processes, BitLocker, every event log, Group Policy history and result, disk space, files, a command as the service account and as SYSTEM (cmd and PowerShell), and the shipped read-only tools. Nothing is changed on the computer
