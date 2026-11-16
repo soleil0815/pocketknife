@@ -3966,7 +3966,7 @@ async function packageDlg(pidOrPkg, preset = {}) {
         field('Nicht installiert', chk(st, 'missing_ok', 'als erfolgreich werten (übersprungen)')));
     }
     if (t === 'command') return h('div.form', h('label', 'Befehl'), h('div', ta(st, 'command', 10, { placeholder: 'Mehrzeilig wie eine .cmd-Datei, z. B.\ntaskkill /im 7zFM.exe /f\nreg add "HKLM\\SOFTWARE\\Firma" /v Wert /d 1 /f' })), field('Erfolgs-Exitcodes', inp(st, 'success_codes')));
-    if (t === 'powershell') return h('div.form', h('label', 'PowerShell'), h('div', ta(st, 'script', 14, { placeholder: '# exit 1 meldet einen Fehler (Exitcode), ohne exit gilt 0\nGet-Process 7zFM -ErrorAction SilentlyContinue | Stop-Process -Force' })), field('Erfolgs-Exitcodes', inp(st, 'success_codes')),
+    if (t === 'powershell') return h('div.form', h('label', 'PowerShell'), (() => { const a = ta(st, 'script', 14, { placeholder: '# exit 1 meldet einen Fehler (Exitcode), ohne exit gilt 0\nGet-Process 7zFM -ErrorAction SilentlyContinue | Stop-Process -Force' }); return h('div', a, psLintBox(a)); })(), field('Erfolgs-Exitcodes', inp(st, 'success_codes')),
       field('Fehlermeldungen', chk(st, 'ignore_errors', 'Fehlermeldungen von PowerShell ignorieren – nur der Exitcode zählt'), 'Standard: Meldet PowerShell einen Fehler (z. B. „Zugriff verweigert“), gilt der Schritt als fehlgeschlagen, auch wenn das Skript mit Exitcode 0 endet. Gezielt unterdrückte Fehler (-ErrorAction SilentlyContinue) zählen nicht.'));
     if (t === 'nested') {
       return h('div.form', field('Paket', sl(st, 'package_id', meta.packages.filter((x) => (!p.id || x.id !== p.id) && (!x.cache || x.id === Number(st.package_id))).map((x) => [x.id, x.name]), true),
@@ -6424,6 +6424,7 @@ function scannerDlg(sc, meta) {
   const name = h('input', { value: sc.name });
   const type = sel([['registry', 'Registry'], ['files', 'Dateien & Ordner'], ['wmi', 'WMI'], ['powershell', 'PowerShell']], sc.type);
   const target = h('textarea', { rows: 4, value: sc.target });
+  const tLint = psLintBox(target, () => type.value === 'powershell');
   const ns = h('input', { value: (sc.extra || {}).namespace || 'root\\cimv2' });
   const rec = h('input', { type: 'checkbox', checked: !!(sc.extra || {}).recurse });
   const en = h('input', { type: 'checkbox', checked: !!sc.enabled });
@@ -6449,6 +6450,7 @@ function scannerDlg(sc, meta) {
     const fp = meta && meta.profiles.find((p) => p.builtin_key === type.value);
     fixedLine.textContent = fp ? `Immer enthalten im festen Profil „${fp.name}“.${ownProfiles.length ? ' Zusätzlich in eigenen Profilen:' : ''}` : '';
     recRow.forEach((x) => x && (x.style.display = ['registry', 'files'].includes(type.value) ? '' : 'none'));
+    tLint.refresh();
   };
   type.addEventListener('change', toggle);
   // Test immediately: run the scanner on a computer and show the result
@@ -6467,7 +6469,7 @@ function scannerDlg(sc, meta) {
     } catch (e) { testOut.replaceChildren(h('p', h('span.badge.err', 'Fehler'), ' ', e.message)); }
     finally { testBtn.disabled = false; }
   }, { cls: 'small', icon: 'refresh' });
-  const form = h('div.form', field('Name', name), field('Typ', type), tLabel, target, hint, nsRow, recRow, field('Größenangaben', h('div.row', bMode, bCols), 'Werte in Bytes werden als KB/MB/GB/TB angezeigt (Tooltip: genauer Wert). Automatisch: Spalten wie Size, Length, FreeSpace, Größe mit reinen Zahlen. Gespeichert und exportiert (CSV) wird weiterhin der Bytewert.'),
+  const form = h('div.form', field('Name', name), field('Typ', type), tLabel, target, tLint, hint, nsRow, recRow, field('Größenangaben', h('div.row', bMode, bCols), 'Werte in Bytes werden als KB/MB/GB/TB angezeigt (Tooltip: genauer Wert). Automatisch: Spalten wie Size, Length, FreeSpace, Größe mit reinen Zahlen. Gespeichert und exportiert (CSV) wird weiterhin der Bytewert.'),
     field('Aktiv', h('label.chk', en, 'beim nächsten Scan ausführen')), profBox ? field('In Scanprofilen', profBox) : null,
     field('Testen', h('div.row', testPc, testBtn), 'Führt den Scanner sofort auf dem gewählten Computer aus.'), h('div.full', testOut));
   toggle();
@@ -7004,9 +7006,10 @@ async function commandDlg(targets) {
   const drawSeg = () => seg.replaceChildren(...[['powershell', 'PowerShell'], ['cmd', 'CMD']].map(([k, l]) =>
     h('button', { type: 'button', class: type === k ? 'on' : '', onclick: () => { type = k; drawSeg(); hintUpd(); } }, l)));
   const script = h('textarea.mono', { rows: 9, value: CMD_LAST.script, spellcheck: 'false', placeholder: 'z. B. Get-Service Spooler  bzw.  ipconfig /all' });
+  const sLint = psLintBox(script, () => type === 'powershell');
   const runAs = sel(Object.entries(data.run_as), CMD_LAST.run_as);
   const hint = h('div.hint');
-  const hintUpd = () => { hint.textContent = type === 'cmd' ? 'Befehle wie in einer .cmd-Datei, mehrzeilig möglich.' : 'PowerShell-Code, mehrzeilig möglich. Fehler setzen den Status auf „Fehler“.'; };
+  const hintUpd = () => { hint.textContent = type === 'cmd' ? 'Befehle wie in einer .cmd-Datei, mehrzeilig möglich.' : 'PowerShell-Code, mehrzeilig möglich. Fehler setzen den Status auf „Fehler“.'; sLint.refresh(); };
   const hist = sel([['', CMD_HIST.length ? `Zuletzt verwendet (${CMD_HIST.length}) …` : 'Noch keine Befehle in dieser Sitzung'],
     ...CMD_HIST.map((x, i) => [String(i), `${x.type === 'cmd' ? 'CMD' : 'PS'} · ${x.script.split('\n')[0].slice(0, 80)}`])], '');
   hist.disabled = !CMD_HIST.length;
@@ -7021,7 +7024,7 @@ async function commandDlg(targets) {
   drawSeg(); hintUpd();
   const form = h('div.form', field('Ziele', h('span.raw', `${names}${targets.length > 1 ? ` – ${targets.length} Computer` : ''}`)),
     field('Typ', seg), field('Ausführen als', runAs, 'Dienstkonto: direkt über WinRM, schnell. SYSTEM: über eine geplante Aufgabe.'),
-    h('label', 'Befehl'), script, hint, field('Verlauf', hist),
+    h('label', 'Befehl'), script, sLint, hint, field('Verlauf', hist),
     h('div.full.muted.small', 'Variablen: $(Computer) $(Host) $(IP) $(MAC) $(User) $(Domain)'));
   const cur = () => ({ type, script: script.value.replace(/\s+$/, ''), run_as: runAs.value });
   let busy = false;
@@ -7172,6 +7175,7 @@ async function toolDlg(tool, presetFolder) {
   const type = sel(Object.entries(data.types), tool.type);
   const runAs = sel(Object.entries(data.run_as), tool.run_as);
   const script = h('textarea.mono', { rows: 12, value: tool.script, spellcheck: 'false' });
+  const sLint = psLintBox(script, () => type.value === 'powershell');
   const desc = h('input', { value: tool.description || '' });
   const confirm = h('input', { type: 'checkbox', checked: !!tool.confirm });
   const hk = hkInput(tool.hotkey || '', isNew ? null : `tool:${tool.id}`);
@@ -7204,8 +7208,9 @@ async function toolDlg(tool, presetFolder) {
         : 'PowerShell-Code. Ausgaben (auch Format-Table) werden angezeigt. Fehler setzen den Status auf „Fehler“.';
   };
   type.addEventListener('change', toggle);
+  type.addEventListener('change', () => sLint.refresh());
   const form = h('div.form', field('Name', name), field('Ordner', combo(folder, folders, { width: '100%' })),
-    field('Typ', type), runRow, h('label', 'Befehl / URL'), script, hint, ...extraRows,
+    field('Typ', type), runRow, h('label', 'Befehl / URL'), script, sLint, hint, ...extraRows,
     field('Beschreibung', desc), field('Rückfrage', h('label.chk', confirm, 'vor dem Ausführen bestätigen (für ändernde Aktionen)')),
     field('Tastenkürzel', hk.el, 'Startet das Tool für die markierten Computer bzw. den geöffneten Computer.'),
     h('div.full.muted.small', 'Variablen: $(Computer) $(Host) $(IP) $(MAC) $(User) $(Domain)'));
@@ -8453,6 +8458,37 @@ const repoParent = (p) => { const i = String(p || '').lastIndexOf('\\'); return 
 const repoBase = (p) => { const s = String(p || ''); const i = s.lastIndexOf('\\'); return i < 0 ? s : s.slice(i + 1); };
 const unixDate = (t) => { if (!t) return ''; const d = new Date(t * 1000); const z = (n) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())} ${z(d.getHours())}:${z(d.getMinutes())}`; };
 
+// 2.52.0: hints for own PowerShell code – what PowerShell's script block logging writes as a WARNING (event 4104):
+// words of its "suspicious" list (also in comments), members named through a variable, cmdlets of generated Windows
+// modules. Monitoring software can raise alerts on that. Only a hint – the code runs as it is.
+function psLintBox(area, isPs = () => true) {
+  const box = h('div.pslint');
+  let timer = null; let seq = 0;
+  const KIND = { word: 'steht auf der Verdachtsliste von PowerShell (zählt auch in Kommentaren und als Teil eines Worts)',
+    dynamic: 'Eigenschaft über eine Variable – PowerShell wertet das als Verschleierung' };
+  const run = async () => {
+    const my = ++seq;
+    if (!isPs() || !area.value.trim()) { box.replaceChildren(); return; }
+    let r;
+    try { r = await POST('/api/pslint', { text: area.value }); } catch (e) { return; }
+    if (my !== seq) return;
+    const f = r.findings || [];
+    if (!f.length) { box.replaceChildren(); return; }
+    box.replaceChildren(h('div.alert.warn', { style: { margin: '6px 0' } },
+      h('b', tr('Hinweis: Windows protokolliert diesen Code als Warnung (Ereignis 4104).')), ' ',
+      h('span.small', tr('Überwachungssoftware kann darauf anschlagen – der Code läuft trotzdem.')),
+      h('ul', { style: { margin: '6px 0 0', paddingLeft: '18px' } }, f.map((x) => h('li.small',
+        fmtT('Zeile {0}', x.line), ': ', h('code.raw', x.what), ' – ',
+        x.kind === 'module' ? fmtT('lädt das Windows-Modul „{0}“', tr(x.module)) : tr(KIND[x.kind]),
+        x.hint ? h('span.muted', ' → ', tr(x.hint)) : null)))));
+  };
+  const kick = () => { clearTimeout(timer); timer = setTimeout(run, 600); };
+  area.addEventListener('input', kick);
+  setTimeout(run, 50);
+  box.refresh = kick;
+  return box;
+}
+
 // Error "still in use" (409): show the list of packages instead of a long toast
 function repoBlockedDlg(e, title = 'Nicht möglich') {
   const used = e && e.info && e.info.used_by;
@@ -9025,6 +9061,7 @@ async function repoTextEditor(path, onSaved) {
   }
   const body = h('div.code-wrap',
     hint,
+    /\.(ps1|psm1|psd1)$/i.test(path) ? psLintBox(ta) : null,
     h('div.row', { style: { gap: '8px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '6px' } },
       h('span.raw.small', d.path), h('div.spacer'), state, pos,
       h('label.row', { style: { gap: '4px', alignItems: 'center' } }, h('span.small', tr('Kodierung')), encSel),

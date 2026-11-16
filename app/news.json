@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.52.0",
+   "date": "2026-11-16",
+   "items": [
+    {
+     "kind": "new",
+     "audience": "admin",
+     "de": "Hinweise für eigenen PowerShell-Code: In Paket-Schritten, Tools, „Befehl ausführen“, eigenen Scannern und .ps1-Dateien im Repository zeigt POCKET KNIFE beim Schreiben, was Windows als Warnung protokollieren würde (Ereignis 4104) – mit besserer Alternative. Nur ein Hinweis, nichts wird gesperrt.",
+     "en": "Hints for own PowerShell code: in package steps, tools, \"Run command\", own scanners and .ps1 files in the repository POCKET KNIFE shows while you type what Windows would log as a warning (event 4104) – with a better alternative. Only a hint, nothing is blocked."
+    }
+   ]
+  },
+  {
    "version": "2.51.0",
    "date": "2026-11-16",
    "items": [

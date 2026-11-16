@@ -8404,6 +8404,58 @@ function Invoke-CimMethod { param($Namespace, $ClassName, $MethodName, $Argument
         db.ex("DELETE FROM tools WHERE id IN (?,?)", (tid, tid2))
 
 
+@test("2.52.0 Hints for own PowerShell code (4104): PowerShell's own word list, members through variables, cmdlets of generated modules; POCKET KNIFE's own scripts are clean; editors show it, API open, diagnostics count")
+def _():
+    import subprocess as _sp
+    from app import access, actions, diagnostics, gphistory, gpupdate, inventory, pslint, remote, toast, tools
+    from app import main as _m
+    k = lambda t: [(f["kind"], f["what"]) for f in pslint.check(t)]  # noqa: E731
+    assert k("$a.$b") == [("dynamic", "$a.$b")] and k('$a.("x")') == [("dynamic", '$a.("x")')]
+    assert k('"$a.$b"') == [] and k("'$a.$b'") == [] and k("$a.Name") == [] and k("1..(5)") == [] and k("$a.$b # x") == [("dynamic", "$a.$b # x")]
+    assert k("$o.PSObject.Properties") == [("word", "Properties")] and k("# CimClassMethods") == [("word", "Methods")], "substring, also comments"
+    assert k("powershell -ExecutionPolicy BYPASS -File x") == [("word", "Bypass")] and k("Get-ItemPropertyValue -Name x") == []
+    assert k("New-NetFirewallRule -Name x") == [("module", "New-NetFirewallRule")] and k("# Register-ScheduledTask") == []
+    assert k("Add-Printer -Name x\nadd-printerport -Name y") == [("module", "Add-Printer"), ("module", "add-printerport")]
+    f = pslint.check("Suspend-BitLocker -MountPoint C:")[0]
+    assert f["module"] == "BitLocker" and "manage-bde" in f["hint"] and f["line"] == 1
+    assert len(pslint.check("\n".join(f"$a{i}.$b" for i in range(80)))) == 50, "at most 50"
+    # POCKET KNIFE's own client scripts give no hint (Get-MpComputerStatus only as fallback where the Defender class is missing)
+    for name, sc in (("REGISTER", remote.REGISTER), ("POLL", remote.POLL), ("CLEANUP_RUN", remote.CLEANUP_RUN), ("WRAPPER", remote.WRAPPER),
+                     ("toast", toast.build_send_script([("installed", "7-Zip", "26")])[0]), ("toast_user", toast.USER_PS), ("gpupdate", gpupdate.script()),
+                     ("gphistory", gphistory.script(24)), ("bitlocker", actions.BITLOCKER_PS), ("tool", tools.ps_tool_winrm("'x'")),
+                     ("scan", inventory.build_script(list(inventory.MODULES.keys())))):
+        assert [x for x in pslint.check(sc) if x["what"] != "Get-MpComputerStatus"] == [], (name, pslint.check(sc))
+    # API: open for everyone (pure check), limits; diagnostics count, never code
+    assert access.ROUTES[("POST", "/api/pslint")] is access.OPEN
+    r = _m.api_pslint({"text": "Add-Type -TypeDefinition $x"}, user={"username": "x"})
+    assert r["findings"][0]["what"] == "Add-Type" and "System32" in r["findings"][0]["hint"]
+    for bad in ({"text": None}, {"text": "x" * 500_001}):
+        try:
+            _m.api_pslint(bad, user={"username": "x"})
+            raise AssertionError("must be refused")
+        except _m.HTTPException as e:
+            assert e.status_code == 400
+    st = diagnostics._pslint()
+    assert st["checks"] >= 3 and st["with_findings"] >= 2 and set(st) == {"checks", "with_findings", "words", "modules", "dynamic"}, st
+    js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
+    for hook in ("return h('div', a, psLintBox(a))", "psLintBox(target, () => type.value === 'powershell')", "psLintBox(script, () => type === 'powershell')",
+                 "psLintBox(script, () => type.value === 'powershell')", "/\\.(ps1|psm1|psd1)$/i.test(path) ? psLintBox(ta) : null,"):
+        assert hook in js, hook
+    # the word list is PowerShell's own: every word alone is reported by its check
+    pw = os.environ.get("PK_PWSH")
+    if not (pw and os.path.exists(pw)):
+        return
+    d = os.path.join(TMP, "pk-lint")
+    os.makedirs(d, exist_ok=True)
+    chk = ("$m = [System.Management.Automation.ScriptBlock].GetMethod('CheckSuspiciousContent', [System.Reflection.BindingFlags]'NonPublic,Static')\n"
+           "foreach ($w in (Get-Content -LiteralPath $args[0])) { $a = [System.Management.Automation.Language.Parser]::ParseInput('# ' + $w, [ref]$null, [ref]$null)\n"
+           "  if (-not $m.Invoke($null, @($a))) { 'NOT ' + $w } }\n'DONE'\n")
+    open(os.path.join(d, "c.ps1"), "w", encoding="utf-8").write(chk)
+    open(os.path.join(d, "w.txt"), "w", encoding="utf-8").write("\n".join(pslint.WORDS))
+    out = _sp.run([pw, "-NoProfile", "-File", os.path.join(d, "c.ps1"), os.path.join(d, "w.txt")], capture_output=True, text=True, timeout=120).stdout
+    assert "DONE" in out and "NOT " not in out, out
+
+
 @test("2.46.1 gpupdate in tools never waits for \"log off / restart? (J/N)\": always \"N\" (cmd and PowerShell, new and existing tools, built-in tool says so in the output)")
 def _():
     import subprocess as _sp
