@@ -2,6 +2,11 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.54.3 (16.11.2026)
+- **winget cache prefers the MSI:** if several installers fit equally (architecture, language, scope), the cache now takes the MSI/WiX one instead of simply the first in the manifest. Paint.NET lists a ZIP with its setup EXE (`/auto`) first and a ZIP with an MSI second - POCKET KNIFE took the setup EXE, which crashed as SYSTEM when it wanted to show a window. The MSI runs silently via msiexec, reports proper exit codes and writes a log. Language and architecture still come first. Existing cache entries switch on their next check (other checksum → own folder, package updated, old version removed when unused)
+- Help: winget cache "Laden"
+- **Self-test:** Paint.NET manifest (x64 and arm64) → MSI in the ZIP with `ALLUSERS=1`, no `/auto`; a German EXE still before an English-only MSI; same language → MSI regardless of the order
+
 ## pocketknife-2.54.2 (16.11.2026)
 - **"nullnullnull" under the card "PowerShell-Protokoll prüfen"** (and the same effect in two other places): `replaceChildren`/`append` write missing children (`null`/`false`) as text, unlike `h()` which leaves them out. New helper `kids()` filters them; fixed in the check mode card, the backup list (without a last backup) and the Group Policy result (without groups / extension errors)
 - **Remote desktop (VNC):** without a central VNC password the list of logon options showed "null" - option now left out properly

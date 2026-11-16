@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.54.3",
+   "date": "2026-11-16",
+   "items": [
+    {
+     "kind": "fixed",
+     "audience": "admin",
+     "de": "winget-Cache: Bietet ein Programm mehrere passende Installer an (z. B. Paint.NET: Setup-EXE und MSI), nimmt POCKET KNIFE jetzt das MSI. Das Setup-EXE von Paint.NET ist als SYSTEM abgestürzt.",
+     "en": "winget cache: if a program offers several matching installers (e.g. Paint.NET: setup EXE and MSI), POCKET KNIFE now takes the MSI. Paint.NET's setup EXE crashed as SYSTEM."
+    }
+   ]
+  },
+  {
    "version": "2.54.2",
    "date": "2026-11-16",
    "items": [

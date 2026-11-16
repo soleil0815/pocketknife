@@ -430,12 +430,17 @@ def choose(man, arch="x64", scope="machine", locale=None):
             continue  # must not run with administrator rights – unsuitable as SYSTEM
         il = str(i.get("InstallerLocale") or "").lower()
         rl = 0 if il == locale else 1 if il and il.split("-")[0] == locale.split("-")[0] else 2 if not il else 3 if il == "en-us" else 4
-        cand.append((ra, rl, 0 if sc else 1, i))
+        # 2.54.3: several installers fit equally (e.g. Paint.NET: one ZIP with the setup EXE, one with an MSI) -> the MSI.
+        # It runs silently as SYSTEM by itself (msiexec), reports proper exit codes and writes a log; a setup EXE may want
+        # to show a window (Paint.NET's setup crashed as SYSTEM when it wanted to). Before: the first one in the manifest
+        eff = str(i.get("NestedInstallerType") or "").lower() if typ == "zip" else typ
+        rt = 0 if eff in ("msi", "wix") else 1
+        cand.append((ra, rl, 0 if sc else 1, rt, i))
     if not cand:
         what = ", ".join(t for t in found_types if t) or "unbekannt"
         raise CacheError(f"Kein passender Installer ({ARCHS.get(arch, arch)}, für alle Benutzer, Typ MSI/EXE). Im Manifest: {what}.")
-    cand.sort(key=lambda x: x[:3])
-    return cand[0][3]
+    cand.sort(key=lambda x: x[:4])
+    return cand[0][4]
 
 
 def plan(man, inst, scope="machine"):

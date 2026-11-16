@@ -8871,6 +8871,41 @@ def _():
     assert r.stdout.strip().startswith("PKCHK_NOW:") and "PKCHK_EV" not in r.stdout, r.stdout
 
 
+@test("2.54.3 winget cache: of several equally fitting installers the MSI (Paint.NET: ZIP with the setup EXE and ZIP with an MSI - the setup EXE crashed as SYSTEM); language and architecture still come first")
+def _():
+    from app import wingetcache as wc
+    pdn = {"PackageIdentifier": "dotPDN.PaintDotNet", "PackageVersion": "5.2", "InstallerType": "zip", "Installers": [
+        {"Architecture": "x64", "NestedInstallerType": "exe", "NestedInstallerFiles": [{"RelativeFilePath": "paint.net.5.2.install.x64.exe"}],
+         "Scope": "machine", "InstallerUrl": "https://example.invalid/paint.net.5.2.install.x64.zip", "InstallerSha256": "A" * 64,
+         "InstallerSwitches": {"Silent": "/auto", "SilentWithProgress": "/auto"}},
+        {"Architecture": "x64", "NestedInstallerType": "wix", "NestedInstallerFiles": [{"RelativeFilePath": "PaintDotNet.x64.msi"}],
+         "Scope": "machine", "InstallerUrl": "https://example.invalid/paint.net.5.2.winmsi.x64.zip", "InstallerSha256": "B" * 64},
+        {"Architecture": "x64", "NestedInstallerType": "portable", "NestedInstallerFiles": [{"RelativeFilePath": "paintdotnet.exe"}],
+         "InstallerUrl": "https://example.invalid/paint.net.5.2.portable.x64.zip", "InstallerSha256": "C" * 64},
+        {"Architecture": "arm64", "NestedInstallerType": "exe", "NestedInstallerFiles": [{"RelativeFilePath": "paint.net.5.2.install.arm64.exe"}],
+         "Scope": "machine", "InstallerUrl": "https://example.invalid/paint.net.5.2.install.arm64.zip", "InstallerSha256": "D" * 64,
+         "InstallerSwitches": {"Silent": "/auto"}},
+        {"Architecture": "arm64", "NestedInstallerType": "wix", "NestedInstallerFiles": [{"RelativeFilePath": "PaintDotNet.arm64.msi"}],
+         "Scope": "machine", "InstallerUrl": "https://example.invalid/paint.net.5.2.winmsi.arm64.zip", "InstallerSha256": "E" * 64}]}
+    i = wc.choose(pdn, "x64", "machine", "de-DE")
+    assert i["InstallerUrl"].endswith("winmsi.x64.zip"), i["InstallerUrl"]
+    p = wc.plan(pdn, i, "machine")
+    assert p["install_type"] == "msi" and p["nested"] == "PaintDotNet.x64.msi" and p["type"] == "zip/wix" and "ALLUSERS=1" in p["arguments"], p
+    assert "/auto" not in p["arguments"]
+    assert wc.choose(pdn, "arm64", "machine", "de-DE")["InstallerUrl"].endswith("winmsi.arm64.zip")
+    # language still beats the type: a German setup EXE before an English-only MSI
+    man = {"PackageIdentifier": "X.Y", "Installers": [
+        {"Architecture": "x64", "InstallerType": "exe", "InstallerLocale": "de-DE", "Scope": "machine", "InstallerUrl": "https://e.invalid/de.exe",
+         "InstallerSwitches": {"Silent": "/S"}},
+        {"Architecture": "x64", "InstallerType": "msi", "InstallerLocale": "en-US", "Scope": "machine", "InstallerUrl": "https://e.invalid/en.msi"}]}
+    assert wc.choose(man, "x64", "machine", "de-DE")["InstallerUrl"].endswith("de.exe")
+    # same language: the MSI, whatever the order in the manifest
+    man["Installers"][1]["InstallerLocale"] = "de-DE"
+    assert wc.choose(man, "x64", "machine", "de-DE")["InstallerUrl"].endswith("en.msi")
+    man["Installers"].reverse()
+    assert wc.choose(man, "x64", "machine", "de-DE")["InstallerUrl"].endswith("en.msi")
+
+
 def _js_calls(src, name):
     """(line, [top-level arguments]) of every .name( call in JavaScript source - strings and brackets respected."""
     import re
