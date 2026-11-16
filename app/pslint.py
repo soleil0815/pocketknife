@@ -83,7 +83,8 @@ STATS = {"checks": 0, "with_findings": 0, "words": 0, "modules": 0, "dynamic": 0
 
 def check(text):
     """[{line, kind (word|module|dynamic), what, hint}] - at most one entry per kind and thing, in text order."""
-    out, seen = [], set()
+    out: list = []
+    seen: set = set()
     lines = str(text or "").splitlines()
     for no, ln in enumerate(lines, 1):
         low = ln.lower()
@@ -107,7 +108,7 @@ def check(text):
         if out:
             STATS["with_findings"] += 1
         for f in out:
-            STATS[{"word": "words", "module": "modules", "dynamic": "dynamic"}[f["kind"]]] += 1
+            STATS[{"word": "words", "module": "modules", "dynamic": "dynamic"}[str(f["kind"])]] += 1
     return out[:50]
 
 
