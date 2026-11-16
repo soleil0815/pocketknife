@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.54.0",
+   "date": "2026-11-16",
+   "items": [
+    {
+     "kind": "new",
+     "audience": "admin",
+     "de": "Prüfmodus „PowerShell-Protokoll“ (Einstellungen → Wartung): POCKET KNIFE prüft nach jedem eigenen Aufruf das PowerShell-Protokoll des Computers und zeigt, welche Funktion einen Fehler (4100) oder eine Warnung (4104) ausgelöst hat. Dazu ein Prüflauf, der alle lesenden Funktionen einmal ausführt, und ein Bericht zum Kopieren.",
+     "en": "Check mode \"PowerShell log\" (Settings → Maintenance): after every call POCKET KNIFE checks the computer's PowerShell log and shows which function caused an error (4100) or a warning (4104). Plus a test run of every reading function and a report to copy."
+    }
+   ]
+  },
+  {
    "version": "2.53.3",
    "date": "2026-11-16",
    "items": [

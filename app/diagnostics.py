@@ -564,6 +564,7 @@ def _stats(since, an):
         "repo_edits": _repo_edits(since),
         "pslint": _pslint(),
         "crashed_programs": _crashes(),
+        "pscheck": _pscheck(),
     }
 
 
@@ -571,6 +572,13 @@ def _pslint():
     """2.52.0: hints for own PowerShell code since the start (checks, with findings, findings per kind - never code)."""
     from . import pslint
     return pslint.stats()
+
+
+def _pscheck():
+    """2.54.0: check mode "PowerShell-Protokoll" - on/off, calls and entries 4100/4104 per POCKET KNIFE function (counts
+    only; the texts are in the report the admin copies himself)."""
+    from . import pscheck
+    return pscheck.stats()
 
 
 def _crashes():
@@ -848,7 +856,9 @@ Dateien
                        Hinweise zu eigenem PowerShell-Code (Prüfungen, Funde je Art inkl.
                        Select-Object -First – nie der Code),
                        abgestürzte Programme in Schritten/Tools (Anzahl, davon „Fenster als SYSTEM“,
-                       davon mit ausstehendem Neustart)
+                       davon mit ausstehendem Neustart),
+                       Prüfmodus PowerShell-Protokoll (an/aus, Aufrufe und Einträge 4100/4104 je
+                       POCKET-KNIFE-Funktion – nur Anzahlen, keine Meldungstexte)
   leistung.json        Rechenlast und Lastspitzen, Dauer der wichtigsten Abfragen, langsamste Sammlungen, größte Felder
                        (nur Feldnamen und Größen, keine Inhalte)
   update_status.json   Update-Status: Microsoft-Abgleich, Stände je Status, Office-Installationen je Produkt/Kanal/Version

@@ -147,7 +147,19 @@ PS_TIMEOUT = 1800  # seconds: upper limit for a single WinRM call (pypsrp timeou
 
 def ps(host, script, auth=None, timeout=PS_TIMEOUT):
     """Runs PowerShell. Returns (stdout, error text, had_errors). auth: force a method (test).
-    If the client hangs (e.g. broken WMI provider), the call aborts after `timeout` seconds."""
+    If the client hangs (e.g. broken WMI provider), the call aborts after `timeout` seconds.
+    2.54.0: in the check mode "PowerShell-Protokoll" the computer's PowerShell log is looked at after the call."""
+    from . import pscheck
+    if pscheck.enabled():
+        return pscheck.wrap(host, lambda: _ps_once(host, script, auth, timeout), _probe_raw)
+    return _ps_once(host, script, auth, timeout)
+
+
+def _probe_raw(host, script):
+    return _ps_once(host, script, None, 60)[0]
+
+
+def _ps_once(host, script, auth=None, timeout=PS_TIMEOUT):
     import concurrent.futures
     _guard_check()
     try:
@@ -177,6 +189,13 @@ def ps(host, script, auth=None, timeout=PS_TIMEOUT):
 def ps_params(host, script, params, timeout=300):
     """Like ps(), but passes values as parameters instead of in the script text. This keeps passwords out of the
     client's PowerShell script block logging (event 4104)."""
+    from . import pscheck
+    if pscheck.enabled():
+        return pscheck.wrap(host, lambda: _ps_params_once(host, script, params, timeout), _probe_raw)
+    return _ps_params_once(host, script, params, timeout)
+
+
+def _ps_params_once(host, script, params, timeout=300):
     _guard_check()
     from pypsrp.powershell import PowerShell, RunspacePool
     try:

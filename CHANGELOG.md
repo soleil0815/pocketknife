@@ -2,6 +2,14 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.54.0 (16.11.2026)
+- **Check mode "PowerShell-Protokoll"** (Settings → Maintenance, main admins): when on, every call POCKET KNIFE makes on a computer is followed by a short look into that computer's PowerShell log; every entry 4100 (error) and 4104 (warning) is remembered with the POCKET KNIFE function that caused it (first frame outside the remote layer). It runs in a separate WinRM session, so the production scripts stay unchanged. Per computer the computer's own time of the last look is the start of the next window, so whatever a background task (deployment, tool as SYSTEM) logs in between is attributed to the next call, with the previous call noted. Calls to one computer are serialized while it is on. Off by default; about 2 seconds more per call
+  - **Prüflauf:** runs every reading function once on a chosen computer: scan, services, processes, BitLocker, every event log, Group Policy history and result, disk space, files, a command as the service account and as SYSTEM (cmd and PowerShell), and the shipped read-only tools. Nothing is changed on the computer
+  - **Report** to copy or show: calls and 4100/4104 per function, identical findings combined, computer names replaced by placeholders; for 4104 the flagged spots according to the editor check
+  - results kept in the data folder until reset; the diagnostic package gets counts per function only
+- **Guard in the self-test:** no new `-ErrorAction Stop` / `$ErrorActionPreference = 'Stop'` in client PowerShell without a reason (current places reviewed and frozen per file)
+- **Self-test:** the probe is clean (4104) and stops on nothing; it returns only 4100 and 4104 warnings before its own start; German and English event texts parsed; attribution incl. the previous call; errors passed on; remote.ps checked only when on; caller detection; the Prüflauf only reads; API main admins only; report with placeholders; diagnostics counts only
+
 ## pocketknife-2.53.3 (16.11.2026)
 - **No event 4100 for expected failures:** PowerShell logs every caught terminating error as event 4100. These normal cases no longer cause one (`-ErrorAction SilentlyContinue -ErrorVariable` instead of `-ErrorAction Stop` + catch); real errors are still reported:
   - event viewer and Group Policy history with a log without matching events ("No events were found") - seen on a workstation
