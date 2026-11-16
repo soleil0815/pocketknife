@@ -1377,6 +1377,38 @@ try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
 $PKDir = '__DIR__'
 $PKLog = Join-Path $PKDir 'pk_output.log'
 $global:PKExit = 0
+# 2.53.2: a program that crashed (exit code 0xC... NTSTATUS or 0xE0434352 = unhandled .NET exception, e.g. an installer
+# that wants to show a window as SYSTEM): the reason from the application log (events 1026 .NET Runtime and 1000
+# application error) since the start of the call. Read only, without exceptions (no -ErrorAction Stop: Get-WinEvent
+# throws when nothing is found, PowerShell logs that as event 4100).
+function PK-CrashInfo([datetime]$Since, $Code) {
+  $u = [int64]$Code
+  if ($u -lt 0) { $u += 4294967296 }
+  if ($u -lt 3221225472) { return }
+  $ev = @(Get-WinEvent -FilterHashtable @{ LogName = 'Application'; Id = 1026, 1000; StartTime = $Since.AddSeconds(-2) } -MaxEvents 20 -ErrorAction SilentlyContinue)
+  $seen = @{}; $n = 0
+  foreach ($x in @($ev | Sort-Object { $_.Id -ne 1026 })) {
+    $m = [string]$x.Message
+    $app = ''; $why = ''
+    if ($x.Id -eq 1026) {
+      if ($m -match '(?m)^\s*Application:\s*(\S+)') { $app = $matches[1] }
+      if ($m -match '(?m)^\s*(?:Exception Info|Ausnahmeinformationen):\s*(.+)$') { $why = $matches[1].Trim() }
+      elseif ($m -match '(?m)^\s*Description:\s*(.+)$') { $why = $matches[1].Trim() }
+    } else {
+      if ($m -match '^[^:]+:\s*([^,\r\n]+)') { $app = $matches[1].Trim() }
+      if ($m -match '(?m)^\s*(?:Ausnahmecode|Exception code):\s*(0x[0-9A-Fa-f]+)') { $why = 'Ausnahmecode ' + $matches[1] }
+    }
+    if (-not $app -or $seen.ContainsKey($app) -or $n -ge 3) { continue }
+    $seen[$app] = 1; $n++
+    if ($why.Length -gt 400) { $why = $why.Substring(0, 400) + ' …' }
+    Write-Output ('Absturz laut Ereignisprotokoll: ' + $app + ' – ' + $why)
+  }
+  # the most common reason an installer refuses (and wants to say so in a window): a pending restart
+  if ($n -and ((Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending') -or
+               (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired'))) {
+    Write-Output 'Neustart ausstehend: ja (Windows wartet auf einen Neustart)'
+  }
+}
 function PK-Run([string]$File, [string]$Arguments) {
   $global:PKOut = @()  # output of the last call - for evaluations afterwards (e.g. winget "no applicable update")
   $global:PKStdN = 0; $global:PKErrTxt = ''
@@ -1387,6 +1419,7 @@ function PK-Run([string]$File, [string]$Arguments) {
   if ($Arguments) { $sp.ArgumentList = $Arguments }
   Write-Output ('> ' + $File + ' ' + $Arguments)
   $p = $null
+  $pkT0 = Get-Date
   try { $p = Start-Process @sp -ErrorAction Stop }
   catch {
     # 2.32.2: program does not start at all (e.g. blocked by AppLocker/software restriction) - state the reason instead of an empty exit code
@@ -1408,6 +1441,7 @@ function PK-Run([string]$File, [string]$Arguments) {
   }
   $global:PKExit = $p.ExitCode
   Write-Output ('Exitcode: ' + $p.ExitCode)
+  if ($p.ExitCode -ne 0) { PK-CrashInfo $pkT0 $p.ExitCode }
 }
 # 2.32.2: Start a PowerShell script (own steps, tools, .ps1 from the repository) normally with -File first. If
 # Windows refuses exactly this file (execution policy via GPO, signature, security zone: exit code 1, no output, error
@@ -1742,6 +1776,38 @@ def wu_hint(out, run_as):
         return " – Windows Update hat den Zugriff verweigert (0x80070005)."
     return (" – Windows Update hat den Zugriff verweigert (0x80070005): Rechte des Kontos auf dem Computer prüfen oder "
             "als „Lokales System“ ausführen.")
+
+
+CRASH_PREFIX = "Absturz laut Ereignisprotokoll: "
+REBOOT_PENDING_LINE = "Neustart ausstehend: ja"
+CRASH_STATS = {"crashed": 0, "window_as_system": 0, "reboot_pending": 0}  # since the start - for the diagnostic package (counts only)
+_crash_lock = threading.Lock()
+
+
+def crash_hint(out):
+    """2.53.2: a program of the step crashed (PK-CrashInfo in the wrapper) -> short plain text for the result line."""
+    lines = [ln.strip()[len(CRASH_PREFIX):] for ln in str(out or "").splitlines() if ln.strip().startswith(CRASH_PREFIX)]
+    if not lines:
+        return ""
+    first = lines[0]
+    app, _, why = first.partition(" – ")
+    window = bool(re.search(r"UserInteractive|modal dialog|ServiceNotification", why, re.I))
+    pending = REBOOT_PENDING_LINE in str(out)
+    with _crash_lock:
+        CRASH_STATS["crashed"] += 1
+        CRASH_STATS["window_as_system"] += int(window)
+        CRASH_STATS["reboot_pending"] += int(pending)
+    if window and pending:
+        return (f" – {app} ist abgestürzt: Das Programm wollte trotz Silent-Schalter ein Fenster anzeigen, das ohne angemeldeten "
+                "Desktop (als SYSTEM oder Dienstkonto) nicht möglich ist. Auf dem Computer steht ein Neustart aus – "
+                "das ist meist der Grund: neu starten und erneut verteilen.")
+    if window:
+        return (f" – {app} ist abgestürzt: Das Programm wollte trotz Silent-Schalter ein Fenster anzeigen, das ohne angemeldeten "
+                "Desktop (als SYSTEM oder Dienstkonto) nicht möglich ist. Häufige Gründe: ausstehender Neustart, eine abweichende "
+                "vorhandene Installation, ein fehlender Schalter – die Ausgabe zeigt die Ursache aus dem Ereignisprotokoll.")
+    if pending:
+        return f" – {app} ist abgestürzt ({why[:160]}); auf dem Computer steht ein Neustart aus – neu starten und erneut verteilen."
+    return f" – {app} ist abgestürzt ({why[:160]}) – Details in der Ausgabe."
 
 
 def apply_hard(code, out):

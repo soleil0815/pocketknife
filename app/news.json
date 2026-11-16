@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.53.2",
+   "date": "2026-11-16",
+   "items": [
+    {
+     "kind": "improved",
+     "audience": "admin",
+     "de": "Stürzt ein Installer ab, steht der Grund aus dem Ereignisprotokoll des Computers jetzt direkt in der Ausgabe – z. B. dass er als SYSTEM ein Fenster anzeigen wollte – statt nur ein Exitcode wie -532462766. Steht auf dem Computer ein Neustart aus, nennt das Ergebnis das als wahrscheinlichen Grund.",
+     "en": "If an installer crashes, the reason from the computer's event log is now shown directly in the output – e.g. that it wanted to show a window as SYSTEM – instead of just an exit code like -532462766. If a restart is pending on the computer, the result names it as the likely reason."
+    }
+   ]
+  },
+  {
    "version": "2.53.1",
    "date": "2026-11-16",
    "items": [

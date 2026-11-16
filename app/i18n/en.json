@@ -6361,5 +6361,13 @@
  "das erste Element per Index nehmen: @(Befehl)[0] bzw. @(Befehl)[0..9]": "take the first element by index: @(command)[0] or @(command)[0..9]",
  "Hinweis: Windows protokolliert diesen Code als Warnung (Ereignis 4100).": "Note: Windows logs this code as a warning (event 4100).",
  "Hinweis: Windows protokolliert diesen Code als Warnung (Ereignisse 4104 und 4100).": "Note: Windows logs this code as a warning (events 4104 and 4100).",
- "bricht die Befehle davor mit einer internen Ausnahme ab – PowerShell protokolliert das als Fehler (Ereignis 4100), obwohl nichts schiefging": "stops the commands before it with an internal exception – PowerShell logs that as an error (event 4100) although nothing went wrong"
+ "bricht die Befehle davor mit einer internen Ausnahme ab – PowerShell protokolliert das als Fehler (Ereignis 4100), obwohl nichts schiefging": "stops the commands before it with an internal exception – PowerShell logs that as an error (event 4100) although nothing went wrong",
+ " – {0} ist abgestürzt ({1}) – Details in der Ausgabe.": " – {0} crashed ({1}) – details in the output.",
+ " – {0} ist abgestürzt: Das Programm wollte trotz Silent-Schalter ein Fenster anzeigen, das ohne angemeldeten Desktop (als SYSTEM oder Dienstkonto) nicht möglich ist. Häufige Gründe: ausstehender Neustart, eine abweichende vorhandene Installation, ein fehlender Schalter – die Ausgabe zeigt die Ursache aus dem Ereignisprotokoll.": " – {0} crashed: the program wanted to show a window despite its silent switch, which is not possible without a logged-on desktop (as SYSTEM or the service account). Common reasons: a pending restart, a different existing installation, a missing switch – the output shows the cause from the event log.",
+ "Absturz laut Ereignisprotokoll: ": null,
+ "UserInteractive|modal dialog|ServiceNotification": null,
+ "Fehlgeschlagen (Exitcode {0}){1}": "Failed (exit code {0}){1}",
+ " – {0} ist abgestürzt ({1}); auf dem Computer steht ein Neustart aus – neu starten und erneut verteilen.": " – {0} crashed ({1}); a restart is pending on the computer – restart and deploy again.",
+ " – {0} ist abgestürzt: Das Programm wollte trotz Silent-Schalter ein Fenster anzeigen, das ohne angemeldeten Desktop (als SYSTEM oder Dienstkonto) nicht möglich ist. Auf dem Computer steht ein Neustart aus – das ist meist der Grund: neu starten und erneut verteilen.": " – {0} crashed: the program wanted to show a window despite its silent switch, which is not possible without a logged-on desktop (as SYSTEM or the service account). A restart is pending on the computer – that is usually the reason: restart and deploy again.",
+ "Neustart ausstehend: ja": null
 }

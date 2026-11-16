@@ -2,6 +2,15 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.53.2 (16.11.2026)
+- **Crashed installer in plain text:** if a program of a step or tool ends with a crash code (`-532462766` = 0xE0434352, unhandled .NET exception, or 0xC... NTSTATUS such as an access violation), the client reads the matching application log entries since the program started (event 1026 ".NET Runtime" with the exception, 1000 "Application Error" with the faulting program and code) and writes them to the output; the result line names the crashed program. Typical case (Paint.NET setup as SYSTEM): the installer wants to show a window despite `/auto` - without a desktop .NET refuses it and the setup crashes; the result now says so, with the usual reasons (restart pending, different existing installation, missing switch)
+  - no query for normal failure codes (1603, 3010, HRESULTs below 0xC0000000); `Get-WinEvent` without `-ErrorAction Stop` (no event 4100 on an empty log)
+  - also for uninstall and tools as SYSTEM
+  - after a crash it also checks for a **pending restart** (the usual reason an installer refuses) and names it in the result: "restart and deploy again"
+- Diagnostic package: crashed programs since the start (count, of which "window as SYSTEM" and with a pending restart) - never names
+- Help: "Abgestürzter Installer"
+- **Self-test:** event texts from a real crash (German 1000, English 1026), another program with 0xC0000005, normal codes without a query, empty log without an error, plain text for the result line, uninstall and tools, diagnostics
+
 ## pocketknife-2.53.1 (16.11.2026)
 - **No more "System error." (event 4100) during scans:** `Select-Object -First` ends the commands before it with an internal exception, and Windows PowerShell 5.1 logs every such stop as error event 4100 ("System error."/"Systemfehler") although nothing failed - 6 per scan (computer details 4, memory 2), found with a per-module test on a workstation. All 26 uses in POCKET KNIFE's client scripts (scan, own scanners, deployment/winget, failure analysis of a run, file search on a client, disk space, logged-in users) now take the first elements by index (`@(...)[0]`, `@(...)[0..N]`)
   - failure analysis of a run: `Get-WinEvent` without `-ErrorAction Stop` (it throws "no events found", also logged as 4100)
