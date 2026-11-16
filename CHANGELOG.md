@@ -6,7 +6,8 @@ New entries are in English. Entries up to and including 2.38.4-s1 (November 2026
 - **Crashed installer in plain text:** if a program of a step or tool ends with a crash code (`-532462766` = 0xE0434352, unhandled .NET exception, or 0xC... NTSTATUS such as an access violation), the client reads the matching application log entries since the program started (event 1026 ".NET Runtime" with the exception, 1000 "Application Error" with the faulting program and code) and writes them to the output; the result line names the crashed program. Typical case (Paint.NET setup as SYSTEM): the installer wants to show a window despite `/auto` - without a desktop .NET refuses it and the setup crashes; the result now says so, with the usual reasons (restart pending, different existing installation, missing switch)
   - no query for normal failure codes (1603, 3010, HRESULTs below 0xC0000000); `Get-WinEvent` without `-ErrorAction Stop` (no event 4100 on an empty log)
   - also for uninstall and tools as SYSTEM
-- Diagnostic package: crashed programs since the start (count, of which "window as SYSTEM") - never names
+  - after a crash it also checks for a **pending restart** (the usual reason an installer refuses) and names it in the result: "restart and deploy again"
+- Diagnostic package: crashed programs since the start (count, of which "window as SYSTEM" and with a pending restart) - never names
 - Help: "Abgestürzter Installer"
 - **Self-test:** event texts from a real crash (German 1000, English 1026), another program with 0xC0000005, normal codes without a query, empty log without an error, plain text for the result line, uninstall and tools, diagnostics
 

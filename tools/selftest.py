@@ -8619,7 +8619,10 @@ def _():
     assert remote.crash_hint("Exitcode: 1603") == "" and remote.crash_hint(None) == ""
     from app import diagnostics
     c = diagnostics._crashes()
-    assert set(c) == {"crashed", "window_as_system"} and c["crashed"] >= 2 and c["window_as_system"] >= 1, c
+    assert remote.crash_hint(out + "\nNeustart ausstehend: ja (Windows wartet auf einen Neustart)").endswith("Auf dem Computer steht ein Neustart aus – das ist meist der Grund: neu starten und erneut verteilen.")
+    assert "neu starten und erneut verteilen" in remote.crash_hint("Absturz laut Ereignisprotokoll: x.exe – Ausnahmecode 0xc0000005\nNeustart ausstehend: ja")
+    c = diagnostics._crashes()
+    assert set(c) == {"crashed", "window_as_system", "reboot_pending"} and c["reboot_pending"] >= 2 and c["crashed"] >= 2 and c["window_as_system"] >= 1, c
     assert "abgestürzte Programme" in open(diagnostics.__file__, encoding="utf-8").read()
     src = open(steps.__file__, encoding="utf-8").read()
     assert "msg += remote.wu_hint(out, ra) + remote.crash_hint(out)" in src
@@ -8637,6 +8640,7 @@ def _():
              "Ausnahmecode: 0xe0434352\r\nFehleroffset: 0x00000000000c408a")
     m1000b = "Faulting application name: other.exe, version: 1.0\r\nException code: 0xc0000005\r\nFault offset: 0x1"
     mock = ("$global:pkCalls = 0\n"
+            "function Test-Path { param($Path) $Path -like '*RebootRequired' }\n"
             "function Get-WinEvent { [CmdletBinding()] param($FilterHashtable, $MaxEvents)\n"
             "  $global:pkCalls++; if ($global:pkEmpty) { return }\n"
             "  @{ Id = 1000; Message = $env:M1000 }, @{ Id = 1026; Message = $env:M1026 }, @{ Id = 1000; Message = $env:M1000B } | ForEach-Object { New-Object PSObject -Property $_ } }\n")
@@ -8650,7 +8654,9 @@ def _():
     assert o[0] == "A:" and o[1].startswith("Absturz laut Ereignisprotokoll: SetupFrontEnd.exe – System.InvalidOperationException: Showing a modal dialog"), (o, r.stderr)
     assert o[2] == "Absturz laut Ereignisprotokoll: other.exe – Ausnahmecode 0xc0000005", o
     # 1603/3010 and an HRESULT 0x80070005 (below 0xC0000000) query nothing; empty log: no line, no error
-    assert o[3:] == ["B:", "calls=1", "C:", "calls=2"], o
+    assert o[3] == "Neustart ausstehend: ja (Windows wartet auf einen Neustart)", o
+    # no crash entry found -> no restart line either
+    assert o[4:] == ["B:", "calls=1", "C:", "calls=2"], o
     assert not r.stderr.strip(), r.stderr
     assert remote.crash_hint("\n".join(o)).startswith(" – SetupFrontEnd.exe ist abgestürzt: Das Programm wollte")
 

@@ -1403,6 +1403,11 @@ function PK-CrashInfo([datetime]$Since, $Code) {
     if ($why.Length -gt 400) { $why = $why.Substring(0, 400) + ' …' }
     Write-Output ('Absturz laut Ereignisprotokoll: ' + $app + ' – ' + $why)
   }
+  # the most common reason an installer refuses (and wants to say so in a window): a pending restart
+  if ($n -and ((Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending') -or
+               (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired'))) {
+    Write-Output 'Neustart ausstehend: ja (Windows wartet auf einen Neustart)'
+  }
 }
 function PK-Run([string]$File, [string]$Arguments) {
   $global:PKOut = @()  # output of the last call - for evaluations afterwards (e.g. winget "no applicable update")
@@ -1774,7 +1779,8 @@ def wu_hint(out, run_as):
 
 
 CRASH_PREFIX = "Absturz laut Ereignisprotokoll: "
-CRASH_STATS = {"crashed": 0, "window_as_system": 0}  # since the start - for the diagnostic package (counts only)
+REBOOT_PENDING_LINE = "Neustart ausstehend: ja"
+CRASH_STATS = {"crashed": 0, "window_as_system": 0, "reboot_pending": 0}  # since the start - for the diagnostic package (counts only)
 _crash_lock = threading.Lock()
 
 
@@ -1786,13 +1792,21 @@ def crash_hint(out):
     first = lines[0]
     app, _, why = first.partition(" – ")
     window = bool(re.search(r"UserInteractive|modal dialog|ServiceNotification", why, re.I))
+    pending = REBOOT_PENDING_LINE in str(out)
     with _crash_lock:
         CRASH_STATS["crashed"] += 1
         CRASH_STATS["window_as_system"] += int(window)
+        CRASH_STATS["reboot_pending"] += int(pending)
+    if window and pending:
+        return (f" – {app} ist abgestürzt: Das Programm wollte trotz Silent-Schalter ein Fenster anzeigen, das ohne angemeldeten "
+                "Desktop (als SYSTEM oder Dienstkonto) nicht möglich ist. Auf dem Computer steht ein Neustart aus – "
+                "das ist meist der Grund: neu starten und erneut verteilen.")
     if window:
         return (f" – {app} ist abgestürzt: Das Programm wollte trotz Silent-Schalter ein Fenster anzeigen, das ohne angemeldeten "
                 "Desktop (als SYSTEM oder Dienstkonto) nicht möglich ist. Häufige Gründe: ausstehender Neustart, eine abweichende "
                 "vorhandene Installation, ein fehlender Schalter – die Ausgabe zeigt die Ursache aus dem Ereignisprotokoll.")
+    if pending:
+        return f" – {app} ist abgestürzt ({why[:160]}); auf dem Computer steht ein Neustart aus – neu starten und erneut verteilen."
     return f" – {app} ist abgestürzt ({why[:160]}) – Details in der Ausgabe."
 
 

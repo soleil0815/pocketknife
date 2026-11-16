@@ -847,7 +847,8 @@ Dateien
                        per Hochladen ersetzte benutzte Dateien (Anzahl, betroffene Pakete),
                        Hinweise zu eigenem PowerShell-Code (Prüfungen, Funde je Art inkl.
                        Select-Object -First – nie der Code),
-                       abgestürzte Programme in Schritten/Tools (Anzahl, davon „Fenster als SYSTEM“)
+                       abgestürzte Programme in Schritten/Tools (Anzahl, davon „Fenster als SYSTEM“,
+                       davon mit ausstehendem Neustart)
   leistung.json        Rechenlast und Lastspitzen, Dauer der wichtigsten Abfragen, langsamste Sammlungen, größte Felder
                        (nur Feldnamen und Größen, keine Inhalte)
   update_status.json   Update-Status: Microsoft-Abgleich, Stände je Status, Office-Installationen je Produkt/Kanal/Version
