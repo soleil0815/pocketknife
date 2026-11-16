@@ -1492,7 +1492,7 @@ $n = 0
 $lines = @(& quser.exe 2>$null | Select-Object -Skip 1)
 foreach ($l in $lines) {
   $tok = @($l.Trim().TrimStart('>') -split '\s+')
-  $id = $tok | Where-Object { $_ -match '^\d+$' } | Select-Object -First 1
+  $id = @($tok | Where-Object { $_ -match '^\d+$' })[0]
   if (-not $id) { continue }
   $disc = $l -match '\s(Disc|Getr|Getrennt)\s'
   if ($only -and -not $disc) { continue }

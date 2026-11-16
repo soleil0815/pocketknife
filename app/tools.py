@@ -63,7 +63,7 @@ SEED = [
      "Format-Table TimeCreated, ProviderName, Id, Message -AutoSize -Wrap", "service", 0, ""),
     ("SYSTEM", "CPU-Last (5 Sekunden)", "powershell",
      "(Get-Counter '\\Processor(_Total)\\% Processor Time' -SampleInterval 1 -MaxSamples 5).CounterSamples | Format-Table Timestamp, @{n='CPU %';e={[int]($_.CookedValue * 10) / 10}}\r\n"
-     "Get-Process | Sort-Object CPU -Descending | Select-Object -First 10 Name, Id, CPU, @{n='RAM MB';e={[int]($_.WorkingSet64/1MB)}} | Format-Table -AutoSize",
+     "@(Get-Process | Sort-Object CPU -Descending)[0..9] | Format-Table Name, Id, CPU, @{n='RAM MB';e={[int]($_.WorkingSet64/1MB)}} -AutoSize",
      "service", 0, ""),
     ("SYSTEM", "Datenträger prüfen (nur lesen)", "cmd", "chkdsk C: /scan", "service", 0, "Online-Prüfung ohne Reparatur."),
     ("SYSTEM", "Systemdateien prüfen (SFC)", "cmd", "sfc /scannow", "system", 1, "Dauert mehrere Minuten."),
@@ -246,6 +246,11 @@ QUIET_TOOLS = {
     ("powershell", "Get-NetTCPConnection -State Established | Sort-Object RemoteAddress | Format-Table LocalPort, RemoteAddress, RemotePort, OwningProcess -AutoSize"):
         ("powershell", "Get-CimInstance -Namespace root/StandardCimv2 -ClassName MSFT_NetTCPConnection -Filter 'State = 5' | Sort-Object RemoteAddress | "
                        "Format-Table LocalPort, RemoteAddress, RemotePort, OwningProcess -AutoSize"),
+    # 2.53.1: "Select-Object -First" stops the pipeline with an exception that PowerShell logs as event 4100
+    ("powershell", "(Get-Counter '\\Processor(_Total)\\% Processor Time' -SampleInterval 1 -MaxSamples 5).CounterSamples | Format-Table Timestamp, @{n='CPU %';e={[int]($_.CookedValue * 10) / 10}}\r\n"
+                   "Get-Process | Sort-Object CPU -Descending | Select-Object -First 10 Name, Id, CPU, @{n='RAM MB';e={[int]($_.WorkingSet64/1MB)}} | Format-Table -AutoSize"):
+        ("powershell", "(Get-Counter '\\Processor(_Total)\\% Processor Time' -SampleInterval 1 -MaxSamples 5).CounterSamples | Format-Table Timestamp, @{n='CPU %';e={[int]($_.CookedValue * 10) / 10}}\r\n"
+                       "@(Get-Process | Sort-Object CPU -Descending)[0..9] | Format-Table Name, Id, CPU, @{n='RAM MB';e={[int]($_.WorkingSet64/1MB)}} -AutoSize"),
 }
 
 

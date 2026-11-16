@@ -136,11 +136,15 @@ _search_busy = {"users": set(), "cids": set()}  # at most one search per user an
 SEARCH_PS = r"""$ErrorActionPreference = 'Stop'
 $start = __START__; $flt = __FLT__; $pat = __PAT__; $limit = __LIMIT__
 if (-not (Test-Path -LiteralPath $start -PathType Container)) { 'PKJSON:{"error":"notfound"}'; return }
-try { $null = @(Get-ChildItem -LiteralPath $start -Force -ErrorAction Stop | Select-Object -First 1) }
-catch { 'PKJSON:' + (ConvertTo-Json -Compress -InputObject @{ error = 'denied'; message = ('' + $_.Exception.Message) }); return }
+# 2.53.1: readable? - opening the folder with a name that matches nothing is enough; no exception (PowerShell logs
+# caught exceptions as event 4100) and no "Select-Object -First" (stops the pipeline with one)
+$pkDen = $null
+$null = Get-ChildItem -LiteralPath $start -Force -Filter 'pk-nichts-?-*.none' -ErrorAction SilentlyContinue -ErrorVariable pkDen
+if ($pkDen) { 'PKJSON:' + (ConvertTo-Json -Compress -InputObject @{ error = 'denied'; message = ('' + @($pkDen)[0].Exception.Message) }); return }
 $ev = $null
 $found = @(Get-ChildItem -LiteralPath $start -Filter $flt -Recurse -Force __FOLLOW__-ErrorAction SilentlyContinue -ErrorVariable ev |
-  Where-Object { $_.Name -like $pat } | Select-Object -First ($limit * 2))
+  Where-Object { $_.Name -like $pat })
+if ($found.Count -gt $limit * 2) { $found = $found[0..($limit * 2 - 1)] }
 $lc = @{}
 function PK-IsLink([string]$p) {
   if (-not $lc.ContainsKey($p)) {

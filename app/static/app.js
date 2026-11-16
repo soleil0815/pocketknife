@@ -8465,7 +8465,8 @@ function psLintBox(area, isPs = () => true) {
   const box = h('div.pslint');
   let timer = null; let seq = 0;
   const KIND = { word: 'steht auf der Verdachtsliste von PowerShell (zählt auch in Kommentaren und als Teil eines Worts)',
-    dynamic: 'Eigenschaft über eine Variable – PowerShell wertet das als Verschleierung' };
+    dynamic: 'Eigenschaft über eine Variable – PowerShell wertet das als Verschleierung',
+    stop: 'bricht die Befehle davor mit einer internen Ausnahme ab – PowerShell protokolliert das als Fehler (Ereignis 4100), obwohl nichts schiefging' };
   const run = async () => {
     const my = ++seq;
     if (!isPs() || !area.value.trim()) { box.replaceChildren(); return; }
@@ -8475,7 +8476,9 @@ function psLintBox(area, isPs = () => true) {
     const f = r.findings || [];
     if (!f.length) { box.replaceChildren(); return; }
     box.replaceChildren(h('div.alert.warn', { style: { margin: '6px 0' } },
-      h('b', tr('Hinweis: Windows protokolliert diesen Code als Warnung (Ereignis 4104).')), ' ',
+      h('b', f.every((x) => x.kind === 'stop') ? tr('Hinweis: Windows protokolliert diesen Code als Warnung (Ereignis 4100).')
+        : f.some((x) => x.kind === 'stop') ? tr('Hinweis: Windows protokolliert diesen Code als Warnung (Ereignisse 4104 und 4100).')
+          : tr('Hinweis: Windows protokolliert diesen Code als Warnung (Ereignis 4104).')), ' ',
       h('span.small', tr('Überwachungssoftware kann darauf anschlagen – der Code läuft trotzdem.')),
       h('ul', { style: { margin: '6px 0 0', paddingLeft: '18px' } }, f.map((x) => h('li.small',
         fmtT('Zeile {0}', x.line), ': ', h('code.raw', x.what), ' – ',

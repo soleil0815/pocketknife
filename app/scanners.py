@@ -70,7 +70,7 @@ if ($pkPath.Contains('**')) {{
 }} else {{
   $pkItems = Get-ChildItem -Path $pkPath {recurse} -Force -ErrorAction SilentlyContinue
 }}
-$pkItems | Select-Object -First {MAX_ROWS} | ForEach-Object {{
+@($pkItems)[0..({MAX_ROWS} - 1)] | ForEach-Object {{
   [ordered]@{{ path = $_.FullName; type = $(if ($_.PSIsContainer) {{ 'Ordner' }} else {{ 'Datei' }}); size = $(if ($_.PSIsContainer) {{ $null }} else {{ [int64]$_.Length }})
     modified = (D $_.LastWriteTime); created = (D $_.CreationTime)
     version = $(if (-not $_.PSIsContainer -and $_.VersionInfo) {{ $_.VersionInfo.FileVersion }} else {{ $null }})
@@ -79,7 +79,7 @@ $pkItems | Select-Object -First {MAX_ROWS} | ForEach-Object {{
     if t == "wmi":
         ns = extra.get("namespace") or "root\\cimv2"
         return f"""
-Get-CimInstance -Namespace {util.psq(ns)} -Query {util.psq(target)} -ErrorAction Stop | Select-Object -First {MAX_ROWS} | ForEach-Object {{ PKO $_ }}"""
+@(Get-CimInstance -Namespace {util.psq(ns)} -Query {util.psq(target)} -ErrorAction Stop)[0..({MAX_ROWS} - 1)] | ForEach-Object {{ PKO $_ }}"""
     # powershell: robustly convert the output into table rows - objects, hashtables, text, Write-Host,
     # Format-Table/-List (taken over as text) and error messages
     # Custom code is passed as Base64 and only compiled at run time: a syntax error (e.g. a
@@ -93,7 +93,7 @@ $pkOut = @(try {{ Invoke-Expression $pkCode 2>&1 3>&1 6>&1 }} catch {{ $_ }})
 if ($pkOut | Where-Object {{ $_ -ne $null -and (@($_.PSObject.TypeNames) -like 'Microsoft.PowerShell.Commands.Internal.Format.*') }}) {{
   $pkOut = @(($pkOut | Out-String -Width 400) -split "`r?`n" | Where-Object {{ $_.Trim() }})
 }}
-$pkOut | Where-Object {{ $_ -ne $null }} | Select-Object -First {MAX_ROWS} | ForEach-Object {{
+@($pkOut | Where-Object {{ $_ -ne $null }})[0..({MAX_ROWS} - 1)] | ForEach-Object {{
   $o = $_
   if (@($o.PSObject.TypeNames) -contains 'System.Management.Automation.InformationRecord') {{ [ordered]@{{ value = "$($o.MessageData)" }} }}
   elseif (@($o.PSObject.TypeNames) -contains 'System.Management.Automation.ErrorRecord') {{ [ordered]@{{ fehler = "$($o.Exception.Message)" }} }}
@@ -101,7 +101,7 @@ $pkOut | Where-Object {{ $_ -ne $null }} | Select-Object -First {MAX_ROWS} | For
   elseif ($o -is [datetime]) {{ [ordered]@{{ value = $o.ToString('yyyy-MM-dd HH:mm:ss') }} }}
   elseif ($o -is [string] -or $o -is [int] -or $o -is [long] -or $o -is [double] -or $o -is [decimal] -or $o -is [bool] -or $o -is [char] -or $o -is [guid]) {{ [ordered]@{{ value = "$o" }} }}
   elseif ($o -is [hashtable] -or @($o.PSObject.TypeNames) -contains 'System.Collections.Specialized.OrderedDictionary') {{
-    $h = [ordered]@{{}}; foreach ($k in @($o.Keys) | Select-Object -First 40) {{ $v = $o[$k]
+    $h = [ordered]@{{}}; foreach ($k in @(@($o.Keys)[0..39])) {{ $v = $o[$k]
       if ($v -is [datetime]) {{ $v = $v.ToString('yyyy-MM-dd HH:mm:ss') }} elseif ($v -is [array]) {{ $v = ($v | ForEach-Object {{ "$_" }}) -join ', ' }} elseif ($null -ne $v) {{ $v = "$v" }}
       $h["$k"] = $v }}
     $h

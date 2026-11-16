@@ -220,7 +220,7 @@ def _run(jid, cid, path, depth, user):
 def _fixed_script(depth):
     return f"""$ErrorActionPreference = 'Stop'
 {CLIENT}
-foreach ($d in @(Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3' | Select-Object -First {MAX_DRIVES})) {{
+foreach ($d in @(@(Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3')[0..({MAX_DRIVES} - 1)])) {{
   try {{
     $r = PK-Du ($d.DeviceID + '\\') {int(depth)}
     $r.drive = @{{ total = $d.Size; free = $d.FreeSpace; label = $d.VolumeName; fs = $d.FileSystem }}
