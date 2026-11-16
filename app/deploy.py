@@ -125,7 +125,9 @@ function PK-WingetProxy {
   # Marker in HKLM (administrators/SYSTEM only) - not in %ProgramData%, where users may pre-create folders (Audit 2.29)
   $mark = 'HKLM:\SOFTWARE\PocketKnife'
   $old = $null
-  try { $old = ('' + (Get-ItemProperty -LiteralPath $mark -Name WingetProxy -ErrorAction Stop).WingetProxy).Trim() } catch {}
+  # 2.53.0: without -ErrorAction Stop (a caught terminating error is still logged as event 4100)
+  $pv = Get-ItemProperty -LiteralPath $mark -Name WingetProxy -ErrorAction SilentlyContinue
+  if ($pv -and $null -ne $pv.WingetProxy) { $old = ('' + $pv.WingetProxy).Trim() }
   if ($null -eq $old) {
     # up to 2.28 the marker was a file - adopt it once (read only)
     $old = ''

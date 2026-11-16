@@ -2,6 +2,21 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.53.0 (16.11.2026)
+- **Disk space analysis without warnings** (tool "Speicherplatz analysieren" and the scanner "Speicherplatz"): instead of a compiled C# helper (Add-Type - PowerShell logs every such script as a warning, event 4104) the client lists the folder with `robocopy /L` (listing only, nothing is copied; `/XJ` never through junctions/links; UTF-16 log, so any file name works) and sums up per folder in PowerShell; the server builds and prunes the tree as before (at most 40 entries per folder, nothing below 0.1 %, deeper levels as a sum). Same view and stored format
+  - also works in **Constrained Language Mode** now (software restriction, AppLocker, App Control) - before "needs full PowerShell"
+  - drive data from `Win32_LogicalDisk` instead of .NET
+  - slower on very large drives (one to a few minutes instead of seconds) - fine for the tool and the 30-day schedule
+- **Fewer 4100 warnings** ("Error Message = …" in the PowerShell log): PowerShell writes every *terminating* error as a warning, even when the script catches it. Expected failures now run without one:
+  - tool start: `Set-ExecutionPolicy -Scope Process` only if no group policy sets the execution policy
+  - "Anwendungen" scan: MSIX packages whose folder is missing (e.g. Notepad on a server) are checked without `-ErrorAction Stop`
+  - Secure Boot from the registry (`SecureBoot\State`) instead of `Confirm-SecureBootUEFI`, which throws on BIOS systems
+  - winget step: the proxy marker is read without a terminating error when it does not exist yet
+  - notification: the result value is read with Get-ItemProperty (the value-only cmdlet throws for a missing value despite SilentlyContinue)
+  - the many "Systemfehler/System error" 4100 entries without a command seen on the test server came from processes that read the event log (Get-WinEvent: the check scripts and WhatsOnMyNet) - still to be confirmed after this version
+- Help: disk space analysis and Constrained Language Mode updated
+- **Self-test:** client script in Constrained Language with a robocopy stand-in (sums, deeper levels, unreadable folder, umlauts, log removed), tree and pruning on the server, the disk space scripts pass PowerShell's own check; tool start with and without group policy
+
 ## pocketknife-2.52.0 (16.11.2026)
 - **New - hints for own PowerShell code:** PowerShell steps in packages, tools, "Befehl ausführen", own scanners (type PowerShell) and `.ps1`/`.psm1`/`.psd1` files in the repository editor show a hint while typing if Windows would log the code as a **warning** (script block logging, event 4104) - monitoring software can raise alerts on that. Only a hint, nothing is blocked:
   - **cmdlets of generated Windows modules** (task scheduler, firewall, network, DNS client, disks, SMB shares, printers, BitLocker, Defender) with the alternative (`schtasks /XML`, `netsh advfirewall`, `net share`, `manage-bde`, `MpCmdRun`, `printui`, CIM classes)

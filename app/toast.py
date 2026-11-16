@@ -95,7 +95,7 @@ if (-not $d.compat) {
   $cls = 'HKCU:\Software\Classes\AppUserModelId\'
   $off = $false
   foreach ($o in @(Get-ChildItem -Path $ns -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -like ($d.base + '*') -and $_.PSChildName -ne $d.appid })) {
-    try { if ((Get-ItemProperty -Path $o.PSPath -ErrorAction Stop).Enabled -eq 0) { $off = $true } } catch {}
+    $pvE = Get-ItemProperty -Path $o.PSPath -ErrorAction SilentlyContinue; if ($pvE -and $pvE.Enabled -eq 0) { $off = $true }
     # Remove the old sender's setting after adopting it - otherwise an old "off" takes effect on every name change
     Remove-Item -Path $o.PSPath -Recurse -Force -ErrorAction SilentlyContinue
   }
@@ -226,8 +226,10 @@ try {
     if (-not $sids[$k]) { return $null }
     $rk = 'Registry::HKEY_USERS\' + $sids[$k] + '\Software\PocketKnife\Toast'
     $nm = 'PK' + $id + '_' + $k
-    $v = Get-ItemPropertyValue -Path $rk -Name $nm -ErrorAction SilentlyContinue
-    if ($null -ne $v) { return [int]$v }
+    # 2.53.0: Get-ItemProperty - the cmdlet that returns only the value throws for a missing value despite SilentlyContinue
+    # (logged as event 4100); the value through Select-Object (name from a variable, see pslint)
+    $v = Get-ItemProperty -Path $rk -Name $nm -ErrorAction SilentlyContinue
+    if ($v) { $x = $v | Select-Object -ExpandProperty $nm -ErrorAction SilentlyContinue; if ($null -ne $x) { return [int]$x } }
     return $null
   }
   $deadline = (Get-Date).AddSeconds(25)

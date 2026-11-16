@@ -6352,5 +6352,10 @@
  "Zeile {0}": "Line {0}",
  "lädt das Windows-Modul „{0}“": "loads the Windows module \"{0}\"",
  "steht auf der Verdachtsliste von PowerShell (zählt auch in Kommentaren und als Teil eines Worts)": "is on PowerShell's list of suspicious content (counts in comments and as part of a word too)",
- "Überwachungssoftware kann darauf anschlagen – der Code läuft trotzdem.": "Monitoring software may raise an alert – the code runs anyway."
+ "Überwachungssoftware kann darauf anschlagen – der Code läuft trotzdem.": "Monitoring software may raise an alert – the code runs anyway.",
+ "({0} weitere Datei)": "({0} more file)",
+ "({0} weitere Dateien)": "({0} more files)",
+ "({0} weitere Ordner)": "({0} more folders)",
+ "({0} weiterer Ordner)": "({0} more folder)",
+ "PKDU:": null
 }
