@@ -2,6 +2,24 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.55.0",
+   "date": "2026-11-16",
+   "items": [
+    {
+     "kind": "fixed",
+     "audience": "admin",
+     "de": "winget-Cache: POCKET KNIFE wählt jetzt genau den Installer, den auch winget nimmt – z. B. bei Paint.NET das MSI statt des Setup-EXE, das als SYSTEM abgestürzt ist.",
+     "en": "winget cache: POCKET KNIFE now picks exactly the installer winget takes – e.g. for Paint.NET the MSI instead of the setup EXE that crashed as SYSTEM."
+    },
+    {
+     "kind": "improved",
+     "audience": "admin",
+     "de": "Der winget-Cache legt die Dateien wie „winget download“ ab: die Originaldatei des Herstellers mit winget-Namen und das Manifest als YAML daneben; ZIP-Dateien zusätzlich entpackt im Unterordner „installer“. Bestehende Einträge stellen sich beim nächsten Abgleich um.",
+     "en": "The winget cache stores files like \"winget download\": the vendor's original file with winget's name and the manifest as YAML next to it; ZIP files also extracted in the subfolder \"installer\". Existing entries switch on their next check."
+    }
+   ]
+  },
+  {
    "version": "2.54.2",
    "date": "2026-11-16",
    "items": [

@@ -294,18 +294,10 @@ def _unzip_to(tmp, members, part):
                     dst.write(b)
 
 
-def _put(tmp, folder, file, p, max_bytes):
-    """Put the downloaded file into the cache folder: single installer (renamed via ".pk-part") or extracted ZIP."""
-    if p.get("nested"):
-        files = _put_zip(tmp, folder, max_bytes)
-        real = {f.lower(): f for f in files}.get(file.lower())
-        if not real:
-            remote.repo_delete(folder)
-            remote.repo_cache_apply("remove", folder)
-            raise CacheError(f"Die im Manifest genannte Datei „{file}“ ist nicht im ZIP.")
-        return real  # spelling as in the ZIP (the repository in the container is case-sensitive)
+def _put_file(tmp, folder, name):
+    """The downloaded file unchanged into the cache folder (via ".pk-part" - never visible half-finished)."""
     remote.repo_mkdir(folder)
-    target = f"{folder}\\{file}"
+    target = f"{folder}\\{name}"
     part = f"{target}.pk-part"
     remote.repo_delete(part)
     with open(tmp, "rb") as src, remote.repo_open_write(part, "wb") as dst:
@@ -317,7 +309,74 @@ def _put(tmp, folder, file, p, max_bytes):
     remote.repo_delete(target)
     remote.repo_rename(part, target)
     remote.repo_cache_apply("add", target, size=os.path.getsize(tmp))
-    return file
+    return name
+
+
+def _put_zip_into(tmp, inst_dir, nested, max_bytes):
+    """Extract the ZIP into the folder "installer" and check that the installer named in the manifest is in it.
+    Returns its path as spelled in the ZIP (the repository in the container is case-sensitive)."""
+    files = _put_zip(tmp, inst_dir, max_bytes)
+    real = {f.lower(): f for f in files}.get(nested.lower())
+    if not real:
+        remote.repo_delete(inst_dir)
+        remote.repo_cache_apply("remove", inst_dir)
+        raise CacheError(f"Die im Manifest genannte Datei „{nested}“ ist nicht im ZIP.")
+    return real
+
+
+def _repo_to_tmp(rel):
+    """A file of the repository as a local temporary file (to extract an already stored ZIP again)."""
+    fd, tmp = tempfile.mkstemp(dir=config.WINGET_DIR, prefix=TMP_PREFIX, suffix=".part")
+    os.close(fd)
+    try:
+        with remote.repo_open_rel(rel) as src, open(tmp, "wb") as dst:
+            while True:
+                b = src.read(1024 * 1024)
+                if not b:
+                    break
+                dst.write(b)
+    except Exception as ex:
+        os.remove(tmp)
+        raise CacheError(f"Datei im Cache nicht lesbar: {ex}")
+    return tmp
+
+
+def _put_text(rel, text):
+    """Small text file (the manifest YAML) - only written when the content changed."""
+    data = text.encode("utf-8")
+    try:
+        if remote.repo_stat(rel) == "file":
+            with remote.repo_open_rel(rel) as f:
+                if f.read(len(data) + 1) == data:
+                    return
+    except Exception:
+        pass
+    part = rel + ".pk-part"
+    remote.repo_delete(part)
+    with remote.repo_open_write(part, "wb") as dst:
+        dst.write(data)
+    remote.repo_delete(rel)
+    remote.repo_rename(part, rel)
+    remote.repo_cache_apply("add", rel, size=len(data))
+
+
+def _tidy(folder, keep, own_pid):
+    """Files of the layout before 2.55.0 in the version folder (extracted ZIP content, installer under its old name):
+    delete once nothing uses the folder any more. Returns what is left."""
+    left: list = []
+    items = [it for it in _list_dir(folder) if str(it["name"]).lower() not in keep and not str(it["name"]).endswith(".pk-part")]
+    if not items:
+        return left
+    if _users(folder, own_pid):
+        return [it["name"] for it in items]
+    for it in items:
+        rel = f"{folder}\\{it['name']}"
+        try:
+            remote.repo_delete(rel)
+            remote.repo_cache_apply("remove", rel)
+        except Exception:
+            left.append(it["name"])
+    return left
 
 
 def index_entry(wid):
@@ -415,27 +474,134 @@ def choose(man, arch="x64", scope="machine", locale=None):
         plat = [str(x) for x in (i.get("Platform") or [])]
         if plat and "Windows.Desktop" not in plat:
             continue
-        if a == arch:
-            ra = 0
-        elif a == "neutral":
-            ra = 1
-        elif arch == "x64" and a == "x86":
-            ra = 2
-        else:
+        order = ARCH_ORDER.get(arch, (arch, "neutral"))
+        if a not in order:
             continue
         sc = str(i.get("Scope") or "").lower()
         if sc and sc != scope:
             continue
         if str(i.get("ElevationRequirement") or "") == "elevationProhibited":
             continue  # must not run with administrator rights – unsuitable as SYSTEM
-        il = str(i.get("InstallerLocale") or "").lower()
-        rl = 0 if il == locale else 1 if il and il.split("-")[0] == locale.split("-")[0] else 2 if not il else 3 if il == "en-us" else 4
-        cand.append((ra, rl, 0 if sc else 1, i))
+        cand.append(i)
     if not cand:
         what = ", ".join(t for t in found_types if t) or "unbekannt"
         raise CacheError(f"Kein passender Installer ({ARCHS.get(arch, arch)}, für alle Benutzer, Typ MSI/EXE). Im Manifest: {what}.")
-    cand.sort(key=lambda x: x[:3])
-    return cand[0][3]
+    # 2.55.0: the same installer as winget - its selection rebuilt (winget-cli ManifestComparator::GetPreferredInstaller):
+    # go through the fitting installers in manifest order, a later one replaces the best so far only if it is better.
+    # Before: no installer type order - Paint.NET's setup EXE (listed first) instead of the MSI winget takes
+    best = cand[0]
+    for i in cand[1:]:
+        if _wg_better(i, best, [locale], ARCH_ORDER.get(arch, (arch, "neutral"))):
+            best = i
+    return best
+
+
+# Architectures a computer can run, best first (winget: own architecture, x86 under x64 emulation, neutral)
+# (ARM64: winget also takes x64/x86 there if the emulation allows it - the cache stays with ARM64 and neutral, it cannot
+# check the emulation of every computer)
+ARCH_ORDER = {"x64": ("x64", "x86", "neutral"), "x86": ("x86", "neutral"), "arm64": ("arm64", "neutral"), "arm": ("arm", "neutral")}
+
+
+def _lang_score(pref, loc):
+    """winget's distance of two languages (Windows BCP-47): 1 equal, close to 1 same language, 0 other or unknown."""
+    pref, loc = str(pref or "").lower(), str(loc or "").lower()
+    if not loc or not pref:
+        return 0.0
+    if pref == loc:
+        return 1.0
+    return 0.95 if pref.split("-")[0] == loc.split("-")[0] else 0.0
+
+
+def _wg_better(first, second, prefs, arch_order):
+    """winget's IsFirstBetter: comparators language, architecture, installer type; the first strong result decides,
+    otherwise the first weak one (scope only filters here - "for all users" is a requirement, no preference)."""
+    def loc(a, b):
+        la, lb = a.get("InstallerLocale"), b.get("InstallerLocale")
+        for pr in prefs:
+            fa, fb = _lang_score(pr, la), _lang_score(pr, lb)
+            if fa >= 0.9 or fb >= 0.9:
+                return "S" if fa > fb else ""
+        return "W" if not la and lb else ""
+
+    def arc(a, b):
+        def prio(x):
+            x = str(x.get("Architecture") or "").lower()
+            return len(arch_order) - arch_order.index(x) if x in arch_order else 0
+        if prio(a) > prio(b):
+            return "S" if str(a.get("Architecture") or "").lower() == arch_order[0] else "W"
+        return ""
+
+    def typ(a, b):
+        ta = {effective_type(a), str(a.get("InstallerType") or "").lower()}
+        tb = {effective_type(b), str(b.get("InstallerType") or "").lower()}
+        for t in TYPE_ORDER:
+            if t in ta and t in tb:
+                return ""
+            if (t in ta) != (t in tb):
+                return "W" if t in ta else ""
+        return ""
+
+    weak = None
+    for cmp in (loc, arc, typ):
+        f, r = cmp(first, second), cmp(second, first)
+        if f == "S":
+            return True
+        if r == "S":
+            return False
+        if weak is None and (f == "W" or r == "W"):
+            weak = f == "W"
+    return bool(weak)
+
+
+# winget's default precedence of installer types (no user setting): Store, MSIX, MSI, WiX, Burn, Nullsoft, Inno, EXE, Portable
+TYPE_ORDER = ("msstore", "msix", "msi", "wix", "burn", "nullsoft", "inno", "exe", "portable")
+
+
+def effective_type(inst):
+    """Installer type as winget sees it: for a ZIP the type of the installer inside."""
+    typ = str(inst.get("InstallerType") or "").lower()
+    return str(inst.get("NestedInstallerType") or "").lower() if typ == "zip" else typ
+
+
+def type_rank(inst):
+    t = effective_type(inst)
+    return TYPE_ORDER.index(t) if t in TYPE_ORDER else len(TYPE_ORDER)
+
+
+ARCH_NAMES = {"x86": "X86", "x64": "X64", "arm": "Arm", "arm64": "Arm64", "neutral": "Neutral"}
+
+
+def download_name(man, inst, ext=None):
+    """File name like "winget download": {name}_{version}_{scope}_{architecture}_{installer type}_{language}{.ext}
+    (winget-cli DownloadFlow) - e.g. "paint.net_5.2_Machine_X64_wix_en-US.zip"."""
+    parts = [str(man.get("PackageName") or man.get("PackageIdentifier") or "installer")]
+    if str(man.get("PackageVersion") or ""):
+        parts.append(str(man["PackageVersion"]))
+    sc = str(inst.get("Scope") or "").lower()
+    if sc in ("machine", "user"):
+        parts.append(sc.capitalize())
+    a = str(inst.get("Architecture") or "").lower()
+    parts += [ARCH_NAMES.get(a, a or "Neutral"), effective_type(inst) or "unknown"]
+    loc = str(inst.get("InstallerLocale") or man.get("PackageLocale") or "")
+    if loc:
+        parts.append(loc)
+    if ext is None:
+        base = str(inst.get("InstallerType") or "").lower()
+        ext = ".zip" if base == "zip" else ".msi" if base in ("msi", "wix") else ".msix" if base in ("msix", "appx") else ".exe"
+    name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", "_".join(parts)).strip(" .")
+    return name[:180] + ext
+
+
+def manifest_yaml(man, inst):
+    """The manifest like "winget download" writes it next to the installer: everything of the package, only the chosen
+    installer (with the values inherited from the top level)."""
+    import yaml
+    d = {k: v for k, v in man.items() if k != "Installers"}
+    d["Installers"] = [inst]
+    d = json.loads(json.dumps(d, default=str))  # dates and other special values as text
+    head = ("# Manifest wie bei „winget download“ – nur der gewählte Installer. Erzeugt vom winget-Cache von POCKET KNIFE;\n"
+            "# die Datei daneben ist unverändert die vom Hersteller (Prüfsumme siehe InstallerSha256).\n")
+    return head + yaml.safe_dump(d, sort_keys=False, allow_unicode=True, default_flow_style=False, width=200)
 
 
 def plan(man, inst, scope="machine"):
@@ -490,15 +656,6 @@ def plan(man, inst, scope="machine"):
             "detect_name": detect[:200], "detect_version": dver[:50], "product_code": pc[:60] if pc.startswith("{") else "",
             "min_os": str(inst.get("MinimumOSVersion") or "").strip(), "type": f"zip/{typ}" if nested else typ,
             "hints": hints, "nested": nested}
-
-
-def _file_name(url, wid, version, it):
-    ext = ".msi" if it == "msi" else ".exe"
-    base = urllib.parse.unquote(urllib.parse.urlsplit(url).path.rsplit("/", 1)[-1])
-    base = re.sub(r"[^A-Za-z0-9._+-]+", "_", base).strip("._")[:120]
-    if not base.lower().endswith(ext):
-        base = re.sub(r"[^A-Za-z0-9._+-]+", "_", f"{wid}_{version}")[:120] + ext
-    return base
 
 
 def _safe_dir(s):
@@ -755,32 +912,36 @@ def refresh_entry(eid, force=False, user=None):
             msg = []
             size, sig = e["size"], e["remote_sig"]
 
-            def names(sha_, ver_):
-                # Folder per version AND checksum: if the catalog/vendor swaps the file for the same version, a new folder is created
-                # – the confirmed state of the old file (integrity check) stays consistent
-                folder_ = f"{base}\\{_safe_dir(ver_)}_{sha_[:8]}"
-                if p["nested"]:
-                    return folder_, p["nested"]
-                return folder_, _file_name(url, e["winget_id"], ver_, p["install_type"])
+            # 2.55.0: stored like "winget download": the file from the vendor unchanged (name as winget download gives
+            # it, checksum = InstallerSha256 of the manifest) and the manifest YAML next to it. A ZIP is additionally
+            # extracted into the subfolder "installer" - that is what goes to the computers (unpacking on the computer
+            # with PowerShell's own Expand-Archive would load code PowerShell logs as a warning, tar.exe is missing on
+            # older Windows). Before: only the extracted installer, under a name of its own
+            orig = download_name(man, inst)
+            yml = orig.rsplit(".", 1)[0] + ".yaml"
 
-            if ign:
-                # Do not require the catalog checksum (URL without a version, e.g. Google Chrome): only download if the
-                # file at the URL has changed; remember the checksum of the downloaded file, version from the MSI
-                sig = _head_sig(url)
-                keep = (not force and sig and sig == e["remote_sig"] and e["folder"] and e["file"] and e["sha256"]
-                        and remote.repo_stat(f"{e['folder']}\\{e['file']}") == "file")
-                if keep:
-                    sha, ver = e["sha256"], e["version"] or ver
-                    folder, file = e["folder"], e["file"]
-                    exists = True
-                    p["detect_version"] = e["detect_version"] or p["detect_version"]
-                else:
-                    tmp, size, sha = _download(url, None, mx, verify=False)
-                    try:
+            def get_new():
+                """Download (with or without the catalog checksum) -> (tmp, size, sha)."""
+                if ign:
+                    return _download(url, None, mx, verify=False)
+                return _download(url, msha, mx)
+
+            tmp = None
+            try:
+                if ign:
+                    # Without the catalog checksum (URL without a version, e.g. Google Chrome): only download if the
+                    # file at the URL has changed; remember the checksum of the downloaded file
+                    sig = _head_sig(url)
+                    keep = (not force and sig and sig == e["remote_sig"] and e["folder"] and e["sha256"]
+                            and remote.repo_stat(f"{e['folder']}\\{orig}") == "file")
+                    if keep:
+                        sha, ver = e["sha256"], e["version"] or ver
+                        p["detect_version"] = e["detect_version"] or p["detect_version"]
+                    else:
+                        tmp, size, sha = get_new()
                         if p["install_type"] == "msi" and not p["nested"]:
                             # Product code from the downloaded file (the one in the manifest belongs to an older one). The version
                             # stays the catalog one: the MSI ProductVersion differs from the display version for some vendors
-                            # – detection and "is newer" compare using the display version
                             try:
                                 from . import msi
                                 with open(tmp, "rb") as fh:
@@ -792,34 +953,66 @@ def refresh_entry(eid, force=False, user=None):
                                     msg.append(f"MSI-Version der Datei: {str(info['version'])[:40]}")
                             except Exception:
                                 pass
-                        folder, file = names(sha, ver)
-                        exists = remote.repo_stat(f"{folder}\\{file}") == "file"
-                        if not exists:
-                            file = _put(tmp, folder, file, p, mx)
-                    finally:
-                        os.remove(tmp)
                     msg.append("ohne Prüfsumme des Katalogs (Datei vom Hersteller per HTTPS)")
-            else:
-                sha = msha
-                folder, file = names(sha, ver)
-                target = f"{folder}\\{file}"
+                else:
+                    sha = msha
+                # Folder per version AND checksum: if the catalog/vendor swaps the file for the same version, a new folder
+                # is created - the confirmed state of the old file (integrity check) stays consistent
+                folder = f"{base}\\{_safe_dir(ver)}_{sha[:8]}"
+                target = f"{folder}\\{orig}"
                 exists = remote.repo_stat(target) == "file"
-                if not exists or force:
-                    tmp, size, _got = _download(url, sha, mx)
+                own_pid = e["package_id"]
+                if exists and force and tmp is None:
+                    # "Neu laden": compare the stored file with the catalog, replace it if it is damaged
+                    tmp, size, _got = get_new()
+                    same = False
                     try:
+                        same = (remote.repo_sha256(target) or "").lower() == sha
+                    except Exception:
                         same = False
-                        if exists and not p["nested"]:
-                            try:
-                                same = (remote.repo_sha256(target) or "").lower() == sha
-                            except Exception:
-                                same = False
-                        if exists and not same and _users(folder, e["package_id"]):
-                            raise CacheError("Die Datei im Cache ist beschädigt, wird aber gerade von einer Bereitstellung "
-                                             "benutzt – nächster Versuch beim nächsten Lauf.")
-                        if not same:
-                            file = _put(tmp, folder, file, p, mx)
-                    finally:
+                    if not same and _users(folder, own_pid):
+                        raise CacheError("Die Datei im Cache ist beschädigt, wird aber gerade von einer Bereitstellung "
+                                         "benutzt – nächster Versuch beim nächsten Lauf.")
+                    if not same:
+                        _put_file(tmp, folder, orig)
+                        if p["nested"]:
+                            remote.repo_delete(f"{folder}\\installer")  # extract again below
+                elif not exists:
+                    old = f"{e['folder']}\\{e['file']}" if e["folder"] and e["file"] else ""
+                    if (tmp is None and not p["nested"] and e["folder"] == folder and old and "\\" not in str(e["file"])
+                            and str(e["sha256"] or "").lower() == sha and remote.repo_stat(old) == "file"
+                            and not _users(folder, own_pid) and not _runtime_busy(e["winget_id"])):
+                        # same file from before 2.55.0 under its old name: only renamed, no new download
+                        remote.repo_rename(old, target)
+                        remote.repo_cache_apply("remove", old)
+                        remote.repo_cache_apply("add", target, size=e["size"] or 0)
+                    else:
+                        if tmp is None:
+                            tmp, size, _got = get_new()
+                        _put_file(tmp, folder, orig)
+                file = orig
+                if p["nested"]:
+                    inst_dir = f"{folder}\\installer"
+                    if remote.repo_stat(f"{inst_dir}\\{p['nested']}") != "file":
+                        if tmp is None:
+                            tmp = _repo_to_tmp(target)
+                        try:
+                            file = "installer\\" + _put_zip_into(tmp, inst_dir, p["nested"], mx)
+                        except CacheError:
+                            if not exists and not _users(folder, own_pid):
+                                # nothing usable in it (path outside the folder, named file missing): no half version left
+                                remote.repo_delete(folder)
+                                remote.repo_cache_apply("remove", folder)
+                            raise
+                    else:
+                        file = "installer\\" + p["nested"]
+                _put_text(f"{folder}\\{yml}", manifest_yaml(man, inst))
+            finally:
+                if tmp:
+                    try:
                         os.remove(tmp)
+                    except OSError:
+                        pass
             vdir = folder.rsplit("\\", 1)[-1]
             ver = str(ver)
             if not entry(eid):
@@ -831,9 +1024,12 @@ def refresh_entry(eid, force=False, user=None):
                 remove(eid, user, package_gone=True)
                 return None
             left = _cleanup_versions(e, vdir, pid)
+            if not _runtime_busy(e["winget_id"]):
+                _tidy(folder, {orig.lower(), yml.lower(), "installer"}, pid)
             if left:
                 msg.append("alte Version wird noch verwendet, wird beim nächsten Lauf gelöscht: " + ", ".join(left))
             msg += p["hints"]
+            msg.insert(0, f"Installer wie bei winget: {orig} (vom Hersteller: {urllib.parse.urlsplit(url).netloc})")
             db.ex("""UPDATE winget_cache SET status='ok', message=?, name=?, version=?, detect_version=?, folder=?, file=?,
                      size=?, sha256=?, installer_type=?, min_os=?, package_id=?, checked_at=?, remote_sig=?, inst_arch=?,
                      updated_at=CASE WHEN COALESCE(version, '') = ? THEN updated_at ELSE ? END WHERE id=?""",

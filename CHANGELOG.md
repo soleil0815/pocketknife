@@ -2,6 +2,14 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.55.0 (16.11.2026)
+- **winget cache picks the same installer as winget:** winget's selection rebuilt from winget-cli (`ManifestComparator::GetPreferredInstaller`): go through the fitting installers in manifest order, a later one replaces the best so far only if it is better - comparators language (preferred language, same language close, one without a language weakly better than a non-matching one), architecture (own one strong, then x86, then neutral) and installer type in winget's default order (MSIX, MSI, WiX, Burn, Nullsoft, Inno, EXE, Portable; for a ZIP the type inside); the first strong result decides, otherwise the first weak one. Before: architecture, language, scope only, and on a tie the first one in the manifest - Paint.NET 5.2 lists a ZIP with its setup EXE first and one with an MSI second; POCKET KNIFE took the setup EXE, winget the MSI, and the setup EXE crashed as SYSTEM
+- **Stored like `winget download`:** the vendor's file unchanged under winget's name (`{name}_{version}_{scope}_{architecture}_{type}_{language}.ext`, e.g. `paint.net_5.2_Machine_X64_wix_en-US.zip`) and next to it the manifest YAML with exactly this installer (checksum = InstallerSha256). A ZIP is additionally extracted into the subfolder `installer`, only that goes to the computers (Expand-Archive on the computer would load code PowerShell logs as a warning, tar.exe is missing on older Windows). The entry's message names the chosen installer and the vendor host
+  - existing entries switch on their next check: a single installer with the same checksum is only renamed (no new download), a ZIP extracted the old way is loaded once more and extracted into `installer`, the old extracted files are removed when nothing uses them any more
+  - a ZIP whose named installer is missing or that has paths outside leaves no half version folder behind
+- Help: winget cache "Laden"
+- **Self-test:** winget's rules (type order, first in the manifest on a tie, own architecture strong, x86 before neutral, language before architecture, unknown language weak), Paint.NET manifest (x64/arm64) → MSI ZIP, file names like winget download, YAML next to the file, ZIP unchanged + `installer`, switch of entries from before (rename without download, ZIP extracted again, old files removed)
+
 ## pocketknife-2.54.2 (16.11.2026)
 - **"nullnullnull" under the card "PowerShell-Protokoll prüfen"** (and the same effect in two other places): `replaceChildren`/`append` write missing children (`null`/`false`) as text, unlike `h()` which leaves them out. New helper `kids()` filters them; fixed in the check mode card, the backup list (without a last backup) and the Group Policy result (without groups / extension errors)
 - **Remote desktop (VNC):** without a central VNC password the list of logon options showed "null" - option now left out properly
