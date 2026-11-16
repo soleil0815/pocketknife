@@ -2,6 +2,16 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.52.0 (16.11.2026)
+- **New - hints for own PowerShell code:** PowerShell steps in packages, tools, "Befehl ausführen", own scanners (type PowerShell) and `.ps1`/`.psm1`/`.psd1` files in the repository editor show a hint while typing if Windows would log the code as a **warning** (script block logging, event 4104) - monitoring software can raise alerts on that. Only a hint, nothing is blocked:
+  - **cmdlets of generated Windows modules** (task scheduler, firewall, network, DNS client, disks, SMB shares, printers, BitLocker, Defender) with the alternative (`schtasks /XML`, `netsh advfirewall`, `net share`, `manage-bde`, `MpCmdRun`, `printui`, CIM classes)
+  - **words of PowerShell's list of suspicious content** (`Bypass`, `-EncodedCommand`, `Add-Type`, `IntPtr`, `MemoryStream`, reflection, `Properties`, `Methods` …) - also in comments and as part of a longer word, as PowerShell itself checks
+  - **members through a variable** (`$obj.$name`, `$obj.(…)`) - not inside quoted text
+  - per finding the line, what it is and what to use instead
+- Help: table "Eigener PowerShell-Code ohne Warnungen" (what, why, better)
+- Diagnostic package (`statistik.json` → `pslint`): checks since the start, how many with findings, findings per kind - never the code
+- **Self-test:** every word of the list is reported by PowerShell's own check, POCKET KNIFE's own client scripts give no hint, rules for quoted text and comments, API open and limited, editors wired
+
 ## pocketknife-2.51.0 (16.11.2026)
 - **Clean on the client - no warnings in the PowerShell log** (script block logging, event 4104 in "Microsoft-Windows-PowerShell/Operational"). Every WinRM session that used a scheduled-task cmdlet loaded the generated "ScheduledTasks" module, and PowerShell logs its code as some 18 warnings each time - during a deployment every few seconds (status query). Monitoring software (SIEM, Defender for Endpoint) can raise alerts on that. Now:
   - **scheduled tasks through their CIM classes** (`MSFT_ScheduledTask`, `PS_ScheduledTask`: register from task XML, start, state, last result, stop, remove) - deployments, status queries, clean-up, gpupdate in the user sessions, notifications and the "Geplante Aufgaben" scan; same behaviour (SYSTEM, logged-on user, service account with password as before, time limit, "do not start a new instance")

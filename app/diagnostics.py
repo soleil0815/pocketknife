@@ -562,7 +562,14 @@ def _stats(since, an):
         "kiosk_requests": {r["status"]: r["n"] for r in db.q("SELECT status, COUNT(*) n FROM kiosk_requests WHERE created_at >= ? GROUP BY status", (since,))},
         "chains": _chains(since),
         "repo_edits": _repo_edits(since),
+        "pslint": _pslint(),
     }
+
+
+def _pslint():
+    """2.52.0: hints for own PowerShell code since the start (checks, with findings, findings per kind - never code)."""
+    from . import pslint
+    return pslint.stats()
 
 
 # 2.48.2: The diagnostic package follows the program. Every new database column (db.MIGRATIONS) and every new scan value
@@ -829,7 +836,8 @@ Dateien
   statistik.json       Bereitstellungen und Scans im Zeitraum: Ergebnisse, Exitcodes, häufigste Fehler, Dauer,
                        Ketten (mehrere Pakete nacheinander: Anzahl, übersprungene Ziele, wartende Ziele),
                        Änderungen im Texteditor des Repositorys (Anzahl, Dateien, Kodierung – nie Inhalte),
-                       per Hochladen ersetzte benutzte Dateien (Anzahl, betroffene Pakete)
+                       per Hochladen ersetzte benutzte Dateien (Anzahl, betroffene Pakete),
+                       Hinweise zu eigenem PowerShell-Code (Prüfungen, Funde je Art – nie der Code)
   leistung.json        Rechenlast und Lastspitzen, Dauer der wichtigsten Abfragen, langsamste Sammlungen, größte Felder
                        (nur Feldnamen und Größen, keine Inhalte)
   update_status.json   Update-Status: Microsoft-Abgleich, Stände je Status, Office-Installationen je Produkt/Kanal/Version

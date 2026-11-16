@@ -2858,6 +2858,16 @@ def _repo_call(user, fn, *a, **kw):
         raise
 
 
+# 2.52.0: hints for own PowerShell code - what script block logging would write as a warning (event 4104); only hints
+@app.post("/api/pslint")
+def api_pslint(data: dict = Body(...), user=U):
+    from . import pslint
+    text = data.get("text")
+    if not isinstance(text, str) or len(text) > 500_000:
+        raise HTTPException(400, "Text fehlt oder ist zu lang.")
+    return {"findings": pslint.check(text)}
+
+
 # 2.49.0: text editor for script and text files (integrity check takes over the new state)
 @app.get("/api/repository/text")
 def api_repository_text(path: str, user=U):
