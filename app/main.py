@@ -4308,6 +4308,43 @@ def api_diagnostics(days: int = 7, anon: int = 1, user=U):
                                                                  "Cache-Control": "no-store"})
 
 
+@app.get("/api/system/pscheck")
+def api_pscheck(user=U):
+    """2.54.0: check mode "PowerShell-Protokoll" - state, calls per function, findings, Prüflauf."""
+    from . import pscheck
+    return pscheck.summary()
+
+
+@app.put("/api/system/pscheck")
+def api_pscheck_set(data: dict = Body(...), user=U):
+    from . import pscheck
+    pscheck.set_enabled(bool(data.get("enabled")), user=user["username"])
+    return pscheck.summary()
+
+
+@app.delete("/api/system/pscheck")
+def api_pscheck_clear(user=U):
+    from . import pscheck
+    pscheck.clear(user=user["username"])
+    return pscheck.summary()
+
+
+@app.post("/api/system/pscheck/run")
+def api_pscheck_run(data: dict = Body(...), user=U):
+    from . import pscheck
+    try:
+        return pscheck.start_run(int(data.get("cid") or 0), user=user["username"])
+    except ValueError as e:
+        _err(e)
+
+
+@app.get("/api/system/pscheck/report")
+def api_pscheck_report(anon: int = 1, user=U):
+    from . import pscheck
+    return PlainTextResponse(pscheck.report(bool(anon)), media_type="text/plain; charset=utf-8",
+                             headers={"Cache-Control": "no-store"})
+
+
 @app.get("/api/system/diagnostics/lookup")
 def api_diagnostics_lookup(alias: str, user=U):
     from . import diagnostics

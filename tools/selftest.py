@@ -8705,6 +8705,200 @@ def _():
     assert o[:3] == ["A:0", "B:2", "C:Zugriff verweigert"], (o, r.stderr)
 
 
+@test("2.54.0 Check mode 'PowerShell-Protokoll': after every call a look into the computer's log (4100, 4104 warning) attributed to the calling function; clean probe; report with placeholders; Prüflauf only reading; API main admins only; diagnostics counts")
+def _():
+    import subprocess as _sp
+    from app import pscheck, pslint, remote, diagnostics, access
+    import re
+    assert pslint.check(pscheck.PROBE) == [] and "-ErrorAction Stop" not in pscheck.PROBE and "Select-Object -First" not in pscheck.PROBE
+    m4100_de = ("Fehlermeldung = Systemfehler\r\nKontext:\r\n        Schweregrad: Warning\r\n        Hostname: ServerRemoteHost\r\n"
+                "        Hostanwendung = C:\\WINDOWS\\system32\\wsmprovhost.exe -Embedding\r\n        Befehlsname: \r\n        Skriptname: \r\n"
+                "        Benutzer: FIRMA\\svc-pocketknife\r\nBenutzerdaten:\r\n")
+    m4100_en = ("Error Message = No events were found that match the specified selection criteria.\r\n"
+                "Fully Qualified Error ID = NoMatchingEventsFound,Microsoft.PowerShell.Commands.GetWinEventCommand\r\n\r\nContext:\r\n"
+                "        Severity = Warning\r\n        Host Application = C:\\windows\\system32\\wsmprovhost.exe -Embedding\r\n"
+                "        Command Name = Get-WinEvent\r\n        User = FIRMA\\svc-pocketknife\r\n")
+    m4104 = ("Remotebefehl wird ausgeführt: Skriptblocktext (1 von 1) wird erstellt:\r\n$a = Add-Type -TypeDefinition $x\r\n\r\n"
+             "ScriptBlock-ID: 1234\r\nPfad: C:\\Windows\\Temp\\x.ps1\r\n")
+    f1 = pscheck.parse_event({"t": "2026-11-16T13:26:01.123+01:00", "id": 4100, "lvl": 3, "m": m4100_de})
+    assert f1["message"] == "Systemfehler" and "wsmprovhost" in f1["host_app"] and f1["user"] == "FIRMA\\svc-pocketknife" and f1["command"] == "", f1
+    f2 = pscheck.parse_event({"t": "x", "id": 4100, "m": m4100_en})
+    assert f2["error_id"].startswith("NoMatchingEventsFound") and f2["command"] == "Get-WinEvent" and f2["message"].startswith("No events"), f2
+    f3 = pscheck.parse_event({"t": "x", "id": 4104, "lvl": 3, "m": m4104})
+    assert f3["message"] == "$a = Add-Type -TypeDefinition $x" and "Add-Type" in f3["flagged"] and f3["script"].endswith("x.ps1"), f3
+    # wrap: first call fixes the start time, events after the call belong to it, errors are passed on, previous call noted
+    old = (dict(pscheck.STATE), pscheck._loaded)
+    pscheck.STATE.update(since={}, last_op={}, calls={}, findings=[], started=None)
+    pscheck._loaded = True
+    probes = []
+
+    def raw(host, script):
+        probes.append(script)
+        n = len(probes)
+        out = f"PKCHK_NOW:2026-11-16T13:00:0{n}.0000000+01:00\n"
+        if n == 3:
+            out += "PKCHK_EV:" + json.dumps({"t": "2026-11-16T13:00:02", "id": 4100, "lvl": 3, "m": m4100_en}) + "\n"
+        return out
+    _save = pscheck._save
+    pscheck._save = lambda: None
+    try:
+        assert pscheck.wrap("PC-0001", lambda: ("out", "", False), raw, op="actions.event_log") == ("out", "", False)
+        assert len(probes) == 2 and "if ('')" in probes[0] and "2026-11-16T13:00:01" in probes[1], probes
+        try:
+            pscheck.wrap("pc-0001", lambda: (_ for _ in ()).throw(remote.RemoteError("kaputt")), raw, op="inventory.scan")
+            raise AssertionError("error must be passed on")
+        except remote.RemoteError:
+            pass
+        assert len(probes) == 3
+        try:
+            pscheck.wrap("pc-0001", lambda: (_ for _ in ()).throw(remote.RemoteConnectError("weg")), raw, op="x.y")
+        except remote.RemoteConnectError:
+            pass
+        assert len(probes) == 3, "no look into the log when the computer is not reachable"
+        f = pscheck.STATE["findings"][-1]
+        assert f["op"] == "inventory.scan" and f["prev_op"] == "actions.event_log" and f["event"] == 4100, f
+        assert pscheck.STATE["calls"]["inventory.scan"] == {"calls": 1, "e4100": 1, "e4104": 0}
+        rep = pscheck.report(True)
+        assert "inventory.scan | 1 | 1 | 0" in rep and "PC-001" in rep and "pc-0001" not in rep.lower().replace("pc-001", ""), rep
+        assert "NoMatchingEventsFound" in rep and "seit dem vorigen Aufruf: actions.event_log" in rep
+        st = pscheck.stats()
+        assert st["event_4100"] == 1 and st["per_function"]["inventory.scan"] == [1, 1, 0] and "message" not in json.dumps(st)
+        assert diagnostics._pscheck()["calls"] == 2
+        # remote.ps goes through the check only when it is on
+        seen = []
+        _o, _e = remote._ps_once, pscheck.enabled
+        remote._ps_once = lambda host, script, auth=None, timeout=0: (seen.append(script) or "PKCHK_NOW:2026-11-16T13:00:09\n", "", False)
+        try:
+            pscheck.enabled = lambda: False
+            remote.ps("pc-0002", "Get-Date")
+            assert seen == ["Get-Date"]
+            pscheck.enabled = lambda: True
+            remote.ps("pc-0002", "Get-Date")
+            assert len(seen) == 4 and seen[2] == "Get-Date" and "PKCHK_NOW" in seen[1] and "PKCHK_NOW" in seen[3], seen
+            assert "selftest._" in pscheck.STATE["last_op"]["pc-0002"] or pscheck.STATE["last_op"]["pc-0002"] == "unbekannt"
+        finally:
+            remote._ps_once, pscheck.enabled = _o, _e
+    finally:
+        pscheck._save = _save
+        pscheck.STATE.clear()
+        pscheck.STATE.update(old[0])
+        pscheck._loaded = old[1]
+    # caller: the first function outside the remote layer
+    from app import actions
+    src = open(pscheck.__file__, encoding="utf-8").read()
+    assert '"remote.py", "pscheck.py"' in src and actions.__file__.replace("\\", "/").count("/app/") >= 1
+    ns: dict = {"pscheck": pscheck}
+    exec(compile("def ps():\n    return pscheck.caller()\n", "/srv/app/remote.py", "exec"), ns)
+    exec(compile("def event_log():\n    return ps()\n", "/srv/app/actions.py", "exec"), ns)
+    assert ns["event_log"]() == "actions.event_log", ns["event_log"]()
+    # Prüflauf: only reading functions (no gpupdate, toast, service actions, deletion, deployments)
+    lab = [x[0] for x in pscheck._steps(_first_cid())] if _first_cid() else []
+    body = src[src.index("def _steps"):src.index("READONLY_TOOLS = (")]
+    for bad in ("service_action", "kill_process", "toast", "gpupdate", "delete", "rename", "mkdir", "write_file", "deploy", "uninstall"):
+        assert bad not in body, bad
+    for name in pscheck.READONLY_TOOLS:
+        assert not re.search(r"(?i)gpupdate|leeren|neu starten|zurücksetzen|anhalten|fortsetzen|löschen|sfc", name), name
+    if lab:
+        assert lab[0] == "Scan (alle Bereiche, eigene Scanner)" and "GPO-Verlauf" in lab and "Befehl (cmd, SYSTEM)" in lab, lab
+    # Prüflauf flow: status per step; after two connection failures in a row the rest is skipped
+    cid = _first_cid()
+    if cid:
+        import time as _time
+        calls = []
+
+        def boom():
+            raise remote.RemoteConnectError("WinRM: nicht erreichbar")
+        _st, _en, _sl = pscheck._steps, pscheck.enabled, pscheck.time.sleep
+        pscheck._steps = lambda c: [("a", lambda: calls.append("a")), ("b", lambda: (_ for _ in ()).throw(ValueError("x"))),
+                                    ("c", boom), ("d", boom), ("e", lambda: calls.append("e"))]
+        pscheck.enabled = lambda: True
+        pscheck.time.sleep = lambda s: None
+        try:
+            pscheck.RUN.clear()
+            pscheck.start_run(cid, user="test")
+            for _ in range(200):
+                if not pscheck.RUN.get("running"):
+                    break
+                _sl(0.02)
+            sts = [x["status"] for x in pscheck.RUN["steps"]]
+            assert sts == ["OK", "Fehler", "Fehler", "Fehler", "übersprungen"] and calls == ["a"], (sts, calls)
+            try:
+                pscheck.enabled = lambda: False
+                pscheck.start_run(cid)
+                raise AssertionError("only with the check mode on")
+            except ValueError:
+                pass
+        finally:
+            pscheck._steps, pscheck.enabled, pscheck.time.sleep = _st, _en, _sl
+            pscheck.RUN.clear()
+    # API: main admins only (not in the OU admins' list), routes exist
+    for meth, path in (("GET", "/api/system/pscheck"), ("PUT", "/api/system/pscheck"), ("DELETE", "/api/system/pscheck"),
+                       ("POST", "/api/system/pscheck/run"), ("GET", "/api/system/pscheck/report")):
+        assert (meth, path) not in access.ROUTES, path
+    msrc = open(os.path.join(os.path.dirname(access.__file__), "main.py"), encoding="utf-8").read()
+    assert msrc.count('"/api/system/pscheck') == 5
+    js = open(os.path.join(os.path.dirname(access.__file__), "static", "app.js"), encoding="utf-8").read()
+    assert "psCheckCard()" in js and "/api/system/pscheck/run" in js
+    pw = os.environ.get("PK_PWSH")
+    if not (pw and os.path.exists(pw)):
+        return
+    # the probe itself in PowerShell: only 4100 and 4104 warnings, nothing at or after its own start
+    d = os.path.join(TMP, "pk-pscheck")
+    os.makedirs(d, exist_ok=True)
+    body = ("function Start-Sleep { param($Milliseconds) }\n"
+            "function Get-WinEvent { [CmdletBinding()] param($FilterHashtable, $MaxEvents)\n"
+            "  $t = (Get-Date).AddSeconds(-30)\n"
+            "  New-Object PSObject -Property @{ Id = 4104; Level = 5; TimeCreated = $t; Message = 'ausfuehrlich' }\n"
+            "  New-Object PSObject -Property @{ Id = 4104; Level = 3; TimeCreated = $t; Message = 'warnung' }\n"
+            "  New-Object PSObject -Property @{ Id = 4100; Level = 3; TimeCreated = $t; Message = 'fehler' }\n"
+            "  New-Object PSObject -Property @{ Id = 4100; Level = 3; TimeCreated = (Get-Date).AddHours(1); Message = 'spaeter' } }\n"
+            + pscheck.PROBE.replace("__SINCE__", "2026-11-16T13:00:00.0000000+01:00"))
+    path = os.path.join(d, "p.ps1")
+    open(path, "w", encoding="utf-8-sig").write(body)
+    r = _sp.run([pw, "-NoProfile", "-NonInteractive", "-File", path], capture_output=True, text=True, timeout=60)
+    evs = [json.loads(ln[9:]) for ln in r.stdout.splitlines() if ln.startswith("PKCHK_EV:")]
+    assert [e["m"] for e in evs] == ["warnung", "fehler"] and any(ln.startswith("PKCHK_NOW:") for ln in r.stdout.splitlines()), (r.stdout, r.stderr)
+    assert not r.stderr.strip(), r.stderr
+    r = _sp.run([pw, "-NoProfile", "-NonInteractive", "-File", path.replace("p.ps1", "q.ps1")] if False else
+                [pw, "-NoProfile", "-NonInteractive", "-Command", pscheck.PROBE.replace("__SINCE__", "").replace("Start-Sleep -Milliseconds 1500", "")],
+                capture_output=True, text=True, timeout=60)
+    assert r.stdout.strip().startswith("PKCHK_NOW:") and "PKCHK_EV" not in r.stdout, r.stdout
+
+
+# 2.54.0: every terminating error is logged by PowerShell as event 4100, even a caught one. These are the places that
+# stop on an error on purpose (reviewed: only real errors stop there - e.g. a service that cannot be started, a registry
+# value that cannot be written, a task that cannot be registered). A new place needs a reason and an entry here; for a
+# failure that is normal on some computers use -ErrorAction SilentlyContinue -ErrorVariable instead.
+STOP_ALLOWED = {  # file: (-ErrorAction Stop, $ErrorActionPreference = 'Stop')
+    "actions.py": (6, 3), "clientfiles.py": (0, 1), "deploy.py": (2, 0), "diskusage.py": (0, 2), "gphistory.py": (0, 2),
+    "gpupdate.py": (1, 0), "remote.py": (1, 3), "scan_modules.ps1": (14, 0), "scanners.py": (1, 0), "steps.py": (5, 1),
+    "toast.py": (0, 2), "tools.py": (1, 1), "uninstall.py": (1, 0), "util.py": (2, 0),
+}
+
+
+@test("2.54.0 Guard: no new '-ErrorAction Stop' / \"$ErrorActionPreference = 'Stop'\" in client PowerShell without a reason (every caught terminating error is logged as event 4100)")
+def _():
+    import glob as _glob
+    import re
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app")
+    found = {}
+    for f in sorted(_glob.glob(os.path.join(root, "*.py")) + _glob.glob(os.path.join(root, "*.ps1"))):
+        if f.endswith(("pslint.py", "pscheck.py")):
+            continue
+        code = [ln for ln in open(f, encoding="utf-8").read().splitlines() if not ln.strip().startswith("#")]
+        a = sum(len(re.findall(r"(?i)-ErrorAction\s+Stop\b", ln)) for ln in code)
+        b = sum(len(re.findall(r"(?i)\$ErrorActionPreference\s*=\s*'Stop'", ln)) for ln in code)
+        if a or b:
+            found[os.path.basename(f)] = (a, b)
+    more = {k: (v, STOP_ALLOWED.get(k, (0, 0))) for k, v in found.items() if v[0] > STOP_ALLOWED.get(k, (0, 0))[0] or v[1] > STOP_ALLOWED.get(k, (0, 0))[1]}
+    assert not more, ("new stop-on-error places - normal failures without a terminating error, or give a reason and raise STOP_ALLOWED", more)
+
+
+def _first_cid():
+    from app import db
+    return db.val("SELECT id FROM computers ORDER BY id LIMIT 1")
+
+
 @test("2.46.1 gpupdate in tools never waits for \"log off / restart? (J/N)\": always \"N\" (cmd and PowerShell, new and existing tools, built-in tool says so in the output)")
 def _():
     import subprocess as _sp
@@ -9973,9 +10167,9 @@ def _():
     names = [c.strip() for grp in cards for c in grp.split(",")]
     for c in ("conn", "accountsCard()", "authCard(sys)", "adCard()", "secCard", "tlsCard()", "dnsCard", "wolCard", "rdCard", "invCard",
               "scCard", "fCard", "updCard", "wg", "proxyCard()", "exclCard", "runCard", "instCard", "repo", "upCard", "integCard",
-              "toastCard", "rebootCard", "mailCard()", "alertsCard()", "tenantsCard()", "bkCard", "maint", "retCard", "updatesCard()", "diagCard"):
+              "toastCard", "rebootCard", "mailCard()", "alertsCard()", "tenantsCard()", "bkCard", "maint", "retCard", "updatesCard()", "diagCard", "psCheckCard()"):
         assert names.count(c) == 1, (c, names)
-    assert len(names) == 31, names
+    assert len(names) == 32, names
     # every setting of the former "Zeitpläne & Leistung" card is in exactly one of the new cards
     for k in ("heartbeat_minutes", "scan_online_delay_minutes", "scan_concurrency", "deploy_concurrency", "deploy_timeout_minutes",
               "rescan_after_deploy", "msix_hide_builtin", "log_retention_days", "scan_log_retention_days", "deployment_retention_days",

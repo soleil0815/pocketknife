@@ -1109,6 +1109,64 @@ function sysHints(hs) {
 }
 
 // Settings → Wartung: notice about new versions (the server asks GitHub, never the browser)
+// 2.54.0: check mode "PowerShell-Protokoll" – which POCKET KNIFE function causes entries 4100/4104 on the computers
+function psCheckCard() {
+  const body = h('div.card-b', h('p.muted', 'Wird geladen …'));
+  const card = h('div.card', h('div.card-h', h('h2', 'PowerShell-Protokoll prüfen')), body);
+  let timer = null;
+  let comps = null;
+  async function reportText() {
+    try {
+      const r = await fetch('/api/system/pscheck/report?anon=1', { credentials: 'same-origin' });
+      if (!r.ok) throw new Error(`Fehler ${r.status}`);
+      return await r.text();
+    } catch (e) { toast(e.message, 'err'); return null; }
+  }
+  async function draw() {
+    let d;
+    try { d = await GET('/api/system/pscheck'); } catch (e) { body.replaceChildren(h('p.muted', e.message)); return; }
+    if (!comps) { try { comps = (await GET('/api/computers')).sort((a, b) => (b.online ? 1 : 0) - (a.online ? 1 : 0) || String(a.name).localeCompare(String(b.name))); } catch (e) { comps = []; } }
+    const en = h('input', { type: 'checkbox', checked: d.enabled, onchange: async (e) => { if (await run(() => PUT('/api/system/pscheck', { enabled: e.target.checked }))) draw(); } });
+    const pc = sel([['', tr('Computer wählen …')]].concat(comps.map((c) => [String(c.id), c.online ? c.name : fmtT('{0} (ausgeschaltet)', c.name)])), '', { style: { maxWidth: '260px' } });
+    const rows = Object.entries(d.calls).sort((a, b) => (b[1].e4100 + b[1].e4104) - (a[1].e4100 + a[1].e4104) || a[0].localeCompare(b[0]));
+    const sum = rows.reduce((t, [, v]) => [t[0] + v.calls, t[1] + v.e4100, t[2] + v.e4104], [0, 0, 0]);
+    const rn = d.run;
+    const runBox = rn ? h('div.small', { style: { marginTop: '8px' } },
+      h('b', fmtT(rn.running ? 'Prüflauf auf {0} läuft …' : 'Prüflauf auf {0} beendet', rn.name)),
+      h('table.small', h('tbody', rn.steps.map((s) => h('tr', h('td', s.label),
+        h('td', { class: s.status === 'Fehler' ? 'err-text' : s.status === 'OK' ? '' : 'muted' }, tr(s.status)),
+        h('td.muted', s.seconds != null ? `${String(s.seconds).replace('.', ',')} s` : ''), h('td.muted', s.note || '')))))) : null;
+    const fl = d.findings.slice(-30).reverse();
+    body.replaceChildren(
+      h('p.muted.small', { style: { marginTop: 0 } }, tr('Eingeschaltet schaut POCKET KNIFE nach jedem eigenen Aufruf auf einem Computer in dessen PowerShell-Protokoll nach, ob ein Fehler (Ereignis 4100) oder eine Warnung (Ereignis 4104) entstanden ist, und merkt sich die auslösende Funktion. Jeder Aufruf dauert dadurch etwa 2 Sekunden länger – nach der Prüfung wieder ausschalten. Der Prüflauf führt alle lesenden Funktionen einmal auf einem Computer aus; dort wird nichts verändert.')),
+      h('div.form',
+        field('Prüfmodus', h('label.chk', en, tr('nach jedem Aufruf das PowerShell-Protokoll des Computers prüfen')),
+          d.started ? fmtT('Ergebnisse seit {0}.', fmtDate(d.started)) : null),
+        field('Prüflauf', h('div.row', { style: { gap: '6px' } }, pc, btn('Prüflauf starten', async () => {
+          if (!pc.value) { toast(tr('Bitte einen Computer wählen'), 'err'); return; }
+          if (await run(() => POST('/api/system/pscheck/run', { cid: Number(pc.value) }), 'Prüflauf gestartet')) draw();
+        }, { cls: 'small', disabled: !d.enabled || (rn && rn.running) })), tr('Der Computer muss eingeschaltet sein. Gruppenrichtlinien-Update, Benachrichtigungen und Verteilungen führt der Prüflauf nicht aus – die prüft der Prüfmodus, wenn Sie sie wie gewohnt benutzen.')),
+        field('Ergebnis', h('div',
+          h('div.small', fmtT('{0} Funktionen geprüft, {1} Aufrufe – Fehler (4100): {2}, Warnungen (4104): {3}', rows.length, sum[0], sum[1], sum[2])),
+          h('div.row', { style: { gap: '6px', marginTop: '6px' } },
+            btn('Bericht kopieren', async () => { const t = await reportText(); if (t != null) copyText(t); }, { cls: 'small primary', icon: 'file', disabled: !rows.length }),
+            btn('Bericht anzeigen', async () => { const t = await reportText(); if (t != null) showOutput(tr('PowerShell-Protokoll – Bericht'), t); }, { cls: 'small', disabled: !rows.length }),
+            btn('Zurücksetzen', async () => { if (await confirmDlg(tr('Alle gesammelten Ergebnisse löschen?'), 'Löschen', true) && await run(() => DEL('/api/system/pscheck'))) draw(); }, { cls: 'small ghost', disabled: !rows.length })),
+          tr('Den Bericht können Sie zur Fehlersuche weitergeben – Computernamen sind darin durch Platzhalter ersetzt.')))),
+      runBox,
+      rows.length ? h('table.small', { style: { marginTop: '10px' } }, h('thead', h('tr', h('th', 'Funktion'), h('th.right', 'Aufrufe'), h('th.right', '4100'), h('th.right', '4104'))),
+        h('tbody', rows.map(([k, v]) => h('tr', h('td.raw', k), h('td.right', String(v.calls)),
+          h('td.right', { class: v.e4100 ? 'err-text' : 'muted' }, String(v.e4100)), h('td.right', { class: v.e4104 ? 'err-text' : 'muted' }, String(v.e4104)))))) : null,
+      fl.length ? h('div', { style: { marginTop: '10px' } }, h('b.small', tr('Neueste Funde')), fl.map((f) => h('div.small', { style: { marginTop: '6px' } },
+        h('b.raw', `[${f.event}] ${f.op}`), h('span.muted', ` · ${f.host} · ${f.time}`), h('div.raw', f.message || ''),
+        f.error_id ? h('div.muted.raw', f.error_id) : null, f.flagged && f.flagged.length ? h('div.muted', fmtT('Auffällig: {0}', f.flagged.join(', '))) : null))) : null);
+    clearTimeout(timer);
+    if ((rn && rn.running) && document.body.contains(card)) timer = setTimeout(draw, 3000);
+  }
+  draw();
+  return card;
+}
+
 function updatesCard() {
   const body = h('div.card-b', h('p.muted', 'Wird geladen …'));
   const card = h('div.card', h('div.card-h', h('h2', 'Neuigkeiten und Updates')), body);
@@ -6366,7 +6424,7 @@ async function viewSettings() {
     ['mail', 'E-Mail & Benachrichtigungen', 'mail', [mailCard(), alertsCard()], false],
     ['tenants', 'Mandanten', 'user', [tenantsCard()], false],
     ['backup', 'Sicherung', 'download', [bkCard], true],
-    ['maint', 'Wartung', 'gear', [maint, retCard, updatesCard(), diagCard], true],
+    ['maint', 'Wartung', 'gear', [maint, retCard, updatesCard(), diagCard, psCheckCard()], true],
   ];
   // 2.42: links to the former sections (help, bookmarks) still lead to the right place
   const OLD_SEC = { sched: 'inventory', dns: 'network', wol: 'network', remote: 'network', tls: 'security' };
