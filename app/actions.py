@@ -183,8 +183,11 @@ def event_log(cid, log="System", level=0, count=100, query=""):
         hashparts = f"LogName={util.psq(log)}"
     q = util.psq(query.strip()) if query and query.strip() else "$null"
     script = f"""$ErrorActionPreference = 'Stop'
-try {{ $ev = Get-WinEvent -FilterHashtable @{{ {hashparts} }} -MaxEvents {count} -ErrorAction Stop }}
-catch {{ if ($_.Exception.Message -like '*No events*') {{ $ev = @() }} else {{ throw }} }}
+# 2.53.3: "no events" without a terminating error (PowerShell logs a caught one as event 4100); other errors still count
+$pkWe = $null
+$ev = @(Get-WinEvent -FilterHashtable @{{ {hashparts} }} -MaxEvents {count} -ErrorAction SilentlyContinue -ErrorVariable pkWe)
+$bad = @($pkWe | Where-Object {{ "$($_.FullyQualifiedErrorId)" -notlike 'NoMatchingEventsFound*' -and "$($_.Exception.Message)" -notlike '*No events*' }})
+if ($bad.Count) {{ throw ("" + $bad[0]) }}
 $needle = {q}
 if ($needle) {{ $ev = $ev | Where-Object {{ $_.Message -like ('*' + $needle + '*') -or "$($_.Id)" -eq $needle -or $_.ProviderName -like ('*' + $needle + '*') }} }}
 'PKJSON:' + (ConvertTo-Json -Depth 3 -Compress -InputObject @($ev | ForEach-Object {{

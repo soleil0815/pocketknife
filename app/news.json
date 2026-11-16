@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.53.3",
+   "date": "2026-11-16",
+   "items": [
+    {
+     "kind": "fixed",
+     "audience": "admin",
+     "de": "Ereignisanzeige, GPO-Verlauf und Scan erzeugen bei normalen Fällen (leeres Protokoll, VM ohne Bildschirm, kein Defender/BitLocker/TPM) keine Fehlereinträge (Ereignis 4100) mehr im PowerShell-Protokoll der Computer.",
+     "en": "Event viewer, Group Policy history and scan no longer create error entries (event 4100) in the computers' PowerShell log in normal cases (empty log, VM without a display, no Defender/BitLocker/TPM)."
+    }
+   ]
+  },
+  {
    "version": "2.53.2",
    "date": "2026-11-16",
    "items": [

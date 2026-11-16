@@ -2,6 +2,13 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.53.3 (16.11.2026)
+- **No event 4100 for expected failures:** PowerShell logs every caught terminating error as event 4100. These normal cases no longer cause one (`-ErrorAction SilentlyContinue -ErrorVariable` instead of `-ErrorAction Stop` + catch); real errors are still reported:
+  - event viewer and Group Policy history with a log without matching events ("No events were found") - seen on a workstation
+  - scan: displays on VMs/servers without a monitor, Defender missing (other antivirus), BitLocker or TPM class missing, local groups with orphaned SIDs (CIM fallback), task info of single tasks
+- Help: "Sauber im PowerShell-Protokoll" extended
+- **Self-test:** none of these spots uses `-ErrorAction Stop`; empty log gives no rows and no error, a real error is still raised; mocks adapted (Get-LocalGroupMember reports its error as non-terminating)
+
 ## pocketknife-2.53.2 (16.11.2026)
 - **Crashed installer in plain text:** if a program of a step or tool ends with a crash code (`-532462766` = 0xE0434352, unhandled .NET exception, or 0xC... NTSTATUS such as an access violation), the client reads the matching application log entries since the program started (event 1026 ".NET Runtime" with the exception, 1000 "Application Error" with the faulting program and code) and writes them to the output; the result line names the crashed program. Typical case (Paint.NET setup as SYSTEM): the installer wants to show a window despite `/auto` - without a desktop .NET refuses it and the setup crashes; the result now says so, with the usual reasons (restart pending, different existing installation, missing switch)
   - no query for normal failure codes (1603, 3010, HRESULTs below 0xC0000000); `Get-WinEvent` without `-ErrorAction Stop` (no event 4100 on an empty log)

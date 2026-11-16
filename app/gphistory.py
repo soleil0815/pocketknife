@@ -29,9 +29,13 @@ COMPUTER_STARTS = (4000, 4003, 4004, 4006)
 def script(hours):
     return f"""$ErrorActionPreference = 'Stop'
 $since = (Get-Date).AddHours(-{int(hours)})
+# 2.53.3: "no events" without a terminating error - PowerShell logs a caught one as event 4100; other errors still count
 function PK-Ev($filter, $max) {{
-  try {{ @(Get-WinEvent -FilterHashtable $filter -MaxEvents $max -ErrorAction Stop) }}
-  catch {{ if ("$($_.FullyQualifiedErrorId)" -like 'NoMatchingEventsFound*' -or "$($_.Exception.Message)" -like '*No events*') {{ @() }} else {{ throw }} }}
+  $pkWe = $null
+  $r = @(Get-WinEvent -FilterHashtable $filter -MaxEvents $max -ErrorAction SilentlyContinue -ErrorVariable pkWe)
+  $bad = @($pkWe | Where-Object {{ "$($_.FullyQualifiedErrorId)" -notlike 'NoMatchingEventsFound*' -and "$($_.Exception.Message)" -notlike '*No events*' }})
+  if ($bad.Count) {{ throw ("" + $bad[0]) }}
+  $r
 }}
 # 2.51.0: the event values (EventData) from the event XML - the value list of the event objects carries a word
 # PowerShell's script block logging reports as a warning (event 4104). Full language: the XML of the event; Constrained
