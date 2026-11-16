@@ -2,6 +2,11 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.54.2 (16.11.2026)
+- **"nullnullnull" under the card "PowerShell-Protokoll prüfen"** (and the same effect in two other places): `replaceChildren`/`append` write missing children (`null`/`false`) as text, unlike `h()` which leaves them out. New helper `kids()` filters them; fixed in the check mode card, the backup list (without a last backup) and the Group Policy result (without groups / extension errors)
+- **Remote desktop (VNC):** without a central VNC password the list of logon options showed "null" - option now left out properly
+- **Self-test:** no `replaceChildren`/`append`/`prepend`/`after`/`before`/`replaceWith` in app.js, kiosk.js and remote.js gets a child that may be null/false directly; `kids()` checked in Node
+
 ## pocketknife-2.54.1 (16.11.2026)
 - **Check mode collects only what POCKET KNIFE causes:** an entry counts if it comes from the service account's own sessions (same SID as the look itself, via whoami.exe) or names POCKET KNIFE's work folder (tasks as SYSTEM or in the user's session). Entries of other software (e.g. a monitoring agent running as SYSTEM) and users' own PowerShell are left out and only counted
 - **Crashes** of programs POCKET KNIFE started (the "Absturz laut Ereignisprotokoll" lines of 2.53.2 in a call's output) are recorded as findings of that function - new column "Absturz"

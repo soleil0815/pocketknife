@@ -142,9 +142,10 @@ function optionsDlg(errorText) {
       radio('prompt', 'Erst auf dem Computer anmelden', false, '(Windows-Anmeldebildschirm; nur ohne NLA)'));
     // Credentials are only sent to the computer with NLA (2.37)
   } else {
-    authSel.append(radio('prompt', 'Ohne Kennwort / Nachfrage vom Server'),
+    // 2.54.2: without a central password no option (append would write "null" as text)
+    authSel.append(...[radio('prompt', 'Ohne Kennwort / Nachfrage vom Server'),
       st.vnc_password_set ? radio('central', 'Zentrales VNC-Kennwort', false, '(aus den Einstellungen)') : null,
-      radio('manual', 'Mit Kennwort'));
+      radio('manual', 'Mit Kennwort')].filter(Boolean));
   }
   drawCred();
   const sizeSel = h('select', {}, [['window', 'Fenstergröße (passt sich an)'], ['1920x1080', '1920 × 1080'], ['1680x1050', '1680 × 1050'], ['1600x900', '1600 × 900'],
