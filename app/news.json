@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.53.0",
+   "date": "2026-11-16",
+   "items": [
+    {
+     "kind": "improved",
+     "audience": "admin",
+     "de": "Speicherplatz-Analyse ohne Warnungen im PowerShell-Protokoll: Der Client listet jetzt mit robocopy auf statt mit einem kompilierten Baustein – das geht auch im eingeschränkten Sprachmodus. Auf sehr großen Laufwerken dauert sie etwas länger.",
+     "en": "Disk space analysis without warnings in the PowerShell log: the client now lists with robocopy instead of a compiled helper – this also works in Constrained Language Mode. On very large drives it takes a little longer."
+    }
+   ]
+  },
+  {
    "version": "2.52.0",
    "date": "2026-11-16",
    "items": [

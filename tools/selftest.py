@@ -7365,7 +7365,8 @@ def _():
     assert "Get-CimAssociatedInstance -InputObject $grp -Association Win32_GroupUser" in m and "$k.GetValue(" not in m
     assert "if ($ExecutionContext.SessionState.LanguageMode -ne 'FullLanguage') {\n    try { PK-RegClm" in scripts["reg"]
     assert "([int]-1)" in scripts["reg"] and "([long]-1)" in scripts["reg"], "DWORD/QWORD already converted"
-    assert "LanguageMode -ne 'FullLanguage') {{ 'PKERR:'" not in diskusage._script("C:\\", 2) and "'PKERR:' + " in diskusage._script("C:\\", 2)
+    # 2.53.0: the disk space analysis works in Constrained Language too (robocopy instead of a compiled helper)
+    assert "Add-Type" not in diskusage._script("C:\\", 2) and "LanguageMode" not in diskusage._script("C:\\", 2)
     assert "S-1-16-12288" in scripts["winget"] and "S-1-16-12288" in open(os.path.join(root, "app", "remote.py"), encoding="utf-8").read()
     # Writing without .NET: content is a text literal in the call (no Base64)
     assert _u.ps_write("$f", "a'b") == "Set-Content -LiteralPath ($f) -Value 'a''b' -Encoding UTF8 -NoNewline\n"
@@ -8268,7 +8269,7 @@ def _():
     import glob as _g
     import re as _re
     import subprocess as _sp
-    from app import actions, deploy, gphistory, gpupdate, inventory, remote, scanners, steps, toast, tools, util as _u
+    from app import actions, deploy, diskusage, gphistory, gpupdate, inventory, remote, scanners, steps, toast, tools, util as _u
     root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app")
     # 1) no cmdlet of a generated/script module in any text POCKET KNIFE could send (every string of app/*.py, scan modules)
     mod_rx = _re.compile(r"\b(Get|Set|New|Register|Unregister|Start|Stop|Enable|Disable|Suspend|Resume)-(ScheduledTask\w*|BitLocker\w*|"
@@ -8286,7 +8287,7 @@ def _():
         if mod_rx.search(ln) and not ln.lstrip().startswith("#"):
             found.append("scan_modules.ps1: " + ln.strip()[:120])
     assert not found, found
-    # 2) the assembled scripts: PowerShell's own check finds nothing (diskusage: compiled helper, see changelog)
+    # 2) the assembled scripts: PowerShell's own check finds nothing (2.53.0: disk space analysis too)
     body = steps.body_for(steps.normalize({"name": "x", "steps": {"main": [{"type": "command", "command": "echo 1"}]}})["steps"]["main"][0], {})
     wrapper = remote.WRAPPER.replace("__BODY__", body)
     reg = remote.REGISTER.replace("__CONTENT__", _u.psq(wrapper)).replace("__DIR__", "C:\\Windows\\Temp\\PocketKnife\\1_2_3_ab").replace("__TASK__", "PK_1_2_3_ab").replace("__TIMEOUT__", "65")
@@ -8299,7 +8300,7 @@ def _():
                  "toast_user": toast.USER_PS, "gpupdate": gpupdate.script("ab12"), "gphistory": gphistory.script(24), "bitlocker_keys": actions.BITLOCKER_PS,
                  "scan": "\n".join([inventory.PRELUDE] + [v[1] for v in inventory.MODULES.values()] + [scanners.script_for(rows), inventory.SCAN_END]),
                  "tool": tools.ps_tool_winrm("'x'"), "winget": deploy._winget_body({"type": "winget", "winget_id": "7zip.7zip", "winget_action": "install"}),
-                 "winget_find": deploy._winget_find()})
+                 "winget_find": deploy._winget_find(), "diskusage": diskusage._script("C:\\", 4), "diskusage_fixed": diskusage._fixed_script(4)})
     for k, v in send.items():
         assert "Bypass" not in v and "EncodedCommand" not in v, k
     pw = os.environ.get("PK_PWSH")
@@ -8454,6 +8455,74 @@ def _():
     open(os.path.join(d, "w.txt"), "w", encoding="utf-8").write("\n".join(pslint.WORDS))
     out = _sp.run([pw, "-NoProfile", "-File", os.path.join(d, "c.ps1"), os.path.join(d, "w.txt")], capture_output=True, text=True, timeout=120).stdout
     assert "DONE" in out and "NOT " not in out, out
+
+
+@test("2.53.0 Disk space analysis without a compiled helper: robocopy listing (no junctions, UTF-16 log), sums per folder in PowerShell (also Constrained Language), tree pruned on the server like before; tool start without Set-ExecutionPolicy under a group policy")
+def _():
+    import subprocess as _sp
+    from app import diskusage, pslint
+    for sc in (diskusage._script("C:\\", 4), diskusage._fixed_script(4)):
+        assert "Add-Type" not in sc and "[PKDu]" not in sc and "/XJ" in sc and "/L " in sc and "/UNILOG:" in sc and pslint.check(sc) == [], pslint.check(sc)
+    # server side: tree from the folder sums - same format as before (n, s, f / fc, dc, x, m, o, k)
+    res = {"path": "C:\\Daten\\", "errors": 1, "seconds": 3, "dirs": {
+        "": {"s": 1500, "c": 2, "f": [["a.txt", 1000], ["b.bin", 500]]},
+        "Sub": {"s": 200000, "c": 1, "f": [["big.iso", 200000]]},
+        "Sub\\Tief": {"s": 50, "c": 1, "d": 1},
+        "Gesperrt": {"s": 0, "c": 0, "x": 1},
+        "Viele": {"s": 3000, "c": 30, "f": [["k1", 1000], ["k2", 900], ["k3", 800]], "r": [27, 300]}}}
+    t = diskusage._tree(res, 2)
+    assert t["n"] == "C:\\Daten\\" and t["s"] == 204550 and t["fc"] == 34 and t["dc"] == 5 and t.get("x") == 1, t
+    names = [k["n"] for k in t["k"]]
+    assert names[:4] == ["Sub", "Viele", "a.txt", "b.bin"], names
+    sub = t["k"][0]
+    assert sub["s"] == 200050 and sub["fc"] == 2 and sub["dc"] == 2 and [k["n"] for k in sub["k"]] == ["big.iso", "Tief"], sub
+    tief = sub["k"][1]
+    assert tief == {"n": "Tief", "s": 50, "fc": 1, "dc": 1, "m": 1}, "deeper levels only as a sum"
+    viele = [k for k in t["k"] if k["n"] == "Viele"]
+    assert viele and [k["n"] for k in viele[0]["k"]] == ["k1", "k2", "k3", "(27 weitere Dateien)"] and viele[0]["k"][3] == {"n": "(27 weitere Dateien)", "s": 300, "f": 1, "o": 1}, viele
+    assert t["k"][-1] == {"n": "(1 weiterer Ordner)", "s": 0, "fc": 0, "dc": 0, "o": 1}, "folder that could not be read (0 bytes) combined"
+    assert diskusage._meta(res) == {"path": "C:\\Daten\\", "errors": 1, "seconds": 3, "drive": None}
+    pw = os.environ.get("PK_PWSH")
+    if not (pw and os.path.exists(pw)):
+        return
+    # client in Constrained Language with a stand-in for robocopy that writes its UTF-16 log
+    d = os.path.join(TMP, "pk-du")
+    os.makedirs(d, exist_ok=True)
+    log = ("\t                   2\tC:\\Daten\\\n\t\t\t\t       1000\tC:\\Daten\\a.txt\n\t\t\t\t        500\tC:\\Daten\\Grüße ü.bin\n"
+           "\t                   1\tC:\\Daten\\Sub\\\n\t\t\t\t     200000\tC:\\Daten\\Sub\\big.iso\n\t                   1\tC:\\Daten\\Sub\\Tief\\\n"
+           "\t\t\t\t         50\tC:\\Daten\\Sub\\Tief\\x.dll\n\t                   1\tC:\\Daten\\Sub\\Tief\\Tiefer\\\n\t\t\t\t          7\tC:\\Daten\\Sub\\Tief\\Tiefer\\y\n"
+           "2026/11/16 01:00:00 FEHLER 5 (0x00000005) Quellverzeichnis wird gescannt C:\\Daten\\Gesperrt\\\nZugriff verweigert\n")
+    open(os.path.join(d, "log.txt"), "w", encoding="utf-16").write(log)
+    body = ("$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'\n$env:TEMP = " + util.psq(d) + "\n$global:rc = @()\n"
+            "function robocopy.exe { $global:rc = $args; $u = @($args | Where-Object { \"$_\" -like '/UNILOG:*' })[0].Substring(8)\n"
+            "  Copy-Item -LiteralPath " + util.psq(os.path.join(d, "log.txt")) + " -Destination $u }\n"
+            + diskusage.CLIENT + "\n$r = PK-Du 'C:\\Daten' 2\n'PKDU:' + (ConvertTo-Json -InputObject $r -Depth 6 -Compress)\n'ARGS:' + ($global:rc -join ' ')\n"
+            "'LEFT:' + @(Get-ChildItem -LiteralPath $env:TEMP -Filter 'pk_du_*.log').Count\n")
+    open(os.path.join(d, "t.ps1"), "w", encoding="utf-8-sig").write(body)
+    r = _sp.run([pw, "-NoProfile", "-NonInteractive", "-File", os.path.join(d, "t.ps1")], capture_output=True, text=True, timeout=120)
+    o = {ln.split(":", 1)[0]: ln.split(":", 1)[1] for ln in r.stdout.splitlines() if ln[:5] in ("PKDU:", "ARGS:", "LEFT:")}
+    assert "PKDU" in o, (r.stdout[-800:], r.stderr[-800:])
+    res = json.loads(o["PKDU"])
+    assert res["path"] == "C:\\Daten\\" and res["errors"] == 1, res
+    dirs = res["dirs"]
+    assert dirs[""]["s"] == 1500 and sorted(map(tuple, dirs[""]["f"])) == [("Grüße ü.bin", 500), ("a.txt", 1000)], dirs[""]
+    assert dirs["Sub\\Tief"]["s"] == 57 and dirs["Sub\\Tief"]["c"] == 2 and dirs["Sub\\Tief"]["d"] == 1 and "f" not in dirs["Sub\\Tief"], dirs["Sub\\Tief"]
+    assert dirs["Gesperrt"]["x"] == 1 and dirs["Sub"]["f"] == [["big.iso", 200000]], dirs
+    a = o["ARGS"]
+    assert a.startswith("C:\\Daten ") and "/L /E /XJ /BYTES /NC /FP /NP /NJH /NJS /R:0 /W:0 /UNILOG:" in a, a
+    assert o["LEFT"] == "0", "log removed"
+    t = diskusage._tree(res, 2)
+    assert t["s"] == 201557 and t["k"][0]["n"] == "Sub" and t["k"][0]["k"][1] == {"n": "Tief", "s": 57, "fc": 2, "dc": 1, "m": 1}, t
+    # tool start: Set-ExecutionPolicy only without a group policy (otherwise it fails and PowerShell logs event 4100)
+    from app import tools
+    w = tools.ps_tool_winrm("'ok'")
+    for gpo, called in (("RemoteSigned", False), ("Undefined", True)):
+        mock = ("$global:setp = 0\nfunction Get-ExecutionPolicy { param($Scope) $(if ($Scope -eq 'MachinePolicy') { '" + gpo + "' } else { 'Undefined' }) }\n"
+                "function Set-ExecutionPolicy { param($Scope, $ExecutionPolicy, [switch]$Force, $ErrorAction) $global:setp++ }\n")
+        open(os.path.join(d, "tw.ps1"), "w", encoding="utf-8").write(mock + w + "\n'SETP:' + $global:setp\n")
+        r = _sp.run([pw, "-NoProfile", "-NonInteractive", "-File", os.path.join(d, "tw.ps1")], capture_output=True, text=True, timeout=120,
+                    env={**os.environ, "TEMP": d})
+        assert ("SETP:1" if called else "SETP:0") in r.stdout and "ok" in r.stdout, (gpo, r.stdout[-400:], r.stderr[-400:])
 
 
 @test("2.46.1 gpupdate in tools never waits for \"log off / restart? (J/N)\": always \"N\" (cmd and PowerShell, new and existing tools, built-in tool says so in the output)")
