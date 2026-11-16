@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.54.2",
+   "date": "2026-11-16",
+   "items": [
+    {
+     "kind": "fixed",
+     "audience": "admin",
+     "de": "Unter „PowerShell-Protokoll prüfen“ stand „nullnullnull“; dasselbe konnte bei der Sicherungsliste, beim GPO-Ergebnis und bei den VNC-Anmeldeoptionen auftreten.",
+     "en": "\"nullnullnull\" appeared under \"Check PowerShell log\"; the same could happen in the backup list, the Group Policy result and the VNC logon options."
+    }
+   ]
+  },
+  {
    "version": "2.54.1",
    "date": "2026-11-16",
    "items": [

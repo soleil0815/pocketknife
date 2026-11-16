@@ -8871,6 +8871,70 @@ def _():
     assert r.stdout.strip().startswith("PKCHK_NOW:") and "PKCHK_EV" not in r.stdout, r.stdout
 
 
+def _js_calls(src, name):
+    """(line, [top-level arguments]) of every .name( call in JavaScript source - strings and brackets respected."""
+    import re
+    out = []
+    for m in re.finditer(r"\." + name + r"\(", src):
+        i = j = m.end()
+        d, q, args, cur = 1, None, [], ""
+        while d and j < len(src):
+            c = src[j]
+            if q:
+                cur += c
+                if c == "\\":
+                    cur += src[j + 1]
+                    j += 1
+                elif c == q:
+                    q = None
+            elif c in "'\"`":
+                q = c
+                cur += c
+            elif c in "([{":
+                d += 1
+                cur += c
+            elif c in ")]}":
+                d -= 1
+                if d:
+                    cur += c
+            elif c == "," and d == 1:
+                args.append(cur.strip())
+                cur = ""
+            else:
+                cur += c
+            j += 1
+        args.append(cur.strip())
+        out.append((src.count("\n", 0, m.start()) + 1, args))
+    return out
+
+
+@test("2.54.2 No 'null' text in the page: children that may be missing never go straight into replaceChildren/append (the browser writes null/false as text, h() leaves them out) - kids() filters")
+def _():
+    import re
+    import subprocess
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static")
+    for fn in ("app.js", "kiosk.js", "remote.js"):
+        src = open(os.path.join(root, fn), encoding="utf-8").read()
+        bad = []
+        for name in ("replaceChildren", "append", "prepend", "after", "before", "replaceWith"):
+            for line, args in _js_calls(src, name):
+                for a in args:
+                    if a.startswith("..."):
+                        continue
+                    if re.search(r":\s*(null|undefined|false)\s*$", a) or re.match(r"^[^()?]*&&\s*h\(", a):
+                        bad.append((fn, line, a[:70]))
+        assert not bad, bad
+    js = open(os.path.join(root, "app.js"), encoding="utf-8").read()
+    assert "const kids = (...a) => a.flat().filter((x) => x != null && x !== false && x !== '');" in js
+    card = js[js.index("function psCheckCard()"):js.index("function updatesCard()")]
+    assert "body.replaceChildren(...kids(" in card and "runBox," in card
+    pw = shutil.which("node")
+    if pw:
+        r = subprocess.run([pw, "-e", "const kids = (...a) => a.flat().filter((x) => x != null && x !== false && x !== '');"
+                            "console.log(JSON.stringify(kids(1, null, [2, null], false, '', undefined, 0)))"], capture_output=True, text=True)
+        assert r.stdout.strip() == "[1,2,0]", r.stdout
+
+
 @test("2.54.1 Check mode collects only what POCKET KNIFE causes (service account's own sessions, scripts in its work folder; other software left out and counted), crashes of programs it started, full report in the diagnostic package with names replaced")
 def _():
     from app import pscheck, remote, diagnostics

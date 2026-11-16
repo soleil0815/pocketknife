@@ -7,6 +7,9 @@
 const $ = (s, r = document) => r.querySelector(s);
 const SVGNS = 'http://www.w3.org/2000/svg';
 
+// 2.54.2: replaceChildren/append turn null and false into the text "null"/"false" (h() leaves them out) – children
+// that may be missing go through kids()
+const kids = (...a) => a.flat().filter((x) => x != null && x !== false && x !== '');
 function h(tag, attrs, ...kids) {
   const m = /^([a-z0-9]*)((?:[.#][\w-]+)*)$/i.exec(tag);
   const el = document.createElement((m && m[1]) || 'div');
@@ -1137,7 +1140,7 @@ function psCheckCard() {
         h('td', { class: s.status === 'Fehler' ? 'err-text' : s.status === 'OK' ? '' : 'muted' }, tr(s.status)),
         h('td.muted', s.seconds != null ? `${String(s.seconds).replace('.', ',')} s` : ''), h('td.muted', s.note || '')))))) : null;
     const fl = d.findings.slice(-30).reverse();
-    body.replaceChildren(
+    body.replaceChildren(...kids(
       h('p.muted.small', { style: { marginTop: 0 } }, tr('Eingeschaltet schaut POCKET KNIFE nach jedem eigenen Aufruf – Scans, Jobs, Tools, alles – im PowerShell-Protokoll des Computers nach, ob dabei ein Fehler (Ereignis 4100) oder eine Warnung (Ereignis 4104) entstanden ist, und merkt sich die auslösende Funktion; dazu Abstürze von Programmen, die POCKET KNIFE gestartet hat. Gesammelt wird nur, was POCKET KNIFE auslöst – Einträge anderer Software und der Benutzer bleiben draußen. Ein paar Tage laufen lassen, dann das Diagnosepaket herunterladen: Es enthält den vollständigen Bericht. Jeder Aufruf dauert etwa 2 Sekunden länger – danach wieder ausschalten. Der Prüflauf führt alle lesenden Funktionen einmal auf einem Computer aus; dort wird nichts verändert.')),
       h('div.form',
         field('Prüfmodus', h('label.chk', en, tr('nach jedem Aufruf das PowerShell-Protokoll des Computers prüfen')),
@@ -1161,7 +1164,7 @@ function psCheckCard() {
           h('td.right', { class: v.crash ? 'err-text' : 'muted' }, String(v.crash)))))) : null,
       fl.length ? h('div', { style: { marginTop: '10px' } }, h('b.small', tr('Neueste Funde')), fl.map((f) => h('div.small', { style: { marginTop: '6px' } },
         h('b.raw', `[${f.event === 1000 ? tr('Absturz') : f.event}] ${f.op}`), h('span.muted', ` · ${f.host} · ${f.time}`), h('div.raw', f.message || ''),
-        f.error_id ? h('div.muted.raw', f.error_id) : null, f.flagged && f.flagged.length ? h('div.muted', fmtT('Auffällig: {0}', f.flagged.join(', '))) : null))) : null);
+        f.error_id ? h('div.muted.raw', f.error_id) : null, f.flagged && f.flagged.length ? h('div.muted', fmtT('Auffällig: {0}', f.flagged.join(', '))) : null))) : null));
     clearTimeout(timer);
     if ((rn && rn.running) && document.body.contains(card)) timer = setTimeout(draw, 3000);
   }
@@ -6284,12 +6287,12 @@ async function viewSettings() {
           if (await run(() => DEL(`/api/backups/${encodeURIComponent(x.name)}`), 'Gelöscht') !== undefined) drawBk();
         }, { cls: 'small danger' })) },
     ], r.items, { fill: false, search: false, key: null, sort: 'created', dir: -1, noun: 'Sicherungen', empty: 'Noch keine Sicherung vorhanden.' });
-    bkList.replaceChildren(
+    bkList.replaceChildren(...kids(
       h('div.row', { style: { margin: '10px 0 6px', flexWrap: 'wrap' } }, h('b', 'Ablage:'), h('span.mono', r.dir), h('span.muted', `· ${fmtBytes(r.free)} frei`),
         r.same_disk ? h('span.badge.warn', { title: 'Fällt der Datenträger aus, sind Datenbank und Sicherungen weg. In der .env PK_BACKUP_PATH auf ein anderes Laufwerk oder eine Netzwerkfreigabe setzen.' }, 'gleicher Datenträger wie die Datenbank') : null),
       r.last ? h('p.muted.small', { style: { margin: '0 0 6px' } }, `Letzte Sicherung: ${r.last}`) : null,
       t.el,
-      h('p.muted.small', 'Wiederherstellen: Container stoppen (docker compose down), Inhalt der ZIP-Datei in das Datenverzeichnis entpacken (vorher pocketknife.db-wal und pocketknife.db-shm löschen), Container starten.'));
+      h('p.muted.small', 'Wiederherstellen: Container stoppen (docker compose down), Inhalt der ZIP-Datei in das Datenverzeichnis entpacken (vorher pocketknife.db-wal und pocketknife.db-shm löschen), Container starten.')));
   }
   drawBk();
   const rdBody = h('div.card-b', h('p.muted', 'Wird geladen …'));
@@ -8278,7 +8281,7 @@ async function viewGpHistory(parts, params) {
         (x.details || []).length ? h('table.tbl', { style: { marginTop: '10px' } }, h('tbody', x.details.map(([k, v]) => h('tr', h('td.muted', tr(k)), h('td.raw', { style: { wordBreak: 'break-all' } }, k === 'Aktion' ? tr(v) : v))))) : null,
         (x.filters || []).length ? h('div', { style: { marginTop: '10px' } }, h('b', 'Zielgruppenadressierung'), h('ul', { style: { margin: '4px 0 0', paddingLeft: '18px' } }, x.filters.map((f) => h('li.raw', f)))) : null),
       [{ label: 'Schließen' }], { wide: true }) });
-    rsopBody.replaceChildren(
+    rsopBody.replaceChildren(...kids(
       kv([['Ergebnis für', d.name], ['Organisationseinheit', d.som], ['Standort', d.site], ['Gelesen', d.read_time ? fmtDate(d.read_time.replace('Z', '')) + ' (UTC)' : ''],
         ['Langsame Verbindung', d.slow_link ? 'ja' : '']]),
       (d.groups || []).length ? h('details', { style: { margin: '6px 0' } }, h('summary', `Sicherheitsgruppen (${d.groups.length})`), h('div.raw.small', d.groups.join(' · '))) : null,
@@ -8288,7 +8291,7 @@ async function viewGpHistory(parts, params) {
         h('h4', { style: { margin: 0 } }, rsopGpo ? `Einstellungen aus „${rsopGpo}“` : 'Alle wirksamen Einstellungen'),
         rsopGpo ? btn('Alle GPOs', () => { rsopGpo = ''; drawRsop(); }, { icon: 'x' }) : null,
         h('label.row', { style: { gap: '4px', alignItems: 'center' } }, rsopOver, 'auch überschriebene')),
-      rows.length ? setT.el : h('div.empty', rsopGpo ? 'Aus dieser GPO wirkt hier keine Einstellung (nicht angewendet, leer oder überall überschrieben).' : 'Keine Einstellungen.'));
+      rows.length ? setT.el : h('div.empty', rsopGpo ? 'Aus dieser GPO wirkt hier keine Einstellung (nicht angewendet, leer oder überall überschrieben).' : 'Keine Einstellungen.')));
   }
   async function gpNow() {
     gpBtn.disabled = true;
