@@ -385,8 +385,10 @@ PKS 'volumes' { Get-CimInstance Win32_Volume -Filter 'DriveType=3' | ForEach-Obj
 # @module displays | Bildschirme
 try {
 # 2.34: servers and virtual machines without a display report "not supported" – that is not an error, there are just no displays
-PKS 'displays' { $mon = @(); try { $mon = @(Get-CimInstance -Namespace root\wmi -ClassName WmiMonitorID -ErrorAction Stop) } catch {
-    if ("$_" -notmatch 'nicht unterst|not supported|8004100C|Ungültige Klasse|Invalid class|Keine Instanzen|No instances') { throw } }
+# 2.53.3: without -ErrorAction Stop - PowerShell logs every caught terminating error as event 4100 (on every VM here)
+PKS 'displays' { $pkMe = $null
+  $mon = @(Get-CimInstance -Namespace root\wmi -ClassName WmiMonitorID -ErrorAction SilentlyContinue -ErrorVariable pkMe)
+  if ($pkMe -and ("" + @($pkMe)[0]) -notmatch 'nicht unterst|not supported|8004100C|Ungültige Klasse|Invalid class|Keine Instanzen|No instances') { throw ("" + @($pkMe)[0]) }
   $mon | ForEach-Object { [ordered]@{
   manufacturer = (PKStr $_.ManufacturerName); model = (PKStr $_.UserFriendlyName); serial = (PKStr $_.SerialNumberID)
   product_code = (PKStr $_.ProductCodeID); year = $_.YearOfManufacture; week = $_.WeekOfManufacture; active = $_.Active } } }
@@ -416,11 +418,14 @@ $r.hotfixes = @(Get-CimInstance Win32_QuickFixEngineering | ForEach-Object {
 try {
 # 2.50.2: members via Get-LocalGroupMember (no ADSI/reflection - PowerShell logs that as a warning); it fails on
 # groups with orphaned SIDs (error 1332) - then via CIM (Win32_GroupUser), as before in Constrained Language Mode
+# 2.53.3: the expected failure without a terminating error (PowerShell logs a caught one as event 4100)
 function PK-GroupMembers($grp) {
-  try {
-    @(Get-LocalGroupMember -SID $grp.SID -ErrorAction Stop | ForEach-Object {
+  $pkGm = $null
+  $m = @(Get-LocalGroupMember -SID $grp.SID -ErrorAction SilentlyContinue -ErrorVariable pkGm)
+  if (-not $pkGm) {
+    @($m | ForEach-Object {
       [ordered]@{ name = [string]$_.Name; type = $(if ("$($_.ObjectClass)" -match 'Gruppe|Group') { 'Group' } else { 'User' }) } })
-  } catch {
+  } else {
     @(Get-CimAssociatedInstance -InputObject $grp -Association Win32_GroupUser -ErrorAction Stop | ForEach-Object {
       [ordered]@{ name = ($_.Domain + '\' + $_.Name); type = $(if ($_.CimClass.CimClassName -eq 'Win32_Group') { 'Group' } else { 'User' }) } })
   }
@@ -540,20 +545,21 @@ try {
 # servers the module is missing (Get-MpComputerStatus unknown), the class MSFT_MpComputerStatus exists anyway
 # 2.50.1: the class first (same values, no module load), the cmdlet only if the class cannot be read
 $mp = $null
-try { $mp = Get-CimInstance -Namespace 'root\Microsoft\Windows\Defender' -ClassName MSFT_MpComputerStatus -ErrorAction Stop } catch {
-  try { $mp = Get-MpComputerStatus -ErrorAction Stop } catch { $mp = $null } }
+# 2.53.3: without terminating errors (event 4100) - servers with another antivirus have neither
+$mp = @(Get-CimInstance -Namespace 'root\Microsoft\Windows\Defender' -ClassName MSFT_MpComputerStatus -ErrorAction SilentlyContinue)[0]
+if (-not $mp -and (Get-Command Get-MpComputerStatus -ErrorAction SilentlyContinue)) { $mp = Get-MpComputerStatus -ErrorAction SilentlyContinue }
 if ($mp) {
   $e.defender = [ordered]@{ enabled = $mp.AntivirusEnabled; realtime = $mp.RealTimeProtectionEnabled; signature = $mp.AntivirusSignatureVersion
                             signature_age = $mp.AntivirusSignatureAge; last_quick_scan = (D $mp.QuickScanEndTime) } }
 # 2.51.0: BitLocker from its CIM class (Get-BitLockerVolume loads a module) - same texts as the cmdlet shows
 try { $blConv = @{ 0 = 'FullyDecrypted'; 1 = 'FullyEncrypted'; 2 = 'EncryptionInProgress'; 3 = 'DecryptionInProgress'; 4 = 'EncryptionPaused'; 5 = 'DecryptionPaused' }
   $blProt = @{ 0 = 'Off'; 1 = 'On'; 2 = 'Unknown' }
-  $e.bitlocker = @(Get-CimInstance -Namespace 'root\cimv2\Security\MicrosoftVolumeEncryption' -ClassName Win32_EncryptableVolume -ErrorAction Stop | ForEach-Object {
+  $e.bitlocker = @(Get-CimInstance -Namespace 'root\cimv2\Security\MicrosoftVolumeEncryption' -ClassName Win32_EncryptableVolume -ErrorAction SilentlyContinue | ForEach-Object {
   $blCs = Invoke-CimMethod -InputObject $_ -MethodName GetConversionStatus -ErrorAction SilentlyContinue
   $blSt = $(if ($blCs -and $null -ne $blCs.ConversionStatus) { $blCs.ConversionStatus } else { $_.ConversionStatus })
   [ordered]@{ mount = $(if ($_.DriveLetter) { "" + $_.DriveLetter } else { "" + $_.DeviceID }); status = (PKEnum $blConv $blSt)
               protection = (PKEnum $blProt $_.ProtectionStatus); percent = $(if ($blCs) { $blCs.EncryptionPercentage } else { $null }) } }) } catch {}
-try { $t = Get-CimInstance -Namespace 'root\cimv2\security\microsofttpm' -ClassName Win32_Tpm -ErrorAction Stop
+try { $t = Get-CimInstance -Namespace 'root\cimv2\security\microsofttpm' -ClassName Win32_Tpm -ErrorAction SilentlyContinue
   if ($t) { $e.tpm = [ordered]@{ present = $true; enabled = $t.IsEnabled_InitialValue; version = $t.SpecVersion } } } catch {}
 PKX 'firewall' { @(Get-CimInstance -Namespace 'root\StandardCimv2' -ClassName MSFT_NetFirewallProfile -ErrorAction Stop | ForEach-Object {
   [ordered]@{ profile = "$($_.Name)"; enabled = [bool]($_.Enabled -eq 'True' -or $_.Enabled -eq 1) } }) }
@@ -614,7 +620,7 @@ PKS 'tasks' {
   Get-CimInstance -Namespace $tns -ClassName MSFT_ScheduledTask -ErrorAction Stop | ForEach-Object {
   $t = $_; $i = $null
   if ($t.TaskPath -notlike '\Microsoft\*') {
-    try { $i = (Invoke-CimMethod -Namespace $tns -ClassName PS_ScheduledTask -MethodName GetInfoByName -Arguments @{ TaskName = $t.TaskName; TaskPath = $t.TaskPath } -ErrorAction Stop).cmdletOutput } catch {} }
+    $i = (Invoke-CimMethod -Namespace $tns -ClassName PS_ScheduledTask -MethodName GetInfoByName -Arguments @{ TaskName = $t.TaskName; TaskPath = $t.TaskPath } -ErrorAction SilentlyContinue).cmdletOutput }
   $act = (@($t.Actions) | ForEach-Object { (("" + $_.Execute) + ' ' + ("" + $_.Arguments)).Trim() }) -join ' | '
   [ordered]@{ path = $t.TaskPath; name = $t.TaskName; state = (PKEnum $tst $t.State); author = $t.Author; run_as = $t.Principal.UserId
     action = $act

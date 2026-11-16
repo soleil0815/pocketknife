@@ -6050,7 +6050,7 @@ def _():
     assert "^(Applications|InboxApplications|S-1-.*)$" in wg, "not EndOfLife/Staged"
     assert "AppxAllUserStore" in wg and "-Recurse -Depth" not in wg and "Get-AppxPackage -AllUsers" in wg.split("} else {")[0], "server: registry instead of all profiles"
     disp = ps[ps.index("PKS 'displays'"):ps.index("# @module environment")]
-    assert "nicht unterst|not supported|8004100C" in disp and "{ throw }" in disp
+    assert "nicht unterst|not supported|8004100C" in disp and "{ throw (" in disp and "-ErrorAction Stop" not in disp
     blk = ps[ps.index("# @sessions-begin"):ps.index("# @sessions-end")]
     assert "Server Core" in blk and "$pkExp.Count -eq 0 -and $pkQo.Count -gt 1" in blk
     from app import inventory, remote as _r
@@ -7471,7 +7471,7 @@ def _():
 GP_MOCK_PS = r'''# 2.51.0: event values as event XML (ToXml with full language, wevtutil.exe in Constrained Language), by record number
 $global:pkRec = 100; $global:pkXml = @{}
 function wevtutil.exe { $l = [string]$args[1]; if (-not $global:pkXml.ContainsKey($l)) { return }; $global:pkXml[$l] -join "`r`n" }
-function Get-WinEvent($FilterHashtable, $MaxEvents, $ErrorAction) {
+function Get-WinEvent { [CmdletBinding()] param($FilterHashtable, $MaxEvents)
   $a = [guid]'11111111-2222-3333-4444-555555555555'
   $b = [guid]'aaaaaaaa-2222-3333-4444-555555555555'
   $t = Get-Date '2026-11-12T15:43:33'
@@ -8165,7 +8165,7 @@ def _():
         '<Extensions><uap:Extension><uap:FileTypeAssociation><uap:DisplayName>Datei</uap:DisplayName></uap:FileTypeAssociation></uap:Extension></Extensions>'
         '</Application></Applications></Package>')
     body = ("$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'\n" + pre +
-            "function Get-LocalGroupMember { param($SID, $ErrorAction) if ($SID -eq 'S-1-5-32-544') { @(@{ Name = 'PC\\Administrator'; ObjectClass = 'Benutzer' }, @{ Name = 'FIRMA\\Domänen-Admins'; ObjectClass = 'Gruppe' }) } else { throw 'Fehler 1332' } }\n"
+            "function Get-LocalGroupMember { [CmdletBinding()] param($SID) if ($SID -eq 'S-1-5-32-544') { @(@{ Name = 'PC\\Administrator'; ObjectClass = 'Benutzer' }, @{ Name = 'FIRMA\\Domänen-Admins'; ObjectClass = 'Gruppe' }) } else { Write-Error 'Fehler 1332' } }\n"
             "function Get-CimAssociatedInstance { param($InputObject, $Association, $ErrorAction) @(@{ Domain = 'PC'; Name = 'Gast'; CimClass = @{ CimClassName = 'Win32_UserAccount' } }) }\n"
             + grp +
             "'GRP1:' + (ConvertTo-Json -InputObject @(PK-GroupMembers @{ SID = 'S-1-5-32-544' }) -Compress)\n"
@@ -8659,6 +8659,50 @@ def _():
     assert o[4:] == ["B:", "calls=1", "C:", "calls=2"], o
     assert not r.stderr.strip(), r.stderr
     assert remote.crash_hint("\n".join(o)).startswith(" – SetupFrontEnd.exe ist abgestürzt: Das Programm wollte")
+
+
+@test("2.53.3 Expected failures without a terminating error (PowerShell logs a caught one as event 4100): event viewer and Group Policy history with an empty log, displays on VMs, Defender/BitLocker/TPM missing, groups with orphaned SIDs, task info - real errors still reported")
+def _():
+    import subprocess as _sp
+    from app import actions, gphistory
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app")
+    ps = open(os.path.join(root, "scan_modules.ps1"), encoding="utf-8").read()
+    for frm, to in (("PKS 'displays'", "# @module environment"), ("function PK-GroupMembers", "$admins = @()"),
+                    ("$mp = @(Get-CimInstance -Namespace 'root\\Microsoft\\Windows\\Defender'", "PKX 'firewall'"), ("$t = $_; $i = $null", "action = $act")):
+        seg = ps[ps.index(frm):ps.index(to, ps.index(frm))]
+        assert "-ErrorAction Stop" not in seg.replace("Get-CimAssociatedInstance -InputObject $grp -Association Win32_GroupUser -ErrorAction Stop", ""), frm
+    gp = gphistory.script(24)
+    fn = gp[gp.index("function PK-Ev"):gp.index("\n}\n", gp.index("function PK-Ev")) + 3]
+    assert "-ErrorAction Stop" not in fn and "-ErrorVariable pkWe" in fn
+    captured = {}
+    _o = actions.remote.ps
+    try:
+        actions.remote.ps = lambda host, script, timeout=0: (captured.setdefault("s", script), "PKJSON:[]", "", )[1:] + (0,)
+        actions._host, _oh = (lambda cid: (None, "pc")), actions._host
+        try:
+            actions.event_log(1, "System")
+        finally:
+            actions._host = _oh
+    finally:
+        actions.remote.ps = _o
+    ev = captured["s"]
+    assert "-ErrorAction Stop" not in ev and "-ErrorVariable pkWe" in ev and "NoMatchingEventsFound" in ev
+    pw = os.environ.get("PK_PWSH")
+    if not (pw and os.path.exists(pw)):
+        return
+    d = os.path.join(TMP, "pk-quiet")
+    os.makedirs(d, exist_ok=True)
+    body = ("function Get-WinEvent { [CmdletBinding()] param($FilterHashtable, $MaxEvents)\n"
+            "  if ($FilterHashtable.LogName -eq 'leer') { $er = New-Object System.Management.Automation.ErrorRecord ((New-Object System.Exception 'No events were found that match the specified selection criteria.')), 'NoMatchingEventsFound,Microsoft.PowerShell.Commands.GetWinEventCommand', 'ObjectNotFound', $null; $PSCmdlet.WriteError($er); return }\n"
+            "  if ($FilterHashtable.LogName -eq 'kaputt') { Write-Error 'Zugriff verweigert'; return }\n"
+            "  1, 2 }\n" + fn +
+            "\n'A:' + @(PK-Ev @{ LogName = 'leer' } 5).Count\n'B:' + @(PK-Ev @{ LogName = 'gut' } 5).Count\n"
+            "try { $null = PK-Ev @{ LogName = 'kaputt' } 5; 'C:kein Fehler' } catch { 'C:' + $_ }\n'E:' + $Error.Count\n")
+    path = os.path.join(d, "q.ps1")
+    open(path, "w", encoding="utf-8").write(body.replace("{{", "{").replace("}}", "}"))
+    r = _sp.run([pw, "-NoProfile", "-NonInteractive", "-File", path], capture_output=True, text=True, timeout=120)
+    o = [ln for ln in r.stdout.splitlines() if ln.strip()]
+    assert o[:3] == ["A:0", "B:2", "C:Zugriff verweigert"], (o, r.stderr)
 
 
 @test("2.46.1 gpupdate in tools never waits for \"log off / restart? (J/N)\": always \"N\" (cmd and PowerShell, new and existing tools, built-in tool says so in the output)")
