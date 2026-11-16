@@ -6437,5 +6437,17 @@
  "{0} Funktionen geprüft, {1} Aufrufe – Fehler (4100): {2}, Warnungen (4104): {3}": "{0} functions checked, {1} calls – errors (4100): {2}, warnings (4104): {3}",
  "Der Computer muss eingeschaltet sein. Gruppenrichtlinien-Update, Benachrichtigungen und Verteilungen führt der Prüflauf nicht aus – die prüft der Prüfmodus, wenn Sie sie wie gewohnt benutzen.": "The computer must be switched on. The test run does not run Group Policy updates, notifications or deployments – the check mode checks them when you use them as usual.",
  "{0} (ausgeschaltet)": "{0} (off)",
- "Scan (alle Bereiche, eigene Scanner)": "Scan (all areas, own scanners)"
+ "Scan (alle Bereiche, eigene Scanner)": "Scan (all areas, own scanners)",
+ "Prüfmodus PowerShell-Protokoll: keine Daten. Einschalten unter Einstellungen → Wartung → „PowerShell-Protokoll prüfen“, ein paar Tage normal arbeiten (oder einen Prüflauf starten), dann das Diagnosepaket erneut herunterladen.\n": null,
+ "(Einträge anderer Software oder Benutzer ausgelassen: {0})": null,
+ "Funktion | Aufrufe | 4100 | 4104 | Absturz": null,
+ "Keine Einträge 4100 oder 4104 (Warnung) und keine Abstürze durch POCKET KNIFE.": null,
+ "PKCHK_ME:": null,
+ "RemoteConnectError": null,
+ "RemoteTimeout": null,
+ "Absturz": "Crash",
+ "Der Bericht steht auch im Diagnosepaket (powershell_protokoll.txt). Computernamen sind darin durch Platzhalter ersetzt.": "The report is also in the diagnostic package (powershell_protokoll.txt). Computer names in it are replaced by placeholders.",
+ "Eingeschaltet schaut POCKET KNIFE nach jedem eigenen Aufruf – Scans, Jobs, Tools, alles – im PowerShell-Protokoll des Computers nach, ob dabei ein Fehler (Ereignis 4100) oder eine Warnung (Ereignis 4104) entstanden ist, und merkt sich die auslösende Funktion; dazu Abstürze von Programmen, die POCKET KNIFE gestartet hat. Gesammelt wird nur, was POCKET KNIFE auslöst – Einträge anderer Software und der Benutzer bleiben draußen. Ein paar Tage laufen lassen, dann das Diagnosepaket herunterladen: Es enthält den vollständigen Bericht. Jeder Aufruf dauert etwa 2 Sekunden länger – danach wieder ausschalten. Der Prüflauf führt alle lesenden Funktionen einmal auf einem Computer aus; dort wird nichts verändert.": "When on, POCKET KNIFE looks into the computer's PowerShell log after every call it makes – scans, jobs, tools, everything – checks whether an error (event 4100) or a warning (event 4104) was logged, and remembers the function that caused it; plus crashes of programs POCKET KNIFE started. Only what POCKET KNIFE causes is collected – entries of other software and of users stay out. Leave it on for a few days, then download the diagnostic package: it contains the full report. Every call takes about 2 seconds longer – switch it off again afterwards. The test run runs every reading function once on a computer; nothing is changed there.",
+ "Einträge anderer Software oder Benutzer ausgelassen: {0}": "Entries of other software or users left out: {0}",
+ "{0} Funktionen geprüft, {1} Aufrufe – Fehler (4100): {2}, Warnungen (4104): {3}, Abstürze: {4}": "{0} functions checked, {1} calls – errors (4100): {2}, warnings (4104): {3}, crashes: {4}"
 }

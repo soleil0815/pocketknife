@@ -1128,8 +1128,8 @@ function psCheckCard() {
     if (!comps) { try { comps = (await GET('/api/computers')).sort((a, b) => (b.online ? 1 : 0) - (a.online ? 1 : 0) || String(a.name).localeCompare(String(b.name))); } catch (e) { comps = []; } }
     const en = h('input', { type: 'checkbox', checked: d.enabled, onchange: async (e) => { if (await run(() => PUT('/api/system/pscheck', { enabled: e.target.checked }))) draw(); } });
     const pc = sel([['', tr('Computer wählen …')]].concat(comps.map((c) => [String(c.id), c.online ? c.name : fmtT('{0} (ausgeschaltet)', c.name)])), '', { style: { maxWidth: '260px' } });
-    const rows = Object.entries(d.calls).sort((a, b) => (b[1].e4100 + b[1].e4104) - (a[1].e4100 + a[1].e4104) || a[0].localeCompare(b[0]));
-    const sum = rows.reduce((t, [, v]) => [t[0] + v.calls, t[1] + v.e4100, t[2] + v.e4104], [0, 0, 0]);
+    const rows = Object.entries(d.calls).sort((a, b) => (b[1].e4100 + b[1].e4104 + b[1].crash) - (a[1].e4100 + a[1].e4104 + a[1].crash) || a[0].localeCompare(b[0]));
+    const sum = rows.reduce((t, [, v]) => [t[0] + v.calls, t[1] + v.e4100, t[2] + v.e4104, t[3] + v.crash], [0, 0, 0, 0]);
     const rn = d.run;
     const runBox = rn ? h('div.small', { style: { marginTop: '8px' } },
       h('b', fmtT(rn.running ? 'Prüflauf auf {0} läuft …' : 'Prüflauf auf {0} beendet', rn.name)),
@@ -1138,7 +1138,7 @@ function psCheckCard() {
         h('td.muted', s.seconds != null ? `${String(s.seconds).replace('.', ',')} s` : ''), h('td.muted', s.note || '')))))) : null;
     const fl = d.findings.slice(-30).reverse();
     body.replaceChildren(
-      h('p.muted.small', { style: { marginTop: 0 } }, tr('Eingeschaltet schaut POCKET KNIFE nach jedem eigenen Aufruf auf einem Computer in dessen PowerShell-Protokoll nach, ob ein Fehler (Ereignis 4100) oder eine Warnung (Ereignis 4104) entstanden ist, und merkt sich die auslösende Funktion. Jeder Aufruf dauert dadurch etwa 2 Sekunden länger – nach der Prüfung wieder ausschalten. Der Prüflauf führt alle lesenden Funktionen einmal auf einem Computer aus; dort wird nichts verändert.')),
+      h('p.muted.small', { style: { marginTop: 0 } }, tr('Eingeschaltet schaut POCKET KNIFE nach jedem eigenen Aufruf – Scans, Jobs, Tools, alles – im PowerShell-Protokoll des Computers nach, ob dabei ein Fehler (Ereignis 4100) oder eine Warnung (Ereignis 4104) entstanden ist, und merkt sich die auslösende Funktion; dazu Abstürze von Programmen, die POCKET KNIFE gestartet hat. Gesammelt wird nur, was POCKET KNIFE auslöst – Einträge anderer Software und der Benutzer bleiben draußen. Ein paar Tage laufen lassen, dann das Diagnosepaket herunterladen: Es enthält den vollständigen Bericht. Jeder Aufruf dauert etwa 2 Sekunden länger – danach wieder ausschalten. Der Prüflauf führt alle lesenden Funktionen einmal auf einem Computer aus; dort wird nichts verändert.')),
       h('div.form',
         field('Prüfmodus', h('label.chk', en, tr('nach jedem Aufruf das PowerShell-Protokoll des Computers prüfen')),
           d.started ? fmtT('Ergebnisse seit {0}.', fmtDate(d.started)) : null),
@@ -1147,18 +1147,20 @@ function psCheckCard() {
           if (await run(() => POST('/api/system/pscheck/run', { cid: Number(pc.value) }), 'Prüflauf gestartet')) draw();
         }, { cls: 'small', disabled: !d.enabled || (rn && rn.running) })), tr('Der Computer muss eingeschaltet sein. Gruppenrichtlinien-Update, Benachrichtigungen und Verteilungen führt der Prüflauf nicht aus – die prüft der Prüfmodus, wenn Sie sie wie gewohnt benutzen.')),
         field('Ergebnis', h('div',
-          h('div.small', fmtT('{0} Funktionen geprüft, {1} Aufrufe – Fehler (4100): {2}, Warnungen (4104): {3}', rows.length, sum[0], sum[1], sum[2])),
+          h('div.small', fmtT('{0} Funktionen geprüft, {1} Aufrufe – Fehler (4100): {2}, Warnungen (4104): {3}, Abstürze: {4}', rows.length, sum[0], sum[1], sum[2], sum[3])),
+          d.other ? h('div.small.muted', fmtT('Einträge anderer Software oder Benutzer ausgelassen: {0}', d.other)) : null,
           h('div.row', { style: { gap: '6px', marginTop: '6px' } },
             btn('Bericht kopieren', async () => { const t = await reportText(); if (t != null) copyText(t); }, { cls: 'small primary', icon: 'file', disabled: !rows.length }),
             btn('Bericht anzeigen', async () => { const t = await reportText(); if (t != null) showOutput(tr('PowerShell-Protokoll – Bericht'), t); }, { cls: 'small', disabled: !rows.length }),
             btn('Zurücksetzen', async () => { if (await confirmDlg(tr('Alle gesammelten Ergebnisse löschen?'), 'Löschen', true) && await run(() => DEL('/api/system/pscheck'))) draw(); }, { cls: 'small ghost', disabled: !rows.length })),
-          tr('Den Bericht können Sie zur Fehlersuche weitergeben – Computernamen sind darin durch Platzhalter ersetzt.')))),
+          tr('Der Bericht steht auch im Diagnosepaket (powershell_protokoll.txt). Computernamen sind darin durch Platzhalter ersetzt.')))),
       runBox,
-      rows.length ? h('table.small', { style: { marginTop: '10px' } }, h('thead', h('tr', h('th', 'Funktion'), h('th.right', 'Aufrufe'), h('th.right', '4100'), h('th.right', '4104'))),
+      rows.length ? h('table.small', { style: { marginTop: '10px' } }, h('thead', h('tr', h('th', 'Funktion'), h('th.right', 'Aufrufe'), h('th.right', '4100'), h('th.right', '4104'), h('th.right', 'Absturz'))),
         h('tbody', rows.map(([k, v]) => h('tr', h('td.raw', k), h('td.right', String(v.calls)),
-          h('td.right', { class: v.e4100 ? 'err-text' : 'muted' }, String(v.e4100)), h('td.right', { class: v.e4104 ? 'err-text' : 'muted' }, String(v.e4104)))))) : null,
+          h('td.right', { class: v.e4100 ? 'err-text' : 'muted' }, String(v.e4100)), h('td.right', { class: v.e4104 ? 'err-text' : 'muted' }, String(v.e4104)),
+          h('td.right', { class: v.crash ? 'err-text' : 'muted' }, String(v.crash)))))) : null,
       fl.length ? h('div', { style: { marginTop: '10px' } }, h('b.small', tr('Neueste Funde')), fl.map((f) => h('div.small', { style: { marginTop: '6px' } },
-        h('b.raw', `[${f.event}] ${f.op}`), h('span.muted', ` · ${f.host} · ${f.time}`), h('div.raw', f.message || ''),
+        h('b.raw', `[${f.event === 1000 ? tr('Absturz') : f.event}] ${f.op}`), h('span.muted', ` · ${f.host} · ${f.time}`), h('div.raw', f.message || ''),
         f.error_id ? h('div.muted.raw', f.error_id) : null, f.flagged && f.flagged.length ? h('div.muted', fmtT('Auffällig: {0}', f.flagged.join(', '))) : null))) : null);
     clearTimeout(timer);
     if ((rn && rn.running) && document.body.contains(card)) timer = setTimeout(draw, 3000);

@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.54.1",
+   "date": "2026-11-16",
+   "items": [
+    {
+     "kind": "improved",
+     "audience": "admin",
+     "de": "Der Prüfmodus „PowerShell-Protokoll“ sammelt nur noch, was POCKET KNIFE selbst auslöst – dazu Abstürze von Programmen, die es gestartet hat. Der vollständige Bericht steht im Diagnosepaket (powershell_protokoll.txt).",
+     "en": "The check mode \"PowerShell log\" now collects only what POCKET KNIFE itself causes – plus crashes of programs it started. The full report is in the diagnostic package (powershell_protokoll.txt)."
+    }
+   ]
+  },
+  {
    "version": "2.54.0",
    "date": "2026-11-16",
    "items": [

@@ -581,6 +581,19 @@ def _pscheck():
     return pscheck.stats()
 
 
+def _pscheck_report(an, anonymize):
+    """2.54.1: the full report of the check mode (what POCKET KNIFE caused in the computers' PowerShell logs) - names,
+    domain, users and addresses replaced like in every other file of the package."""
+    from . import pscheck
+    s = pscheck.summary()
+    if not s["calls"]:
+        return ("Prüfmodus PowerShell-Protokoll: keine Daten. Einschalten unter Einstellungen → Wartung → "
+                "„PowerShell-Protokoll prüfen“, ein paar Tage normal arbeiten (oder einen Prüflauf starten), dann das "
+                "Diagnosepaket erneut herunterladen.\n")
+    text = pscheck.report(anon_hosts=False)
+    return an(text) if anonymize else text
+
+
 def _crashes():
     """2.53.2: crashed programs in steps/tools since the start (reason from the client's application log) - counts only."""
     from . import remote
@@ -857,8 +870,10 @@ Dateien
                        Select-Object -First – nie der Code),
                        abgestürzte Programme in Schritten/Tools (Anzahl, davon „Fenster als SYSTEM“,
                        davon mit ausstehendem Neustart),
-                       Prüfmodus PowerShell-Protokoll (an/aus, Aufrufe und Einträge 4100/4104 je
-                       POCKET-KNIFE-Funktion – nur Anzahlen, keine Meldungstexte)
+                       Prüfmodus PowerShell-Protokoll (an/aus, Aufrufe und Einträge 4100/4104 und
+                       Abstürze je POCKET-KNIFE-Funktion)
+  powershell_protokoll.txt  Bericht des Prüfmodus: was POCKET KNIFE in den PowerShell-Protokollen der
+                       Computer ausgelöst hat (Funktion, Meldung, Fehler-ID) – Namen ersetzt
   leistung.json        Rechenlast und Lastspitzen, Dauer der wichtigsten Abfragen, langsamste Sammlungen, größte Felder
                        (nur Feldnamen und Größen, keine Inhalte)
   update_status.json   Update-Status: Microsoft-Abgleich, Stände je Status, Office-Installationen je Produkt/Kanal/Version
@@ -974,6 +989,7 @@ def _build(days, anonymize, user):
                 z.writestr(fname, json.dumps({"error": an(str(e))[:500]}, ensure_ascii=False))
         z.writestr("protokoll.csv", _csv(logs, ["ts", "version", "level", "category", "computer", "username", "message"]))
         z.writestr("fehler.txt", "\n".join(errors) or "Keine Warnungen oder Fehler im Zeitraum.\n")
+        z.writestr("powershell_protokoll.txt", _pscheck_report(an, anonymize))
         z.writestr("bereitstellungen.csv", _csv(targets, ["version", "deployment_id", "deployment", "source", "chain_id", "chain_pos", "chain_len",
                                                           "created_by", "computer_name", "status", "exit_code", "message", "started_at", "finished_at"]))
         z.writestr("fehlgeschlagen.json", json.dumps(failed, ensure_ascii=False, indent=1, default=str))

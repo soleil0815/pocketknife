@@ -8735,9 +8735,9 @@ def _():
     def raw(host, script):
         probes.append(script)
         n = len(probes)
-        out = f"PKCHK_NOW:2026-11-16T13:00:0{n}.0000000+01:00\n"
+        out = f"PKCHK_NOW:2026-11-16T13:00:0{n}.0000000+01:00\nPKCHK_ME:S-1-5-21-9-1105\n"
         if n == 3:
-            out += "PKCHK_EV:" + json.dumps({"t": "2026-11-16T13:00:02", "id": 4100, "lvl": 3, "m": m4100_en}) + "\n"
+            out += "PKCHK_EV:" + json.dumps({"t": "2026-11-16T13:00:02", "id": 4100, "lvl": 3, "u": "S-1-5-21-9-1105", "m": m4100_en}) + "\n"
         return out
     _save = pscheck._save
     pscheck._save = lambda: None
@@ -8757,12 +8757,12 @@ def _():
         assert len(probes) == 3, "no look into the log when the computer is not reachable"
         f = pscheck.STATE["findings"][-1]
         assert f["op"] == "inventory.scan" and f["prev_op"] == "actions.event_log" and f["event"] == 4100, f
-        assert pscheck.STATE["calls"]["inventory.scan"] == {"calls": 1, "e4100": 1, "e4104": 0}
+        assert pscheck.STATE["calls"]["inventory.scan"] == {"calls": 1, "e4100": 1, "e4104": 0, "crash": 0}
         rep = pscheck.report(True)
-        assert "inventory.scan | 1 | 1 | 0" in rep and "PC-001" in rep and "pc-0001" not in rep.lower().replace("pc-001", ""), rep
+        assert "inventory.scan | 1 | 1 | 0 | 0" in rep and "PC-001" in rep and "pc-0001" not in rep.lower().replace("pc-001", ""), rep
         assert "NoMatchingEventsFound" in rep and "seit dem vorigen Aufruf: actions.event_log" in rep
         st = pscheck.stats()
-        assert st["event_4100"] == 1 and st["per_function"]["inventory.scan"] == [1, 1, 0] and "message" not in json.dumps(st)
+        assert st["event_4100"] == 1 and st["per_function"]["inventory.scan"] == [1, 1, 0, 0] and "message" not in json.dumps(st)
         assert diagnostics._pscheck()["calls"] == 2
         # remote.ps goes through the check only when it is on
         seen = []
@@ -8855,14 +8855,68 @@ def _():
             + pscheck.PROBE.replace("__SINCE__", "2026-11-16T13:00:00.0000000+01:00"))
     path = os.path.join(d, "p.ps1")
     open(path, "w", encoding="utf-8-sig").write(body)
-    r = _sp.run([pw, "-NoProfile", "-NonInteractive", "-File", path], capture_output=True, text=True, timeout=60)
+    os.makedirs(os.path.join(d, "System32"), exist_ok=True)
+    who = os.path.join(d, "System32", "whoami.exe")
+    open(who, "w").write('#!/bin/sh\necho \'"FIRMA\\svc-pocketknife","S-1-5-21-9-1105"\'\n')
+    os.chmod(who, 0o755)
+    penv = dict(os.environ, SystemRoot=d)
+    r = _sp.run([pw, "-NoProfile", "-NonInteractive", "-File", path], capture_output=True, text=True, timeout=60, env=penv)
+    assert "PKCHK_ME:S-1-5-21-9-1105" in r.stdout, (r.stdout, r.stderr)
     evs = [json.loads(ln[9:]) for ln in r.stdout.splitlines() if ln.startswith("PKCHK_EV:")]
     assert [e["m"] for e in evs] == ["warnung", "fehler"] and any(ln.startswith("PKCHK_NOW:") for ln in r.stdout.splitlines()), (r.stdout, r.stderr)
     assert not r.stderr.strip(), r.stderr
     r = _sp.run([pw, "-NoProfile", "-NonInteractive", "-File", path.replace("p.ps1", "q.ps1")] if False else
                 [pw, "-NoProfile", "-NonInteractive", "-Command", pscheck.PROBE.replace("__SINCE__", "").replace("Start-Sleep -Milliseconds 1500", "")],
-                capture_output=True, text=True, timeout=60)
+                capture_output=True, text=True, timeout=60, env=penv)
     assert r.stdout.strip().startswith("PKCHK_NOW:") and "PKCHK_EV" not in r.stdout, r.stdout
+
+
+@test("2.54.1 Check mode collects only what POCKET KNIFE causes (service account's own sessions, scripts in its work folder; other software left out and counted), crashes of programs it started, full report in the diagnostic package with names replaced")
+def _():
+    from app import pscheck, remote, diagnostics
+    me = "S-1-5-21-9-1105"
+    assert pscheck.is_pk({"u": me, "m": "Fehlermeldung = x"}, me)
+    assert pscheck.is_pk({"u": "S-1-5-18", "m": "Hostanwendung = powershell.exe -File C:\\Windows\\Temp\\PocketKnife\\tool_1\\pk_tool.ps1"}, me)
+    assert not pscheck.is_pk({"u": "S-1-5-18", "m": "Hostanwendung = powershell.exe -File C:\\ProgramData\\WhatsOnMyNet\\womn-host.ps1"}, me)
+    assert not pscheck.is_pk({"u": "S-1-5-21-9-2000", "m": "Fehlermeldung = vom Benutzer"}, me)
+    old = (dict(pscheck.STATE), pscheck._loaded)
+    pscheck.STATE.update(since={"pc-0003": "2026-11-16T12:00:00"}, last_op={}, calls={}, findings=[], started=None, other=0)
+    pscheck._loaded = True
+    _save = pscheck._save
+    pscheck._save = lambda: None
+    try:
+        def raw(host, script):
+            return ("PKCHK_NOW:2026-11-16T13:00:00\nPKCHK_ME:" + me + "\n"
+                    + "PKCHK_EV:" + json.dumps({"id": 4100, "u": me, "m": "Fehlermeldung = Systemfehler"}) + "\n"
+                    + "PKCHK_EV:" + json.dumps({"id": 4100, "u": "S-1-5-18", "m": "Fehlermeldung = fremd\nHostanwendung = C:\\ProgramData\\WhatsOnMyNet\\womn-host.ps1"}) + "\n")
+        out = ("Exitcode: -532462766\n" + remote.CRASH_PREFIX + "SetupFrontEnd.exe – System.InvalidOperationException: Showing a modal dialog box\n")
+        pscheck.wrap("pc-0003", lambda: (out, "", False), raw, op="steps.run_step")
+        c = pscheck.STATE["calls"]["steps.run_step"]
+        assert c == {"calls": 1, "e4100": 1, "e4104": 0, "crash": 1}, c
+        assert pscheck.STATE["other"] == 1
+        crash = [f for f in pscheck.STATE["findings"] if f["event"] == 1000][0]
+        assert crash["message"].startswith("SetupFrontEnd.exe: System.InvalidOperationException") and crash["op"] == "steps.run_step", crash
+        rep = pscheck.report(True)
+        assert "steps.run_step | 1 | 1 | 0 | 1" in rep and "[Absturz] steps.run_step" in rep and "anderer Software oder Benutzer ausgelassen: 1" in rep, rep
+        assert "womn" not in rep.lower()
+        st = pscheck.stats()
+        assert st["crashed_programs"] == 1 and st["other_software_left_out"] == 1 and st["per_function"]["steps.run_step"] == [1, 1, 0, 1]
+        # diagnostic package: full report, names replaced like everywhere else
+        class _An:
+            def __call__(self, t):
+                return t.replace("pc-0003", "PC-042")
+        txt = diagnostics._pscheck_report(_An(), True)
+        assert "PC-042" in txt and "pc-0003" not in txt and "SetupFrontEnd.exe" in txt, txt
+        assert diagnostics._pscheck_report(_An(), False).count("pc-0003") >= 1
+        pscheck.STATE["calls"] = {}
+        assert "keine Daten" in diagnostics._pscheck_report(_An(), True)
+    finally:
+        pscheck._save = _save
+        pscheck.STATE.clear()
+        pscheck.STATE.update(old[0])
+        pscheck._loaded = old[1]
+    src = open(diagnostics.__file__, encoding="utf-8").read()
+    assert 'z.writestr("powershell_protokoll.txt", _pscheck_report(an, anonymize))' in src and "powershell_protokoll.txt  Bericht" in src
 
 
 # 2.54.0: every terminating error is logged by PowerShell as event 4100, even a caught one. These are the places that
