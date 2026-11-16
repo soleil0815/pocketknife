@@ -7,7 +7,13 @@ New entries are in English. Entries up to and including 2.38.4-s1 (November 2026
   - also works in **Constrained Language Mode** now (software restriction, AppLocker, App Control) - before "needs full PowerShell"
   - drive data from `Win32_LogicalDisk` instead of .NET
   - slower on very large drives (one to a few minutes instead of seconds) - fine for the tool and the 30-day schedule
-- **Tool start:** `Set-ExecutionPolicy -Scope Process` only if no group policy sets the execution policy - otherwise it fails, and PowerShell logs that as event 4100 (warning) even though the error is caught
+- **Fewer 4100 warnings** ("Error Message = …" in the PowerShell log): PowerShell writes every *terminating* error as a warning, even when the script catches it. Expected failures now run without one:
+  - tool start: `Set-ExecutionPolicy -Scope Process` only if no group policy sets the execution policy
+  - "Anwendungen" scan: MSIX packages whose folder is missing (e.g. Notepad on a server) are checked without `-ErrorAction Stop`
+  - Secure Boot from the registry (`SecureBoot\State`) instead of `Confirm-SecureBootUEFI`, which throws on BIOS systems
+  - winget step: the proxy marker is read without a terminating error when it does not exist yet
+  - notification: the result value is read with Get-ItemProperty (the value-only cmdlet throws for a missing value despite SilentlyContinue)
+  - the many "Systemfehler/System error" 4100 entries without a command seen on the test server came from processes that read the event log (Get-WinEvent: the check scripts and WhatsOnMyNet) - still to be confirmed after this version
 - Help: disk space analysis and Constrained Language Mode updated
 - **Self-test:** client script in Constrained Language with a robocopy stand-in (sums, deeper levels, unreadable folder, umlauts, log removed), tree and pruning on the server, the disk space scripts pass PowerShell's own check; tool start with and without group policy
 

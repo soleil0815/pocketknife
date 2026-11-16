@@ -8457,7 +8457,7 @@ def _():
     assert "DONE" in out and "NOT " not in out, out
 
 
-@test("2.53.0 Disk space analysis without a compiled helper: robocopy listing (no junctions, UTF-16 log), sums per folder in PowerShell (also Constrained Language), tree pruned on the server like before; tool start without Set-ExecutionPolicy under a group policy")
+@test("2.53.0 Disk space analysis without a compiled helper: robocopy listing (no junctions, UTF-16 log), sums per folder in PowerShell (also Constrained Language), tree pruned on the server like before; expected failures without terminating errors (event 4100)")
 def _():
     import subprocess as _sp
     from app import diskusage, pslint
@@ -8513,6 +8513,25 @@ def _():
     assert o["LEFT"] == "0", "log removed"
     t = diskusage._tree(res, 2)
     assert t["s"] == 201557 and t["k"][0]["n"] == "Sub" and t["k"][0]["k"][1] == {"n": "Tief", "s": 57, "fc": 2, "dc": 1, "m": 1}, t
+    # event 4100: PowerShell logs every terminating error as a warning, even a caught one - expected failures without "Stop"
+    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "scan_modules.ps1"), encoding="utf-8").read()
+    from app import deploy, toast
+    code = "\n".join(ln for ln in src.splitlines() if not ln.lstrip().startswith("#"))
+    assert "Confirm-SecureBootUEFI" not in code and "UEFISecureBootEnabled" in code
+    assert "Get-Item -LiteralPath $mp -Force -ErrorAction SilentlyContinue -ErrorVariable pkGe" in src
+    assert "-Name WingetProxy -ErrorAction Stop" not in deploy._winget_body({"type": "winget", "winget_id": "7zip.7zip", "winget_action": "install"}) + str(deploy.WINGET_FIND)
+    sp = toast.build_send_script([("installed", "7-Zip", "26")])[0]
+    assert "Get-ItemPropertyValue" not in sp and "-ErrorAction Stop).Enabled" not in toast.USER_PS
+    mx = src[src.index("      if (-not (Test-Path -LiteralPath $mp)) {"):src.index("      $dn = $nm; $pub = ''; $fw = $false")]
+    gm = ("$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'\n"
+          "function Test-Path { param($LiteralPath) $false }\n"
+          "function Get-Item { [CmdletBinding()] param($LiteralPath, [switch]$Force) if ($LiteralPath -like '*weg*') { Write-Error -Message 'nicht da' -ErrorId 'PathNotFound' -Category ObjectNotFound }"
+          " else { Write-Error -Message 'Zugriff verweigert' -ErrorId 'ItemExistsUnauthorizedAccessError' -Category PermissionDenied } }\n"
+          "foreach ($mp in @('C:\\Program Files\\WindowsApps\\weg\\AppxManifest.xml', 'C:\\Program Files\\WindowsApps\\gesperrt\\AppxManifest.xml')) {\n"
+          + mx + "  'KEPT:' + $mp\n}\n")
+    open(os.path.join(d, "mx.ps1"), "w", encoding="utf-8").write(gm)
+    r = _sp.run([pw, "-NoProfile", "-NonInteractive", "-File", os.path.join(d, "mx.ps1")], capture_output=True, text=True, timeout=120)
+    assert [ln for ln in r.stdout.splitlines() if ln.startswith("KEPT:")] == ["KEPT:C:\\Program Files\\WindowsApps\\gesperrt\\AppxManifest.xml"], (r.stdout, r.stderr[-500:])
     # tool start: Set-ExecutionPolicy only without a group policy (otherwise it fails and PowerShell logs event 4100)
     from app import tools
     w = tools.ps_tool_winrm("'ok'")

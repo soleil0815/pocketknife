@@ -200,7 +200,10 @@ PKX 'entra' {
   [ordered]@{ join = $(if ($joined) { if ($cs.PartOfDomain) { 'Hybrid' } else { 'Entra ID' } } else { '' }); tenant = $tenant; mdm = $mdm }
 }
 PKX 'bios_mode' { $env:firmware_type }
-PKX 'secure_boot' { try { [bool](Confirm-SecureBootUEFI -ErrorAction Stop) } catch { $null } }
+# 2.53.0: from the registry (only present with UEFI) - Confirm-SecureBootUEFI throws on BIOS systems, and PowerShell logs
+# every such error as event 4100 even when it is caught
+PKX 'secure_boot' { $sb = Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\SecureBoot\State' -ErrorAction SilentlyContinue
+  if ($sb -and $null -ne $sb.UEFISecureBootEnabled) { [int]$sb.UEFISecureBootEnabled -eq 1 } else { $null } }
 # 2.50.1: CIM classes instead of module cmdlets (Get-SmbServerConfiguration, Get-NetAdapter, Get-PhysicalDisk ...): those load
 # generated Windows modules that script block logging records as dozens of "warning" entries per scan - same values
 PKX 'smb1_server' { try { [bool](Get-CimInstance -Namespace 'root\Microsoft\Windows\SMB' -ClassName MSFT_SmbServerConfiguration -ErrorAction Stop).EnableSMB1Protocol } catch { $null } }
@@ -285,10 +288,11 @@ try {
       if ($mp -notmatch '[\\/](WindowsApps|SystemApps)[\\/]') { continue }
       # 2.41.3: package folder gone = not installed (registry leftover). Only "not found" counts - with
       # "access denied" the package is kept (name from the registry)
+      # 2.53.0: without -ErrorAction Stop - a terminating error is logged by PowerShell as event 4100 (warning) even if caught
       if (-not (Test-Path -LiteralPath $mp)) {
-        $gone = $false
-        try { $null = Get-Item -LiteralPath $mp -Force -ErrorAction Stop } catch { $gone = ("" + $_.FullyQualifiedErrorId) -match 'PathNotFound' }
-        if ($gone) { continue }
+        $pkGe = $null
+        $null = Get-Item -LiteralPath $mp -Force -ErrorAction SilentlyContinue -ErrorVariable pkGe
+        if (@($pkGe | Where-Object { ("" + $_.FullyQualifiedErrorId) -match 'PathNotFound' }).Count) { continue }
       }
       $dn = $nm; $pub = ''; $fw = $false
       try {
