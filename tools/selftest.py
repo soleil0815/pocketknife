@@ -8600,6 +8600,61 @@ def _():
     assert rows == ["COUNT:%d" % scanners.MAX_ROWS, "COUNT:0", "COUNT:1"], rows
 
 
+@test("2.53.2 Crashed installer (0xE0434352 .NET, 0xC... NTSTATUS): the reason from the application log (1026/1000) in the output and plain text in the result - e.g. a window as SYSTEM; not for normal failure codes, no exception on an empty log")
+def _():
+    import subprocess as _sp
+    from app import pslint, remote, steps
+    w = remote.WRAPPER
+    fn = w[w.index("function PK-CrashInfo"):w.index("function PK-Run(")]
+    assert "-ErrorAction SilentlyContinue" in fn and "-ErrorAction Stop" not in fn and "Select-Object -First" not in fn
+    assert "$pkT0 = Get-Date" in w and "if ($p.ExitCode -ne 0) { PK-CrashInfo $pkT0 $p.ExitCode }" in w
+    assert [f for f in pslint.check(fn)] == [], pslint.check(fn)
+    # server side: plain text for the result line
+    out = ("> C:\\Windows\\Temp\\PocketKnife\\x\\paint.net.5.2.install.x64.exe /auto\nExitcode: -532462766\n"
+           "Absturz laut Ereignisprotokoll: SetupFrontEnd.exe – System.InvalidOperationException: Showing a modal dialog box or form when "
+           "the application is not running in UserInteractive mode is not a valid operation.")
+    h = remote.crash_hint(out)
+    assert h.startswith(" – SetupFrontEnd.exe ist abgestürzt: Das Programm wollte trotz Silent-Schalter ein Fenster anzeigen") and "Neustart" in h
+    assert remote.crash_hint("Absturz laut Ereignisprotokoll: x.exe – Ausnahmecode 0xc0000005") == " – x.exe ist abgestürzt (Ausnahmecode 0xc0000005) – Details in der Ausgabe."
+    assert remote.crash_hint("Exitcode: 1603") == "" and remote.crash_hint(None) == ""
+    from app import diagnostics
+    c = diagnostics._crashes()
+    assert set(c) == {"crashed", "window_as_system"} and c["crashed"] >= 2 and c["window_as_system"] >= 1, c
+    assert "abgestürzte Programme" in open(diagnostics.__file__, encoding="utf-8").read()
+    src = open(steps.__file__, encoding="utf-8").read()
+    assert "msg += remote.wu_hint(out, ra) + remote.crash_hint(out)" in src
+    assert 'else f"Fehlgeschlagen (Exitcode {code}){remote.crash_hint(out)}"' in src, "uninstall"
+    assert "hard = remote.crash_hint(out)[3:]" in open(os.path.join(os.path.dirname(steps.__file__), "tools.py"), encoding="utf-8").read(), "tools"
+    pw = os.environ.get("PK_PWSH")
+    if not (pw and os.path.exists(pw)):
+        return
+    d = os.path.join(TMP, "pk-crash")
+    os.makedirs(d, exist_ok=True)
+    m1026 = ("Application: SetupFrontEnd.exe\r\nCoreCLR Version: 11.0.26.53018\r\n.NET Version: 11.0.0\r\nDescription: The process was terminated due to an unhandled exception.\r\n"
+             "Exception Info: System.InvalidOperationException: Showing a modal dialog box or form when the application is not running in UserInteractive mode is not a valid operation.\r\n"
+             "   at System.Windows.Forms.MessageBox.ShowCore()")
+    m1000 = ("Fehlerhafter Anwendungsname: SetupFrontEnd.exe, Version: 5.200.9810.35277, Zeitstempel: 0x6af37228\r\nFehlerhafter Modulname: KERNELBASE.dll\r\n"
+             "Ausnahmecode: 0xe0434352\r\nFehleroffset: 0x00000000000c408a")
+    m1000b = "Faulting application name: other.exe, version: 1.0\r\nException code: 0xc0000005\r\nFault offset: 0x1"
+    mock = ("$global:pkCalls = 0\n"
+            "function Get-WinEvent { [CmdletBinding()] param($FilterHashtable, $MaxEvents)\n"
+            "  $global:pkCalls++; if ($global:pkEmpty) { return }\n"
+            "  @{ Id = 1000; Message = $env:M1000 }, @{ Id = 1026; Message = $env:M1026 }, @{ Id = 1000; Message = $env:M1000B } | ForEach-Object { New-Object PSObject -Property $_ } }\n")
+    body = (mock + fn + "\n$t = Get-Date\n'A:'; PK-CrashInfo $t -532462766\n'B:'; PK-CrashInfo $t 1603; PK-CrashInfo $t 3010; PK-CrashInfo $t -2147024891\n"
+            "'calls=' + $global:pkCalls\n$global:pkEmpty = $true\n'C:'; PK-CrashInfo $t -1073741819\n'calls=' + $global:pkCalls\n")
+    path = os.path.join(d, "c.ps1")
+    open(path, "w", encoding="utf-8-sig").write(body)
+    env = dict(os.environ, M1026=m1026, M1000=m1000, M1000B=m1000b)
+    r = _sp.run([pw, "-NoProfile", "-NonInteractive", "-File", path], capture_output=True, text=True, timeout=120, env=env)
+    o = [ln for ln in r.stdout.splitlines() if ln.strip()]
+    assert o[0] == "A:" and o[1].startswith("Absturz laut Ereignisprotokoll: SetupFrontEnd.exe – System.InvalidOperationException: Showing a modal dialog"), (o, r.stderr)
+    assert o[2] == "Absturz laut Ereignisprotokoll: other.exe – Ausnahmecode 0xc0000005", o
+    # 1603/3010 and an HRESULT 0x80070005 (below 0xC0000000) query nothing; empty log: no line, no error
+    assert o[3:] == ["B:", "calls=1", "C:", "calls=2"], o
+    assert not r.stderr.strip(), r.stderr
+    assert remote.crash_hint("\n".join(o)).startswith(" – SetupFrontEnd.exe ist abgestürzt: Das Programm wollte")
+
+
 @test("2.46.1 gpupdate in tools never waits for \"log off / restart? (J/N)\": always \"N\" (cmd and PowerShell, new and existing tools, built-in tool says so in the output)")
 def _():
     import subprocess as _sp

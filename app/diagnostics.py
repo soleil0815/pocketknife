@@ -563,6 +563,7 @@ def _stats(since, an):
         "chains": _chains(since),
         "repo_edits": _repo_edits(since),
         "pslint": _pslint(),
+        "crashed_programs": _crashes(),
     }
 
 
@@ -570,6 +571,13 @@ def _pslint():
     """2.52.0: hints for own PowerShell code since the start (checks, with findings, findings per kind - never code)."""
     from . import pslint
     return pslint.stats()
+
+
+def _crashes():
+    """2.53.2: crashed programs in steps/tools since the start (reason from the client's application log) - counts only."""
+    from . import remote
+    with remote._crash_lock:
+        return dict(remote.CRASH_STATS)
 
 
 # 2.48.2: The diagnostic package follows the program. Every new database column (db.MIGRATIONS) and every new scan value
@@ -838,7 +846,8 @@ Dateien
                        Änderungen im Texteditor des Repositorys (Anzahl, Dateien, Kodierung – nie Inhalte),
                        per Hochladen ersetzte benutzte Dateien (Anzahl, betroffene Pakete),
                        Hinweise zu eigenem PowerShell-Code (Prüfungen, Funde je Art inkl.
-                       Select-Object -First – nie der Code)
+                       Select-Object -First – nie der Code),
+                       abgestürzte Programme in Schritten/Tools (Anzahl, davon „Fenster als SYSTEM“)
   leistung.json        Rechenlast und Lastspitzen, Dauer der wichtigsten Abfragen, langsamste Sammlungen, größte Felder
                        (nur Feldnamen und Größen, keine Inhalte)
   update_status.json   Update-Status: Microsoft-Abgleich, Stände je Status, Office-Installationen je Produkt/Kanal/Version

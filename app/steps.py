@@ -1311,7 +1311,7 @@ class Runner:
         if not msg:
             msg = "Erfolgreich" if ok else f"Fehlgeschlagen (Exitcode {code})"
         if not ok:
-            msg += remote.wu_hint(out, ra)
+            msg += remote.wu_hint(out, ra) + remote.crash_hint(out)
         if ok and "Bereits installiert" in (out or ""):
             msg = "Bereits installiert – übersprungen"
         if ok and reboot and "Neustart erforderlich" not in msg:
@@ -1408,7 +1408,8 @@ $out = foreach ($r in $roots) { Get-ChildItem -Path $r | ForEach-Object {
             results.append(ok)
             accts.append(ra)
             outs.append(f"--- {sw['name']} {sw.get('version') or ''} ({run_as_label(ra)}) ---\n{out or ''}\n→ "
-                        + ("Erfolgreich" if ok else f"Fehlgeschlagen – {hard}" if hard else f"Fehlgeschlagen (Exitcode {code})"))
+                        + ("Erfolgreich" if ok else f"Fehlgeschlagen – {hard}" if hard
+                           else f"Fehlgeschlagen (Exitcode {code}){remote.crash_hint(out)}"))
         n_ok = sum(1 for x in results if x)
         msg = f"{n_ok} von {len(results)} deinstalliert" if len(results) > 1 else ("Deinstalliert" if n_ok else f"Fehlgeschlagen (Exitcode {self.last_code})")
         status = "success" if n_ok == len(results) else "failed"
