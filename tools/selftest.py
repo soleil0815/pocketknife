@@ -6729,6 +6729,9 @@ def _():
         # --- 2.55.0: entries from before (layout of 2.54): switch on the next check
         import shutil as _sh
         # (a) single installer under its old name, same checksum: only renamed - no new download - and the YAML added
+        from app import integrity as _ig
+        _as = _ig.after_save
+        _ig.after_save = lambda pid: None  # checked synchronously below
         publish("Alt.Exe", "2.0", "  InstallerType: nullsoft\n", "https://dl.example.test/alt-2.0.exe", b"MZ-alt" * 50)
         ids.append(wc.add("Alt.Exe"))
         ea = wc.refresh_entry(ids[-1])
@@ -6737,9 +6740,33 @@ def _():
         os.rename(os.path.join(da, new_name), os.path.join(da, "alt-2.0.exe"))
         os.remove(os.path.join(da, "Alt.Exe_2.0_Machine_X64_nullsoft.yaml"))
         db.ex("UPDATE winget_cache SET file='alt-2.0.exe' WHERE id=?", (ids[-1],))
+        # the package and its confirmed state as before 2.55.0 (old file name, no YAML)
+        stp = _j.loads(db.val("SELECT steps FROM packages WHERE id=?", (ea["package_id"],)))
+        stp["main"][0]["install_file"] = "alt-2.0.exe"
+        db.ex("UPDATE packages SET steps=? WHERE id=?", (_j.dumps(stp), ea["package_id"]))
         wc.remote.repo_cache_clear()
+        from app import deploy as _dp
+        db.ex("DELETE FROM repo_baseline_dirs WHERE path LIKE ?", (_ig.key(ea["folder"]) + "%",))
+        db.ex("DELETE FROM repo_baseline WHERE path LIKE ?", (_ig.key(ea["folder"]) + "%",))
+        _ig.accept(_dp.row_to_package(db.q1("SELECT * FROM packages WHERE id=?", (ea["package_id"],))), "vorher", pid=ea["package_id"])
+        assert _ig.check_package(ea["package_id"])["state"] == "ok"
         n = len(calls)
-        ea2 = wc.refresh_entry(ids[-1])
+        # 2.55.1: switching must not leave a "Bruch" (before: the old name stayed in the confirmed state of the folder)
+        _co = wc._confirm_own
+        wc._confirm_own = lambda pid: None  # first as in 2.55.0 - shows the break that 2.55.1 heals
+        try:
+            ea2 = wc.refresh_entry(ids[-1])
+        finally:
+            wc._confirm_own = _co
+        res = _ig.check_package(ea["package_id"])
+        assert res["state"] == "broken" and any(x["kind"] == "missing" and x["path"].endswith("alt-2.0.exe") for x in res["issues"]), res
+        # next check (e.g. "Alle prüfen" after the update): original verified, state confirmed, break gone
+        n2 = len(calls)
+        ea3 = wc.refresh_entry(ids[-1])
+        assert ea3["status"] == "ok" and "Bruch behoben" in (ea3["message"] or ""), dict(ea3)
+        assert not [c for c in calls[n2:] if c[1].endswith("alt-2.0.exe")], "original intact: no new download"
+        assert _ig.check_package(ea["package_id"])["state"] == "ok", _ig.check_package(ea["package_id"])
+        assert "Bruch behoben" not in (wc.refresh_entry(ids[-1])["message"] or ""), "only once"
         assert ea2["status"] == "ok" and ea2["file"] == new_name and not [c for c in calls[n:] if c[1].endswith("alt-2.0.exe")], ("no download", calls[n:])
         assert sorted(os.listdir(da)) == ["Alt.Exe_2.0_Machine_X64_nullsoft.exe", "Alt.Exe_2.0_Machine_X64_nullsoft.yaml"], os.listdir(da)
         st = _j.loads(db.val("SELECT steps FROM packages WHERE id=?", (ea2["package_id"],)))["main"][0]
@@ -6760,11 +6787,23 @@ def _():
         wc.remote.repo_cache_clear()
         ez2 = wc.refresh_entry(ids[-1])
         assert ez2["status"] == "ok" and ez2["file"] == "installer\\setup.exe", dict(ez2)
+        assert _ig.check_package(ez2["package_id"])["state"] == "ok", "the switch confirms the new state at once"
+        # a changed extracted file (break at the cache package): restored from the verified ZIP and confirmed again
+        open(os.path.join(dz, "installer", "daten.cab"), "wb").write(b"manipuliert")
+        wc.remote.repo_cache_clear()
+        assert _ig.check_package(ez2["package_id"])["state"] in ("broken", "warn")
+        ez3 = wc.refresh_entry(ids[-1])
+        assert open(os.path.join(dz, "installer", "daten.cab"), "rb").read() == b"cab" and "Bruch behoben" in (ez3["message"] or ""), dict(ez3)
+        assert _ig.check_package(ez2["package_id"])["state"] == "ok"
+        _ig.after_save = _as
         assert sorted(os.listdir(dz)) == ["Alt.Zip_3.0_Machine_X64_nullsoft.yaml", "Alt.Zip_3.0_Machine_X64_nullsoft.zip", "installer"], os.listdir(dz)
         assert sorted(os.listdir(os.path.join(dz, "installer"))) == ["daten.cab", "setup.exe"]
         st = _j.loads(db.val("SELECT steps FROM packages WHERE id=?", (ez2["package_id"],)))["main"][0]
         assert st["folder"] == ez2["folder"] + "\\installer" and st["install_file"] == "setup.exe", st
     finally:
+        from app import integrity as _ig2
+        if "_as" in dir():
+            _ig2.after_save = _as
         wc.proxy.urlopen = old_open
         for i in ids:
             try:

@@ -6456,5 +6456,7 @@
  "Datei im Cache nicht lesbar: {0}": "File in the cache not readable: {0}",
  "Installer wie bei winget: {0} (vom Hersteller: {1})": "Installer as with winget: {0} (from the vendor: {1})",
  "Neutral": null,
- "PackageLocale": null
+ "PackageLocale": null,
+ "Bruch behoben: Dateien aus dem geprüften Original wiederhergestellt und bestätigt": "Break fixed: files restored from the verified original and confirmed",
+ "winget-Cache: Stand von „{0}“ ließ sich nicht bestätigen: {1}": "winget cache: state of \"{0}\" could not be confirmed: {1}"
 }

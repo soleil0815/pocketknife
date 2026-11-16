@@ -348,7 +348,7 @@ def _put_text(rel, text):
         if remote.repo_stat(rel) == "file":
             with remote.repo_open_rel(rel) as f:
                 if f.read(len(data) + 1) == data:
-                    return
+                    return False
     except Exception:
         pass
     part = rel + ".pk-part"
@@ -358,6 +358,32 @@ def _put_text(rel, text):
     remote.repo_delete(rel)
     remote.repo_rename(part, rel)
     remote.repo_cache_apply("add", rel, size=len(data))
+    return True
+
+
+def _pkg_broken(pid):
+    """Integrity state of the cache package: break or deviation?"""
+    if not pid:
+        return False
+    try:
+        st = json.loads(db.val("SELECT integrity FROM packages WHERE id=?", (pid,)) or "{}").get("state")
+    except (ValueError, TypeError):
+        return False
+    return st in ("broken", "warn")
+
+
+def _confirm_own(pid):
+    """The cache package's files as they are now = confirmed state ("winget-Cache"), then check again."""
+    from . import deploy, integrity
+    row = db.q1("SELECT * FROM packages WHERE id=?", (pid,))
+    if not row:
+        return
+    try:
+        integrity.accept(deploy.row_to_package(row), "winget-Cache", pid=pid)
+    except Exception as ex:
+        pklog.warn("winget", f"winget-Cache: Stand von „{row['name']}“ ließ sich nicht bestätigen: {ex}")
+        return
+    integrity.after_save(pid)
 
 
 def _tidy(folder, keep, own_pid):
@@ -962,6 +988,17 @@ def refresh_entry(eid, force=False, user=None):
                 target = f"{folder}\\{orig}"
                 exists = remote.repo_stat(target) == "file"
                 own_pid = e["package_id"]
+                changed = False  # 2.55.1: did this run change files in the version folder? -> confirm the new state
+                heal = False
+                if exists and not force and tmp is None and _pkg_broken(own_pid):
+                    # 2.55.1: "Bruch" at the cache package (e.g. after the switch to the layout of 2.55.0, the old file
+                    # name was still in the confirmed state): files from the verified original again, then confirm them
+                    try:
+                        heal = (remote.repo_sha256(target) or "").lower() == sha
+                    except Exception:
+                        heal = False
+                    if not heal:
+                        force = True  # the original itself differs: load it again from the vendor (below)
                 if exists and force and tmp is None:
                     # "Neu laden": compare the stored file with the catalog, replace it if it is damaged
                     tmp, size, _got = get_new()
@@ -975,8 +1012,9 @@ def refresh_entry(eid, force=False, user=None):
                                          "benutzt – nächster Versuch beim nächsten Lauf.")
                     if not same:
                         _put_file(tmp, folder, orig)
-                        if p["nested"]:
-                            remote.repo_delete(f"{folder}\\installer")  # extract again below
+                        changed = True
+                    if p["nested"] and (not same or _pkg_broken(own_pid)):
+                        remote.repo_delete(f"{folder}\\installer")  # extract again below
                 elif not exists:
                     old = f"{e['folder']}\\{e['file']}" if e["folder"] and e["file"] else ""
                     if (tmp is None and not p["nested"] and e["folder"] == folder and old and "\\" not in str(e["file"])
@@ -990,6 +1028,9 @@ def refresh_entry(eid, force=False, user=None):
                         if tmp is None:
                             tmp, size, _got = get_new()
                         _put_file(tmp, folder, orig)
+                    changed = True
+                if heal and p["nested"]:
+                    remote.repo_delete(f"{folder}\\installer")  # extract again below from the verified original
                 file = orig
                 if p["nested"]:
                     inst_dir = f"{folder}\\installer"
@@ -998,6 +1039,7 @@ def refresh_entry(eid, force=False, user=None):
                             tmp = _repo_to_tmp(target)
                         try:
                             file = "installer\\" + _put_zip_into(tmp, inst_dir, p["nested"], mx)
+                            changed = True
                         except CacheError:
                             if not exists and not _users(folder, own_pid):
                                 # nothing usable in it (path outside the folder, named file missing): no half version left
@@ -1006,7 +1048,7 @@ def refresh_entry(eid, force=False, user=None):
                             raise
                     else:
                         file = "installer\\" + p["nested"]
-                _put_text(f"{folder}\\{yml}", manifest_yaml(man, inst))
+                changed = _put_text(f"{folder}\\{yml}", manifest_yaml(man, inst)) or changed or heal
             finally:
                 if tmp:
                     try:
@@ -1025,7 +1067,16 @@ def refresh_entry(eid, force=False, user=None):
                 return None
             left = _cleanup_versions(e, vdir, pid)
             if not _runtime_busy(e["winget_id"]):
+                before = len(_list_dir(folder))
                 _tidy(folder, {orig.lower(), yml.lower(), "installer"}, pid)
+                changed = changed or len(_list_dir(folder)) != before
+            if changed:
+                # 2.55.1: POCKET KNIFE itself put these files there (original checked against the catalog checksum, ZIP
+                # content extracted from it) - they are the confirmed state of the cache package, no "Bruch". Before:
+                # renaming kept the old name in the confirmed state of the folder -> "Datei fehlt" at every cache package
+                _confirm_own(pid)
+                if heal:
+                    msg.append("Bruch behoben: Dateien aus dem geprüften Original wiederhergestellt und bestätigt")
             if left:
                 msg.append("alte Version wird noch verwendet, wird beim nächsten Lauf gelöscht: " + ", ".join(left))
             msg += p["hints"]

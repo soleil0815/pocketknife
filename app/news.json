@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.55.1",
+   "date": "2026-11-17",
+   "items": [
+    {
+     "kind": "fixed",
+     "audience": "admin",
+     "de": "Die Umstellung des winget-Cache auf die neue Ablage (2.55.0) meldete fälschlich einen Bruch an den Cache-Paketen. Einmal „Alle prüfen“ im winget-Cache behebt das: Die Dateien werden mit dem geprüften Original abgeglichen und bestätigt.",
+     "en": "Switching the winget cache to the new layout (2.55.0) wrongly reported a break at the cache packages. Running \"Alle prüfen\" in the winget cache once fixes it: the files are checked against the verified original and confirmed."
+    }
+   ]
+  },
+  {
    "version": "2.55.0",
    "date": "2026-11-16",
    "items": [
