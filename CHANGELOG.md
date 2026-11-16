@@ -8,6 +8,7 @@ New entries are in English. Entries up to and including 2.38.4-s1 (November 2026
   - file search on a client: the readability check opens the folder with a name that matches nothing - no exception, no full listing
   - example tool "CPU-Last (5 Sekunden)" migrated if still as delivered
 - **Editor hint** (PowerShell steps, tools, "Befehl ausführen", own scanners, .ps1 in the repository editor): also for `Select-Object -First`/`-Index`, with the alternative; counted in the diagnostic package
+  - the check strips quoted strings in one linear pass (no regex backtracking on long unclosed strings - CodeQL)
 - Help: table "Eigener PowerShell-Code ohne Warnungen" and "Sauber im PowerShell-Protokoll" extended
 - **Self-test:** no `Select-Object -First/-Index` left in any client script, the hint, index slices in real PowerShell (at most N, nothing for no output), example tool migration, `Get-WinEvent` without Stop
 

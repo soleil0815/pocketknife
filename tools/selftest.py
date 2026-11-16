@@ -8556,6 +8556,13 @@ def _():
                'Write-Output "select -first"', "@(Get-X)[0..9]", "Select-String -Pattern x -List"):
         assert k(ok) == [], (ok, k(ok))
     assert "@(Befehl)[0]" in pslint.check("Get-X | Select -First 1")[0]["hint"]
+    # linear on hostile input (the API checks any text up to 500k): long unclosed strings, many "select"
+    import time as _time
+    t0 = _time.monotonic()
+    for bad in ('"' + '`"' * 100_000, "select " * 60_000, "'" * 200_000, "| Select-Object " + "x " * 200_000):
+        pslint.check(bad)
+    assert _time.monotonic() - t0 < 5, "pslint must stay linear"
+    assert pslint._strip_strings('x "a`"b" $a.$b \'c\'') == "x '' $a.$b ''" and pslint._strip_strings('"open $a.$b') == '"open $a.$b'
     # every source file with client PowerShell: none left (comments and the old text of the migrated example tool excepted)
     root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app")
     for f in sorted(_glob.glob(os.path.join(root, "*.py")) + _glob.glob(os.path.join(root, "*.ps1"))):
