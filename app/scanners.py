@@ -4,6 +4,7 @@ Every active scanner is run on the client during the inventory scan; the results
 end up as category "custom:<id>" in the inventory_data table.
 """
 import json
+import re
 
 from . import db, util
 
@@ -16,22 +17,76 @@ TYPES = {
 MAX_ROWS = 500
 
 
+# 2.55.2: hives as written in the Registry Editor (HKEY_LOCAL_MACHINE\...) or as PowerShell drives (HKLM:\...)
+HIVES = {"HKLM": "HKEY_LOCAL_MACHINE", "HKEY_LOCAL_MACHINE": "HKEY_LOCAL_MACHINE", "HKCU": "HKEY_CURRENT_USER",
+         "HKEY_CURRENT_USER": "HKEY_CURRENT_USER", "HKU": "HKEY_USERS", "HKEY_USERS": "HKEY_USERS",
+         "HKCR": "HKEY_CLASSES_ROOT", "HKEY_CLASSES_ROOT": "HKEY_CLASSES_ROOT", "HKCC": "HKEY_CURRENT_CONFIG",
+         "HKEY_CURRENT_CONFIG": "HKEY_CURRENT_CONFIG"}
+
+
+def reg_path(target):
+    r"""Registry path in every usual spelling -> PowerShell path "Registry::HKEY_...\..." (works for each hive,
+    without the drives HKLM:/HKCU:). Accepts the address bar of the Registry Editor ("Computer\HKEY_LOCAL_MACHINE\...",
+    also "Computer:" and German "Arbeitsplatz"), HKEY_LOCAL_MACHINE\..., HKLM\..., HKLM:\... and Registry::....
+    Unknown hive -> ValueError (before: PowerShell took it as a folder name and the scanner found nothing, silently)."""
+    t = str(target or "").strip().strip('"').strip()
+    t = re.sub(r"(?i)^(?:computer|arbeitsplatz)[:\\/]+", "", t)
+    t = re.sub(r"(?i)^(?:microsoft\.powershell\.core\\)?registry::", "", t)
+    t = t.replace("/", "\\")
+    m = re.match(r"^([A-Za-z_]+):?(?:\\+(.*))?$", t)
+    hive = HIVES.get(m.group(1).upper()) if m else None
+    if not hive:
+        first = re.split(r"[\\:]", t, 1)[0] if t else ""
+        raise ValueError(f"Unbekannter Stammschlüssel „{first[:60]}“ – erlaubt sind HKEY_LOCAL_MACHINE (HKLM), "
+                         "HKEY_CURRENT_USER (HKCU), HKEY_USERS (HKU), HKEY_CLASSES_ROOT (HKCR), HKEY_CURRENT_CONFIG (HKCC), "
+                         "z. B. HKEY_LOCAL_MACHINE\\SOFTWARE\\Firma wie im Registrierungs-Editor.")
+    rest = ((m.group(2) if m else "") or "").strip("\\")
+    return f"Registry::{hive}" + (f"\\{rest}" if rest else "")
+
+
+def reg_display(target):
+    """The path as in Windows (Registry Editor): HKEY_LOCAL_MACHINE\\SOFTWARE\\... - stored and shown like that."""
+    return reg_path(target)[len("Registry::"):]
+
+
+def migrate():
+    """2.55.2: registry paths saved in the PowerShell form (HKLM:\\...) -> Windows form (HKEY_LOCAL_MACHINE\\...).
+    Unknown hives stay as they are (the scanner then reports the reason in the column "fehler")."""
+    n = 0
+    for r in db.q("SELECT id, target FROM custom_scanners WHERE type='registry'"):
+        try:
+            new = reg_display(r["target"])
+        except ValueError:
+            continue
+        if new != r["target"]:
+            db.ex("UPDATE custom_scanners SET target=? WHERE id=?", (new, r["id"]))
+            n += 1
+    return n
+
+
 def validate(d):
     if not (d.get("name") or "").strip():
         raise ValueError("Name fehlt.")
     if d.get("type") not in TYPES:
         raise ValueError("Ungültiger Scanner-Typ.")
     if not (d.get("target") or "").strip():
-        raise ValueError({"registry": "Registry-Pfad angeben (z. B. HKLM:\\SOFTWARE\\Firma).",
+        raise ValueError({"registry": "Registry-Pfad angeben (z. B. HKEY_LOCAL_MACHINE\\SOFTWARE\\Firma).",
                           "files": "Pfad angeben (z. B. C:\\Programme\\Firma\\*.exe).",
                           "wmi": "WMI-Abfrage angeben (z. B. SELECT * FROM Win32_Battery).",
                           "powershell": "PowerShell-Code angeben."}[d["type"]])
+    if d["type"] == "registry":
+        d["target"] = reg_display(d["target"])  # stored as in Windows
 
 
 def _body(sc):
     t, target = sc["type"], sc["target"]
     extra = json.loads(sc.get("extra") or "{}")
     if t == "registry":
+        try:
+            target = reg_path(target)
+        except ValueError as ex:
+            # saved before 2.55.2 with an unknown hive: a row with the reason (column "fehler") instead of silently nothing
+            return f"\n[ordered]@{{ fehler = {util.psq(str(ex))} }}"
         recurse = "-Recurse -Depth 3" if extra.get("recurse") else ""
         return f"""
 $paths = @(Get-Item -Path {util.psq(target)} -ErrorAction SilentlyContinue)

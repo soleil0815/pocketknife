@@ -6458,5 +6458,12 @@
  "Neutral": null,
  "PackageLocale": null,
  "Bruch behoben: Dateien aus dem geprüften Original wiederhergestellt und bestätigt": "Break fixed: files restored from the verified original and confirmed",
- "winget-Cache: Stand von „{0}“ ließ sich nicht bestätigen: {1}": "winget cache: state of \"{0}\" could not be confirmed: {1}"
+ "winget-Cache: Stand von „{0}“ ließ sich nicht bestätigen: {1}": "winget cache: state of \"{0}\" could not be confirmed: {1}",
+ "Registry-Pfade der eigenen Scanner nicht umgestellt: {0}": "Registry paths of the own scanners not switched: {0}",
+ "\n[ordered]@{ fehler = {0} }": null,
+ "(?i)^(?:computer|arbeitsplatz)[:\\\\/]+": null,
+ "Registry-Pfad angeben (z. B. HKEY_LOCAL_MACHINE\\SOFTWARE\\Firma).": "Enter a registry path (e.g. HKEY_LOCAL_MACHINE\\SOFTWARE\\Firma).",
+ "Registry::{0}": null,
+ "Unbekannter Stammschlüssel „{0}“ – erlaubt sind HKEY_LOCAL_MACHINE (HKLM), HKEY_CURRENT_USER (HKCU), HKEY_USERS (HKU), HKEY_CLASSES_ROOT (HKCR), HKEY_CURRENT_CONFIG (HKCC), z. B. HKEY_LOCAL_MACHINE\\SOFTWARE\\Firma wie im Registrierungs-Editor.": "Unknown hive \"{0}\" – allowed are HKEY_LOCAL_MACHINE (HKLM), HKEY_CURRENT_USER (HKCU), HKEY_USERS (HKU), HKEY_CLASSES_ROOT (HKCR), HKEY_CURRENT_CONFIG (HKCC), e.g. HKEY_LOCAL_MACHINE\\SOFTWARE\\Firma as in the Registry Editor.",
+ "Wie in Windows, z. B. HKEY_LOCAL_MACHINE\\SOFTWARE\\Firma\\Programm (auch aus der Adresszeile des Registrierungs-Editors kopiert) oder kurz HKLM\\SOFTWARE\\Firma\\Programm. Gelesen werden alle Werte dieses Schlüssels; ein * am Ende steht für seine Unterschlüssel, nicht für die Werte.": "As in Windows, e.g. HKEY_LOCAL_MACHINE\\SOFTWARE\\Firma\\Programm (also copied from the Registry Editor's address bar) or short HKLM\\SOFTWARE\\Firma\\Programm. All values of this key are read; a * at the end stands for its subkeys, not for the values."
 }

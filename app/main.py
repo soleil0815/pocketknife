@@ -43,6 +43,10 @@ async def lifespan(_app):
         pklog.warn("system", "Das Kennwort des Notfallzugangs (PK_BREAKGLASS_PASSWORD) ist kürzer als 16 Zeichen – bitte ein "
                              "langes, zufälliges Kennwort setzen und die Benachrichtigung „Notfallzugang benutzt“ einschalten.")
     tools.init()
+    try:  # 2.55.2: registry scanners in the Windows form (HKEY_LOCAL_MACHINE\...)
+        scanners.migrate()
+    except Exception as e:  # noqa: BLE001
+        pklog.warn("system", f"Registry-Pfade der eigenen Scanner nicht umgestellt: {e}")
     uninstall.init()
     wingetcache.init()
     try:  # 2.44.2: repair extras that 2.41.3 blew up (every computer query read them)

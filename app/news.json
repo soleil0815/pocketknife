@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.55.2",
+   "date": "2026-11-17",
+   "items": [
+    {
+     "kind": "improved",
+     "audience": "admin",
+     "de": "Registry-Scanner: Der Pfad wird wie in Windows eingegeben – z. B. HKEY_LOCAL_MACHINE\\SOFTWARE\\Firma oder kurz HKLM\\SOFTWARE\\Firma, auch direkt aus der Adresszeile des Registrierungs-Editors kopiert. Ein falsch geschriebener Stammschlüssel wird sofort gemeldet.",
+     "en": "Registry scanner: the path is entered as in Windows – e.g. HKEY_LOCAL_MACHINE\\SOFTWARE\\Firma or short HKLM\\SOFTWARE\\Firma, also copied straight from the Registry Editor's address bar. A misspelled hive is reported right away."
+    }
+   ]
+  },
+  {
    "version": "2.55.1",
    "date": "2026-11-17",
    "items": [

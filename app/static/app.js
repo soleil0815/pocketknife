@@ -6500,7 +6500,7 @@ function scannerDlg(sc, meta) {
   const nsRow = field('WMI-Namespace', ns);
   const recRow = field('Unterordner', h('label.chk', rec, 'rekursiv durchsuchen'));
   const HINTS = {
-    registry: ['Registry-Pfad', 'z. B. HKLM:\\SOFTWARE\\Firma\\Programm – alle Werte des Schlüssels werden gelesen. Platzhalter * sind erlaubt.'],
+    registry: ['Registry-Pfad', 'Wie in Windows, z. B. HKEY_LOCAL_MACHINE\\SOFTWARE\\Firma\\Programm (auch aus der Adresszeile des Registrierungs-Editors kopiert) oder kurz HKLM\\SOFTWARE\\Firma\\Programm. Gelesen werden alle Werte dieses Schlüssels; ein * am Ende steht für seine Unterschlüssel, nicht für die Werte.'],
     files: ['Pfad', 'z. B. C:\\Program Files\\Firma\\*.exe oder %SYSTEMDRIVE%\\Users\\*\\ntuser.dat – liefert Größe, Datum und Dateiversion (max. 500 Einträge). Umgebungsvariablen (%ProgramData%, $env:SystemDrive) werden auf dem Client aufgelöst. * = beliebiger Name auf einer Ebene, ** = beliebig viele Ordnerebenen (durchsucht alles darunter – langsamer).'],
     wmi: ['WQL-Abfrage', 'z. B. SELECT * FROM Win32_Battery'],
     powershell: ['PowerShell-Code', 'Läuft beim Scan als Administrator auf dem Client. Jedes ausgegebene Objekt wird eine Zeile, seine Eigenschaften die Spalten (max. 500). Texte, Write-Host, Hashtables und Format-Table werden ebenfalls übernommen, Fehler erscheinen in der Spalte „fehler“. Beispiel: Get-ItemProperty HKLM:\\SOFTWARE\\Firma\\App | Select-Object Version, Pfad'],
