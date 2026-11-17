@@ -93,11 +93,39 @@ def module_list():
     return [{"key": k, "label": MODULES[k][0]} for k in MODULE_ORDER]
 
 
-def build_script(modules=None, custom_ids=None):
-    """Prelude + selected standard scanners + own scanners. None = all."""
-    from . import scanners
+# 2.55.3: only while the check mode "PowerShell-Protokoll" is on - after every area of the scan: which Windows modules
+# were loaded by it (generated modules write their code to the log as warnings) -> $r.pk_modules, read by pscheck
+MODMARK = r"""
+$global:pkModSeen = @{}
+# PowerShell's own core modules load themselves on first use and log nothing - not worth a note
+foreach ($pkM in @('Microsoft.PowerShell.Utility', 'Microsoft.PowerShell.Management', 'Microsoft.PowerShell.Security',
+                   'Microsoft.PowerShell.Host', 'Microsoft.PowerShell.Diagnostics', 'CimCmdlets')) { $pkModSeen[$pkM] = 1 }
+foreach ($pkM in @(Get-Module)) { $pkModSeen[$pkM.Name] = 1 }
+$r.pk_modules = @{}
+function PK-ModMark([string]$pkArea) {
+  $pkNew = @()
+  foreach ($pkM in @(Get-Module)) { if (-not $pkModSeen.ContainsKey($pkM.Name)) { $pkModSeen[$pkM.Name] = 1; $pkNew += $pkM.Name } }
+  if ($pkNew.Count) { $r.pk_modules[$pkArea] = $pkNew }
+}
+"""
+
+
+def build_script(modules=None, custom_ids=None, mark=None):
+    """Prelude + selected standard scanners + own scanners. None = all.
+    mark: after every area note the Windows modules it loaded (default: while the check mode is on)."""
+    from . import pscheck, scanners
     mods = [m for m in MODULE_ORDER if modules is None or m in modules]
-    return "\n".join([PRELUDE] + [MODULES[m][1] for m in mods] + [scanners.script(custom_ids), SCAN_END])
+    if mark is None:
+        mark = pscheck.enabled()
+    if not mark:
+        return "\n".join([PRELUDE] + [MODULES[m][1] for m in mods] + [scanners.script(custom_ids), SCAN_END])
+    parts = [PRELUDE, MODMARK, "PK-ModMark 'Vorspann'"]
+    for m in mods:
+        parts += [MODULES[m][1], f"PK-ModMark {util.psq(MODULES[m][0])}"]
+    for sc in scanners.rows(custom_ids):
+        parts += [scanners.script_for([sc]).replace("$r.custom = @{}\n", "if ($null -eq $r.custom) { $r.custom = @{} }\n", 1),
+                  f"PK-ModMark {util.psq('Eigener Scanner: ' + str(sc['name']))}"]
+    return "\n".join(parts + [SCAN_END])
 
 
 # 2.40.1: MSIX packages that come with Windows (calculator, photos, Xbox, Store, codecs ...) - hidden by default,
@@ -281,6 +309,9 @@ def scan(cid, user=None, prof=None):
                 raise remote.RemoteError("Keine Inventardaten erhalten. " + err[:500])
             raw_json = util.first_line(out[idx + 7:], "{}")
             data = json.loads(raw_json)
+            if isinstance(data, dict) and data.get("pk_modules"):
+                from . import pscheck
+                pscheck.note_modules(host, "inventory.scan", data.pop("pk_modules"))
             note_scan_size(cid, c["name"], data, len(raw_json))
             warn_list = [str(x) for x in _L(data.get("errors"))]
             if data.get("software_error"):

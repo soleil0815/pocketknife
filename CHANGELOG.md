@@ -2,6 +2,15 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.55.3 (17.11.2026)
+- **Check mode report, first evaluation:** of 2821 warnings (4104) in scans almost all were the code of the generated Windows module "Storage", which PowerShell writes to the log as dozens of warnings when it is loaded - the report listed every piece separately, and this flood pushed the 2 errors (4100) and 3 crashes out of the 2000 kept findings, so they were counted but missing in the text
+  - identical findings are now counted (number, computers) instead of stored per event; when full, the oldest warning seen once goes first - errors, crashes and module notes stay
+  - code of a generated (CDXML) module is one finding per module: "Generiertes Windows-Modul (CDXML) geladen: Storage"
+- **Which part of a scan loads a module:** while the check mode is on, the scan script notes after every area and every own scanner which Windows modules were newly loaded (`Get-Module`, PowerShell's core modules left out) and returns them; the report lists them first as "[Modul] inventory.scan · Bereich „…“ lädt das Modul „…“". The scan itself is unchanged when the check mode is off
+- UI: findings with count and number of computers, "[Modul]"
+- Help: check mode
+- **Self-test:** collapsed module code, counting instead of storing, rare findings stay with a flood of 5100 warnings, module notes first in the report, marks after every area and own scanner only with the check mode, real PowerShell: only the newly loaded module of the area
+
 ## pocketknife-2.55.2 (17.11.2026)
 - **Registry scanner takes the path as in Windows:** `HKEY_LOCAL_MACHINE\SOFTWARE\Firma` as in the Registry Editor (also copied from its address bar, "Computer\…"), short `HKLM\SOFTWARE\Firma`; the PowerShell form `HKLM:\…` still works. Stored and shown in the Windows form; scanned via the PowerShell path `Registry::HKEY_…` (every hive). Before: only the PowerShell form - `HKEY_LOCAL_MACHINE\…` or a typo in the hive was taken as a folder name and the scanner found nothing, silently
 - **Unknown hive** (e.g. "HKLMACHINE") is rejected when saving and testing, with the allowed names; a scanner saved before with one reports the reason in the column "fehler" instead of nothing

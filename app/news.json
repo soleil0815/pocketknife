@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.55.3",
+   "date": "2026-11-17",
+   "items": [
+    {
+     "kind": "improved",
+     "audience": "admin",
+     "de": "Prüfmodus „PowerShell-Protokoll“: Der Bericht fasst gleiche Funde zusammen und nennt, welcher Teil eines Scans ein Windows-Modul lädt (dessen Code PowerShell als viele Warnungen protokolliert). Seltene Fehler und Abstürze gehen in einer Flut von Warnungen nicht mehr verloren.",
+     "en": "Check mode \"PowerShell log\": the report combines identical findings and names which part of a scan loads a Windows module (whose code PowerShell logs as many warnings). Rare errors and crashes are no longer lost in a flood of warnings."
+    }
+   ]
+  },
+  {
    "version": "2.55.2",
    "date": "2026-11-17",
    "items": [
