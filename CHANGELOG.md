@@ -2,6 +2,13 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.55.2 (17.11.2026)
+- **Registry scanner takes the path as in Windows:** `HKEY_LOCAL_MACHINE\SOFTWARE\Firma` as in the Registry Editor (also copied from its address bar, "Computer\…"), short `HKLM\SOFTWARE\Firma`; the PowerShell form `HKLM:\…` still works. Stored and shown in the Windows form; scanned via the PowerShell path `Registry::HKEY_…` (every hive). Before: only the PowerShell form - `HKEY_LOCAL_MACHINE\…` or a typo in the hive was taken as a folder name and the scanner found nothing, silently
+- **Unknown hive** (e.g. "HKLMACHINE") is rejected when saving and testing, with the allowed names; a scanner saved before with one reports the reason in the column "fehler" instead of nothing
+- Existing registry scanners are switched to the Windows form once at start
+- Editor hint and help: Windows form, `*` at the end = the subkeys, not the values
+- **Self-test:** all spellings, rejection of unknown hives, stored form, script with `Registry::`, row with the reason for old entries, switch at start
+
 ## pocketknife-2.55.1 (17.11.2026)
 - **"Bruch" after switching the winget cache to the layout of 2.55.0:** renaming the installer in its version folder (and adding the YAML) left the old file name in the confirmed state of the folder - the integrity check reported "Datei fehlt" at the cache packages (tickets). Now every run that changes files in the version folder confirms the cache package's new state itself (`integrity.accept` as "winget-Cache", then check again) - the files come from the original checked against the catalog checksum
 - **Repair:** a cache package with a break or deviation is healed on its next check ("Jetzt prüfen" / "Alle prüfen" / daily): original file verified against the checksum (otherwise loaded again from the vendor), ZIP content extracted again from it, state confirmed, note "Bruch behoben" in the entry - nothing to do by hand

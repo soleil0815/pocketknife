@@ -621,7 +621,7 @@ Unter **Scanprofile → Eigene Scanner** legen Sie Scanner vom Typ Registry, Dat
 
 | Typ | Eingabe | Ergebnis |
 |---|---|---|
-| Registry | `HKLM:\SOFTWARE\Firma\Agent` | alle Werte des Schlüssels |
+| Registry | `HKEY_LOCAL_MACHINE\SOFTWARE\Firma\Agent` (wie im Registrierungs-Editor, auch kurz `HKLM\SOFTWARE\Firma\Agent`; ab 2.55.2) | alle Werte des Schlüssels; `\*` am Ende = seine Unterschlüssel |
 | Dateien & Ordner | `C:\Program Files\Firma\*.exe` | Größe, Datum, Dateiversion |
 | Dateien & Ordner | `%SYSTEMDRIVE%\Users\*\ntuser.dat` | ein Eintrag je Benutzerprofil |
 | WMI | `SELECT Name, EstimatedChargeRemaining FROM Win32_Battery` | Akkustand |

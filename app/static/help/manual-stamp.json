@@ -1,10 +1,10 @@
 {
  "de": {
-  "help_sha256": "3743c4323bbb0cccb4db526dde29cf73b4fa2e836b1f21a5ae892361841d8cc4",
-  "version": "2.55.1"
+  "help_sha256": "05e38de47032127c31bbc4710ed138d321faeb6efccae503186c102604d4b4f5",
+  "version": "2.55.2"
  },
  "en": {
-  "help_sha256": "529457717e73c1cf52932f3736c2c6e759d355bfdb47df8e67c83d9e9afbe62d",
-  "version": "2.55.1"
+  "help_sha256": "ff3da9ccb22426f6d270e244ddecd770cec164abb1eb03355ba1250ddec6245b",
+  "version": "2.55.2"
  }
 }

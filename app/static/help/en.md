@@ -621,7 +621,7 @@ Under **Scan profiles → Custom scanners** you create scanners of type Registry
 
 | Type | Input | Result |
 |---|---|---|
-| Registry | `HKLM:\SOFTWARE\Firma\Agent` | all values of the key |
+| Registry | `HKEY_LOCAL_MACHINE\SOFTWARE\Firma\Agent` (as in the Registry Editor, also short `HKLM\SOFTWARE\Firma\Agent`; from 2.55.2) | all values of the key; `\*` at the end = its subkeys |
 | Files & Folders | `C:\Program Files\Firma\*.exe` | size, date, file version |
 | Files & Folders | `%SYSTEMDRIVE%\Users\*\ntuser.dat` | one entry per user profile |
 | WMI | `SELECT Name, EstimatedChargeRemaining FROM Win32_Battery` | battery level |

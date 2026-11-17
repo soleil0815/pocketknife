@@ -8955,6 +8955,51 @@ def _():
     assert r.stdout.strip().startswith("PKCHK_NOW:") and "PKCHK_EV" not in r.stdout, r.stdout
 
 
+@test("2.55.2 Registry scanner takes the path as in Windows (HKEY_LOCAL_MACHINE\\..., copied from the Registry Editor, short HKLM\\...), stores it like that, rejects an unknown hive instead of silently finding nothing")
+def _():
+    from app import scanners as sc
+    for given, want in ((r"HKEY_LOCAL_MACHINE\SOFTWARE\WhatsOnMyNet", r"HKEY_LOCAL_MACHINE\SOFTWARE\WhatsOnMyNet"),
+                        (r"Computer\HKEY_LOCAL_MACHINE\SOFTWARE\WhatsOnMyNet", r"HKEY_LOCAL_MACHINE\SOFTWARE\WhatsOnMyNet"),
+                        (r"HKLM\SOFTWARE\Firma\*", r"HKEY_LOCAL_MACHINE\SOFTWARE\Firma\*"),
+                        (r"HKLM:\SOFTWARE\Firma", r"HKEY_LOCAL_MACHINE\SOFTWARE\Firma"),
+                        (r'"hkcu\Software\X\"', r"HKEY_CURRENT_USER\Software\X"),
+                        (r"Registry::HKEY_USERS\S-1-5-18", r"HKEY_USERS\S-1-5-18"), ("HKCR", "HKEY_CLASSES_ROOT")):
+        assert sc.reg_display(given) == want, (given, sc.reg_display(given))
+        assert sc.reg_path(given) == "Registry::" + want
+    for bad in (r"HKLMACHINE\SOFTWARE\X", r"C:\Windows", "SOFTWARE"):
+        try:
+            sc.reg_path(bad)
+            raise AssertionError(bad)
+        except ValueError as e:
+            assert "Unbekannter Stammschlüssel" in str(e) and "HKEY_LOCAL_MACHINE" in str(e)
+    d = {"name": "x", "type": "registry", "target": r"Computer\HKEY_LOCAL_MACHINE\SOFTWARE\WhatsOnMyNet"}
+    sc.validate(d)
+    assert d["target"] == r"HKEY_LOCAL_MACHINE\SOFTWARE\WhatsOnMyNet", "stored as in Windows"
+    try:
+        sc.validate({"name": "x", "type": "registry", "target": r"HKLMACHINE\SOFTWARE\WhatsOnMyNet"})
+        raise AssertionError("unknown hive must be rejected")
+    except ValueError:
+        pass
+    body = sc._body({"type": "registry", "target": r"HKEY_LOCAL_MACHINE\SOFTWARE\WhatsOnMyNet", "extra": "{}"})
+    assert r"Get-Item -Path 'Registry::HKEY_LOCAL_MACHINE\SOFTWARE\WhatsOnMyNet'" in body, body
+    old = sc._body({"type": "registry", "target": r"HKLMACHINE\SOFTWARE\X", "extra": "{}"})
+    assert "fehler = 'Unbekannter Stammschlüssel „HKLMACHINE“" in old and "Get-Item" not in old, old
+    # saved before: PowerShell form -> Windows form on start; unknown hive stays (reason shown in "fehler")
+    ids = []
+    for n, t in (("pk-t1", r"HKLM:\SOFTWARE\Firma"), ("pk-t2", r"HKLMACHINE\X"), ("pk-t3", r"HKEY_USERS\.DEFAULT")):
+        db.ex("INSERT INTO custom_scanners(name, type, target, enabled, created_at) VALUES(?,?,?,0,?)", (n, "registry", t, util.now()))
+        ids.append(db.val("SELECT MAX(id) FROM custom_scanners"))
+    try:
+        sc.migrate()
+        got = [db.val("SELECT target FROM custom_scanners WHERE id=?", (i,)) for i in ids]
+        assert got == [r"HKEY_LOCAL_MACHINE\SOFTWARE\Firma", r"HKLMACHINE\X", r"HKEY_USERS\.DEFAULT"], got
+    finally:
+        for i in ids:
+            db.ex("DELETE FROM custom_scanners WHERE id=?", (i,))
+    js = open(os.path.join(os.path.dirname(sc.__file__), "static", "app.js"), encoding="utf-8").read()
+    assert "Wie in Windows, z. B. HKEY_LOCAL_MACHINE" in js
+
+
 @test("2.55.0 winget cache picks the installer like winget (language, architecture, installer type MSI before EXE ...; else the first in the manifest) - Paint.NET: the MSI ZIP, not the setup EXE that crashed as SYSTEM")
 def _():
     from app import wingetcache as wc
