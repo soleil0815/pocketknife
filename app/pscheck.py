@@ -163,9 +163,18 @@ def parse_event(e):
     else:
         body = m.split("\n", 1)[1] if "\n" in m else m
         body = re.split(r"(?m)^\s*(?:ScriptBlock-ID|Skriptblock-ID|ScriptBlock ID)\s*:", body)[0].strip()
+        f["script"] = _field(m, "Pfad", "Path")[:300]
+        if "cmdletization" in body.lower():
+            # 2.55.3: code of a generated (CDXML) Windows module - PowerShell writes the whole module as dozens of
+            # warnings when it is loaded. One finding per module instead of one per piece of its code
+            mm = re.search(r"ClassName = '([^']+)'", body)
+            mod = mm.group(1).split("/")[-2] if mm and mm.group(1).count("/") >= 2 else ""
+            f["message"] = "Generiertes Windows-Modul (CDXML) geladen" + (f": {mod}" if mod else "") + \
+                " – es protokolliert seinen eigenen Code als Warnungen"
+            f["cdxml"] = mod or "?"
+            return f
         f["message"] = body[:400]
         f["flagged"] = [x["what"] for x in pslint.check(body)][:10]
-        f["script"] = _field(m, "Pfad", "Path")[:300]
     return f
 
 
@@ -259,10 +268,50 @@ def record(host, op, now, evs):
             f.update(op=op, prev_op=prev if prev != op else "", host=str(host), seen=util.now())
             k = {4100: "e4100", 4104: "e4104"}.get(f["event"], "crash")
             c[k] = c.get(k, 0) + 1
-            STATE["findings"].append(f)
-        del STATE["findings"][:-MAX_FINDINGS]
+            _add(f)
         if evs or c["calls"] % 20 == 1:
             _save()
+
+
+def _fkey(f):
+    return (f.get("op"), f.get("event"), str(f.get("message", ""))[:200], f.get("command", ""), f.get("error_id", ""))
+
+
+def _add(f):
+    """2.55.3: identical findings are counted, not stored again - before, a flood of one kind (2821 warnings of one
+    module) pushed the rare ones (4100, crashes) out of the 2000 kept entries and they were missing in the report.
+    Caller holds _lock."""
+    k = _fkey(f)
+    for g in STATE["findings"]:
+        if _fkey(g) == k:
+            g["n"] = int(g.get("n") or 1) + 1
+            hs = g.setdefault("hosts", [g.get("host")])
+            if f["host"] not in hs and len(hs) < 100:
+                hs.append(f["host"])
+            g["seen"], g["time"] = f["seen"], f.get("time") or g.get("time")
+            return
+    f["n"], f["hosts"] = 1, [f["host"]]
+    STATE["findings"].append(f)
+    if len(STATE["findings"]) > MAX_FINDINGS:
+        # full: drop the oldest single warning (4104 seen once) - errors, crashes, module notes and frequent findings stay
+        fs = STATE["findings"]
+        drop = min(range(len(fs)), key=lambda i: (fs[i]["event"] != 4104, int(fs[i].get("n") or 1), i))
+        del fs[drop]
+
+
+def note_modules(host, op, areas):
+    """2.55.3: which part of a scan loaded which Windows modules (marks in the scan script while the check mode is on):
+    {area: [module, ...]} -> one finding per area and module - names the cause of the warnings of generated modules."""
+    if not areas:
+        return
+    with _lock:
+        _load()
+        for area, mods in areas.items():
+            for mod in mods:
+                _add({"time": util.now()[:19].replace("T", " "), "event": 0, "op": op, "prev_op": "", "host": str(host),
+                      "seen": util.now(), "message": f"Bereich „{area}“ lädt das Modul „{mod}“", "area": area, "module": mod,
+                      "host_app": "", "user": ""})
+        _save()
 
 
 def summary():
@@ -307,19 +356,23 @@ def report(anon_hosts=True, hostname=None):
         lines.append(f"(Einträge anderer Software oder Benutzer ausgelassen: {s['other']})")
     seen: dict = {}
     with _lock:
-        allf = list(STATE["findings"])
+        allf = [dict(f) for f in STATE["findings"]]
     for f in allf:
-        k = (f["op"], f["event"], f.get("message", "")[:200], f.get("command", ""), f.get("error_id", ""))
-        if k in seen:
-            seen[k]["n"] += 1
-            seen[k]["hosts"].add(hn(f["host"]))
+        k = _fkey(f)
+        hs = {hn(h) for h in (f.get("hosts") or [f.get("host")]) if h}
+        if k in seen:  # entries from before 2.55.3 (one per event)
+            seen[k]["n"] += int(f.get("n") or 1)
+            seen[k]["hosts"] |= hs
             continue
-        seen[k] = dict(f, n=1, hosts={hn(f["host"])})
+        seen[k] = dict(f, n=int(f.get("n") or 1), hosts=hs)
+    # modules loaded per scan area first (they name the cause), then by frequency
+    seen = dict(sorted(seen.items(), key=lambda kv: (kv[1]["event"] != 0, -kv[1]["n"])))
     if seen:
         lines += ["", "Funde (gleiche zusammengefasst):"]
     for f in seen.values():
         lines.append("")
-        lines.append(f"[{'Absturz' if f['event'] == 1000 else f['event']}] {f['op']}" + (f" (seit dem vorigen Aufruf: {f['prev_op']})" if f.get("prev_op") else "")
+        kind = "Absturz" if f["event"] == 1000 else "Modul" if f["event"] == 0 else f["event"]
+        lines.append(f"[{kind}] {f['op']}" + (f" (seit dem vorigen Aufruf: {f['prev_op']})" if f.get("prev_op") else "")
                      + f" · {f['n']}× auf {', '.join(sorted(f['hosts']))}")
         lines.append(f"  Meldung: {f.get('message', '')}")
         for lab, key in (("Fehler-ID", "error_id"), ("Befehl", "command"), ("Skript", "script"), ("Hostanwendung", "host_app"),

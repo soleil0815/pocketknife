@@ -1163,7 +1163,8 @@ function psCheckCard() {
           h('td.right', { class: v.e4100 ? 'err-text' : 'muted' }, String(v.e4100)), h('td.right', { class: v.e4104 ? 'err-text' : 'muted' }, String(v.e4104)),
           h('td.right', { class: v.crash ? 'err-text' : 'muted' }, String(v.crash)))))) : null,
       fl.length ? h('div', { style: { marginTop: '10px' } }, h('b.small', tr('Neueste Funde')), fl.map((f) => h('div.small', { style: { marginTop: '6px' } },
-        h('b.raw', `[${f.event === 1000 ? tr('Absturz') : f.event}] ${f.op}`), h('span.muted', ` · ${f.host} · ${f.time}`), h('div.raw', f.message || ''),
+        h('b.raw', `[${f.event === 1000 ? tr('Absturz') : f.event === 0 ? tr('Modul') : f.event}] ${f.op}`),
+        h('span.muted', ` · ${(f.n || 1) > 1 ? fmtT('{0}×', f.n) + ' · ' : ''}${f.host}${(f.hosts || []).length > 1 ? fmtT(' und {0} weitere', f.hosts.length - 1) : ''} · ${f.time}`), h('div.raw', f.message || ''),
         f.error_id ? h('div.muted.raw', f.error_id) : null, f.flagged && f.flagged.length ? h('div.muted', fmtT('Auffällig: {0}', f.flagged.join(', '))) : null))) : null));
     clearTimeout(timer);
     if ((rn && rn.running) && document.body.contains(card)) timer = setTimeout(draw, 3000);

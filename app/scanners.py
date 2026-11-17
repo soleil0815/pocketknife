@@ -165,13 +165,18 @@ if ($pkOut | Where-Object {{ $_ -ne $null -and (@($_.PSObject.TypeNames) -like '
 }}"""
 
 
-def script(ids=None):
-    """Script part for custom scanners. ids=None: all active ones, otherwise only the given (active) ones."""
-    rows = db.q("SELECT * FROM custom_scanners WHERE enabled=1 ORDER BY id")
+def rows(ids=None):
+    """Active custom scanners; ids=None: all of them, otherwise only the given ones."""
+    found = db.q("SELECT * FROM custom_scanners WHERE enabled=1 ORDER BY id")
     if ids is not None:
         want = {int(i) for i in ids}
-        rows = [r for r in rows if r["id"] in want]
-    return script_for(rows)
+        found = [r for r in found if r["id"] in want]
+    return found
+
+
+def script(ids=None):
+    """Script part for custom scanners. ids=None: all active ones, otherwise only the given (active) ones."""
+    return script_for(rows(ids))
 
 
 def script_for(rows):

@@ -8955,6 +8955,79 @@ def _():
     assert r.stdout.strip().startswith("PKCHK_NOW:") and "PKCHK_EV" not in r.stdout, r.stdout
 
 
+@test("2.55.3 Check mode: findings counted instead of stored per event (a flood of module warnings no longer pushes out 4100/crashes), generated module code as one finding per module, scan areas name the modules they load")
+def _():
+    import subprocess as _sp
+    from app import inventory, pscheck, pslint, scanners
+    m_head = ("Remotebefehl: Skriptblocktext (1 von 1) wird erstellt:\r\n#requires -version 3.0\r\n$script:ClassName = 'ROOT/Microsoft/Windows/Storage/MSFT_FileShare'\r\n"
+              "$script:ObjectModelWrapper = [Microsoft.PowerShell.Cmdletization.Cim.CimCmdletAdapter]\r\n\r\nScriptBlock-ID: 1\r\n")
+    m_part = "Skriptblocktext (2 von 9):\r\n$__cmdletization_methodParameter = 1\r\n\r\nScriptBlock-ID: 2\r\n"
+    f1 = pscheck.parse_event({"id": 4104, "m": m_head})
+    assert f1["message"].startswith("Generiertes Windows-Modul (CDXML) geladen: Storage") and f1["cdxml"] == "Storage" and "flagged" not in f1, f1
+    f2 = pscheck.parse_event({"id": 4104, "m": m_part})
+    assert f2["message"].startswith("Generiertes Windows-Modul (CDXML) geladen –") and f2["cdxml"] == "?", f2
+    old = (dict(pscheck.STATE), pscheck._loaded)
+    pscheck.STATE.update(since={}, last_op={}, calls={}, findings=[], started=None, other=0)
+    pscheck._loaded = True
+    _save = pscheck._save
+    pscheck._save = lambda: None
+    try:
+        me = "S-1-5-21-1"
+        flood = [{"id": 4104, "u": me, "m": m_part}] * 3000 + [{"id": 4104, "u": me, "m": f"Skriptblocktext:\r\nCode {i} Methods\r\n"} for i in range(2100)]
+        pscheck.record("pc-1", "inventory.scan", "", flood)
+        pscheck.record("pc-2", "steps._client_step", "", [{"id": 4100, "u": me, "m": "Fehlermeldung = Systemfehler\r\n"}])
+        pscheck.record("pc-3", "inventory.scan", "", [{"id": 4104, "u": me, "m": m_part}])
+        fs = pscheck.STATE["findings"]
+        assert len(fs) <= pscheck.MAX_FINDINGS
+        mod = [f for f in fs if f.get("cdxml")]
+        assert len(mod) == 1 and mod[0]["n"] == 3001 and set(mod[0]["hosts"]) == {"pc-1", "pc-3"}, (len(mod), mod[:1])
+        assert [f for f in fs if f["event"] == 4100], "the rare 4100 must stay"
+        pscheck.note_modules("pc-1", "inventory.scan", {"Datenträger": ["Storage"], "Eigener Scanner: UEFI": ["Storage", "SecureBoot"]})
+        rep = pscheck.report(True)
+        lines = rep.splitlines()
+        first = [ln for ln in lines if ln.startswith("[")][:3]
+        assert first[0].startswith("[Modul] inventory.scan") and any("Bereich „Datenträger“ lädt das Modul „Storage“" in ln for ln in lines), first
+        assert "Systemfehler" in rep and "3001× auf" in rep and rep.count("Generiertes Windows-Modul (CDXML) geladen –") == 1
+        assert pscheck.stats()["calls"] == 3
+    finally:
+        pscheck._save = _save
+        pscheck.STATE.clear()
+        pscheck.STATE.update(old[0])
+        pscheck._loaded = old[1]
+    # the scan script: marks only while the check mode is on, after every area and own scanner
+    _r = scanners.rows
+    scanners.rows = lambda ids=None: [{"id": 7, "name": "UEFI", "type": "powershell", "target": "Get-Date", "extra": "{}"},
+                                      {"id": 8, "name": "Reg", "type": "registry", "target": r"HKLM\SOFTWARE\X", "extra": "{}"}]
+    _sc = scanners.script
+    scanners.script = lambda ids=None: scanners.script_for(scanners.rows(ids))
+    try:
+        plain = inventory.build_script(None, None, mark=False)
+        marked = inventory.build_script(None, None, mark=True)
+    finally:
+        scanners.rows, scanners.script = _r, _sc
+    assert "PK-ModMark" not in plain and "pk_modules" not in plain
+    for key in inventory.MODULE_ORDER:
+        assert "PK-ModMark " + __import__("app.util", fromlist=["psq"]).psq(inventory.MODULES[key][0]) in marked, key
+    assert "PK-ModMark 'Eigener Scanner: UEFI'" in marked and "PK-ModMark 'Eigener Scanner: Reg'" in marked
+    assert "\n$r.custom = @{}" not in marked and marked.count("if ($null -eq $r.custom) { $r.custom = @{} }") == 2
+    assert pslint.check(inventory.MODMARK) == []
+    src = open(inventory.__file__, encoding="utf-8").read()
+    assert 'pscheck.note_modules(host, "inventory.scan", data.pop("pk_modules"))' in src
+    pw = os.environ.get("PK_PWSH")
+    if not (pw and os.path.exists(pw)):
+        return
+    d = os.path.join(TMP, "pk-modmark")
+    os.makedirs(d, exist_ok=True)
+    body = ("$r = [ordered]@{}\n" + inventory.MODMARK + "\nPK-ModMark 'Vorspann'\nImport-Module ThreadJob\nPK-ModMark 'Bereich A'\n"
+            "$null = Get-Date\nPK-ModMark 'Bereich B'\n'PKJSON:' + ($r | ConvertTo-Json -Depth 6 -Compress)\n")
+    path = os.path.join(d, "m.ps1")
+    open(path, "w", encoding="utf-8").write(body)
+    r = _sp.run([pw, "-NoProfile", "-NonInteractive", "-File", path], capture_output=True, text=True, timeout=120)
+    out = [ln for ln in r.stdout.splitlines() if ln.startswith("PKJSON:")]
+    data = json.loads(out[0][7:])
+    assert data["pk_modules"] == {"Bereich A": ["ThreadJob"]}, (data, r.stderr)
+
+
 @test("2.55.2 Registry scanner takes the path as in Windows (HKEY_LOCAL_MACHINE\\..., copied from the Registry Editor, short HKLM\\...), stores it like that, rejects an unknown hive instead of silently finding nothing")
 def _():
     from app import scanners as sc
