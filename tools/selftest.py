@@ -10441,7 +10441,7 @@ def _():
         o_mem, o_cand = schedules.members, schedules.winget_candidates
         db.ex("INSERT INTO schedules(id, name) VALUES(990041, 'Auto-Update Test')")
         schedules.members = lambda s_: set(cids)
-        schedules.winget_candidates = lambda s_, ids, online_only=True: {wid: sorted(ids)} if online_only else {}
+        schedules.winget_candidates = lambda s_, ids, online_only=True, fresh=False: {wid: sorted(ids)} if online_only else {}
         try:
             s_ = {"id": 990041, "name": "Auto-Update Test", "options": {"offline": "skip"}, "winget": {"scope": None},
                   "tenant_id": None, "targets": {"collections": [], "computers": cids}}
