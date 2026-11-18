@@ -2,6 +2,20 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.56.0 (18.11.2026)
+- **Update lock - schedules no longer close a program the user has open:** right before installing, a schedule asks the computer whether the program is running in a user session. If it is, the computer is not touched (nothing copied, nothing closed) but **postponed**: target "Übersprungen" with "Zurückgestellt – 7-Zip ist geöffnet (7zFM.exe) – wird nicht beendet …", schedule status "Zurückgestellt" - not a failed attempt
+  - the program is recognized from the package's steps (winget ID, MSI product code, display name of the detection/uninstallation, nested packages too) → its uninstall entry in the computer's inventory → the client reads InstallLocation, DisplayIcon and UninstallString live and lists the processes of the user sessions (`Win32_Process`, `SessionId <> 0`); a process from the program folder = open. Services never count; general folders (Program Files, Common Files, AppData\Local …) are never taken as a program folder. Packages can name extra process names (field "Updatesperre")
+  - client query only with cmdlets and CIM: Constrained-Language-safe, no PowerShell log entries (checked like every other script)
+  - **retry:** every 30 minutes (setting) the postponed computers are asked again - within the schedule's time window, online only; while the program is still open no deployment is created, once it is closed the schedule starts for this computer (and checks again right before installing). Updated some other way in the meantime → the postponement goes away by itself. "Run now" asks again immediately
+  - **never forced:** after 7 days (setting) the overview shows the tile "Updates zurückgestellt – Programm seit Tagen geöffnet" (list with computer, program, processes, since, next attempt) and the new notification "Update wegen geöffnetem Programm zurückgestellt" reports it, with all-clear
+  - **exceptions:** winget IDs that update safely while open are updated right away - by default `Google.Chrome*`, `Microsoft.Edge*`, `Brave.Brave*` (setting); per schedule "Programm geöffnet" and per package "auch während der Benutzung installieren"
+  - a check that cannot be done (no answer, CIM broken) does not hold the update: it installs as before, with a warning in the log
+- **Manual deployment:** not held (someone clicked "Bereitstellen" on purpose), but for selected computers (up to 50 online) POCKET KNIFE asks first and names where the program is open - "Nur die übrigen", "Trotzdem alle" or "Abbrechen". Kiosk unchanged
+- Settings → Packages & Repository → Installations: update lock on/off, check again after (min.), notice after (days), exceptions
+- Diagnostic package: update lock (checks open/free/unknown/error, retries, postponed targets now, longest wait, settings, use in packages and schedules - counts only); LIESMICH
+- Help: new section "Updatesperre", notifications, diagnostic package. README: features and winget updates
+- **Self-test:** program folders and processes (session 0, sibling folders, general folders), programs of a package incl. nested and exceptions, client script clean and in Constrained Language (real PowerShell), postponement in the run (not failed, no attempt), not held for manual/exempt/package switch/schedule switch, retry asks first (still open: no deployment), success lifts it, overview/notification/diagnostics, cleanup when updated otherwise
+
 ## pocketknife-2.55.3 (17.11.2026)
 - **Check mode report, first evaluation:** of 2821 warnings (4104) in scans almost all were the code of the generated Windows module "Storage", which PowerShell writes to the log as dozens of warnings when it is loaded - the report listed every piece separately, and this flood pushed the 2 errors (4100) and 3 crashes out of the 2000 kept findings, so they were counted but missing in the text
   - identical findings are now counted (number, computers) instead of stored per event; when full, the oldest warning seen once goes first - errors, crashes and module notes stay

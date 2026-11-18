@@ -122,6 +122,13 @@ CREATE TABLE IF NOT EXISTS schedule_targets(
   message TEXT, pending INTEGER DEFAULT 0, pending_since TEXT,
   PRIMARY KEY(schedule_id, computer_id));
 
+-- 2.56.0: update lock - schedule targets postponed because the program is open on the computer (inuse.py)
+CREATE TABLE IF NOT EXISTS inuse_postponed(
+  schedule_id INTEGER REFERENCES schedules(id) ON DELETE CASCADE,
+  computer_id INTEGER REFERENCES computers(id) ON DELETE CASCADE,
+  prog TEXT, label TEXT, procs TEXT, spec TEXT, since TEXT, last_check TEXT, next_try TEXT, checks INTEGER DEFAULT 0,
+  PRIMARY KEY(schedule_id, computer_id, prog));
+
 CREATE TABLE IF NOT EXISTS update_rules(
   id INTEGER PRIMARY KEY, name TEXT, enabled INTEGER DEFAULT 1, mode TEXT DEFAULT 'all',
   winget_ids TEXT, exclude_ids TEXT, collection_id INTEGER, days TEXT DEFAULT '1,2,3,4,5,6,7',
@@ -285,6 +292,9 @@ DEFAULT_SETTINGS = {
     "scan_concurrency": 6,
     "deploy_concurrency": 8,
     "deploy_timeout_minutes": 60,
+    # 2.56.0: update lock - schedules do not install while the program is open in a user session (inuse.py)
+    "inuse_enabled": 1, "inuse_retry_minutes": 30, "inuse_warn_days": 7,
+    "inuse_exempt": "Google.Chrome*\nMicrosoft.Edge*\nBrave.Brave*",
     # 2.39: account for packages ("Wie in den Einstellungen"): "system" (Local System, standard) or "deploy" (service
     # account through a short-lived scheduled task with its password) - only via PUT /api/settings/pkg-run-as
     "pkg_run_as": "system",
@@ -536,6 +546,8 @@ MIGRATIONS = [
     ("deployments", "tenant_id", "INTEGER"),
     ("packages", "rescan_profile_id", "INTEGER"),
     ("packages", "notify_user", "TEXT"),
+    ("packages", "in_use_procs", "TEXT"),       # 2.56.0: update lock - process names that must not be running
+    ("packages", "in_use_ignore", "INTEGER DEFAULT 0"),  # 2.56.0: install even while the program is open
     ("schedules", "kind", "TEXT DEFAULT 'packages'"),
     ("schedules", "winget", "TEXT"),
     ("schedules", "window", "TEXT"),

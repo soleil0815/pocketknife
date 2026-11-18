@@ -565,6 +565,7 @@ def _stats(since, an):
         "pslint": _pslint(),
         "crashed_programs": _crashes(),
         "pscheck": _pscheck(),
+        "inuse": _inuse(since),
     }
 
 
@@ -579,6 +580,31 @@ def _pscheck():
     only; the texts are in the report the admin copies himself)."""
     from . import pscheck
     return pscheck.stats()
+
+
+def _inuse(since):
+    """2.56.0: update lock - checks since the start (busy/free/unknown/errors, retries, manual checks), postponed
+    targets now (count, longest wait in days, checks), postponements in the period, settings and how often packages and
+    schedules use it. Counts only - never computer, user or program names."""
+    from . import inuse
+    rows = db.q("SELECT since, checks, prog FROM inuse_postponed")
+    now = util.parse(util.now())
+    waits = sorted(int((now - util.parse(r["since"])).total_seconds() // 86400) for r in rows if util.parse(r["since"]))
+    return {
+        "enabled": inuse.enabled(), "retry_minutes": inuse.retry_minutes(), "warn_days": inuse.warn_days(),
+        "exempt_patterns": len(inuse.exempt_patterns()),
+        "since_start": inuse.stats(),
+        "postponed_now": len(rows), "postponed_programs": len({r["prog"] for r in rows}),
+        "longer_than_warn_days": sum(1 for w in waits if w >= inuse.warn_days()),
+        "wait_days_max": waits[-1] if waits else None,
+        "checks_max": max((r["checks"] or 0 for r in rows), default=0),
+        "postponed_in_period": db.val("SELECT COUNT(*) FROM deployment_targets WHERE status='skipped' AND message LIKE ? "
+                                      "AND finished_at >= ?", (inuse.PREFIX + "%", since), 0),
+        "packages_with_in_use_procs": db.val("SELECT COUNT(*) FROM packages WHERE COALESCE(in_use_procs, '') <> ''", default=0),
+        "packages_in_use_ignore": db.val("SELECT COUNT(*) FROM packages WHERE in_use_ignore=1", default=0),
+        "schedules_without_lock": db.val("SELECT COUNT(*) FROM schedules WHERE json_extract(options, '$.in_use_wait')=0",
+                                         default=0),
+    }
 
 
 def _pscheck_report(an, anonymize):
@@ -871,7 +897,9 @@ Dateien
                        abgestürzte Programme in Schritten/Tools (Anzahl, davon „Fenster als SYSTEM“,
                        davon mit ausstehendem Neustart),
                        Prüfmodus PowerShell-Protokoll (an/aus, Aufrufe und Einträge 4100/4104 und
-                       Abstürze je POCKET-KNIFE-Funktion)
+                       Abstürze je POCKET-KNIFE-Funktion),
+                       Updatesperre (Prüfungen: geöffnet/frei/unbekannt/Fehler, zurückgestellte Ziele,
+                       längste Wartezeit, Einstellungen, Nutzung in Paketen und Zeitplänen – nur Anzahlen)
   powershell_protokoll.txt  Bericht des Prüfmodus: was POCKET KNIFE in den PowerShell-Protokollen der
                        Computer ausgelöst hat (Funktion, Meldung, Fehler-ID) – Namen ersetzt
   leistung.json        Rechenlast und Lastspitzen, Dauer der wichtigsten Abfragen, langsamste Sammlungen, größte Felder

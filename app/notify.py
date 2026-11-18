@@ -329,6 +329,10 @@ ALERTS = [
      "params": [{"name": "warn", "label": "Auch Abweichungen melden", "type": "bool", "default": "0",
                  "hint": "andere Dateien im Paketordner geändert – Bereitstellungen laufen weiter"}],
      "resolvable": True},
+    # 2.56.0: update lock - a program has been open at every attempt for days (POCKET KNIFE never forces it)
+    {"key": "inuse_long", "title": "Update wegen geöffnetem Programm zurückgestellt",
+     "desc": "Ein Zeitplan konnte ein Programm seit Tagen nicht aktualisieren, weil es beim Benutzer immer geöffnet war (Updatesperre). Die Zahl der Tage steht unter Einstellungen → Pakete & Repository → Updatesperre.",
+     "params": [], "resolvable": True},
     {"key": "backup_failed", "title": "Sicherung fehlgeschlagen",
      "desc": "Die automatische Sicherung der Datenbank ist fehlgeschlagen.",
      "params": [], "resolvable": False},
@@ -585,6 +589,14 @@ def _check_breakglass(p, cfg):
     return {str(r["id"]): {"time": (r["ts"] or "")[:16], "event": r["message"][len("Notfallzugang:"):].strip()[:300]} for r in rows}
 
 
+def _check_inuse_long(p, cfg):
+    """2.56.0: postponed by the update lock for longer than the setting "Hinweis nach (Tagen)"."""
+    from . import inuse
+    return {f"{r['schedule_id']}:{r['computer_id']}:{r['prog']}": {
+        "computer": r["computer"], "program": r["label"] or r["prog"], "procs": r["procs"] or "",
+        "since": (r["since"] or "")[:16], "schedule": r["schedule"]} for r in inuse.long_waiting()}
+
+
 CHECKS = {
     "low_disk": (_check_low_disk, [("computer", "Computer"), ("drive", "Laufwerk"), ("label", "Bezeichnung"),
                                    ("free", "Frei"), ("pct", "Frei %"), ("size", "Größe"), ("scan", "Stand (Scan)")]),
@@ -597,6 +609,8 @@ CHECKS = {
     "backup_failed": (_check_backup_failed, [("time", "Zeit"), ("error", "Fehler")]),
     "breakglass": (_check_breakglass, [("time", "Zeit"), ("event", "Ereignis")]),
     "repo_break": (_check_repo_break, [("package", "Paket"), ("state", "Zustand"), ("issues", "Befund"), ("checked", "Geprüft")]),
+    "inuse_long": (_check_inuse_long, [("computer", "Computer"), ("program", "Programm"), ("procs", "Geöffnet"),
+                                       ("since", "Zurückgestellt seit"), ("schedule", "Zeitplan")]),
 }
 
 
@@ -792,6 +806,8 @@ def _label(key, v):
         return v["name"]
     if key == "repo_break":
         return v["package"]
+    if key == "inuse_long":
+        return f"{v['computer']}: {v['program']}"[:200]
     return v.get("reason") or v.get("time") or key
 
 

@@ -2,6 +2,24 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.56.0",
+   "date": "2026-11-18",
+   "items": [
+    {
+     "kind": "new",
+     "audience": "admin",
+     "de": "Updatesperre: Zeitpläne installieren nicht mehr, solange das Programm beim Benutzer geöffnet ist – nichts wird beendet. Der Computer wird zurückgestellt und alle 30 Minuten erneut gefragt; meist klappt es abends. Programme, die seit Tagen offen sind, zeigt die Übersicht. Chrome, Edge und Brave werden weiter sofort aktualisiert. Einstellungen → Pakete & Repository → Installationen.",
+     "en": "Update lock: schedules no longer install while the program is open on the user's computer – nothing is closed. The computer is postponed and asked again every 30 minutes; usually it works in the evening. Programs open for days are shown on the overview. Chrome, Edge and Brave are still updated right away. Settings → Packages & Repository → Installations."
+    },
+    {
+     "kind": "improved",
+     "audience": "admin",
+     "de": "Bereitstellen von Hand: Ist das Programm auf einem der ausgewählten Computer gerade geöffnet, fragt POCKET KNIFE vorher nach – nur die übrigen, trotzdem alle oder abbrechen.",
+     "en": "Deploying by hand: if the program is open on one of the selected computers right now, POCKET KNIFE asks first – only the others, all anyway or cancel."
+    }
+   ]
+  },
+  {
    "version": "2.55.3",
    "date": "2026-11-17",
    "items": [

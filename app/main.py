@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTex
 from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 
-from . import (access, backup, gphistory, clientfiles, loadstats, integrity, kiosk, news, pkgexport, repofiles, sso, customreports, mailer, notify, diskusage, kerberos, presence, tls, actions, ad, auth, guard, profiles, remote_desktop, scanners, tools, uninstall, collections_, config, db, deploy, inventory, pklog, remote, reports, scheduler,
+from . import (access, backup, inuse, gphistory, clientfiles, loadstats, integrity, kiosk, news, pkgexport, repofiles, sso, customreports, mailer, notify, diskusage, kerberos, presence, tls, actions, ad, auth, guard, profiles, remote_desktop, scanners, tools, uninstall, collections_, config, db, deploy, inventory, pklog, remote, reports, scheduler,
                schedules, steps, util, winget, wingetcache)
 
 
@@ -346,6 +346,8 @@ def api_dashboard(user=U):
                               "WHERE t.status='failed' AND d.created_at >= ?", (util.ago(days=7),), 0),
         "scanning": len(inventory.scanning_ids()),
         "packages_broken": v("SELECT COUNT(*) FROM packages WHERE json_extract(integrity, '$.state')='broken'", default=0),
+        # 2.56.0: updates postponed for days because the program keeps being open (update lock)
+        "inuse_long": v("SELECT COUNT(*) FROM inuse_postponed WHERE since <= ?", (util.ago(days=inuse.warn_days()),), 0),
         "os": db.q("SELECT COALESCE(os_name, ad_os, 'unbekannt') os, COUNT(*) n FROM computers GROUP BY 1 "
                    "ORDER BY n DESC LIMIT 8"),
         "top_outdated": db.q("SELECT name, winget_id, winget_latest, COUNT(DISTINCT computer_id) n FROM software "
@@ -2640,6 +2642,10 @@ def api_packages_merge(data: dict = Body(...), user=U):
            "rescan": 1 if any(p.get("rescan") for p in pkgs) else 0,
            "timeout_min": max(int(p.get("timeout_min") or 0) for p in pkgs) or db.setting("deploy_timeout_minutes"),
            "notify_user": "", "rescan_profile_id": None,
+           # 2.56.0: update lock - process names of all packages; "always install" only if every package says so
+           "in_use_procs": ", ".join(list(dict.fromkeys(x.strip() for p in pkgs for x in str(p.get("in_use_procs") or "").split(",")
+                                                        if x.strip()))[:inuse.MAX_PROCS]) or None,
+           "in_use_ignore": 1 if pkgs and all(p.get("in_use_ignore") for p in pkgs) else 0,
            "allow_duplicate": bool(data.get("allow_duplicate"))}  # 2.32.5: as when saving (main admins only)
     # Then scan: as with the individual packages - a common profile directly, different ones as "Scannen" steps at the end
     prof = []
@@ -3001,6 +3007,41 @@ def api_deployments(limit: int = 300, before: int = 0, user=U):
                    (SELECT COUNT(*) FROM deployment_targets t WHERE t.deployment_id=d.id AND t.status='success') ok,
                    (SELECT COUNT(*) FROM deployment_targets t WHERE t.deployment_id=d.id AND t.status='failed') failed
                    FROM deployments d WHERE d.id < ? ORDER BY d.id DESC LIMIT ?""", (bef, lim))
+
+
+@app.get("/api/inuse/postponed")
+def api_inuse_postponed(user=U):
+    """2.56.0: targets postponed by the update lock (program open) - only computers of the user's area."""
+    rows = [r for r in inuse.all_postponed() if access.can_computer(user, r["computer_id"])]
+    lim = util.ago(days=inuse.warn_days())
+    for r in rows:
+        r["long"] = (r["since"] or "") <= lim
+    return {"rows": rows, "warn_days": inuse.warn_days(), "retry_minutes": inuse.retry_minutes()}
+
+
+@app.post("/api/inuse/check")
+def api_inuse_check(data: dict = Body(...), user=U):
+    """2.56.0: start dialog of a manual deployment - on which of the chosen computers is the program open right now?"""
+    ids = access.check_ids(user, data.get("computer_ids"))
+    pkgs = []
+    from . import steps as _steps
+    for x in [int(i) for i in data.get("package_ids") or []][:20]:
+        pkgs.append(_steps.expand(deploy.row_to_package(access.need_package(user, x))))
+    if data.get("winget_id"):
+        wid = str(data["winget_id"]).strip()
+        if not util.WINGET_ID_RE.match(wid):
+            _err("Ungültige winget-ID.")
+        pkgs.append(_steps.expand(deploy.adhoc_winget(wid, data.get("action") if data.get("action") in ("install", "upgrade", "uninstall") else "upgrade")))
+    busy: dict[int, dict] = {}
+    checked, skipped, exempt = 0, 0, []
+    for p in pkgs:
+        r = inuse.check_many(p, ids)
+        checked, skipped = max(checked, r["checked"]), max(skipped, r["skipped"])
+        exempt += [x for x in r["exempt"] if x not in exempt]
+        for b in r["busy"]:
+            cur = busy.setdefault(b["id"], {**b, "procs": []})
+            cur["procs"] += [x for x in b["procs"] if x not in cur["procs"]]
+    return {"busy": sorted(busy.values(), key=lambda b: b["name"].lower()), "checked": checked, "skipped": skipped, "exempt": exempt}
 
 
 @app.post("/api/deployments")
@@ -3770,7 +3811,8 @@ SETTING_BOUNDS = {"repo_upload_max_mb": (1, 102400), "repo_tenant_quota_mb": (0,
                   "backup_hour": (0, 23), "db_maintenance_hour": (0, 23), "scan_interval_hours": (1, 8760), "du_scan_depth": (1, 8),
                   "rule_retry_hours": (1, 8760), "session_idle_minutes": (5, 720), "kiosk_max_per_day": (1, 500),
                   "dns_cache_minutes": (0, 1440), "identity_recheck_hours": (1, 168), "winget_release_days": (1, 365),
-                  "wol_repeat": (1, 10), "wol_wait_seconds": (0, 900)}
+                  "wol_repeat": (1, 10), "wol_wait_seconds": (0, 900),
+                  "inuse_enabled": (0, 1), "inuse_retry_minutes": (5, 1440), "inuse_warn_days": (1, 365)}
 
 
 # --- Remote sessions (RDP/VNC in the browser) -------------------------------------------------
@@ -3991,6 +4033,11 @@ def api_settings_save(data: dict = Body(...), user=U):
             if any(not re.match(r"^[A-Za-z0-9._-]{1,253}$", x) for x in names) or len(names) > 50:
                 _err("Feste Relays: Computernamen, durch Komma getrennt (höchstens 50).")
             v = ", ".join(dict.fromkeys(names))
+        if k == "inuse_exempt":
+            try:
+                v = inuse.clean_exempt(v)   # 2.56.0: winget IDs/patterns that may update while open
+            except ValueError as e:
+                _err(e)
         if k == "toast_sender":
             v = re.sub(r"[\x00-\x1f<>]", "", str(v or "")).strip()[:60]
         if k == "repo_upload_types":

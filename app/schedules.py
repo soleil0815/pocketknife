@@ -18,7 +18,8 @@ TRIGGER_TYPES = {k: v for k, v in profiles.TRIGGER_TYPES.items() if k != "scan_a
 KINDS = {"packages": "Pakete verteilen", "winget": "winget-Updates"}
 DEFAULT_OPTIONS = {"stop_on_fail": True, "offline": "wait", "skip_successful": True, "max_attempts": 0,
                    "only_online": True, "retry_wait_hours": 0, "renew_after_hours": 0, "retry_failed": True,
-                   "wake_offline": False}  # 2.31: wake powered-off targets beforehand via Wake-on-LAN (default: no)
+                   "wake_offline": False,  # 2.31: wake powered-off targets beforehand via Wake-on-LAN (default: no)
+                   "in_use_wait": True}  # 2.56.0: update lock - do not touch a program that is open (inuse.py)
 DEFAULT_WINGET = {"mode": "all", "ids": "", "exclude": "", "scope": ""}
 DEFAULT_WINDOW = {"enabled": False, "days": [1, 2, 3, 4, 5, 6, 7], "start": "00:00", "end": "23:59"}
 DEFERRED = "__window"  # marker in schedule_trigger_state: run is due, waiting for the time window
@@ -135,7 +136,8 @@ def clean(data):
             "skip_successful": bool(o.get("skip_successful")), "max_attempts": maxa, "only_online": True,
             "retry_wait_hours": _hours(o.get("retry_wait_hours"), "Wartezeit nach Fehlschlag"),
             "renew_after_hours": _hours(o.get("renew_after_hours"), "Erneut versorgen nach"),
-            "retry_failed": bool(o.get("retry_failed", True)), "wake_offline": bool(o.get("wake_offline"))}
+            "retry_failed": bool(o.get("retry_failed", True)), "wake_offline": bool(o.get("wake_offline")),
+            "in_use_wait": bool(o.get("in_use_wait", True))}
     if opts["wake_offline"]:
         opts["offline"] = "wait"  # woken computers are served as soon as they have booted
     tenant = data.get("tenant_id")
@@ -340,8 +342,9 @@ def composite_package(s):
 
 
 # --- winget updates ---------------------------------------------------------------------------
-def winget_candidates(s, cids=None, online_only=True):
-    """{winget_id: [computer_ids]} – outdated software of the targets with a reliable winget mapping."""
+def winget_candidates(s, cids=None, online_only=True, fresh=False):
+    """{winget_id: [computer_ids]} – outdated software of the targets with a reliable winget mapping.
+    2.56.0: programs postponed by the update lock wait for their next attempt (fresh=True: manual run, no wait)."""
     targets = members(s) if cids is None else (set(cids) & members(s))
     if not targets:
         return {}
@@ -374,11 +377,12 @@ def winget_candidates(s, cids=None, online_only=True):
             k = (r["cid"], r["wid"] or "")
             fails[k] = fails.get(k, 0) + 1 if r["status"] == "failed" else 0
     out = {}
-    from . import wingetrelease
+    from . import inuse, wingetrelease
+    waiting = set() if fresh else inuse.not_due(s["id"])
     rel = {}
     for r in rows:
         wl = r["winget_id"].lower()
-        if (only and wl not in only) or wl in excl or (r["computer_id"], wl) in busy:
+        if (only and wl not in only) or wl in excl or (r["computer_id"], wl) in busy or (r["computer_id"], wl) in waiting:
             continue
         if maxa and fails.get((r["computer_id"], wl), 0) >= maxa:
             continue
@@ -432,7 +436,7 @@ def _fire_winget(s, cids, reason, user):
     first = None
     n = 0
     from . import wingetcache
-    for wid, ids in sorted(winget_candidates(s, [c for c in targets if c in online]).items()):
+    for wid, ids in sorted(winget_candidates(s, [c for c in targets if c in online], fresh=user is not None).items()):
         # 2.35: computers without winget from the winget cache (same winget ID in the package – "already running"/failed attempts count too)
         wg, cache, _skip, ce = wingetcache.split(wid, ids)
         up = deploy.update_package(wid)
@@ -482,7 +486,7 @@ def _fire_winget(s, cids, reason, user):
 
 # 2.31: wake only on a real run (appointment, time window, manual) – not on every heartbeat or catch-up
 # 2.32.5: "Wiederholung – Lauf konnte nicht gestartet werden" makes up for a real appointment – waking happens there
-_NO_WAKE = ("Heartbeat", "Computer wieder online", "vorgemerkte Ziele", "fehlgeschlagene Ziele")
+_NO_WAKE = ("Heartbeat", "Computer wieder online", "vorgemerkte Ziele", "fehlgeschlagene Ziele", "zurückgestellte Ziele")
 WAKE_MAX = 200  # wake at most this many computers per run
 _waking = set()  # schedules currently being woken for (only one pass per schedule at a time)
 _waking_lock = threading.Lock()
@@ -559,11 +563,15 @@ def _fire(s, cids=None, reason="Zeitplan", user=None, force=False):
     wait = util.ago(hours=o["retry_wait_hours"]) if o.get("retry_wait_hours") else None
     # only believe "queued/running" if the deployment is still running – otherwise (deleted, aborted, crash) serve again
     live = {r["id"] for r in db.q("SELECT id FROM deployments WHERE status IN ('queued','running','scheduled')")}
+    from . import inuse
+    waiting = set() if force else {cid for cid, _k in inuse.not_due(s["id"])}
     todo = []
     for cid in targets:
         h = hist.get(cid) or {}
         if h.get("status") in ("queued", "running") and h.get("deployment_id") in live:
             continue
+        if cid in waiting:
+            continue  # 2.56.0: postponed - the program was open; the next attempt is not due yet
         if not force and o["skip_successful"] and h.get("status") in ("success", "skipped"):
             if not renew or (h.get("last_run") or "") >= renew:
                 continue  # successful – and (if configured) not yet old enough for another serving
@@ -664,6 +672,7 @@ def _chain_result(did, t):
     if any(r["status"] in ("queued", "running") for r in rows):
         return None
     from .deploy import CHAIN_SKIP
+    from .inuse import PREFIX as INUSE
     bad = [r for r in rows if r["status"] == "failed"]
     chain_skipped = [r for r in rows if r["status"] == "skipped" and (r["message"] or "").startswith(CHAIN_SKIP)]
     if bad or chain_skipped:
@@ -671,6 +680,9 @@ def _chain_result(did, t):
         return {"status": "failed", "message": f"{first['name']}: {first['message'] or ''}"[:1000], "deployment_id": first["id"]}
     if any(r["status"] == "cancelled" for r in rows):
         return {"status": "cancelled", "message": "Abgebrochen", "deployment_id": rows[-1]["id"]}
+    held = [r for r in rows if r["status"] == "skipped" and (r["message"] or "").startswith(INUSE)]
+    if held:   # 2.56.0: a package of the chain was postponed (program open) - the whole chain is tried again later
+        return {"status": "postponed", "message": f"{held[0]['name']}: {held[0]['message'] or ''}"[:1000], "deployment_id": held[0]["id"]}
     if all(r["status"] == "skipped" for r in rows):
         return {"status": "skipped", "message": rows[-1]["message"], "deployment_id": rows[-1]["id"]}
     return {"status": "success", "message": f"{len(rows)} Pakete erfolgreich", "deployment_id": rows[-1]["id"]}
@@ -686,9 +698,20 @@ def target_finished(sid, did, tid):
     t = {**dict(t0), "status": agg["status"], "message": agg["message"]}
     did = agg["deployment_id"]
     st = t["status"]
-    status = st if st in ("success", "skipped", "cancelled") else "failed"
+    from . import inuse
+    if st == "skipped" and (t["message"] or "").startswith(inuse.PREFIX):
+        st = "postponed"
+    status = st if st in ("success", "skipped", "cancelled", "postponed") else "failed"
     now = util.now()
     s = get(sid)
+    if status != "postponed":
+        # 2.56.0: done (or failed for another reason) - no longer postponed by the update lock
+        try:
+            drow = db.q1("SELECT id, name, schedule_id, package_json FROM deployments WHERE id=?", (did,))
+            if drow:
+                inuse.clear(sid, t["computer_id"], inuse.prog_key(dict(drow), json.loads(drow["package_json"] or "{}")))
+        except Exception as e:  # noqa: BLE001
+            pklog.warn("deploy", f"Zeitplan #{sid}: Zurückstellung nicht aufgehoben: {e}")
     if status == "failed" and s and s["options"]["offline"] == "wait" and (t["message"] or "").startswith("Computer nicht erreichbar"):
         # Offline after all at start: mark as pending instead of counting as a failed attempt
         db.ex("""INSERT INTO schedule_targets(schedule_id, computer_id, pending, pending_since, message, deployment_id)
@@ -696,7 +719,7 @@ def target_finished(sid, did, tid):
                  pending_since=excluded.pending_since, message=excluded.message, deployment_id=excluded.deployment_id""",
               (sid, t["computer_id"], now, "Nicht erreichbar – wird versorgt, sobald der Computer online ist", did))
         return
-    # Only "fehlgeschlagen" counts as a failed attempt – cancelling or skipping uses up no attempts
+    # Only "fehlgeschlagen" counts as a failed attempt – cancelling, skipping or postponing uses up no attempts
     db.ex("""INSERT INTO schedule_targets(schedule_id, computer_id, status, last_run, last_success, attempts, deployment_id,
              message, pending) VALUES(?,?,?,?,?,?,?,?,0)
              ON CONFLICT(schedule_id, computer_id) DO UPDATE SET status=excluded.status, last_run=excluded.last_run,
@@ -709,6 +732,7 @@ def target_finished(sid, did, tid):
 
 
 _retry_count = {}
+_inuse_clean = 0.0  # 2.56.0: last cleanup of the postponed targets (every 10 minutes)
 
 
 def _mark_retry(sid):
@@ -780,6 +804,14 @@ def evaluate():
     now = datetime.datetime.now()
     nows = util.fmt(now)
     state = {(r["schedule_id"], r["trigger_id"]): r["last_fired"] for r in db.q("SELECT * FROM schedule_trigger_state")}
+    global _inuse_clean
+    if now.timestamp() - _inuse_clean >= 600:
+        _inuse_clean = now.timestamp()
+        try:
+            from . import inuse
+            inuse.cleanup()
+        except Exception as e:  # noqa: BLE001
+            pklog.warn("deploy", f"Updatesperre: Aufräumen fehlgeschlagen: {e}")
     for s in all_schedules():
         if not s["enabled"]:
             continue
@@ -832,6 +864,10 @@ def _evaluate_one(s, now, nows, state):
             for cid, dep in before.items():
                 db.ex("UPDATE schedule_targets SET attempts=MAX(COALESCE(attempts, 0), ?) WHERE schedule_id=? AND computer_id=? "
                       "AND status='failed' AND COALESCE(pending, 0)=0 AND deployment_id IS ?", (limit, s["id"], cid, dep))
+    # 2.56.0: postponed because the program was open - ask the computer again, start only where it is closed now
+    if s["options"].get("in_use_wait", True):
+        from . import inuse
+        inuse.retry_due(s, lambda sch, ids: _fire_safe(sch, ids, reason="zurückgestellte Ziele – Programm inzwischen geschlossen"))
     if s["window"].get("enabled"):
         # In the window: pending targets that came online outside the window
         pend = [r["computer_id"] for r in db.q(

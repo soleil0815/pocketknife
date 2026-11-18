@@ -19,7 +19,8 @@ from . import access, config, db, deploy, repofiles, steps, util
 FORMAT = "pocketknife-packages"
 FORMAT_VERSION = 1
 MAX_PACKAGES = 500
-FIELDS = ("name", "version", "description", "run_as", "timeout_min", "reboot", "rescan", "notify_user", "folder_name")
+FIELDS = ("name", "version", "description", "run_as", "timeout_min", "reboot", "rescan", "notify_user", "folder_name",
+          "in_use_procs", "in_use_ignore")
 UNC_RE = re.compile(r"\\\\[A-Za-z0-9._$-]+\\[^\s'\"`;|<>]*")
 TEXT_KEYS = ("command", "script", "arguments", "message", "target", "path")
 
