@@ -1086,6 +1086,39 @@ Only for **Deploy packages**: skip the remaining packages on error, do not re-se
 
 **Example – always up to date:** kind "winget updates", all outdated, exception `Oracle.JavaRuntimeEnvironment`, triggers "Interval every 24 h" **and** "Heartbeat", time window Mon–Fri 7 AM–6 PM, target "All computers". Computers switched on during the day are updated right away, all others once a day.
 
+## Update lock – do not install while the program is open {#inuse}
+
+Many programs survive an update while they are open – some do not: the installer closes them, and the user's unsaved work is gone. That is why, from 2.56.0, a schedule asks the computer **right before installing** whether the program is running in a user session. If it is, the computer is **not touched** (nothing is copied, nothing is closed) but **postponed** and tried again later – usually it works in the evening, once the user has closed the program or logged off.
+
+**How the program is recognized:** From the steps of the package (nested packages too) POCKET KNIFE knows the winget ID, the MSI product code, the display name of the "already installed" detection or of the uninstallation. With it, it finds the entry under "Programs and Features" in the computer's inventory; the computer reads its installation folder live (InstallLocation, program icon, uninstall command) and returns the processes of the user sessions. If a process from this folder is running, the program is open. Services (session 0) never count; folders that are too general (`C:\Program Files`, `Common Files`, `AppData\Local` …) are never taken as a program folder. In the package, **Update lock** takes additional **process names** (e.g. `7zFM.exe, 7zG.exe`) – needed for script packages without a recognizable program. The query uses only cmdlets and CIM (also in Constrained Language Mode, without entries in the PowerShell log).
+
+**What happens when postponing:**
+
+| Where | Shown as |
+|---|---|
+| Deployment | computer "Skipped" with "Postponed – 7-Zip is open (7zFM.exe) – not closed, next attempt in 30 minutes" |
+| Schedule → target history | status **Postponed** – not a failed attempt, "Max. failed attempts" and "Wait after failure" stay untouched |
+| Overview | tile **Updates postponed – program open for days** as soon as a program has been waiting longer than "Notice after (days)"; a click shows computer, program, open processes, since when and the next attempt |
+| Notification | **Update postponed because the program is open** (Settings → E-mail & notifications), with all-clear |
+
+**Next attempt:** Every **30 minutes** (configurable) POCKET KNIFE asks the postponed computers again – within the schedule's time window and only when they are online. As long as the program is still open, **no** new deployment is created; only when it is closed does the schedule start for this computer (and checks once more right before installing). If the program was updated some other way in the meantime, the postponement disappears by itself. **It is never forced** – after "Notice after (days)" (default 7) the computer only appears on the overview and in the notification, so that you can take care of it (talk to the user or deploy by hand). "Run now" in the schedule asks again immediately without waiting for the interval.
+
+**Settings → Packages & Repository → Installations:**
+
+| Setting | Default |
+|---|---|
+| Update lock | on |
+| Check again after (min.) | 30 (5–1440) |
+| Notice after (days) | 7 |
+| Exceptions | `Google.Chrome*`, `Microsoft.Edge*`, `Brave.Brave*` – winget IDs (with `*`) that can be updated while they are open (they bring their own update mechanism; the new version applies after the next program start). They are updated right away. |
+
+**Switching it off for a case:** in the schedule under options **Program open** (untick), in the package **install even while in use**.
+
+**Does not apply to:** manual deployments and the kiosk – there someone deliberately clicked "Deploy" or "Install". When deploying by hand to selected computers, POCKET KNIFE asks beforehand though (up to 50 computers that are online): if the program is open anywhere, a dialog names the computers and processes – **Only the other …** (leave out the ones with the open program), **All anyway** or **Cancel**.
+
+**Cannot be checked** (the computer does not answer the query, CIM broken): then it installs as without the lock, with a warning in the log – a check that fails permanently must not hold back all updates unnoticed. If the program is neither in the inventory nor known by process names (e.g. first installation), there is nothing to check.
+
+
 # Tools {#tools}
 
 Select computers → **Tools ▾** or right-click → Tools.
@@ -1325,6 +1358,7 @@ Under **Settings → E-mail & notifications** you can turn on e-mails for certai
 | Deployment failed | a deployment failed completely (optionally also partially) – one notification per deployment |
 | Service account guard triggered | automatic access was paused because the service account was rejected |
 | Backup failed | the automatic database backup failed |
+| Update postponed because the program is open | a schedule has not been able to update a program for "Notice after (days)" because it was always open ([update lock](#inuse)) – per computer and program, all-clear after the update |
 | Repository break | a file of a package changed or is missing ([integrity check](#packages)) – deployments and schedules of the package stop until a main admin clicks **Accept new state**. All-clear once confirmed. Optionally deviations too. |
 | Emergency access used | every sign-in via the emergency access and every failed attempt for it |
 | Custom report: … | a [custom report](#customreports) returns rows – one notification per custom report |
@@ -1539,7 +1573,7 @@ Under **Settings → Maintenance → Diagnostics package**, POCKET KNIFE creates
 | `leistung.json` – additions from 2.44.4 | duration of every page/query since start (median, 95 %, maximum), size of the scan results per area (an area over 5 MB is also logged as a warning), database per table and log file (WAL), remote sessions (duration, data, how they ended), background tasks with errors, last daily runs |
 | `inventar.json` (from 2.44.4) | scan errors per area, winget assignment (sure/unsure, outdated, MSIX), clients per PowerShell version, language mode (ConstrainedLanguage = software restriction) and winget |
 | additions from 2.48.2 | `statistik.json`: **chains** (several packages one after another – count, with "stop on failure", targets skipped because of the chain and targets waiting right now); `bereitstellungen.csv`: chain and position; `inventar.json`: clients per edition, ESU, Entra ID join, MDM, virtualization, Office Click-to-Run, Secure Boot, SMB1 … (counts only, never the Entra tenant), **Group Policy history and gpresult since start** (calls, errors, duration and parse quality, e.g. runs without a GPO list or unknown setting kinds – never computer, user or GPO names), tools per type and gpupdate lines without an answer |
-| additions from 2.49.0 | `statistik.json`: changes in the repository **text editor** (kept versions, files, encodings – never contents or paths); from 2.50.2 also **used files replaced** by upload since the start (number of files and affected packages); from 2.52.0 **hints on own PowerShell code** since the start (checks, findings per kind – never the code), from 2.53.1 also `Select-Object -First`; from 2.53.2 **crashed programs** in steps/tools (count, of which "window as SYSTEM" and with a pending restart); from 2.54.0 **check mode PowerShell log** (on/off, calls and entries 4100/4104 per function), from 2.54.1 also crashes and the full report as `powershell_protokoll.txt` (names replaced) |
+| additions from 2.49.0 | `statistik.json`: changes in the repository **text editor** (kept versions, files, encodings – never contents or paths); from 2.50.2 also **used files replaced** by upload since the start (number of files and affected packages); from 2.52.0 **hints on own PowerShell code** since the start (checks, findings per kind – never the code), from 2.53.1 also `Select-Object -First`; from 2.53.2 **crashed programs** in steps/tools (count, of which "window as SYSTEM" and with a pending restart); from 2.54.0 **check mode PowerShell log** (on/off, calls and entries 4100/4104 per function), from 2.54.1 also crashes and the full report as `powershell_protokoll.txt` (names replaced); from 2.56.0 **update lock** (checks open/free/unknown/error, postponed targets, longest wait, settings, use in packages and schedules – counts only) |
 | `protokoll.csv`, `fehler.txt` | log of the period, warnings and errors separately |
 | `bereitstellungen.csv`, `fehlgeschlagen.json` | deployments; for failures the end of the output (at most 3000 characters per step) |
 | `scans.csv` | scan runs with duration and result |

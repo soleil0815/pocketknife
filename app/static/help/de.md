@@ -1086,6 +1086,38 @@ Nur bei **Pakete verteilen**: bei Fehler die weiteren Pakete auslassen, erfolgre
 
 **Beispiel – Software immer aktuell:** Art „winget-Updates“, alle veralteten, Ausnahme `Oracle.JavaRuntimeEnvironment`, Auslöser „Intervall alle 24 Std.“ **und** „Heartbeat“, Zeitfenster Mo–Fr 07:00–18:00, Ziel „Alle Computer“. Neu eingeschaltete Computer werden tagsüber sofort aktualisiert, alle anderen einmal täglich.
 
+## Updatesperre – nicht installieren, solange das Programm geöffnet ist {#inuse}
+
+Viele Programme überstehen ein Update, während sie geöffnet sind – manche nicht: Der Installer beendet sie, und nicht gespeicherte Arbeit des Benutzers ist weg. Deshalb fragt ein Zeitplan ab 2.56.0 **direkt vor der Installation** den Computer, ob das Programm in einer Benutzersitzung läuft. Wenn ja, wird der Computer **nicht angefasst** (es wird nichts kopiert, nichts beendet), sondern **zurückgestellt** und später erneut versucht – meist klappt es am Abend, wenn der Benutzer das Programm geschlossen oder sich abgemeldet hat.
+
+**Wie das Programm erkannt wird:** Aus den Schritten des Pakets (auch verschachtelter Pakete) kennt POCKET KNIFE die winget-ID, den MSI-Produktcode, den Anzeigenamen der Erkennung „ist schon installiert“ bzw. der Deinstallation. Damit findet es im Inventar des Computers den Eintrag unter „Programme und Features“; der Computer liest dessen Installationsordner live (InstallLocation, Programmsymbol, Deinstallationsbefehl) und liefert die Prozesse der Benutzersitzungen. Läuft ein Prozess aus diesem Ordner, ist das Programm geöffnet. Dienste (Sitzung 0) zählen nie; zu allgemeine Ordner (`C:\Program Files`, `Common Files`, `AppData\Local` …) werden nie als Programmordner genommen. Im Paket unter **Updatesperre** lassen sich zusätzlich **Prozessnamen** eintragen (z. B. `7zFM.exe, 7zG.exe`) – nötig bei Skript-Paketen ohne erkennbares Programm. Die Abfrage benutzt nur Cmdlets und CIM (auch im Constrained Language Mode, ohne Einträge im PowerShell-Protokoll).
+
+**Was passiert beim Zurückstellen:**
+
+| Wo | Anzeige |
+|---|---|
+| Bereitstellung | Computer „Übersprungen“ mit „Zurückgestellt – 7-Zip ist geöffnet (7zFM.exe) – wird nicht beendet, neuer Versuch in 30 Minuten“ |
+| Zeitplan → Zielverlauf | Status **Zurückgestellt** – kein Fehlversuch, „Max. Fehlversuche“ und „Wartezeit nach Fehlschlag“ bleiben unberührt |
+| Übersicht | Kachel **Updates zurückgestellt – Programm seit Tagen geöffnet**, sobald ein Programm länger als „Hinweis nach (Tagen)“ wartet; ein Klick zeigt Computer, Programm, geöffnete Prozesse, seit wann und den nächsten Versuch |
+| Benachrichtigung | **Update wegen geöffnetem Programm zurückgestellt** (Einstellungen → E-Mail & Benachrichtigungen), mit Entwarnung |
+
+**Erneuter Versuch:** Alle **30 Minuten** (einstellbar) fragt POCKET KNIFE die zurückgestellten Computer erneut – im Zeitfenster des Zeitplans und nur, wenn sie online sind. Solange das Programm noch offen ist, entsteht dabei **keine** neue Bereitstellung; erst wenn es geschlossen ist, startet der Zeitplan für diesen Computer (und prüft direkt vor der Installation noch einmal). Wurde das Programm inzwischen anders aktualisiert, verschwindet die Zurückstellung von selbst. **Erzwungen wird nie** – nach „Hinweis nach (Tagen)“ (Standard 7) erscheint der Computer nur in der Übersicht bzw. in der Benachrichtigung, damit du dich darum kümmern kannst (mit dem Benutzer sprechen oder von Hand bereitstellen). „Jetzt ausführen“ im Zeitplan fragt sofort neu, ohne den Abstand abzuwarten.
+
+**Einstellungen → Pakete & Repository → Installationen:**
+
+| Einstellung | Standard |
+|---|---|
+| Updatesperre | an |
+| Erneut prüfen nach (Min.) | 30 (5–1440) |
+| Hinweis nach (Tagen) | 7 |
+| Ausnahmen | `Google.Chrome*`, `Microsoft.Edge*`, `Brave.Brave*` – winget-IDs (mit `*`), die ein Update vertragen, während sie geöffnet sind (sie bringen ihr eigenes Update-Verfahren mit; die neue Version gilt nach dem nächsten Programmstart). Diese werden sofort aktualisiert. |
+
+**Abschalten im Einzelfall:** im Zeitplan unter Optionen **Programm geöffnet** (Haken weg), im Paket **auch während der Benutzung installieren**.
+
+**Gilt nicht für:** Bereitstellungen von Hand und den Kiosk – dort hat jemand bewusst auf „Bereitstellen“ bzw. „Installieren“ geklickt. Beim Bereitstellen von Hand für ausgewählte Computer fragt POCKET KNIFE aber vorher nach (bis zu 50 Computer, die online sind): Ist das Programm irgendwo geöffnet, nennt ein Dialog die Computer und Prozesse – **Nur die übrigen** (die mit geöffnetem Programm auslassen), **Trotzdem alle** oder **Abbrechen**.
+
+**Lässt sich nicht prüfen** (Computer antwortet nicht auf die Abfrage, CIM gestört): Dann wird installiert wie ohne Sperre, mit einer Warnung im Protokoll – eine Prüfung, die dauerhaft scheitert, soll nicht unbemerkt alle Updates anhalten. Ist das Programm weder im Inventar noch über Prozessnamen bekannt (z. B. erste Installation), gibt es nichts zu prüfen.
+
 # Tools {#tools}
 
 Computer auswählen → **Tools ▾** oder Rechtsklick → Tools.
@@ -1325,6 +1357,7 @@ Unter **Einstellungen → E-Mail & Benachrichtigungen** lassen sich Mails bei be
 | Bereitstellung fehlgeschlagen | eine Bereitstellung ganz (optional auch teilweise) fehlgeschlagen – eine Meldung je Bereitstellung |
 | Dienstkonto-Schutz ausgelöst | automatische Zugriffe wurden pausiert, weil das Dienstkonto abgelehnt wurde |
 | Sicherung fehlgeschlagen | die automatische Datenbanksicherung ist fehlgeschlagen |
+| Update wegen geöffnetem Programm zurückgestellt | ein Zeitplan konnte ein Programm seit „Hinweis nach (Tagen)“ nicht aktualisieren, weil es immer geöffnet war ([Updatesperre](#inuse)) – je Computer und Programm, Entwarnung nach dem Update |
 | Bruch im Repository | eine Datei eines Pakets hat sich geändert oder fehlt ([Bruchprüfung](#packages)) – Bereitstellungen und Zeitpläne des Pakets stehen, bis ein Hauptadmin **Neuen Stand übernehmen** klickt. Entwarnung, sobald bestätigt. Optional auch Abweichungen. |
 | Notfallzugang benutzt | jede Anmeldung über den Notfallzugang und jeder Fehlversuch dafür |
 | Eigener Bericht: … | ein [eigener Bericht](#customreports) liefert Zeilen – je eigenem Bericht eine Benachrichtigung |
@@ -1539,7 +1572,7 @@ Unter **Einstellungen → Wartung → Diagnosepaket** erstellt POCKET KNIFE ein 
 | `leistung.json` – Ergänzungen ab 2.44.4 | Dauer jeder Seite/Abfrage seit dem Start (Median, 95 %, Maximum), Größe der Scan-Ergebnisse je Bereich (ein Bereich über 5 MB steht zusätzlich als Warnung im Protokoll), Datenbank je Tabelle und Begleitdatei (WAL), Fernsitzungen (Dauer, Datenmenge, wodurch beendet), Hintergrundaufgaben mit Fehlern, letzte tägliche Läufe |
 | `inventar.json` (ab 2.44.4) | Scan-Fehler je Bereich, winget-Zuordnung (sicher/unsicher, veraltet, MSIX), Clients je PowerShell-Version, Sprachmodus (ConstrainedLanguage = Softwareeinschränkung) und winget |
 | Ergänzungen ab 2.48.2 | `statistik.json`: **Ketten** (mehrere Pakete nacheinander – Anzahl, mit „Bei Fehler abbrechen“, wegen der Kette übersprungene und gerade wartende Ziele); `bereitstellungen.csv`: Kette und Position; `inventar.json`: Clients je Edition, ESU, Entra-ID-Beitritt, MDM, Virtualisierung, Office Klick-und-Los, Secure Boot, SMB1 … (nur Anzahlen, nie der Entra-Mandant), **Gruppenrichtlinien-Verlauf und gpresult seit dem Start** (Aufrufe, Fehler, Dauer und Auswertungsqualität, z. B. Verarbeitungen ohne GPO-Liste oder unbekannte Einstellungsarten – nie Computer-, Benutzer- oder GPO-Namen), Tools je Typ und gpupdate-Zeilen ohne Antwort |
-| Ergänzungen ab 2.49.0 | `statistik.json`: Änderungen im **Texteditor** des Repositorys (aufbewahrte Fassungen, Dateien, Kodierungen – nie Inhalte oder Pfade); ab 2.50.2 auch per Hochladen **ersetzte benutzte Dateien** seit dem Start (Anzahl Dateien und betroffene Pakete); ab 2.52.0 **Hinweise zu eigenem PowerShell-Code** seit dem Start (Prüfungen, Funde je Art – nie der Code), ab 2.53.1 auch `Select-Object -First`; ab 2.53.2 **abgestürzte Programme** in Schritten/Tools (Anzahl, davon „Fenster als SYSTEM“ und mit ausstehendem Neustart); ab 2.54.0 **Prüfmodus PowerShell-Protokoll** (an/aus, Aufrufe und Einträge 4100/4104 je Funktion), ab 2.54.1 dazu Abstürze und der vollständige Bericht als `powershell_protokoll.txt` (Namen ersetzt) |
+| Ergänzungen ab 2.49.0 | `statistik.json`: Änderungen im **Texteditor** des Repositorys (aufbewahrte Fassungen, Dateien, Kodierungen – nie Inhalte oder Pfade); ab 2.50.2 auch per Hochladen **ersetzte benutzte Dateien** seit dem Start (Anzahl Dateien und betroffene Pakete); ab 2.52.0 **Hinweise zu eigenem PowerShell-Code** seit dem Start (Prüfungen, Funde je Art – nie der Code), ab 2.53.1 auch `Select-Object -First`; ab 2.53.2 **abgestürzte Programme** in Schritten/Tools (Anzahl, davon „Fenster als SYSTEM“ und mit ausstehendem Neustart); ab 2.54.0 **Prüfmodus PowerShell-Protokoll** (an/aus, Aufrufe und Einträge 4100/4104 je Funktion), ab 2.54.1 dazu Abstürze und der vollständige Bericht als `powershell_protokoll.txt` (Namen ersetzt); ab 2.56.0 **Updatesperre** (Prüfungen geöffnet/frei/unbekannt/Fehler, zurückgestellte Ziele, längste Wartezeit, Einstellungen, Nutzung in Paketen und Zeitplänen – nur Anzahlen) |
 | `protokoll.csv`, `fehler.txt` | Protokoll des Zeitraums, Warnungen und Fehler gesondert |
 | `bereitstellungen.csv`, `fehlgeschlagen.json` | Bereitstellungen; bei Fehlschlägen das Ende der Ausgabe (höchstens 3000 Zeichen je Schritt) |
 | `scans.csv` | Scan-Läufe mit Dauer und Ergebnis |

@@ -836,6 +836,47 @@ function confirmDlg(text, okLabel = 'OK', danger = false) {
   });
 }
 
+// 2.56.0: list of the targets postponed by the update lock (overview tile)
+async function inUseList() {
+  const d = await GET('/api/inuse/postponed');
+  const t = table([
+    { key: 'computer', label: 'Computer', render: (r) => h('a', { href: `#/computer/${r.computer_id}` }, r.computer) },
+    { key: 'label', label: 'Programm', cls: 'wrap' },
+    { key: 'procs', label: 'Geöffnet', cls: 'wrap' },
+    { key: 'since', label: 'Zurückgestellt seit', value: (r) => fmtDate(r.since), sort: (r) => r.since || '', render: (r) => (r.long ? h('span.badge.warn', fmtDate(r.since)) : fmtDate(r.since)) },
+    { key: 'checks', label: 'Prüfungen', cls: 'right' },
+    { key: 'next_try', label: 'Nächster Versuch', value: (r) => fmtDate(r.next_try), sort: (r) => r.next_try || '' },
+    { key: 'schedule', label: 'Zeitplan', render: (r) => h('a', { href: '#', onclick: (e) => { e.preventDefault(); closeModals(); scheduleDlg(r.schedule_id); } }, r.schedule) },
+  ], d.rows, { sort: 'since', noun: 'Ziele', fill: false, empty: 'Nichts zurückgestellt.' });
+  modal('Updates zurückgestellt', h('div', h('p.muted.small', fmtT('Diese Programme waren beim Update geöffnet. POCKET KNIFE beendet sie nicht, sondern fragt alle {0} Minuten erneut (im Zeitfenster des Zeitplans). Ab {1} Tagen sind sie markiert – dann am besten mit dem Benutzer sprechen oder das Paket von Hand bereitstellen.', d.retry_minutes, d.warn_days)), t.el),
+    [{ label: 'Schließen' }], { xwide: true });
+}
+
+// 2.56.0: update lock in manual deployments - ask the chosen computers whether the program is open. Returns the
+// computer IDs to deploy to (all, or only those where it is closed) or null (cancel).
+async function inUseAsk(body) {
+  let r;
+  try {
+    toast('Prüfe, ob das Programm auf den Computern geöffnet ist …');
+    r = await POST('/api/inuse/check', { computer_ids: body.computer_ids, package_ids: body.package_ids || [], winget_id: body.winget_id || '', action: body.action || '' });
+  } catch (e) { return body.computer_ids; }  // check not possible: deploy as before
+  if (!r.busy || !r.busy.length) return body.computer_ids;
+  const busyIds = new Set(r.busy.map((b) => b.id));
+  const free = body.computer_ids.filter((id) => !busyIds.has(id));
+  return new Promise((resolve) => {
+    let res = null;
+    const list = h('ul', r.busy.slice(0, 30).map((b) => h('li', h('b', b.name), ': ', b.label, h('span.muted', ` (${b.procs.join(', ')})`))));
+    modal('Programm ist geöffnet', h('div',
+      h('p', fmtT('Auf {0} Computer(n) ist das Programm gerade geöffnet. Die Installation kann es dort beenden – nicht gespeicherte Arbeit des Benutzers geht dann verloren.', r.busy.length)),
+      list, r.busy.length > 30 ? h('p.muted.small', fmtT('… und {0} weitere', r.busy.length - 30)) : null,
+      r.skipped ? h('p.muted.small', fmtT('{0} weitere Computer wurden nicht geprüft (höchstens 50 je Bereitstellung).', r.skipped)) : null), [
+      { label: 'Abbrechen' },
+      free.length ? { label: fmtT('Nur die übrigen {0}', free.length), onClick: () => { res = free; } } : null,
+      { label: 'Trotzdem alle', cls: 'primary', onClick: () => { res = body.computer_ids; } },
+    ].filter(Boolean), { onClose: () => resolve(res) });
+  });
+}
+
 function showOutput(title, text) {
   modal(title, h('pre.out', text || '(keine Ausgabe)'), [{ label: 'Schließen' }], { wide: true });
 }
@@ -1462,7 +1503,9 @@ async function viewDashboard() {
     tile(d.deploy_running, 'Laufende Bereitstellungen', 'info', () => go('#/deployments')),
     tile(d.deploy_failed_7d, 'Fehlgeschlagene Ziele (7 Tage)', d.deploy_failed_7d ? 'err' : '', () => go('#/deployments')),
     // 2.26: only if there are any – packages with a break in the repository (deployments are interrupted)
-    d.packages_broken ? tile(d.packages_broken, 'Pakete mit Bruch im Repository', 'err', () => go('#/packages')) : null);
+    d.packages_broken ? tile(d.packages_broken, 'Pakete mit Bruch im Repository', 'err', () => go('#/packages')) : null,
+    // 2.56.0: update lock - programs that have been open for days
+    d.inuse_long ? tile(d.inuse_long, 'Updates zurückgestellt – Programm seit Tagen geöffnet', 'warn', () => inUseList()) : null);
 
   const maxOs = Math.max(1, ...d.os.map((o) => o.n));
   const osCard = h('div.card', h('div.card-h', h('h2', 'Betriebssysteme')), h('div.card-b',
@@ -4137,6 +4180,10 @@ async function packageDlg(pidOrPkg, preset = {}) {
         field('Danach scannen', sel([['', 'Anwendungen (Standard)'], ...meta.profiles.filter((x) => x.name !== 'Anwendungen').map((x) => [x.id, x.name, true]), ['none', 'Nicht scannen']],
           !p.rescan ? 'none' : (p.rescan_profile_id || ''), { onchange: (e) => { p.rescan = e.target.value === 'none' ? 0 : 1; p.rescan_profile_id = e.target.value && e.target.value !== 'none' ? Number(e.target.value) : null; } }),
         'Nach jeder Installation oder Deinstallation wird der Computer mit diesem Scanprofil neu inventarisiert.'),
+        // 2.56.0: update lock
+        field('Updatesperre', h('div', inp(p, 'in_use_procs', { placeholder: 'z. B. 7zFM.exe, 7zG.exe – optional', maxlength: 3000, style: { width: '100%' } }),
+          chk(p, 'in_use_ignore', 'auch während der Benutzung installieren (Zeitpläne warten nicht)')),
+          'Zeitpläne installieren nicht, solange das Programm beim Benutzer geöffnet ist. Erkannt wird es am Installationsordner (aus dem Inventar: winget-ID, MSI-Produktcode, Anzeigename der Erkennung bzw. Deinstallation). Hier zusätzlich Prozessnamen, die nicht laufen dürfen – nötig bei Skript-Paketen ohne erkennbares Programm. Gilt nicht für Bereitstellungen von Hand und den Kiosk.'),
         isOU() ? null : field('Für Updates verwenden', updateForBox(),
           'Updates dieser winget-IDs (Auto-Update-Zeitpläne, „Aktualisieren“, „Veraltete aktualisieren“) laufen mit diesem Paket – alle Schritte im aktuellen Stand – statt mit winget upgrade bzw. winget-Cache. Dieselbe Einstellung wie „Update-Paket“ in den Software-Details; wirksam beim Speichern. Nicht bei Paketen eines Mandanten.')),
         igBad ? null : igBox);
@@ -4201,7 +4248,7 @@ async function packageDlg(pidOrPkg, preset = {}) {
 // Schedules
 // ---------------------------------------------------------------------------
 const SCHED_STATUS = { success: ['Erfolgreich', 'ok'], failed: ['Fehlgeschlagen', 'err'], queued: ['Wartend', 'info'], running: ['Läuft', 'info'],
-  skipped: ['Übersprungen', ''], offline: ['Offline', ''], cancelled: ['Abgebrochen', ''] };
+  skipped: ['Übersprungen', ''], offline: ['Offline', ''], cancelled: ['Abgebrochen', ''], postponed: ['Zurückgestellt', 'warn'] };
 const schedBadge = (r) => (r.pending ? h('span.badge.info', 'wartet auf online') : r.status ? h('span.badge', { class: (SCHED_STATUS[r.status] || ['', ''])[1] }, (SCHED_STATUS[r.status] || [r.status])[0]) : h('span.muted', '—'));
 
 async function viewSchedules() {
@@ -4321,6 +4368,7 @@ async function scheduleDlg(id, preset = {}) {
   // Options
   const o = s.options;
   if (o.retry_failed === undefined) o.retry_failed = true;  // Schedules from older versions: default "nachholen" (catch up)
+  if (o.in_use_wait === undefined) o.in_use_wait = true;  // 2.56.0: update lock, default on
   const oc = (k, label) => h('label.chk', { style: { display: 'flex' } }, h('input', { type: 'checkbox', checked: !!o[k], onchange: (e) => { o[k] = e.target.checked; } }), label);
   const num = (k, max = 8760) => h('input', { type: 'number', min: 0, max, value: o[k] || 0, style: { maxWidth: '90px' }, onchange: (e) => { o[k] = Number(e.target.value); } });
   const offSel = sel([['wait', 'vormerken und versorgen, sobald sie online sind (Heartbeat)'], ['skip', 'überspringen']], o.offline, { onchange: (e) => { o.offline = e.target.value; } });
@@ -4360,7 +4408,10 @@ async function scheduleDlg(id, preset = {}) {
       field('Wartezeit nach Fehlschlag (Std.)', num('retry_wait_hours'), s.kind === 'winget' ? 'Ein fehlgeschlagenes Update desselben Programms wird auf diesem Computer frühestens nach dieser Zeit erneut versucht.' : '0 = beim nächsten Lauf erneut versuchen.'),
       field('Fehlgeschlagene nachholen', oc('retry_failed', 'fehlgeschlagene Computer automatisch erneut versorgen, ohne auf den nächsten Termin zu warten'),
         s.kind === 'winget' ? 'Sobald der Computer erreichbar ist und die Wartezeit nach Fehlschlag (mindestens 1 Stunde) um ist, höchstens 3 Mal, im Zeitfenster. Konnte ein Lauf gar nicht starten, wird er alle 15 Minuten wiederholt.'
-          : 'Sobald der Computer erreichbar ist und die Wartezeit nach Fehlschlag (mindestens 1 Stunde) um ist, höchstens „Max. Fehlversuche“ Mal (bei 0: 3 Mal), im Zeitfenster. Konnte ein Lauf gar nicht starten, wird er alle 15 Minuten wiederholt.')),
+          : 'Sobald der Computer erreichbar ist und die Wartezeit nach Fehlschlag (mindestens 1 Stunde) um ist, höchstens „Max. Fehlversuche“ Mal (bei 0: 3 Mal), im Zeitfenster. Konnte ein Lauf gar nicht starten, wird er alle 15 Minuten wiederholt.'),
+      // 2.56.0: update lock
+      field('Programm geöffnet', oc('in_use_wait', 'nicht installieren, solange das Programm beim Benutzer geöffnet ist'),
+        'Vor der Installation wird gefragt, ob das Programm in einer Benutzersitzung läuft. Wenn ja, wird der Computer nicht angefasst, sondern „Zurückgestellt“ und später erneut versucht (Abstand, Hinweis nach Tagen und Ausnahmen unter Einstellungen → Pakete & Repository → Updatesperre). Programme aus der Ausnahmeliste und Pakete mit „auch während der Benutzung installieren“ laufen sofort.')),
     ...(s.kind === 'packages' ? [pkgOpts] : []));
     if (tabsEl) tabsEl.setLabel(2, s.kind === 'winget' ? 'Programme' : 'Pakete');
   };
@@ -4641,6 +4692,12 @@ async function deployDlg(opt = {}) {
           if (!body.package_ids.length) throw new Error('Bitte mindestens ein Paket auswählen.');
           body.stop_on_fail = stop.checked;
         } else { body.winget_id = wid.value.trim(); body.action = wact.value; }
+        // 2.56.0: update lock - a manual deployment does not wait, but says beforehand where the program is open
+        if (!body.scheduled_at && body.computer_ids && body.computer_ids.length) {
+          const ids = await inUseAsk(body);
+          if (ids === null) return false;
+          body.computer_ids = ids;
+        }
         const r = await POST('/api/deployments', body);
         const many = r.ids && r.ids.length > 1;
         toast((many ? fmtT(body.scheduled_at ? '{0} Bereitstellungen geplant (eine je Paket, nacheinander)' : '{0} Bereitstellungen gestartet (eine je Paket, nacheinander)', r.ids.length)
@@ -6058,7 +6115,13 @@ async function viewSettings() {
 
   const instCard = h('div.card', h('div.card-h', h('h2', 'Installationen')), h('div.card-b', h('div.form',
     field('Parallele Installationen', n('deploy_concurrency', { min: 1 }), 'Wirksam nach Neustart des Containers.'),
-    field('Zeitlimit Installation (Min.)', n('deploy_timeout_minutes', { min: 1 })))));
+    field('Zeitlimit Installation (Min.)', n('deploy_timeout_minutes', { min: 1 })),
+    // 2.56.0: update lock
+    field('Updatesperre', h('label.chk', c('inuse_enabled'), 'Zeitpläne installieren nicht, solange das Programm beim Benutzer geöffnet ist'),
+      'Der Computer wird „Zurückgestellt“ statt das Programm zu beenden. Je Zeitplan und je Paket abschaltbar.'),
+    field('Erneut prüfen nach (Min.)', n('inuse_retry_minutes', { min: 5, max: 1440 }), 'Abstand, in dem zurückgestellte Computer wieder gefragt werden (im Zeitfenster des Zeitplans). Ist das Programm dann zu, startet die Installation.'),
+    field('Hinweis nach (Tagen)', n('inuse_warn_days', { min: 1, max: 365 }), 'Ist ein Programm so lange immer wieder geöffnet, erscheint es in der Übersicht und in der Benachrichtigung „Update wegen geöffnetem Programm zurückgestellt“ – erzwungen wird nie.'),
+    field('Ausnahmen', (inputs.inuse_exempt = h('textarea', { rows: 4, value: s.inuse_exempt ?? '', placeholder: 'Google.Chrome*', style: { maxWidth: '360px', fontFamily: 'var(--mono)' } })), 'winget-IDs (Platzhalter * erlaubt), eine je Zeile: Programme, die ein Update vertragen, während sie geöffnet sind – sie werden sofort aktualisiert. Ab Werk Chrome, Edge und Brave (bringen ihr eigenes Update-Verfahren mit; die neue Version gilt nach dem nächsten Programmstart).'))));
 
   const retCard = h('div.card', h('div.card-h', h('h2', 'Aufbewahrung & Datenbank')), h('div.card-b', h('div.form',
     field('Protokoll aufbewahren (Tage)', n('log_retention_days'), '0 = nie automatisch löschen.'),

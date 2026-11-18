@@ -19,7 +19,8 @@ _lock = threading.Lock()
 PKG_FIELDS = ["name", "version", "description", "type", "winget_id", "winget_action", "winget_version",
               "winget_scope", "extra_args", "folder", "install_type", "install_file", "arguments", "script",
               "success_codes", "detect_name", "timeout_min", "reboot", "rescan",
-              "steps", "conditions", "run_as", "tenant_id", "folder_name", "rescan_profile_id", "notify_user"]
+              "steps", "conditions", "run_as", "tenant_id", "folder_name", "rescan_profile_id", "notify_user",
+              "in_use_procs", "in_use_ignore"]
 JSON_FIELDS = ("steps", "conditions")
 
 
@@ -1117,6 +1118,9 @@ def _run_target(did, tid):
         _set(tid, status="cancelled", message="Abgebrochen", finished_at=util.now())
         _after_target(did, tid)
         return
+    if _in_use(d, p, c, tid):
+        _after_target(did, tid)
+        return
     from . import steps
     runner = steps.Runner(did, tid, c, cancel=lambda: _cancelled(did), set_status=lambda m: _set(tid, message=m),
                           user=d.get("created_by"))
@@ -1176,6 +1180,39 @@ def _run_target(did, tid):
         pklog.warn("deploy", f"#{did} {p['name']} auf {c['name']}: {e}", computer_id=c["id"])
     finally:
         _after_target(did, tid)
+
+
+def _in_use(d, p, c, tid):
+    """2.56.0: update lock - a schedule does not touch a program that is open in a user session. True = postponed
+    (target finished as "skipped" with the prefix inuse.PREFIX; the schedule tries again later)."""
+    from . import inuse
+    try:
+        if not inuse.applies(d, p):
+            return False
+        prog = inuse.programs(p)
+        if not (prog["winget"] or prog["codes"] or prog["names"] or prog["procs"]):
+            return False
+        _set(tid, message="Prüfe, ob das Programm geöffnet ist …")
+        res = inuse.check(c, prog)
+    except Exception as e:  # noqa: BLE001 - the check must never stop a deployment by itself
+        pklog.warn("deploy", f"#{d['id']}: Updatesperre nicht geprüft: {e}", computer_id=c["id"])
+        return False
+    if res["state"] == "error":
+        # Not determinable (e.g. CIM broken): install as before, but say so
+        pklog.warn("deploy", f"#{d['id']} {p.get('name')} auf {c['name']}: Updatesperre nicht prüfbar ({res['error']}) – "
+                             "wird installiert wie ohne Sperre.", computer_id=c["id"])
+        return False
+    if res["state"] != "busy":
+        return False
+    msg = inuse.message(res)
+    _set(tid, status="skipped", message=msg, finished_at=util.now(),
+         output=f"Geöffnet in einer Benutzersitzung: {', '.join(res['procs'])}", steps="[]")
+    pklog.info("deploy", f"#{d['id']} {p.get('name')} auf {c['name']}: {msg}", computer_id=c["id"])
+    try:
+        inuse.postpone(d["schedule_id"], c["id"], inuse.prog_key(d, p), res["label"], res["procs"], prog)
+    except Exception as e:  # noqa: BLE001
+        pklog.warn("deploy", f"#{d['id']}: Zurückstellung nicht gespeichert: {e}", computer_id=c["id"])
+    return True
 
 
 def _after_target(did, tid):

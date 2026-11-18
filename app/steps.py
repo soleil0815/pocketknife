@@ -6,7 +6,7 @@ import re
 import secrets
 import time
 
-from . import config, db, deploy, remote, util
+from . import config, db, deploy, inuse, remote, util
 
 OS_KEYS = [("win10", "Windows 10"), ("win11", "Windows 11"), ("srv2016", "Windows Server 2016"),
            ("srv2019", "Windows Server 2019"), ("srv2022", "Windows Server 2022"), ("srv2025", "Windows Server 2025")]
@@ -663,6 +663,9 @@ def clean_package(data):
          "rescan_profile_id": _int(data.get("rescan_profile_id"), 0, 10 ** 9, 0) or None,
          # Windows notification for the logged-on user: "" = setting, "on" = always, "off" = never
          "notify_user": data.get("notify_user") if data.get("notify_user") in ("on", "off") else "",
+         # 2.56.0: update lock - process names that count as "program open"; install even while open
+         "in_use_procs": inuse.clean_procs(data.get("in_use_procs")) or None,
+         "in_use_ignore": 1 if data.get("in_use_ignore") else 0,
          "conditions": clean_conditions(data.get("conditions"), "Paket-Bedingungen"),
          "steps": steps, "tenant_id": tenant, "folder_name": (data.get("folder_name") or "").strip()[:120]}
     for key, _label in PHASES:

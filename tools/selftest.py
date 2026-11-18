@@ -8353,7 +8353,7 @@ def _():
     import glob as _g
     import re as _re
     import subprocess as _sp
-    from app import actions, deploy, diskusage, gphistory, gpupdate, inventory, remote, scanners, steps, toast, tools, util as _u
+    from app import actions, deploy, diskusage, gphistory, gpupdate, inuse, inventory, remote, scanners, steps, toast, tools, util as _u
     root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app")
     # 1) no cmdlet of a generated/script module in any text POCKET KNIFE could send (every string of app/*.py, scan modules)
     mod_rx = _re.compile(r"\b(Get|Set|New|Register|Unregister|Start|Stop|Enable|Disable|Suspend|Resume)-(ScheduledTask\w*|BitLocker\w*|"
@@ -8384,7 +8384,8 @@ def _():
                  "toast_user": toast.USER_PS, "gpupdate": gpupdate.script("ab12"), "gphistory": gphistory.script(24), "bitlocker_keys": actions.BITLOCKER_PS,
                  "scan": "\n".join([inventory.PRELUDE] + [v[1] for v in inventory.MODULES.values()] + [scanners.script_for(rows), inventory.SCAN_END]),
                  "tool": tools.ps_tool_winrm("'x'"), "winget": deploy._winget_body({"type": "winget", "winget_id": "7zip.7zip", "winget_action": "install"}),
-                 "winget_find": deploy._winget_find(), "diskusage": diskusage._script("C:\\", 4), "diskusage_fixed": diskusage._fixed_script(4)})
+                 "winget_find": deploy._winget_find(), "diskusage": diskusage._script("C:\\", 4), "diskusage_fixed": diskusage._fixed_script(4),
+                 "inuse": inuse.script(["HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\7-Zip"])})
     for k, v in send.items():
         assert "Bypass" not in v and "EncodedCommand" not in v, k
     pw = os.environ.get("PK_PWSH")
@@ -10440,7 +10441,7 @@ def _():
         o_mem, o_cand = schedules.members, schedules.winget_candidates
         db.ex("INSERT INTO schedules(id, name) VALUES(990041, 'Auto-Update Test')")
         schedules.members = lambda s_: set(cids)
-        schedules.winget_candidates = lambda s_, ids, online_only=True: {wid: sorted(ids)} if online_only else {}
+        schedules.winget_candidates = lambda s_, ids, online_only=True, fresh=False: {wid: sorted(ids)} if online_only else {}
         try:
             s_ = {"id": 990041, "name": "Auto-Update Test", "options": {"offline": "skip"}, "winget": {"scope": None},
                   "tenant_id": None, "targets": {"collections": [], "computers": cids}}
@@ -11150,6 +11151,198 @@ def _():
     start = src.index('@test("2.22 Diagnostic package: every line with version')
     body = src[start:src.index("@test(", start + 10)]
     assert not re.search(r"20\d\d-\d\d-\d\d \d\d:\d\d", body), "fixed timestamps in a test that depends on 'last N days'"
+
+
+@test("2.56.0 Update lock: a schedule does not install while the program is open in a user session - target postponed (not failed), retried after the interval (asking the computer first), never forced; exemptions, package/schedule switch, manual deployments not held; client script clean and CLM-safe")
+def _():
+    import subprocess as _sp
+    from app import auth, deploy, diagnostics, inuse, notify, pslint, schedules, steps, util as _u
+    # 1) program folders and processes
+    assert inuse._norm_dir("C:\\Program Files\\7-Zip\\") == "c:\\program files\\7-zip"
+    for bad in ("C:\\Program Files", "C:\\Program Files (x86)\\Common Files", "C:\\Windows\\System32", "C:\\", "C:\\Users\\max",
+                "C:\\Users\\max\\AppData\\Local", "C:\\ProgramData\\Package Cache\\{1}", "C:\\Program Files (x86)\\Microsoft", "relativ\\x"):
+        assert inuse._norm_dir(bad) is None, bad
+    assert inuse._norm_dir("C:\\Users\\max\\AppData\\Local\\Programs\\Zotero") == "c:\\users\\max\\appdata\\local\\programs\\zotero"
+    assert inuse._file_dir('"C:\\Program Files\\7-Zip\\7zFM.exe",0') == "C:\\Program Files\\7-Zip"
+    assert inuse._file_dir('"C:\\Program Files (x86)\\Foo\\uninst\\unins000.exe" /SILENT') == "C:\\Program Files (x86)\\Foo"
+    assert inuse._file_dir("MsiExec.exe /X{AB-CD}") is None and inuse._file_dir("") is None
+    dirs = inuse.program_dirs([{"loc": "", "icon": '"C:\\Program Files\\7-Zip\\7zFM.exe",0', "un": "C:\\Program Files\\7-Zip\\Uninstall.exe"}])
+    assert dirs == ["c:\\program files\\7-zip"], dirs
+    procs = [{"n": "7zFM.exe", "p": "C:\\Program Files\\7-Zip\\7zFM.exe", "s": 1},
+             {"n": "dienst.exe", "p": "C:\\Program Files\\7-Zip\\dienst.exe", "s": 0},          # session 0 never blocks
+             {"n": "fremd.exe", "p": "C:\\Program Files\\7-Zip-Extra\\fremd.exe", "s": 2}]      # only the folder itself, not a sibling
+    assert inuse.busy_procs(procs, dirs, []) == ["7zFM.exe"]
+    assert inuse.busy_procs([{"n": "Teams.exe", "p": "", "s": 3}], [], ["teams"]) == ["Teams.exe"]
+    assert inuse.busy_procs(procs[1:], dirs, []) == []
+    # 2) which programs a package touches (nested too); exempt browsers; disabled steps ignored
+    assert inuse.clean_procs("7zFM.exe, 7zG\n7zFM.exe") == "7zFM.exe, 7zG"
+    for bad in ("C:\\x\\a.exe", "a;b|c", ".."):
+        try:
+            inuse.clean_procs(bad + "|")
+            raise AssertionError(bad)
+        except ValueError:
+            pass
+    assert inuse.clean_exempt("Google.Chrome*\n\nMozilla.Firefox") == "Google.Chrome*\nMozilla.Firefox"
+    try:
+        inuse.clean_exempt("rm -rf /")
+        raise AssertionError("exempt validation")
+    except ValueError:
+        pass
+    inner = {"name": "inner", "steps": {"main": [{"type": "install", "source": "file", "folder": "x", "install_file": "a.msi",
+                                                   "product_code": "{11111111-2222-3333-4444-555555555555}", "detect_name": "Tool*"}]}}
+    p = {"name": "p", "in_use_procs": "helper.exe", "steps": {"main": [
+        {"type": "install", "source": "winget", "winget_id": "7zip.7zip"},
+        {"type": "install", "source": "winget", "winget_id": "Google.Chrome"},
+        {"type": "install", "source": "winget", "winget_id": "Off.Program", "enabled": False},
+        {"type": "uninstall", "match_name": "Altprogramm*"},
+        {"type": "nested", "package": inner}]}}
+    pr = inuse.programs(p)
+    assert pr["winget"] == ["7zip.7zip"] and pr["exempt"] == ["Google.Chrome"] and pr["procs"] == ["helper.exe"], pr
+    assert pr["codes"] == ["{11111111-2222-3333-4444-555555555555}"] and pr["names"] == ["Altprogramm*", "Tool*"], pr
+    assert inuse.programs(steps.expand(deploy.adhoc_winget("Notepad++.Notepad++")))["winget"] == ["Notepad++.Notepad++"]
+    # 3) client script: no flagged words, no -ErrorAction Stop, only cmdlets/CIM
+    scr = inuse.script(["HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\7-Zip"])
+    assert pslint.check(scr) == [] and "ErrorAction Stop" not in scr and "Win32_Process" in scr and "SessionId <> 0" in scr
+    assert "[" + "System." not in scr and "]::" not in scr, "no .NET calls (Constrained Language)"
+    pw = os.environ.get("PK_PWSH")
+    if pw and os.path.exists(pw):
+        d = os.path.join(TMP, "pk-inuse")
+        os.makedirs(d, exist_ok=True)
+        mock = ("$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'\n"
+                "function Get-CimInstance { param($ClassName, $Filter, $ErrorAction, $ErrorVariable)\n"
+                "  New-Object PSObject -Property @{ Name = '7zFM.exe'; ExecutablePath = 'C:\\Program Files\\7-Zip\\7zFM.exe'; SessionId = 1 } }\n")
+        open(os.path.join(d, "t.ps1"), "w", encoding="utf-8").write(mock + inuse.script(["HKEY_LOCAL_MACHINE\\SOFTWARE\\PK-gibt-es-nicht"]))
+        out = _sp.run([pw, "-NoProfile", "-File", os.path.join(d, "t.ps1")], capture_output=True, text=True, timeout=120)
+        live, pl, perr = inuse._parse(out.stdout)
+        assert live == [] and pl == [{"n": "7zFM.exe", "p": "C:\\Program Files\\7-Zip\\7zFM.exe", "s": 1}] and not out.stderr.strip(), (out.stdout, out.stderr)
+    # 4) check(): live registry values + processes from the computer (fake WinRM); unknown program; error never blocks
+    cid = db.ex("INSERT INTO computers(name, dns_name, online, winrm) VALUES('PC-INUSE1', 'pc-inuse1.firma.local', 1, 1)")
+    cid2 = db.ex("INSERT INTO computers(name, dns_name, online, winrm) VALUES('PC-INUSE2', 'pc-inuse2.firma.local', 1, 1)")
+    made_s = []
+    old_set = {k: db.setting_raw(k) for k in ("inuse_enabled", "inuse_retry_minutes", "inuse_warn_days", "inuse_exempt")}
+    try:
+        for c in (cid, cid2):
+            db.ex("""INSERT INTO software(computer_id, name, version, winget_id, winget_latest, outdated, hive, reg_path, install_location)
+                     VALUES(?, '7-Zip 24.08 (x64)', '24.08', '7zip.7zip', '26.00', 1, 'HKEY_LOCAL_MACHINE',
+                     'SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\7-Zip', '')""", (c,))
+        sent = []
+        open_on = {"pc-inuse1.firma.local"}
+
+        def fake_ps(host, script, timeout=None):
+            sent.append(script)
+            assert "Registry::HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\7-Zip" in script
+            keys = [{"loc": "C:\\Program Files\\7-Zip\\", "icon": "", "un": '"C:\\Program Files\\7-Zip\\Uninstall.exe"'}]
+            pl = [{"n": "explorer.exe", "p": "C:\\Windows\\explorer.exe", "s": 1}]
+            if host in open_on:
+                pl.append({"n": "7zFM.exe", "p": "C:\\Program Files\\7-Zip\\7zFM.exe", "s": 1})
+            return "PKJSON:" + json.dumps({"keys": keys, "procs": pl, "perr": ""}), "", False
+        c1 = dict(db.q1("SELECT * FROM computers WHERE id=?", (cid,)))
+        prog = inuse.programs(steps.expand(deploy.adhoc_winget("7zip.7zip")))
+        r = inuse.check(c1, prog, ps=fake_ps)
+        assert r["state"] == "busy" and r["procs"] == ["7zFM.exe"] and "7-Zip" in r["label"], r
+        assert inuse.check(dict(db.q1("SELECT * FROM computers WHERE id=?", (cid2,))), prog, ps=fake_ps)["state"] == "free"
+        assert inuse.check(c1, {"winget": ["Gibt.Es.Nicht"], "codes": [], "names": [], "procs": []}, ps=fake_ps)["state"] == "unknown"
+
+        def broken(host, script, timeout=None):
+            raise RuntimeError("WinRM weg")
+        assert inuse.check(c1, prog, ps=broken)["state"] == "error"
+        # 5) the run: schedule deployment postponed (skipped with the prefix), schedule target "postponed", no attempt used
+        db.set_setting("inuse_enabled", 1)
+        sid = schedules.save(None, {"name": "Updatesperre (Test)", "kind": "winget", "winget": {"mode": "all"}, "triggers": [],
+                                    "targets": {"computers": [cid, cid2], "collections": []}, "enabled": True})
+        made_s.append(sid)
+        s = schedules.get(sid)
+        assert s["options"]["in_use_wait"] is True, "default on"
+        did = deploy.create(deploy.adhoc_winget("7zip.7zip"), [cid], "Zeitplan", source="schedule", schedule_id=sid, start_now=False)
+        d = dict(db.q1("SELECT * FROM deployments WHERE id=?", (did,)))
+        pj = json.loads(d["package_json"])
+        tid = db.val("SELECT id FROM deployment_targets WHERE deployment_id=?", (did,))
+        real = inuse.check
+        inuse.check = lambda c, prog, ps=None: real(c, prog, ps=fake_ps)
+        try:
+            assert deploy._in_use(d, pj, c1, tid) is True
+            t = db.q1("SELECT * FROM deployment_targets WHERE id=?", (tid,))
+            assert t["status"] == "skipped" and t["message"].startswith(inuse.PREFIX) and "7zFM.exe" in t["message"], dict(t)
+            schedules.target_finished(sid, did, tid)
+            st = db.q1("SELECT * FROM schedule_targets WHERE schedule_id=? AND computer_id=?", (sid, cid))
+            assert st["status"] == "postponed" and not st["attempts"], dict(st)
+            pp = db.q1("SELECT * FROM inuse_postponed WHERE schedule_id=? AND computer_id=?", (sid, cid))
+            assert pp and pp["prog"] == "7zip.7zip" and pp["next_try"] > _u.now(), dict(pp or {})
+            # not due yet: the schedule leaves the program on this computer alone - a manual run asks again
+            assert "7zip.7zip" not in schedules.winget_candidates(s, [cid])
+            assert schedules.winget_candidates(s, [cid], fresh=True) == {"7zip.7zip": [cid]}
+            assert schedules.winget_candidates(s, [cid2]) == {"7zip.7zip": [cid2]}
+            # not held: computer where it is closed, manual deployment, package "auch während der Benutzung", schedule option off
+            d2 = dict(d, schedule_id=None)
+            assert deploy._in_use(d2, pj, c1, tid) is False, "manual deployment is not held"
+            assert deploy._in_use(d, dict(pj, in_use_ignore=1), c1, tid) is False
+            assert deploy._in_use(d, pj, dict(db.q1("SELECT * FROM computers WHERE id=?", (cid2,))), tid) is False
+            db.ex("UPDATE schedules SET options=json_set(options, '$.in_use_wait', json('false')) WHERE id=?", (sid,))
+            assert deploy._in_use(d, pj, c1, tid) is False
+            db.ex("UPDATE schedules SET options=json_set(options, '$.in_use_wait', json('true')) WHERE id=?", (sid,))
+            pexempt = steps.expand(deploy.adhoc_winget("Google.Chrome"))
+            assert deploy._in_use(d, pexempt, c1, tid) is False, "exempt (updates while open)"
+        finally:
+            inuse.check = real
+        # 6) retry: due -> ask first; still open = no deployment, later again; closed = row gone, schedule fired for it
+        db.ex("UPDATE inuse_postponed SET next_try=? WHERE schedule_id=?", (_u.ago(minutes=1), sid))
+        fired = []
+        inuse.retry_due(s, lambda sch, ids: fired.append(ids), ps=fake_ps, background=False)
+        pp = db.q1("SELECT * FROM inuse_postponed WHERE schedule_id=? AND computer_id=?", (sid, cid))
+        assert not fired and pp and pp["next_try"] > _u.now() and pp["checks"] >= 2, (fired, dict(pp or {}))
+        db.ex("UPDATE inuse_postponed SET next_try=? WHERE schedule_id=?", (_u.ago(minutes=1), sid))
+        open_on.clear()
+        inuse.retry_due(s, lambda sch, ids: fired.append(ids), ps=fake_ps, background=False)
+        assert fired == [[cid]] and not db.val("SELECT COUNT(*) FROM inuse_postponed WHERE schedule_id=?", (sid,)), fired
+        # winget cache packages carry no winget ID: the key comes from the deployment name
+        assert inuse.prog_key({"schedule_id": sid, "name": "Updatesperre (Test): 7zip.7zip"}, {"name": "Auto-Update 7zip.7zip (winget-Cache)"}) == "7zip.7zip"
+        assert inuse.prog_key({"schedule_id": None, "name": "x"}, {"winget_id": "7zip.7zip"}) == "packages"
+        # success clears a postponement of the same program
+        inuse.postpone(sid, cid, "7zip.7zip", "7-Zip", ["7zFM.exe"], prog)
+        db.ex("UPDATE deployment_targets SET status='success', message='ok' WHERE id=?", (tid,))
+        schedules.target_finished(sid, did, tid)
+        assert not db.val("SELECT COUNT(*) FROM inuse_postponed WHERE schedule_id=?", (sid,))
+        # 7) packages schedule: a chain with a postponed package counts as postponed; the computer waits for the interval
+        db.ex("UPDATE deployment_targets SET status='skipped', message=? WHERE id=?", (inuse.PREFIX + "7-Zip ist geöffnet", tid))
+        assert schedules._chain_result(did, dict(db.q1("SELECT * FROM deployment_targets WHERE id=?", (tid,))))["status"] == "skipped"
+        src = open(schedules.__file__, encoding="utf-8").read()
+        assert '"status": "postponed"' in src and "if cid in waiting:" in src and "inuse.retry_due(" in src
+        # 8) long waits: overview, notification, diagnostics (counts only)
+        inuse.postpone(sid, cid, "7zip.7zip", "7-Zip", ["7zFM.exe"], prog)
+        db.ex("UPDATE inuse_postponed SET since=? WHERE schedule_id=?", (_u.ago(days=inuse.warn_days() + 1), sid))
+        lw = inuse.long_waiting()
+        assert [(r["computer"], r["label"]) for r in lw if r["schedule_id"] == sid] == [("PC-INUSE1", "7-Zip")]
+        cur = notify.CHECKS["inuse_long"][0]({}, {"since": None})
+        assert f"{sid}:{cid}:7zip.7zip" in cur and cur[f"{sid}:{cid}:7zip.7zip"]["procs"] == "7zFM.exe"
+        dg = diagnostics._inuse(_u.ago(days=7))
+        assert dg["postponed_now"] >= 1 and dg["longer_than_warn_days"] >= 1 and dg["since_start"]["busy"] >= 1, dg
+        assert "PC-INUSE1" not in json.dumps(dg) and "7-Zip" not in json.dumps(dg) and "7zFM" not in json.dumps(dg)
+        inuse.cleanup()   # 7-Zip still outdated, computer still a target: stays
+        assert db.val("SELECT COUNT(*) FROM inuse_postponed WHERE schedule_id=?", (sid,)) == 1
+        db.ex("UPDATE software SET outdated=0 WHERE computer_id=?", (cid,))
+        inuse.cleanup()   # updated in the meantime: nothing to wait for
+        assert not db.val("SELECT COUNT(*) FROM inuse_postponed WHERE schedule_id=?", (sid,))
+        # 9) package field saved and exported; UI wired
+        assert "in_use_procs" in deploy.PKG_FIELDS and "in_use_ignore" in deploy.PKG_FIELDS
+        cp = steps.clean_package({"name": "Sperre", "in_use_procs": "a.exe, b", "in_use_ignore": True,
+                                  "steps": {"main": [{"type": "command", "command": "echo 1"}]}})
+        assert cp["in_use_procs"] == "a.exe, b" and cp["in_use_ignore"] == 1
+        assert steps.clean_package({"name": "Ohne", "steps": {"main": [{"type": "command", "command": "echo 1"}]}})["in_use_procs"] is None
+        js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
+        for k in ("'in_use_wait'", "'in_use_procs'", "'in_use_ignore'", "/api/inuse/check", "inUseList()", "postponed: ['Zurückgestellt'",
+                  "'inuse_retry_minutes'", "'inuse_warn_days'", "inputs.inuse_exempt"):
+            assert k in js, k
+    finally:
+        for s_ in made_s:
+            db.ex("DELETE FROM deployments WHERE schedule_id=?", (s_,))
+            db.ex("DELETE FROM schedules WHERE id=?", (s_,))
+        for c in (cid, cid2):
+            db.ex("DELETE FROM computers WHERE id=?", (c,))
+        for k, v in old_set.items():
+            if v == "":
+                db.ex("DELETE FROM settings WHERE key=?", (k,))
+            else:
+                db.set_setting(k, v)
 
 
 def main():
