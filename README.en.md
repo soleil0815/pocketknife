@@ -48,6 +48,7 @@ For developers: the manual texts are in `app/static/help/de.md` and `en.md`; `py
 | Scan profiles | Freely combine 20 standard scanners and custom scanners (Registry, Files, WMI, PowerShell) into profiles, apply them to collections or individual computers and control them with triggers (Once, Interval, Daily, Weekly, Monthly, Scan age with time window, Heartbeat). Custom fields (e.g. asset number) under Settings |
 | Collections | Static and dynamic collections with nested filter groups (All / Any / Not all / None) across all scan data, version comparison, patterns, RegEx, date filters, live preview, templates, folder structure; create directly from inventory data via right-click (e.g. "Computers with printer XY", "Software XY older than version …") |
 | Software | Overview of all programs, automatic matching against the official **winget repository** (index `source2.msix`), marking of outdated versions, manual assignment or ignoring; optionally via a **proxy server** (also for winget on the clients) |
+| winget cache | Selected winget programs are kept in their current version in the repository – downloaded and selected **like with `winget download`** (same installer as winget, checksum from the catalog, manifest as YAML next to it), updated daily. Packages, schedules, kiosk and "Update" use it automatically: for computers without winget (e.g. Server 2016) and – configurable – also with winget, so each program comes from the internet only once |
 | Packages | Built from **steps** (Preparation, Steps, Finalize): Install (winget or file from the repository: MSI, MSP, MSU, EXE, CMD/BAT, PS1, REG – with MSI auto-detection), Command, PowerShell, nested package, file copy, Registry (set and delete values/keys, .reg import), Scan, Restart, Wait, Message, Sign out. Conditions (operating system, architecture, PowerShell, sign-in status, file, registry, collection), run as service account/System/logged-on user, error behavior, preview of the actual command line; after a successful installation/update optionally a **Windows notification** for the logged-on user ("7-Zip has been updated. Installed version: 26.00"); repository search while building packages (instant, via an in-memory directory); **export/import** of packages as a file (e.g. into a second installation – without IDs, repository paths relative); **break detection**: size, date and fingerprint of the repository files used are recorded – if a file is missing or the installation file changes, deployments and schedules are interrupted until someone accepts the new state (quick check every 5 minutes, weekly full check at night) |
 | Deployments | Immediately or scheduled, for a selection or collection, list with target (collection/computer), live progress, result per step and computer, "Retry failed" and **retry individual failed steps** ("Only this step" / "From this step", for all affected computers or a single one) |
 | Schedules | **Everything automatic in one place** – kind "Deploy packages" (several packages in sequence) or "winget updates" (all or specific IDs, exclusions); triggers incl. **Heartbeat**, optional time window (weekdays, also across midnight), targets, queue offline computers, wait time after failure, re-serve after X hours, preview, target history |
@@ -69,7 +70,8 @@ For developers: the manual texts are in `app/static/help/de.md` and `en.md`; `py
    │  WinRM 5985/5986 ─────────► Client: inventory script, start/query steps
    │  SMB 445 (ADMIN$) ────────► Client: package files to C:\Windows\Temp\PocketKnife\…
    │  SMB 445 ─────────────────► Repository share (read custom packages)
-   └  HTTPS ───────────────────► cdn.winget.microsoft.com (winget index only, optional)
+   └  HTTPS ───────────────────► cdn.winget.microsoft.com (winget index, optional)
+                                 + vendor download addresses (winget cache only, optional)
 ```
 
 By default, installations run **directly as the service account**: POCKET KNIFE starts the step via WinRM as a separate process (Win32_Process), which also survives a dropped connection – **without a scheduled task and without a password on the client** (from 2.14). Only "Local System" and "Logged-on user" use a temporary scheduled task (`\POCKETKNIFE\…`), likewise without a stored password. There is no double-hop problem, because the container copies the package files via SMB beforehand. After execution, the process, task and files are removed again. If POCKET KNIFE is restarted in the meantime (e.g. update), it cleans up on the computer afterwards as soon as it is reachable – an installer that is still running is waited for, not aborted (from 2.18).
@@ -80,8 +82,9 @@ By default, installations run **directly as the service account**: POCKET KNIFE 
 |---|---|
 | Custom package | Your repository. The container copies the package folder via SMB to the client (`ADMIN$\Temp\PocketKnife`); afterwards it is deleted again. The client needs no internet access. |
 | winget | The internet. Each client downloads the installer itself from the vendor address in the winget manifest. Nothing is stored in the repository. |
+| winget cache (optional) | Your repository. For programs you add to the **winget cache**, the container downloads the installer **once** from the vendor, checks it against the checksum from the winget catalog and stores it in the repository – exactly as `winget download` would: the same installer winget would choose (e.g. the MSI for Paint.NET), unchanged under winget's file name, with the manifest as YAML next to it. The clients then receive it like a custom package via SMB – even without winget (Server 2016) and without internet. |
 
-The container only downloads the winget **catalog** (index for version comparison), no installers.
+Without the winget cache, the container only downloads the winget **catalog** (index for version comparison), no installers.
 
 ## Domain prerequisites
 
@@ -104,7 +107,7 @@ The container only downloads the winget **catalog** (index for version compariso
 - Docker Engine 24 or newer
 - **SSD storage** for the data directory (`PK_DATA_PATH`) – the SQLite database writes many small changes during scans
 - DNS of the domain (`PK_DNS_1`), network access to the clients (WinRM 5985/5986, SMB 445, for remote sessions 3389/5900), the domain controllers (LDAPS 636) and the repository share
-- Internet is optional: only for the winget index (`cdn.winget.microsoft.com`) – or the index is uploaded offline; the clients download winget packages themselves
+- Internet is optional: for the winget index (`cdn.winget.microsoft.com`) – or the index is uploaded offline – and, only if used, for the winget cache (vendor download addresses); otherwise the clients download winget packages themselves
 
 **Clients:** Windows 10/11 or Windows Server 2016–2025 with PowerShell 5.1, WinRM active, service account as local administrator. winget from Windows 10 1809 / Server 2019.
 
@@ -579,6 +582,8 @@ Backup: stop the container briefly and copy `data/` – or, while running, `sqli
 
 **Diagnostics package:** **Settings → Maintenance → Diagnostics package** creates a ZIP with log, errors, statistics and settings of the last 1–30 days for passing on – anonymized by default (computers, users, domain, addresses → fixed placeholders such as PC-001), never with passwords or keys. Placeholders can be mapped back to the real names there. Every line carries the version under which it was created; the statistics separate the running version from older ones, and changes and fixed bugs are included. After an update, it is best to choose the period "Since the last update".
 
+**Check PowerShell log:** POCKET KNIFE itself should leave no warnings (event 4104) and no errors (event 4100) in the PowerShell log on the clients – otherwise SIEM or EDR raise alarms. To verify this, **Settings → Maintenance** has the **Check mode**: when switched on, POCKET KNIFE looks into the computer's log after each of its own calls and records every entry with the function that caused it (only entries from POCKET KNIFE, none from other programs). **Start test run** runs the reading functions once on one computer. The report is in the diagnostics package (`powershell_protokoll.txt`, names replaced). In check mode every call takes about 2 seconds longer – switch it off again afterwards.
+
 
 | Message | Cause / solution |
 |---|---|
@@ -595,6 +600,7 @@ Backup: stop the container briefly and copy `data/` – or, while running, `sqli
 | Container does not start: "Rechte konnten nicht abgegeben werden" (log message: privileges could not be dropped) / error with `read_only` | Docker 20.10 or newer required; in special cases comment out `read_only: true` in the `docker-compose.yml` |
 | `/repo` not readable (warning at start) | From 2.14, the service runs as UID 10001: `chmod -R o+rX` on the repository folder or `chown -R 10001` |
 | Files & Folders scanner finds nothing with `%SYSTEMDRIVE%` or similar | From 2.5.15, environment variables (`%VAR%`, `$env:VAR`) are resolved on the client. `%USERPROFILE%`/`%APPDATA%` are those of the service account – for all users use `%SYSTEMDRIVE%\Users\*\…`. `**` = any number of levels (slower), `*` = one level |
+| Registry scanner: "Unknown hive" | Enter the path as in Windows, e.g. `HKEY_LOCAL_MACHINE\SOFTWARE\Company` or short `HKLM\SOFTWARE\Company` (also copied straight from the regedit address bar). Allowed are HKEY_LOCAL_MACHINE, HKEY_CURRENT_USER, HKEY_USERS, HKEY_CLASSES_ROOT and HKEY_CURRENT_CONFIG or their short forms; from 2.55.2, older entries are converted to this notation at start |
 | Custom scanner shows bytes instead of GB | Edit the scanner → **Sizes**: "detect automatically" applies to column names such as Size/Length/FreeSpace with plain numbers; otherwise choose "only these columns" and enter the columns. The byte value is still what is stored |
 | PowerShell scanner returns nothing | Click "Test" in the scanner dialog – errors are in the "fehler" column. The scanner runs in the built-in "PowerShell" profile (set a trigger there) or in custom profiles, not in the default profile |
 | winget `-1978335189` "No applicable update" although `winget upgrade` by hand works | Package without a scope in the winget catalogue (e.g. MobaXterm): from 2.30.1 repeated once without `--scope`; otherwise installation scope "Package default" |

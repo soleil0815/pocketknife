@@ -48,6 +48,7 @@ Für Entwickler: Die Texte des Handbuchs stehen in `app/static/help/de.md` und `
 | Scanprofile | 20 Standard-Scanner und eigene Scanner (Registry, Dateien, WMI, PowerShell) frei zu Profilen kombinieren, auf Sammlungen oder einzelne Computer anwenden und mit Auslösern steuern (Einmalig, Intervall, Täglich, Wöchentlich, Monatlich, Scan-Alter mit Zeitfenster, Heartbeat). Benutzerdefinierte Felder (z. B. Inventarnummer) unter Einstellungen |
 | Sammlungen | statische und dynamische Sammlungen mit verschachtelten Filtergruppen (Alle / Eine / Nicht alle / Keine) über alle Scan-Daten, Versionsvergleich, Muster, RegEx, Datumsfilter, Live-Vorschau, Vorlagen, Ordnerstruktur; per Rechtsklick direkt aus Inventardaten erstellen (z. B. „Computer mit Drucker XY“, „Software XY älter als Version …“) |
 | Software | Übersicht aller Programme, automatischer Abgleich mit dem offiziellen **winget-Repository** (Index `source2.msix`), Kennzeichnung veralteter Versionen, manuelle Zuordnung oder Ignorieren; optional über einen **Proxyserver** (auch für winget auf den Clients) |
+| winget-Cache | Ausgewählte winget-Programme liegen in der jeweils aktuellen Version im Repository – geladen und ausgewählt **wie mit `winget download`** (gleicher Installer wie winget, Prüfsumme aus dem Katalog, Manifest als YAML daneben), täglich aktualisiert. Pakete, Zeitpläne, Kiosk und „Aktualisieren“ nehmen ihn automatisch: für Computer ohne winget (z. B. Server 2016) und – einstellbar – auch mit winget, damit jedes Programm nur einmal aus dem Internet kommt |
 | Pakete | Aus **Schritten** (Vorbereitung, Schritte, Abschluss): Installieren (winget oder Datei aus dem Repository: MSI, MSP, MSU, EXE, CMD/BAT, PS1, REG – mit MSI-Autoerkennung), Befehl, PowerShell, verschachteltes Paket, Dateikopie, Registry (Werte/Schlüssel setzen und löschen, .reg-Import), Scannen, Neustart, Warten, Nachricht, Abmelden. Bedingungen (Betriebssystem, Architektur, PowerShell, Anmeldestatus, Datei, Registry, Sammlung), Ausführen als Dienstkonto/System/angemeldeter Benutzer, Fehlerverhalten, Vorschau des tatsächlichen Aufrufs; nach erfolgreicher Installation/Aktualisierung optional eine **Windows-Benachrichtigung** für den angemeldeten Benutzer („7-Zip wurde aktualisiert. Installierte Version: 26.00“); Repository-Suche beim Paketbau (sofort, über ein Verzeichnis im Arbeitsspeicher); **Export/Import** von Paketen als Datei (z. B. in eine zweite Installation – ohne IDs, Repository-Pfade relativ); **Bruchprüfung**: Größe, Datum und Fingerabdruck der benutzten Repository-Dateien werden festgehalten – fehlt eine Datei oder ändert sich die Installationsdatei, werden Bereitstellungen und Zeitpläne unterbrochen, bis jemand den neuen Stand übernimmt (Schnellprüfung alle 5 Minuten, wöchentliche Vollprüfung nachts) |
 | Bereitstellungen | Sofort oder geplant, für Auswahl oder Sammlung, Liste mit Ziel (Sammlung/Computer), Live-Fortschritt, Ergebnis je Schritt und Computer, „Fehlgeschlagene erneut“ sowie **einzelne fehlgeschlagene Schritte wiederholen** („Nur diesen Schritt“ / „Ab diesem Schritt“, für alle betroffenen oder einen einzelnen Computer) |
 | Zeitpläne | **Alles Automatische an einer Stelle** – Art „Pakete verteilen“ (mehrere Pakete nacheinander) oder „winget-Updates“ (alle oder bestimmte IDs, Ausnahmen); Auslöser inkl. **Heartbeat**, optionales Zeitfenster (Wochentage, auch über Mitternacht), Ziele, offline Computer vormerken, Wartezeit nach Fehlschlag, erneut versorgen nach X Stunden, Vorschau, Zielverlauf |
@@ -69,7 +70,8 @@ Für Entwickler: Die Texte des Handbuchs stehen in `app/static/help/de.md` und `
    │  WinRM 5985/5986 ─────────► Client: Inventar-Skript, Schritte starten/abfragen
    │  SMB 445 (ADMIN$) ────────► Client: Paketdateien nach C:\Windows\Temp\PocketKnife\…
    │  SMB 445 ─────────────────► Repository-Freigabe (eigene Pakete lesen)
-   └  HTTPS ───────────────────► cdn.winget.microsoft.com (nur winget-Index, optional)
+   └  HTTPS ───────────────────► cdn.winget.microsoft.com (winget-Index, optional)
+                                 + Download-Adressen der Hersteller (nur winget-Cache, optional)
 ```
 
 Installationen laufen standardmäßig **direkt als Dienstkonto**: POCKET KNIFE startet den Schritt über WinRM als eigenen Prozess (Win32_Process), der auch einen Verbindungsabbruch übersteht – **ohne geplante Aufgabe und ohne Kennwort auf dem Client** (ab 2.14). Nur „Lokales System“ und „Angemeldeter Benutzer“ nutzen eine temporäre geplante Aufgabe (`\POCKETKNIFE\…`), ebenfalls ohne gespeichertes Kennwort. Es gibt kein Double-Hop-Problem, weil die Paketdateien vorher vom Container per SMB kopiert werden. Nach der Ausführung werden Prozess, Aufgabe und Dateien wieder entfernt. Wird POCKET KNIFE währenddessen neu gestartet (z. B. Update), räumt es danach auf dem Computer auf, sobald er erreichbar ist – ein noch laufender Installer wird dabei abgewartet, nicht abgebrochen (ab 2.18).
@@ -80,8 +82,9 @@ Installationen laufen standardmäßig **direkt als Dienstkonto**: POCKET KNIFE s
 |---|---|
 | Eigenes Paket | Ihr Repository. Der Container kopiert den Paketordner per SMB auf den Client (`ADMIN$\Temp\PocketKnife`), danach wird er wieder gelöscht. Der Client braucht keinen Internetzugang. |
 | winget | Das Internet. Jeder Client lädt den Installer selbst von der Herstelleradresse aus dem winget-Manifest. Im Repository wird nichts gespeichert. |
+| winget-Cache (optional) | Ihr Repository. Für Programme, die Sie in den **winget-Cache** aufnehmen, lädt der Container den Installer **einmal** vom Hersteller, prüft ihn gegen die Prüfsumme aus dem winget-Katalog und legt ihn im Repository ab – genau so, wie `winget download` es täte: derselbe Installer, den winget wählen würde (z. B. bei Paint.NET das MSI), unverändert unter dem Dateinamen von winget, daneben das Manifest als YAML. Die Clients bekommen ihn dann wie ein eigenes Paket per SMB – auch ohne winget (Server 2016) und ohne Internet. |
 
-Der Container lädt nur den winget-**Katalog** (Index für den Versionsvergleich), keine Installer.
+Ohne winget-Cache lädt der Container nur den winget-**Katalog** (Index für den Versionsvergleich), keine Installer.
 
 ## Voraussetzungen in der Domäne
 
@@ -104,7 +107,7 @@ Der Container lädt nur den winget-**Katalog** (Index für den Versionsvergleich
 - Docker Engine 24 oder neuer
 - **SSD-Speicher** für das Datenverzeichnis (`PK_DATA_PATH`) – die SQLite-Datenbank schreibt bei Scans viele kleine Änderungen
 - DNS der Domäne (`PK_DNS_1`), Netzwerkzugriff auf die Clients (WinRM 5985/5986, SMB 445, für Fernsitzungen 3389/5900), die Domänencontroller (LDAPS 636) und die Repository-Freigabe
-- Internet ist optional: nur für den winget-Index (`cdn.winget.microsoft.com`) – oder der Index wird offline hochgeladen; die Clients laden winget-Pakete selbst
+- Internet ist optional: für den winget-Index (`cdn.winget.microsoft.com`) – oder der Index wird offline hochgeladen – und, nur wenn genutzt, für den winget-Cache (Download-Adressen der Hersteller); die Clients laden winget-Pakete sonst selbst
 
 **Clients:** Windows 10/11 bzw. Windows Server 2016–2025 mit PowerShell 5.1, WinRM aktiv, Dienstkonto als lokaler Administrator. winget ab Windows 10 1809 / Server 2019.
 
@@ -577,6 +580,8 @@ Sicherung: Container kurz stoppen und `data/` kopieren – oder im laufenden Bet
 
 **Diagnosepaket:** **Einstellungen → Wartung → Diagnosepaket** erstellt ein ZIP mit Protokoll, Fehlern, Statistik und Einstellungen der letzten 1–30 Tage zum Weitergeben – standardmäßig anonymisiert (Rechner, Benutzer, Domäne, Adressen → feste Platzhalter wie PC-001), nie mit Kennwörtern oder Schlüsseln. Platzhalter lassen sich dort wieder dem echten Namen zuordnen. Jede Zeile trägt die Version, unter der sie entstand; die Statistik trennt die laufende Version von älteren, Änderungen und behobene Fehler liegen bei. Nach einem Update am besten den Zeitraum „Seit dem letzten Update“ wählen.
 
+**PowerShell-Protokoll prüfen:** POCKET KNIFE selbst soll auf den Clients keine Warnungen (Ereignis 4104) und keine Fehler (Ereignis 4100) im PowerShell-Protokoll hinterlassen – sonst schlagen SIEM oder EDR Alarm. Zum Nachprüfen gibt es unter **Einstellungen → Wartung** den **Prüfmodus**: Eingeschaltet schaut POCKET KNIFE nach jedem eigenen Aufruf auf dem Computer in dessen Protokoll nach und merkt sich jeden Eintrag mit der Funktion, die ihn ausgelöst hat (nur Einträge von POCKET KNIFE, keine anderer Programme). **Prüflauf starten** führt die lesenden Funktionen einmal auf einem Computer aus. Der Bericht steht im Diagnosepaket (`powershell_protokoll.txt`, Namen ersetzt). Jeder Aufruf dauert im Prüfmodus etwa 2 Sekunden länger – danach wieder ausschalten.
+
 
 | Meldung | Ursache / Lösung |
 |---|---|
@@ -593,6 +598,7 @@ Sicherung: Container kurz stoppen und `data/` kopieren – oder im laufenden Bet
 | Container startet nicht: „Rechte konnten nicht abgegeben werden“ / Fehler mit `read_only` | Docker ab 20.10 nötig; bei Sonderfällen `read_only: true` in der `docker-compose.yml` auskommentieren |
 | `/repo` nicht lesbar (Warnung beim Start) | Ab 2.14 läuft der Dienst als UID 10001: `chmod -R o+rX` auf den Repository-Ordner oder `chown -R 10001` |
 | Dateien-&-Ordner-Scanner findet nichts mit `%SYSTEMDRIVE%` o. ä. | Ab 2.5.15 werden Umgebungsvariablen (`%VAR%`, `$env:VAR`) auf dem Client aufgelöst. `%USERPROFILE%`/`%APPDATA%` sind die des Dienstkontos – für alle Benutzer `%SYSTEMDRIVE%\Users\*\…`. `**` = beliebig viele Ebenen (langsamer), `*` = eine Ebene |
+| Registry-Scanner: „Unbekannter Stammschlüssel“ | Den Pfad wie in Windows eintragen, z. B. `HKEY_LOCAL_MACHINE\SOFTWARE\Firma` oder kurz `HKLM\SOFTWARE\Firma` (auch direkt aus der Adresszeile von regedit kopiert). Erlaubt sind HKEY_LOCAL_MACHINE, HKEY_CURRENT_USER, HKEY_USERS, HKEY_CLASSES_ROOT und HKEY_CURRENT_CONFIG bzw. ihre Kurzformen; ab 2.55.2 werden ältere Einträge beim Start auf diese Schreibweise umgestellt |
 | Eigener Scanner zeigt Bytes statt GB | Scanner bearbeiten → **Größenangaben**: „automatisch erkennen“ greift bei Spaltennamen wie Size/Length/FreeSpace mit reinen Zahlen; sonst „nur diese Spalten“ und die Spalten eintragen. Gespeichert wird weiter der Bytewert |
 | PowerShell-Scanner liefert nichts | Im Scanner-Dialog „Testen“ – Fehler stehen in der Spalte „fehler“. Der Scanner läuft im festen Profil „PowerShell“ (dort einen Auslöser setzen) oder in eigenen Profilen, nicht im Standardprofil |
 | winget `-1978335189` „Keine passende Aktualisierung“, obwohl `winget upgrade` von Hand klappt | Paket ohne Bereich im winget-Katalog (z. B. MobaXterm): ab 2.30.1 einmal ohne `--scope` wiederholt; sonst Installationsbereich „Standard des Pakets“ |
