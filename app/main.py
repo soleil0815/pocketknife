@@ -2565,7 +2565,7 @@ def api_labels(data: dict = Body(...), user=U):
     ids = access.check_ids(user, data.get("ids"))  # OU admin: only own computers
     if not ids:
         _err("Bitte Computer auswählen.")
-    barcode = str(data.get("barcode")) if data.get("barcode") in labels.BARCODES else "serial"
+    barcode = "serial"  # 2.58.2: fixed - computer name and serial number as text, barcode with the serial number
     # without "footer" in the request: the central footer from the settings
     footer = labels.clean_footer(data["footer"] if "footer" in data else db.setting("label_footer"))
     try:

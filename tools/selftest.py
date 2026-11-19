@@ -11656,6 +11656,19 @@ def _():
         assert k in js, k
 
 
+@test("2.58.2 Label content is fixed: computer name and serial number as text, barcode with the serial number - no choice in the dialog, a 'barcode' value in the request is ignored")
+def _():
+    js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
+    d = js[js.index("async function labelsDlg("):js.index("async function scanIds(")]
+    assert "field('Barcode'" not in d and "barcode.value" not in d and "['none', 'keiner" not in d and "'Computername und Seriennummer, darunter ein Barcode mit der Seriennummer'" in d
+    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "main.py"), encoding="utf-8").read()
+    h = src[src.index("def api_labels("):src.index("def api_labels(") + 2500]
+    assert 'barcode = "serial"' in h and 'data.get("barcode")' not in h
+    from app import labels
+    a = labels.label_for({"name": "PC-0001", "serial": "5CG1234XYZ"}, "serial")
+    assert (a.title, a.serial, a.code) == ("PC-0001", "5CG1234XYZ", "5CG1234XYZ")
+
+
 def main():
     ok = 0
     for name, fn in RESULTS:

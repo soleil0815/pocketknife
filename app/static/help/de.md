@@ -616,11 +616,10 @@ Ab 2.58.0 druckt POCKET KNIFE **Etiketten mit Computername und Seriennummer**: e
 
 | Einstellung | Bedeutung |
 |---|---|
-| Barcode | **Seriennummer** (Standard), **Computername** oder **keiner** – dann stehen Name und Seriennummer größer da. Code 128, lesbar mit jedem Barcodescanner |
 | Fußzeile | kleiner Text unten rechts, z. B. „Firma GmbH – IT · 0123 456789“. Ab 2.58.1 einmal für alle unter **Einstellungen → Inventar → Etiketten** festlegen; der Druckdialog ist damit vorausgefüllt, eine Änderung dort gilt nur für diesen Druck |
 | Anzahl je Computer | 1 bis 10 gleiche Etiketten |
 
-Auf dem Etikett stehen der Computername (groß), „S/N“ mit der Seriennummer und Hersteller/Modell. Seriennummer und Modell stammen aus dem letzten Scan. Ohne brauchbare Seriennummer (leer oder Platzhalter des Herstellers wie „To be filled by O.E.M.“ oder „Default string“) steht „S/N unbekannt“ darauf, und der Barcode enthält den Computernamen. Die Einstellungen merkt sich der Browser.
+Auf dem Etikett stehen immer der Computername (groß), „S/N“ mit der Seriennummer und Hersteller/Modell, darunter ein Barcode (Code 128, lesbar mit jedem Barcodescanner) mit der Seriennummer – ohne Auswahl (ab 2.58.2). Seriennummer und Modell stammen aus dem letzten Scan. Ohne brauchbare Seriennummer (leer oder Platzhalter des Herstellers wie „To be filled by O.E.M.“ oder „Default string“) steht „S/N unbekannt“ darauf, und der Barcode enthält den Computernamen. Die Anzahl merkt sich der Browser.
 
 **Format und Drucker:** 62 × 29 mm, passend z. B. für **Brother QL** (QL-700, QL-800, QL-820NWB …) mit Etiketten **DK-11209** oder 62-mm-Endlosband (dann im Druckertreiber die Länge 29 mm einstellen). Im Druckdialog die Etikettengröße wählen und **„Tatsächliche Größe“ / 100 %** einstellen, nicht „An Seite anpassen“ – sonst wird der Barcode zu klein. Für Laptops und andere viel genutzte Geräte halten Kunststoff-Etiketten (z. B. Brother **DK-22113**) deutlich länger als Papier. Höchstens 500 Etiketten auf einmal; OU-Admins drucken nur für Computer ihres Bereichs.
 

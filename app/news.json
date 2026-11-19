@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.58.2",
+   "date": "2026-11-19",
+   "items": [
+    {
+     "kind": "improved",
+     "audience": "admin",
+     "de": "Etiketten: Computername und Seriennummer stehen immer drauf, der Barcode enthält die Seriennummer – die Auswahl im Druckdialog entfällt.",
+     "en": "Labels: computer name and serial number are always printed, the barcode contains the serial number – the choice in the print dialog is gone."
+    }
+   ]
+  },
+  {
    "version": "2.58.1",
    "date": "2026-11-19",
    "items": [
