@@ -11418,6 +11418,148 @@ def _():
         assert frag in js, frag
 
 
+@test("2.57.0 Yellow '!': scanner health (errors on many computers, no values / lost columns since a change, checked column not delivered), collections with missing references are not evaluated silently; deleted scanner blocks nothing silently; export/import of scanners, collections (folder), profiles and tools by name with missing references listed before the import")
+def _():
+    from app import cfgexport, health, profiles as _prof, tools as _tools
+    if not db.val("SELECT name FROM sqlite_master WHERE type='table' AND name='tools'"):
+        _tools.init()
+    made = []
+
+    def mk(t, sql, args=()):
+        i = db.ex(sql, args)
+        made.append((t, i))
+        return i
+    inv = lambda cid, cat, rows, ts: db.ex("INSERT OR REPLACE INTO inventory_data(computer_id, category, json, updated) VALUES(?,?,?,?)",
+                                          (cid, cat, json.dumps(rows), ts))
+    try:
+        assert health.scanner_changed({"type": "wmi", "target": "a", "extra": "{}"}, {"type": "wmi", "target": " a ", "extra": "{}"}) is False
+        assert health.scanner_changed({"type": "wmi", "target": "a", "extra": "{}"}, {"type": "wmi", "target": "b", "extra": "{}"})
+        sa = mk("custom_scanners", "INSERT INTO custom_scanners(name, type, target, extra, enabled) VALUES('PK-T Fehler', 'wmi', 'SELECT * FROM X', '{}', 1)")
+        sb = mk("custom_scanners", "INSERT INTO custom_scanners(name, type, target, extra, enabled, updated_at) "
+                                   "VALUES('PK-T Geändert', 'powershell', 'Get-Date', '{}', 1, '2026-11-10 12:00:00')")
+        inv(1, f"custom:{sa}", [{"fehler": "Ungültige Klasse"}], "2026-11-11 08:00:00")
+        inv(2, f"custom:{sa}", [{"fehler": "Ungültige Klasse"}], "2026-11-11 08:00:00")
+        inv(3, f"custom:{sa}", [{"Name": "ok"}], "2026-11-11 08:00:00")
+        inv(1, f"custom:{sb}", [{"Alt": "1", "Neu": "x"}], "2026-11-01 08:00:00")  # before the change
+        inv(2, f"custom:{sb}", [{"Neu": "y"}], "2026-11-12 08:00:00")             # after the change
+        ext = mk("collections", "INSERT INTO collections(name, type, filters) VALUES('PK-T Extern', 'dynamic', '[]')")
+        chk = mk("collections", "INSERT INTO collections(name, type, filters) VALUES('PK-T prüft Alt', 'dynamic', ?)",
+                 (json.dumps({"type": "group", "match": "all", "items": [{"type": "cond", "table": f"custom:{sb}", "column": "Weg", "op": "not_empty"}]}),))
+        health.invalidate()
+        si = health.scanners()
+        assert any(x.startswith("Fehler auf 2 von 3 Computern") and "Ungültige Klasse" in x for x in si[sa]), si.get(sa)
+        assert any("die Spalte(n) Alt nicht mehr" in x and "1 Computer noch mit altem Stand" in x for x in si[sb]), si.get(sb)
+        assert any("„PK-T prüft Alt“" in x and "„Weg“" in x for x in si[sb])
+        ci = health.collections()
+        assert any("Spalte „Weg“" in x for x in ci[chk]) and ext not in ci
+        # missing reference (import) and deleted scanner: never evaluated silently
+        miss = mk("collections", "INSERT INTO collections(name, type, filters) VALUES('PK-T fehlt', 'dynamic', ?)",
+                  (json.dumps({"type": "group", "match": "all", "items": [{"type": "cond", "table": "computer", "column": "collection", "op": "in",
+                                                                         "value": "", "missing": {"kind": "collection", "name": "Server / Alt"}}]}),))
+        gone = mk("collections", "INSERT INTO collections(name, type, filters) VALUES('PK-T Scanner weg', 'dynamic', ?)",
+                  (json.dumps({"type": "group", "match": "all", "items": [{"type": "cond", "table": "custom:99999", "column": "x", "op": "not_empty"}]}),))
+        must_fail(collections_.where_for, miss, contains="Verweis fehlt: Sammlung „Server / Alt“")
+        must_fail(collections_.where_for, gone, contains="Eigener Scanner #99999 fehlt")
+        health.invalidate()
+        ci = health.collections()
+        assert ci[miss][0].startswith("Nicht auswertbar: Verweis fehlt") and "fehlt" in ci[gone][0]
+        assert collections_.count(miss) == 0
+        assert collections_.scanner_refs(sb) == ["Sammlung: PK-T prüft Alt"]
+        m = health.marks()
+        assert set(m) == {"scanner", "tool", "profile", "collection", "package", "names"} and miss in m["collection"] and sa in m["scanner"]
+        assert m["names"]["collection"][miss] == "PK-T fehlt"
+        from app import diagnostics
+        dg = diagnostics._warnmarks("2000-01-01")
+        assert dg["per_kind"]["collection"] >= 1 and dg["reasons"].get("collection:missing_reference", 0) >= 1, dg
+        assert "PK-T" not in json.dumps(dg), "counts only"
+        mo = health.marks(main_admin=False, package_ok=lambda p: False, collection_ok=lambda c: c == miss)
+        assert mo["scanner"] == {} and mo["tool"] == {} and list(mo["collection"]) == [miss] and mo["package"] == {}
+        assert all(isinstance(v, int) for v in health.counts().values())
+        db.ex("DELETE FROM collections WHERE id IN (?, ?)", (miss, gone))
+
+        # --- export / import
+        fid = mk("custom_fields", "INSERT INTO custom_fields(name, type) VALUES('PK-T Standort', 'text')")
+        fol = mk("collections", "INSERT INTO collections(name, type) VALUES('PK-T Ordner', 'folder')")
+        c1 = mk("collections", "INSERT INTO collections(name, parent_id, type, filters) VALUES('PK-T Eins', ?, 'dynamic', ?)",
+                (fol, json.dumps({"type": "group", "match": "all", "items": [
+                    {"type": "cond", "table": f"custom:{sa}", "column": "Name", "op": "not_empty"},
+                    {"type": "cond", "table": "computer", "column": "collection", "op": "in", "value": str(ext)},
+                    {"type": "cond", "table": "computer", "column": f"cf_{fid}", "op": "not_empty"}]})))
+        c2 = mk("collections", "INSERT INTO collections(name, parent_id, type, filters) VALUES('PK-T Zwei', ?, 'dynamic', ?)",
+                (fol, json.dumps({"type": "group", "match": "all", "items": [{"type": "cond", "table": "computer", "column": "collection", "op": "in", "value": str(c1)}]})))
+        st = mk("collections", "INSERT INTO collections(name, parent_id, type) VALUES('PK-T Statisch', ?, 'static')", (fol,))
+        db.ex("INSERT INTO collection_members(collection_id, computer_id) VALUES(?, 1)", (st,))
+        pid = _prof.save(None, {"name": "PK-T Profil", "modules": [], "scanners": [sa], "collections": [c1], "triggers": []})
+        made.append(("scan_profiles", pid))
+        tid = mk("tools", "INSERT INTO tools(name, folder, type, script, run_as, scan_after, scan_profile_id, hotkey) "
+                          "VALUES('PK-T Tool', 'PKT', 'cmd', 'ipconfig', 'service', 'success', ?, 'ctrl+alt+k')", (pid,))
+        data, warns, extra = cfgexport.export({"collections": [fol], "profiles": [pid], "tools": [tid]})
+        assert [c["name"] for c in data["collections"]] == ["PK-T Ordner", "PK-T Eins", "PK-T Statisch", "PK-T Zwei"]
+        assert [s["name"] for s in data["scanners"]] == ["PK-T Fehler"] and extra and "PK-T Fehler" in extra[0]
+        txt = json.dumps(data)
+        assert f"custom:{sa}" not in txt and f"cf_{fid}" not in txt and '"hotkey"' not in txt, "no IDs of this installation"
+        eins = data["collections"][1]["filters"]["items"]
+        assert eins[1]["collection_ref"]["name"] == "PK-T Extern" and eins[2]["field_ref"]["name"] == "PK-T Standort"
+        assert data["collections"][2]["members"] == ["PC-01"] and data["tools"][0]["scan_profile"] == "PK-T Profil"
+        assert cfgexport.filename(data).endswith(".pkconfig.json")
+        n_before = db.val("SELECT COUNT(*) FROM collections")
+        # skip: everything exists - nothing new, the folder is merged
+        r = cfgexport.run_import(None, json.loads(txt), "skip", dry_run=True)
+        assert r["count"]["new"] == 0 and r["count"]["skip"] == len(r["items"]), r
+        # references that do not exist in the target: listed BEFORE the import
+        d2 = json.loads(txt)
+        d2["collections"][1]["filters"]["items"][1]["collection_ref"] = {"name": "Gibt es nicht", "path": ["Server"]}
+        d2["collections"][1]["filters"]["items"][2]["field_ref"]["name"] = "Fehlendes Feld"
+        r = cfgexport.run_import(None, d2, "copy", dry_run=True)
+        assert db.val("SELECT COUNT(*) FROM collections") == n_before, "dry run changes nothing"
+        it = {x["name"]: x for x in r["items"]}
+        assert it["PK-T Eins"]["status"] == "copy" and it["PK-T Eins"]["new_name"] == "PK-T Eins (Import)"
+        assert any("Sammlung „Server › Gibt es nicht“ gibt es hier nicht" in x for x in it["PK-T Eins"]["missing"]), it["PK-T Eins"]
+        assert any("Feld „Fehlendes Feld“" in x for x in it["PK-T Eins"]["missing"]) and r["missing"] == 2
+        assert it["PK-T Ordner"]["status"] == "skip" and "Inhalt kommt hinein" in it["PK-T Ordner"]["message"]
+        r = cfgexport.run_import(None, d2, "copy", dry_run=False)
+        ids = {x["new_name"]: x.get("id") for x in r["items"]}
+        for x in r["items"]:
+            if x.get("id"):
+                made.append(({"scanners": "custom_scanners", "collections": "collections", "profiles": "scan_profiles", "tools": "tools"}[x["kind"]], x["id"]))
+        new1 = ids["PK-T Eins (Import)"]
+        assert db.val("SELECT parent_id FROM collections WHERE id=?", (new1,)) == fol
+        flt = json.loads(db.val("SELECT filters FROM collections WHERE id=?", (new1,)))["items"]
+        new_sc = ids["PK-T Fehler (Import)"]
+        assert flt[0]["table"] == f"custom:{new_sc}" and flt[1]["missing"]["name"] == "Server › Gibt es nicht" and flt[2]["missing"]["kind"] == "field"
+        new2 = json.loads(db.val("SELECT filters FROM collections WHERE id=?", (ids["PK-T Zwei (Import)"],)))["items"][0]
+        assert new2["value"] == str(new1), "reference inside the file → the new collection"
+        assert db.val("SELECT computer_id FROM collection_members WHERE collection_id=?", (ids["PK-T Statisch (Import)"],)) == 1
+        health.invalidate()
+        assert new1 in health.collections() and "Verweis fehlt" in health.collections()[new1][0]
+        np = _prof.get(ids["PK-T Profil (Import)"])
+        assert np["scanners"] == [new_sc] and np["collections"] == [new1]
+        t2 = db.q1("SELECT * FROM tools WHERE id=?", (ids["PK-T Tool (Import)"],))
+        assert t2["scan_profile_id"] == np["id"] and t2["hotkey"] is None and t2["folder"] == "PKT"
+        must_fail(cfgexport.run_import, None, {"format": "x"}, contains="keine Export-Datei")
+    finally:
+        for t, i in reversed(made):
+            db.ex(f"DELETE FROM {t} WHERE id=?", (i,))
+        db.ex("DELETE FROM inventory_data WHERE category LIKE 'custom:%' AND category != 'custom:1'")
+        health.invalidate()
+    from app import access
+    assert ("GET", "/api/marks") in access.ROUTES and ("POST", "/api/config/import") not in access.ROUTES
+    assert ("POST", "/api/config/export") not in access.ROUTES, "export/import of scanners/tools/profiles: main admins only"
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static")
+    js = open(os.path.join(root, "app.js"), encoding="utf-8").read()
+    css = open(os.path.join(root, "app.css"), encoding="utf-8").read()
+    # "Eigener Code" opens scanner and tool directly (no longer only the list)
+    assert "r.kind === 'scanner' ? openScanner(r.id) : openTool(r.id)" in js and "go(r.kind === 'scanner' ? '#/scanners' : '#/tools')" not in js
+    for k in ("wmark(markOf('scanner', r.id), () => scannerDlg(r, meta))", "wmark(markOf('profile', r.id), () => profileDlg(r, meta))",
+              "wmark(markOf('tool', t.id), () => toolDlg(t))", "wmark(markOf('collection', c.id), () => openEdit(c))",
+              "wmark(pkgMarks(r), () => packageDlg(r.id))", "marksBox(markOf('scanner', sc.id))", "marksBox(markOf('collection', c.id))",
+              "function missingRow(it, parent, m)", "if (miss) return missingRow(it, parent, miss);", "delete it.missing;",
+              "exportPickDlg(['profiles', 'scanners'])", "exportPickDlg(['tools'])", "exportConfig({ collections: [c.id] })",
+              "importConfigDlg({ parentId:", "'/api/config/import'", "tile(nMarks, 'Mit gelbem Warnzeichen"):
+        assert k in js, k
+    assert ".wmark {" in css and "#FFCC00" in css, "yellow, not red"
+
+
 def main():
     ok = 0
     for name, fn in RESULTS:

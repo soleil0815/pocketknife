@@ -566,6 +566,7 @@ def _stats(since, an):
         "crashed_programs": _crashes(),
         "pscheck": _pscheck(),
         "inuse": _inuse(since),
+        "marks": _warnmarks(since),
     }
 
 
@@ -585,6 +586,33 @@ def _pscheck():
     only; the texts are in the report the admin copies himself)."""
     from . import pscheck
     return pscheck.stats()
+
+
+MARK_REASONS = (("lint", "Warnung im PowerShell-Protokoll"), ("errors", "Fehler auf "), ("no_values", "Liefert"),
+                ("column_missing", "Spalte „"), ("column_checked", "Die Sammlung „"), ("scanner_off", "Ausgeschaltet"),
+                ("missing_reference", "Nicht auswertbar: Verweis fehlt"), ("not_evaluable", "Nicht auswertbar"),
+                ("break", "Bruch"), ("scanner", "Scanner „"), ("target", "Ziel „"))
+
+
+def _warnmarks(since):
+    """2.57.0: the yellow "!" - how many scanners/tools/profiles/collections/packages carry it and why (reason categories),
+    exports/imports of tools, scanners, profiles and collections in the period. Counts only - never names or code."""
+    from . import health
+    try:
+        m = health.marks()
+    except Exception as e:  # noqa: BLE001
+        return {"error": type(e).__name__}
+    reasons: dict = {}
+    for kind in ("scanner", "tool", "profile", "collection", "package"):
+        for why in (m.get(kind) or {}).values():
+            for w in why:
+                cat = next((k for k, pre in MARK_REASONS if w.startswith(pre) or (k == "column_missing" and pre in w)), "other")
+                reasons[f"{kind}:{cat}"] = reasons.get(f"{kind}:{cat}", 0) + 1
+    return {"per_kind": {k: len(m.get(k) or {}) for k in ("scanner", "tool", "profile", "collection", "package")},
+            "reasons": reasons,
+            "scanners_changed": db.val("SELECT COUNT(*) FROM custom_scanners WHERE updated_at IS NOT NULL", (), 0),
+            "config_exports": db.val("SELECT COUNT(*) FROM logs WHERE ts >= ? AND message LIKE 'Konfiguration exportiert%'", (since,), 0),
+            "config_imports": db.val("SELECT COUNT(*) FROM logs WHERE ts >= ? AND message LIKE 'Konfigurations-Import:%'", (since,), 0)}
 
 
 def _inuse(since):
@@ -905,7 +933,9 @@ Dateien
                        Abstürze je POCKET-KNIFE-Funktion),
                        eigener Code mit PowerShell-Hinweisen (Anzahl Scanner/Tools/Pakete, Hinweise je Art),
                        Updatesperre (Prüfungen: geöffnet/frei/unbekannt/Fehler, zurückgestellte Ziele,
-                       längste Wartezeit, Einstellungen, Nutzung in Paketen und Zeitplänen – nur Anzahlen)
+                       längste Wartezeit, Einstellungen, Nutzung in Paketen und Zeitplänen – nur Anzahlen),
+                       gelbes Warnzeichen (wie viele Scanner/Tools/Scanprofile/Sammlungen/Pakete es tragen,
+                       Gründe nach Art, Exporte/Importe von Tools, Scannern, Profilen, Sammlungen – nur Anzahlen)
   powershell_protokoll.txt  Bericht des Prüfmodus: was POCKET KNIFE in den PowerShell-Protokollen der
                        Computer ausgelöst hat (Funktion, Meldung, Fehler-ID) – Namen ersetzt
   leistung.json        Rechenlast und Lastspitzen, Dauer der wichtigsten Abfragen, langsamste Sammlungen, größte Felder

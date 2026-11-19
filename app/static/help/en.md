@@ -472,6 +472,49 @@ The browser remembers column order, widths, hidden columns and sorting for each 
 | F2 | rename collection |
 | Esc | close dialog or menu |
 
+## Yellow warning sign {#warnmark}
+
+From 2.57.0 a **yellow exclamation mark** marks what needs attention, in the same way everywhere: on custom scanners, scan profiles, collections, tools and packages. **Hovering** shows the reason, a **click** opens the place where it can be fixed (scanner, tool, profile, collection or package). In the dialog the reason is shown at the top in a yellow box. The **"With a yellow warning sign"** tile in the overview lists everything together. On a collapsed folder in the collection tree, the sign shows that something inside is affected.
+
+| Reason | Where | What to do |
+|---|---|---|
+| Warning in the PowerShell log | custom scanner, tool, package | rewrite the code – see [own PowerShell code](#runas) |
+| Break / deviation in the repository | package | look at the [break check](#repository), replace the file or accept the new state |
+| Errors on many computers | custom scanner | from 5 computers or a fifth of the scanned ones; the first error text is shown with it |
+| No values any more since the change | custom scanner | check the query or code after the last change (it delivered values before) |
+| A column is no longer delivered since the change | custom scanner | output the column again or adjust collections; disappears once all computers have been scanned again |
+| Delivers no values on any computer | custom WMI or PowerShell scanner | from 3 scanned computers |
+| A collection checks a column the scanner does not deliver | scanner and collection | correct the column name in the collection |
+| Scanner switched off but checked by a collection | scanner and collection | switch the scanner on or remove the condition – otherwise the values stay old |
+| Not evaluable / reference missing | collection | re-assign in the editor (see [Export and import](#configexport)) |
+| Scanner or target collection with a warning sign | scan profile | fix the part named |
+
+"Since the change" means: since type, query or code, or the path options of the scanner were last changed. Name, "Active" and size settings do not count. The results of the computers scanned since then are compared with those from before. OU admins see the sign only on packages and collections of their area.
+
+## Export and import {#configexport}
+
+From 2.57.0 **tools**, **custom scanners**, **scan profiles** and **collections** can be saved as a file (`*.pkconfig.json`) and taken over into another POCKET KNIFE installation. Packages have their own [package export](#packages).
+
+- **Tools → Export …** or **Scan profiles → Export …**: tick the entries, save the file.
+- **Collections:** right-click in the tree → **Export** or **Export folder**. A folder comes with everything below it.
+- **Import …** (Tools, Scan profiles or right-click in the collection tree) takes any of these files. Via right-click on a folder, the collections go into it.
+
+**References by name:** the file contains no IDs. References are looked up by name in the target installation:
+
+- "Is member of" and target collections of profiles: by name and path of the parent collections.
+- Custom scanners and user-defined fields: by name.
+- Members of static collections and individually selected computers: by computer name.
+
+Custom scanners used by an exported profile or collection are included automatically. If an entry already exists (same name), it is skipped and the existing one is used, or, if you choose, also created as "… (Import)". Folders with the same name are merged.
+
+**Nothing gets lost silently:** the check before the import lists every reference that does not exist in the target installation, with a yellow warning sign.
+
+- A collection with a missing reference keeps the condition. It carries the yellow exclamation mark and is not evaluated: it has no computers, and deployments to it stop with a clear message instead of hitting the wrong computers.
+- In the collection editor the condition is highlighted in yellow with **"— re-assign —"**: choose the matching collection, scanner or field, save – done. If a field is missing, create it first under **Settings → Fields**.
+- If a target collection of a scan profile is missing, the check lists that too; the profile is created without that target.
+
+Keyboard shortcuts of tools are not exported, because they may already be taken in the target installation. Fixed scan profiles and default and AD collections exist in every installation; they are not exported, but references to them are matched by name. Export and import are for main administrators only.
+
 # Computers and Collections {#computers}
 
 ## Computer List {#computerlist}
@@ -519,6 +562,8 @@ All
 
 A dynamic collection *under* another collection (not under a folder) contains only computers that are also in the parent collection.
 
+**Missing reference (from 2.57.0):** if a condition refers to something that does not exist, the editor marks it with the [yellow warning sign](#warnmark) and offers **"— re-assign —"**. This happens, for example, after an [import](#configexport), with a deleted collection or with a deleted field. The condition is never silently switched to another table. Until it is re-assigned, the collection is not evaluable: the computer list names the reason and offers "Edit collection".
+
 **Shortcut – straight from the inventory:** Right-click an entry (e.g. a program, printer, service or hotfix in the computer view, a program in the software overview, a cell in the computer list, or a value on the *General* page such as model or operating system) → **Create dynamic collection**. The options include:
 
 - for programs at the top **"name" installed** and **"name" not installed** – the collection gets a matching name right away, e.g. "PdfCraft installiert" / "PdfCraft nicht installiert" in German or "PdfCraft installed" / "PdfCraft not installed" in English (no prefix like "Applications:"). If the name contains a version number, this applies to any version (`7-Zip*`); "Computers with exactly …" uses the full name,
@@ -529,7 +574,7 @@ A dynamic collection *under* another collection (not under a folder) contains on
 
 The normal collection dialog then opens with the finished filter – adjust name, location and conditions before saving.
 
-**Usage:** Right-clicking in the tree offers Open, Edit, New ▸, Duplicate, Scan collection, Heartbeat, Deploy, Tools, Report, Cut/Copy/Paste, Rename and Delete. Dragging moves a collection; holding **Ctrl** copies it. Default and AD collections are read-only and fixed in place – they can only be expanded and collapsed, not dragged; "Duplicate" or Copy/Paste creates an editable copy.
+**Usage:** Right-clicking in the tree offers Open, Edit, New ▸, Duplicate, Export / Import (from 2.57.0, [Export and import](#configexport)), Scan collection, Heartbeat, Deploy, Tools, Report, Cut/Copy/Paste, Rename and Delete. Dragging moves a collection; holding **Ctrl** copies it. Default and AD collections are read-only and fixed in place – they can only be expanded and collapsed, not dragged; "Duplicate" or Copy/Paste creates an editable copy.
 
 **Delete protection:** a collection that is still used by another collection (filter "Member of"), a schedule, scan profile, tenant, custom report, report mailing or notification cannot be deleted – the message names where it is used. The same applies to custom fields. Circular references (A refers to B, B to A) are rejected when saving.
 
@@ -614,6 +659,8 @@ A scan profile defines **what** is scanned (scanners), **on which computers** (t
 ## Custom Scanners {#customscanners}
 
 Under **Scan profiles → Custom scanners** you create scanners of type Registry, Files & Folders, WMI or PowerShell. Each custom scanner runs in the built-in profile of its type (e.g. "PowerShell") and additionally in your own profiles. The result appears on the computer in the category of the same name. If there are several scanners, pick one at the top from the **drop-down list** (or ‹ ›) or show them all with "All scanners"; the selection is remembered per category. **Test** runs a scanner immediately on a computer and shows the result.
+
+**State (from 2.57.0):** if a scanner reports errors on many computers, delivers no values or no longer delivers a column since a change, or a collection checks a column it does not deliver, the [yellow warning sign](#warnmark) appears in the list, in the dialog and on the profiles that use it. A scanner used by a collection or a custom report cannot be deleted. The message names the places; otherwise the collection would silently lose its condition. Export and import: [Export and import](#configexport).
 
 > **Important:** The built-in "PowerShell" profile initially has no trigger. To run custom PowerShell scanners regularly, set a trigger there (e.g. daily) – or add the scanner to a custom profile that has a trigger.
 
@@ -839,7 +886,7 @@ Scans and tools keep running via the service account (WinRM), independent of thi
 - The results are kept in a file of their own in the data folder (not in the database, at most 2000 findings) and survive a restart until you reset them.
 
 
-**Own PowerShell code without warnings (from 2.52.0):** for PowerShell steps, tools, "Run command", own scanners and `.ps1` files in the repository editor POCKET KNIFE shows a **hint** while you type if Windows would log the code as a warning – nothing is blocked, the code runs as written. From 2.56.1 the hints are also shown **without opening the editor**: in the list of own scanners (column "PowerShell log") and collected for own scanners, tools and PowerShell steps of all packages under **Settings → Maintenance → Check PowerShell log → Own code** (the stored code is checked without running it). Before, a hint only appeared while the editor was open – older code went unnoticed. Watch out for:
+**Own PowerShell code without warnings (from 2.52.0):** for PowerShell steps, tools, "Run command", own scanners and `.ps1` files in the repository editor POCKET KNIFE shows a **hint** while you type if Windows would log the code as a warning – nothing is blocked, the code runs as written. From 2.56.1 the hints are also shown **without opening the editor**: in the list of own scanners (column "PowerShell log") and collected for own scanners, tools and PowerShell steps of all packages under **Settings → Maintenance → Check PowerShell log → Own code** (the stored code is checked without running it). Before, a hint only appeared while the editor was open – older code went unnoticed. From 2.57.0 a click on a scanner or tool in "Own code" opens its dialog directly (as with packages), and affected entries carry the [yellow warning sign](#warnmark) everywhere. Watch out for:
 
 | What | Why | Better |
 |---|---|---|
@@ -1574,7 +1621,7 @@ Under **Settings → Maintenance → Diagnostics package**, POCKET KNIFE creates
 | `leistung.json` – additions from 2.44.4 | duration of every page/query since start (median, 95 %, maximum), size of the scan results per area (an area over 5 MB is also logged as a warning), database per table and log file (WAL), remote sessions (duration, data, how they ended), background tasks with errors, last daily runs |
 | `inventar.json` (from 2.44.4) | scan errors per area, winget assignment (sure/unsure, outdated, MSIX), clients per PowerShell version, language mode (ConstrainedLanguage = software restriction) and winget |
 | additions from 2.48.2 | `statistik.json`: **chains** (several packages one after another – count, with "stop on failure", targets skipped because of the chain and targets waiting right now); `bereitstellungen.csv`: chain and position; `inventar.json`: clients per edition, ESU, Entra ID join, MDM, virtualization, Office Click-to-Run, Secure Boot, SMB1 … (counts only, never the Entra tenant), **Group Policy history and gpresult since start** (calls, errors, duration and parse quality, e.g. runs without a GPO list or unknown setting kinds – never computer, user or GPO names), tools per type and gpupdate lines without an answer |
-| additions from 2.49.0 | `statistik.json`: changes in the repository **text editor** (kept versions, files, encodings – never contents or paths); from 2.50.2 also **used files replaced** by upload since the start (number of files and affected packages); from 2.52.0 **hints on own PowerShell code** since the start (checks, findings per kind – never the code), from 2.53.1 also `Select-Object -First`; from 2.53.2 **crashed programs** in steps/tools (count, of which "window as SYSTEM" and with a pending restart); from 2.54.0 **check mode PowerShell log** (on/off, calls and entries 4100/4104 per function), from 2.54.1 also crashes and the full report as `powershell_protokoll.txt` (names replaced); from 2.56.1 **own code with hints** (number of scanners/tools/packages, hints per kind); from 2.56.0 **update lock** (checks open/free/unknown/error, postponed targets, longest wait, settings, use in packages and schedules – counts only) |
+| additions from 2.49.0 | `statistik.json`: changes in the repository **text editor** (kept versions, files, encodings – never contents or paths); from 2.50.2 also **used files replaced** by upload since the start (number of files and affected packages); from 2.52.0 **hints on own PowerShell code** since the start (checks, findings per kind – never the code), from 2.53.1 also `Select-Object -First`; from 2.53.2 **crashed programs** in steps/tools (count, of which "window as SYSTEM" and with a pending restart); from 2.54.0 **check mode PowerShell log** (on/off, calls and entries 4100/4104 per function), from 2.54.1 also crashes and the full report as `powershell_protokoll.txt` (names replaced); from 2.56.1 **own code with hints** (number of scanners/tools/packages, hints per kind); from 2.56.0 **update lock** (checks open/free/unknown/error, postponed targets, longest wait, settings, use in packages and schedules – counts only); from 2.57.0 **yellow warning sign** (how many scanners, tools, scan profiles, collections and packages carry it, reasons by kind, exports and imports of tools, scanners, profiles and collections – counts only) |
 | `protokoll.csv`, `fehler.txt` | log of the period, warnings and errors separately |
 | `bereitstellungen.csv`, `fehlgeschlagen.json` | deployments; for failures the end of the output (at most 3000 characters per step) |
 | `scans.csv` | scan runs with duration and result |

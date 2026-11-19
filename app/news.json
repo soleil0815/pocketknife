@@ -2,6 +2,36 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.57.0",
+   "date": "2026-11-19",
+   "items": [
+    {
+     "kind": "new",
+     "audience": "admin",
+     "de": "Gelbes Warnzeichen: Was Aufmerksamkeit braucht, trägt überall dasselbe gelbe „!“ – eigene Scanner, Scanprofile, Sammlungen, Tools und Pakete. Darüberfahren zeigt den Grund, ein Klick führt zur Stelle; die Übersicht listet alles auf.",
+     "en": "Yellow warning sign: whatever needs attention carries the same yellow “!” everywhere – custom scanners, scan profiles, collections, tools and packages. Hovering shows the reason, a click leads to the place; the overview lists everything."
+    },
+    {
+     "kind": "new",
+     "audience": "admin",
+     "de": "Zustand eigener Scanner: Fehler auf vielen Computern, seit einer Änderung keine Werte oder Spalten mehr und von Sammlungen geprüfte Spalten, die fehlen, werden gemeldet.",
+     "en": "State of custom scanners: errors on many computers, no values or columns any more since a change, and columns checked by collections that are missing are reported."
+    },
+    {
+     "kind": "new",
+     "audience": "admin",
+     "de": "Export und Import von Tools, eigenen Scannern, Scanprofilen und Sammlungen (einzeln oder ganze Ordner). Verweise werden über den Namen zugeordnet; was fehlt, steht vor dem Import in der Prüfung und lässt sich im Sammlungseditor neu zuordnen.",
+     "en": "Export and import of tools, custom scanners, scan profiles and collections (single ones or whole folders). References are matched by name; anything missing is listed in the check before the import and can be re-assigned in the collection editor."
+    },
+    {
+     "kind": "improved",
+     "audience": "admin",
+     "de": "„Eigener Code“ unter PowerShell-Protokoll prüfen öffnet Scanner und Tools jetzt direkt. Ein Verweis auf eine gelöschte Sammlung, einen gelöschten Scanner oder ein gelöschtes Feld wird nicht mehr still übergangen.",
+     "en": "“Own code” under Check PowerShell log now opens scanners and tools directly. A reference to a deleted collection, scanner or field is no longer skipped silently."
+    }
+   ]
+  },
+  {
    "version": "2.56.2",
    "date": "2026-11-19",
    "items": [

@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTex
 from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 
-from . import (access, backup, inuse, gphistory, clientfiles, loadstats, integrity, kiosk, news, pkgexport, repofiles, sso, customreports, mailer, notify, diskusage, kerberos, presence, tls, actions, ad, auth, guard, profiles, remote_desktop, scanners, tools, uninstall, collections_, config, db, deploy, inventory, pklog, remote, reports, scheduler,
+from . import (access, backup, cfgexport, health, inuse, gphistory, clientfiles, loadstats, integrity, kiosk, news, pkgexport, repofiles, sso, customreports, mailer, notify, diskusage, kerberos, presence, tls, actions, ad, auth, guard, profiles, remote_desktop, scanners, tools, uninstall, collections_, config, db, deploy, inventory, pklog, remote, reports, scheduler,
                schedules, steps, util, winget, wingetcache)
 
 
@@ -1110,8 +1110,14 @@ def api_scanner_create(data: dict = Body(...), user=U):
 def api_scanner_update(sid: int, data: dict = Body(...), user=U):
     d = _scanner_values(data)
     collections_.invalidate_scanner(sid)  # re-determine size columns (bytes_mode)
+    old = db.q1("SELECT type, target, extra FROM custom_scanners WHERE id=?", (sid,))
+    if not old:
+        raise HTTPException(404, "Scanner nicht gefunden")
     db.ex("UPDATE custom_scanners SET name=?, type=?, target=?, extra=?, enabled=? WHERE id=?",
           (d["name"], d["type"], d["target"], d["extra"], d["enabled"], sid))
+    if health.scanner_changed(old, d):  # 2.57.0: scanner health compares the results before/after this change
+        db.ex("UPDATE custom_scanners SET updated_at=? WHERE id=?", (util.now(), sid))
+    health.invalidate()
     if "profiles" in data:
         profiles.add_scanner(sid, [int(i) for i in data.get("profiles") or []])
     return {"ok": True}
@@ -1148,7 +1154,12 @@ def api_scanner_test(data: dict = Body(...), user=U):
 
 @app.delete("/api/scanners/{sid}")
 def api_scanner_delete(sid: int, user=U):
+    used = collections_.scanner_refs(sid)  # 2.57.0: otherwise the collection would lose its condition
+    if used:
+        _err("Wird noch verwendet und kann deshalb nicht gelöscht werden: " + ", ".join(used[:6])
+             + (f" und {len(used) - 6} weitere" if len(used) > 6 else "") + ". Bitte dort zuerst entfernen.")
     db.ex("DELETE FROM custom_scanners WHERE id=?", (sid,))
+    health.invalidate()
     db.ex("DELETE FROM inventory_data WHERE category=?", (f"custom:{sid}",))
     profiles.remove_scanner(sid)
     return {"ok": True}
@@ -2542,6 +2553,27 @@ def api_packages_export(data: dict = Body(...), user=U):
     return {"filename": pkgexport.filename(), "data": out, "warnings": warnings, "extra": extra}
 
 
+@app.post("/api/config/export")
+def api_config_export(data: dict = Body(...), user=U):
+    """2.57.0: tools, custom scanners, scan profiles and collections as a file (*.pkconfig.json) - main admins only."""
+    out, warnings, extra = cfgexport.export(data)
+    n = sum(len(out[k]) for k in cfgexport.KINDS)
+    pklog.info("system", f"Konfiguration exportiert ({n} Einträge).", user=user["username"])
+    return {"filename": cfgexport.filename(out), "data": out, "warnings": warnings, "extra": extra}
+
+
+@app.post("/api/config/import")
+def api_config_import(data: dict = Body(...), user=U):
+    """Check (dry_run, default) or import a *.pkconfig.json file. Missing references are listed before the import."""
+    dry = data.get("dry_run", True) is not False
+    res = cfgexport.run_import(user, data.get("data"), data.get("conflict") or "skip", data.get("parent_id"), dry_run=dry)
+    if not dry:
+        c = res["count"]
+        pklog.info("system", f"Konfigurations-Import: {c['new'] + c['copy']} angelegt, {c['skip']} übersprungen, "
+                             f"{c['error']} mit Fehler, {res['missing']} fehlende(r) Verweis(e).", user=user["username"])
+    return res
+
+
 @app.post("/api/packages/import")
 def api_packages_import(data: dict = Body(...), user=U):
     """Check a package file (dry_run, default) or import it. The same rules as when saving in the editor."""
@@ -2877,6 +2909,18 @@ def api_pslint_overview(user=U):
     main_admin = not access.scoped(user)
     rows = pslint.overview(package_ok=lambda row: access.can_see_package(user, row))
     return {"rows": [r for r in rows if r["kind"] == "package" or main_admin]}
+
+
+@app.get("/api/marks")
+def api_marks(user=U):
+    """2.57.0: the yellow "!" - {scanner|tool|profile|collection|package: {id: [reasons]}}. OU admins only packages and
+    collections of their area (scanners, tools and profiles are edited only by main administrators)."""
+    if not access.scoped(user):
+        return health.marks()
+    vis = _visible_collections(user) or set()
+    pk = {r["id"]: r for r in db.q("SELECT id, tenant_id FROM packages")}
+    return health.marks(main_admin=False, package_ok=lambda pid: pid in pk and access.can_see_package(user, pk[pid]),
+                        collection_ok=lambda cid: cid in vis)
 
 
 @app.post("/api/pslint")

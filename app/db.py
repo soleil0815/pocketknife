@@ -571,6 +571,7 @@ MIGRATIONS = [
     ("computers", "win_update", "TEXT"),       # 2.40: update status (see updstatus.py)
     ("computers", "win_update_info", "TEXT"),
     ("computers", "office_update", "TEXT"),
+    ("custom_scanners", "updated_at", "TEXT"),  # 2.57.0: last change of type/target – scanner health compares before/after
 ]
 
 

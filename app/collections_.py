@@ -327,9 +327,12 @@ def _table(table):
             if not re.match(r"^custom:\d+$", table):
                 raise ValueError("Ungültige Tabelle")
             sc = db.q1("SELECT name, type FROM custom_scanners WHERE id=?", (int(table.split(":")[1]),))
-            label = (f"{SCANNER_LABELS.get(sc['type'], sc['type'])}: {sc['name']}" if sc else table)
+            if not sc:
+                # 2.57.0: deleted scanner - an error instead of silently "no computer has values"
+                raise ValueError(f"Eigener Scanner #{table.split(':')[1]} fehlt (gelöscht) – bitte neu zuordnen.")
+            label = f"{SCANNER_LABELS.get(sc['type'], sc['type'])}: {sc['name']}"
             # Known columns with their type (sizes as "bytes"), others can be entered freely
-            cols = {c: (c, t, None, []) for c, t in (_scanner_columns(int(table.split(":")[1])) if sc else [])}
+            cols = {c: (c, t, None, []) for c, t in _scanner_columns(int(table.split(":")[1]))}
             is_custom = True
         else:
             label, defs = JSON_TABLES[table]
@@ -478,9 +481,21 @@ HOPS_MAX = 12         # chained "ist Mitglied von" references or parent collecti
 # (check_cycle rejects circular references on save – the limits are only the safeguard behind it)
 
 
+MISSING_KINDS = {"collection": "Sammlung", "scanner": "eigener Scanner", "field": "Feld"}
+
+
+def missing_text(m):
+    """2.57.0: text of a reference that an import could not match ("missing" in a filter item)."""
+    m = m if isinstance(m, dict) else {}
+    return f"Verweis fehlt: {MISSING_KINDS.get(m.get('kind'), 'Verweis')} „{m.get('name') or '?'}“ – bitte neu zuordnen."
+
+
 def _item(it, depth, hops=0):
     if it.get("type") == "group":
         return build_tree(it, depth, hops)
+    if it.get("missing"):
+        # Imported with a reference that does not exist here: never evaluate silently without it
+        raise ValueError(missing_text(it["missing"]))
     table = it.get("table") or "computer"
     if table == "computer":
         tdef = _table("computer")
@@ -765,6 +780,29 @@ def _tree_refs(node, out):
     elif isinstance(node, list):
         for it in node:
             _tree_refs(it, out)
+    return out
+
+
+def cond_items(node):
+    """All conditions (not groups) of a filter tree."""
+    if isinstance(node, dict):
+        if node.get("type") == "group":
+            for it in node.get("items") or []:
+                yield from cond_items(it)
+        else:
+            yield node
+    elif isinstance(node, list):
+        for it in node:
+            yield from cond_items(it)
+
+
+def scanner_refs(sid):
+    """2.57.0: names of collections and custom reports that use a custom scanner (blocks deleting it)."""
+    tab = f"custom:{int(sid)}"
+    out = [f"Sammlung: {c['name']}" for c in db.q("SELECT name, filters, match FROM collections")
+           if any(it.get("table") == tab for it in cond_items(normalize(c["filters"], c["match"])))]
+    out += [f"Bericht: {r['name']}" for r in db.q("SELECT name, definition FROM custom_reports")
+            if f'"{tab}"' in (r.get("definition") or "")]
     return out
 
 

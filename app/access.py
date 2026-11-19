@@ -443,6 +443,7 @@ ROUTES = {
     ("GET", "/api/tooljobs/{jid}"): _p_tooljob,
     # Read only (for the UI)
     ("GET", "/api/scanners"): OPEN,
+    ("GET", "/api/marks"): OPEN,                     # 2.57.0: handler filters (packages/collections of the own area)
     ("GET", "/api/scanprofiles"): OPEN,
     ("GET", "/api/fields"): OPEN,
     ("GET", "/api/collections"): OPEN,                 # handler counts only own computers
