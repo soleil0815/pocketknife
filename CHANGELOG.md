@@ -2,6 +2,16 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.56.1 (19.11.2026)
+- **Hints for own PowerShell code also without opening the editor:** the diagnostic package showed 121 warnings (4104) from an own scanner that loads the Storage module, but the hint only appeared while its editor was open - code written before 2.52.0 or never reopened went unnoticed. Now:
+  - list of own scanners: new column "PowerShell-Protokoll" ("sauber" or the number of hints, details as tooltip)
+  - Settings → Maintenance → Check PowerShell log: new section **"Eigener Code"** - own scanners, tools and PowerShell steps of all packages (nested too, conditions included) that Windows would log as a warning (4104) or error (4100), with line, reason and better alternative; a click opens the package or the page. Stored code is checked without running it; OU admins see only their packages
+- **More complete check:** every cmdlet of the Storage module (Get-PartitionSupportedSize, Get-StorageReliabilityCounter, Mount-DiskImage, Optimize-Volume …; before only Get/Set/… -Disk/-Volume/-Partition/-PhysicalDisk/-StoragePool/-VirtualDisk), Get-PnpDevice and IPsec cmdlets; new kind **"throws"** (event 4100 even with SilentlyContinue): Confirm-SecureBootUEFI, Get-SecureBootUEFI, Get-ItemPropertyValue, with the registry alternative. No false positives for own functions such as Get-DiskSpace. Storage hint names the CIM classes (MSFT_Disk …) and that status fields then come as numbers
+- **Deployment interrupted by a shutdown** (e.g. an update while a step runs): "Unterbrochen – POCKET KNIFE wurde während der Ausführung beendet …" instead of "cannot schedule new futures after interpreter shutdown"; no extra warning for the post-processing
+- Diagnostic package: own code with hints (number of scanners/tools/packages, hints per kind - never names or code); LIESMICH
+- Help (de/en): own PowerShell code table and diagnostic package. README: troubleshooting
+- **Self-test:** new cmdlets flagged, no false positives, throwing cmdlets, overview incl. nested packages and tenant filter, scanner list, diagnostics without names, interrupted message
+
 ## pocketknife-2.56.0 (18.11.2026)
 - **Update lock - schedules no longer close a program the user has open:** right before installing, a schedule asks the computer whether the program is running in a user session. If it is, the computer is not touched (nothing copied, nothing closed) but **postponed**: target "Übersprungen" with "Zurückgestellt – 7-Zip ist geöffnet (7zFM.exe) – wird nicht beendet …", schedule status "Zurückgestellt" - not a failed attempt
   - the program is recognized from the package's steps (winget ID, MSI product code, display name of the detection/uninstallation, nested packages too) → its uninstall entry in the computer's inventory → the client reads InstallLocation, DisplayIcon and UninstallString live and lists the processes of the user sessions (`Win32_Process`, `SessionId <> 0`); a process from the program folder = open. Services never count; general folders (Program Files, Common Files, AppData\Local …) are never taken as a program folder. Packages can name extra process names (field "Updatesperre")

@@ -1211,7 +1211,32 @@ function psCheckCard() {
     if ((rn && rn.running) && document.body.contains(card)) timer = setTimeout(draw, 3000);
   }
   draw();
+  card.appendChild(ownCodeLint());
   return card;
+}
+
+// 2.56.1: own PowerShell code (eigene Scanner, Tools, PowerShell steps of packages) that Windows would log as a
+// warning or error - without having to open each editor
+function ownCodeLint() {
+  const box = h('div.card-b', { style: { borderTop: '1px solid var(--line)' } }, h('p.muted.small', 'Wird geladen …'));
+  const KL = { scanner: 'Eigener Scanner', tool: 'Tool', package: 'Paket' };
+  (async () => {
+    let d;
+    try { d = await GET('/api/pslint/overview'); } catch (e) { box.replaceChildren(h('p.muted.small', e.message)); return; }
+    const open = (r) => {
+      if (r.kind === 'package') packageDlg(r.id);
+      else go(r.kind === 'scanner' ? '#/scanners' : '#/tools');
+    };
+    box.replaceChildren(...kids(
+      h('b', 'Eigener Code'),
+      h('p.muted.small', { style: { margin: '4px 0 6px' } }, tr('Eigene Scanner, Tools und PowerShell-Schritte in Paketen, die Windows beim Ausführen als Warnung (4104) oder Fehler (4100) protokollieren würde – geprüft wird der gespeicherte Code, ohne ihn auszuführen.')),
+      d.rows.length ? null : h('p.small', tr('Kein Hinweis – der eigene Code ist sauber.')),
+      ...d.rows.map((r) => h('div', { style: { marginTop: '8px' } },
+        h('div.row', { style: { gap: '6px', alignItems: 'baseline' } }, h('span.badge', tr(KL[r.kind])),
+          h('a', { href: '#', onclick: (e) => { e.preventDefault(); open(r); } }, r.name)),
+        psLintList(r.findings)))));
+  })();
+  return box;
 }
 
 function updatesCard() {
@@ -7396,6 +7421,11 @@ async function viewScanners() {
     { key: 'target', label: 'Ziel / Abfrage', cls: 'trunc mono', title: (r) => r.target },
     { key: 'in', label: 'In Profilen', value: (r) => meta.profiles.filter((p) => p.scanners.includes(r.id) || (p.builtin_key && (p.scanner_types || []).includes(r.type))).map((p) => p.name).join(', ') || '—' },
     { key: 'enabled', label: 'Aktiv', render: (r) => (r.enabled ? h('span.badge.ok', 'aktiv') : h('span.badge', 'aus')) },
+    // 2.56.1: what Windows logs as a warning/error - visible without opening the editor
+    { key: 'lint', label: 'PowerShell-Protokoll', value: (r) => (r.lint || []).length,
+      render: (r) => ((r.lint || []).length
+        ? h('span.badge.warn', { title: r.lint.map((f) => `${fmtT('Zeile {0}', f.line)}: ${f.what}`).join('\n') }, fmtT('{0} Hinweis(e)', r.lint.length))
+        : (r.type === 'powershell' ? h('span.muted.small', 'sauber') : '')) },
   ], meta.scanners, { sort: 'name', noun: 'eigene Scanner', onRow: (r) => scannerDlg(r, meta), empty: 'Noch keine eigenen Scanner.', fill: false });
   sc.actions.append(btn('Neuer eigener Scanner', () => scannerDlg(null, meta), { icon: 'plus', cls: 'small' }));
 
@@ -8591,9 +8621,7 @@ const unixDate = (t) => { if (!t) return ''; const d = new Date(t * 1000); const
 function psLintBox(area, isPs = () => true) {
   const box = h('div.pslint');
   let timer = null; let seq = 0;
-  const KIND = { word: 'steht auf der Verdachtsliste von PowerShell (zählt auch in Kommentaren und als Teil eines Worts)',
-    dynamic: 'Eigenschaft über eine Variable – PowerShell wertet das als Verschleierung',
-    stop: 'bricht die Befehle davor mit einer internen Ausnahme ab – PowerShell protokolliert das als Fehler (Ereignis 4100), obwohl nichts schiefging' };
+  const KIND = PSLINT_KIND;
   const run = async () => {
     const my = ++seq;
     if (!isPs() || !area.value.trim()) { box.replaceChildren(); return; }
@@ -8602,21 +8630,31 @@ function psLintBox(area, isPs = () => true) {
     if (my !== seq) return;
     const f = r.findings || [];
     if (!f.length) { box.replaceChildren(); return; }
-    box.replaceChildren(h('div.alert.warn', { style: { margin: '6px 0' } },
-      h('b', f.every((x) => x.kind === 'stop') ? tr('Hinweis: Windows protokolliert diesen Code als Warnung (Ereignis 4100).')
-        : f.some((x) => x.kind === 'stop') ? tr('Hinweis: Windows protokolliert diesen Code als Warnung (Ereignisse 4104 und 4100).')
-          : tr('Hinweis: Windows protokolliert diesen Code als Warnung (Ereignis 4104).')), ' ',
-      h('span.small', tr('Überwachungssoftware kann darauf anschlagen – der Code läuft trotzdem.')),
-      h('ul', { style: { margin: '6px 0 0', paddingLeft: '18px' } }, f.map((x) => h('li.small',
-        fmtT('Zeile {0}', x.line), ': ', h('code.raw', x.what), ' – ',
-        x.kind === 'module' ? fmtT('lädt das Windows-Modul „{0}“', tr(x.module)) : tr(KIND[x.kind]),
-        x.hint ? h('span.muted', ' → ', tr(x.hint)) : null)))));
+    box.replaceChildren(psLintList(f, KIND));
   };
   const kick = () => { clearTimeout(timer); timer = setTimeout(run, 600); };
   area.addEventListener('input', kick);
   setTimeout(run, 50);
   box.refresh = kick;
   return box;
+}
+
+const PSLINT_KIND = { word: 'steht auf der Verdachtsliste von PowerShell (zählt auch in Kommentaren und als Teil eines Worts)',
+    dynamic: 'Eigenschaft über eine Variable – PowerShell wertet das als Verschleierung',
+    stop: 'bricht die Befehle davor mit einer internen Ausnahme ab – PowerShell protokolliert das als Fehler (Ereignis 4100), obwohl nichts schiefging',
+    throw: 'wirft einen abbrechenden Fehler, wenn es keine Antwort gibt (z. B. ohne UEFI) – auch mit -ErrorAction SilentlyContinue; PowerShell protokolliert das als Fehler (Ereignis 4100)' };
+function psLintList(f, KIND) {
+  const is4100 = (x) => x.kind === 'stop' || x.kind === 'throw';
+  return h('div.alert.warn', { style: { margin: '6px 0' } },
+    h('b', f.every(is4100) ? tr('Hinweis: Windows protokolliert diesen Code als Warnung (Ereignis 4100).')
+      : f.some(is4100) ? tr('Hinweis: Windows protokolliert diesen Code als Warnung (Ereignisse 4104 und 4100).')
+        : tr('Hinweis: Windows protokolliert diesen Code als Warnung (Ereignis 4104).')), ' ',
+    h('span.small', tr('Überwachungssoftware kann darauf anschlagen – der Code läuft trotzdem.')),
+    h('ul', { style: { margin: '6px 0 0', paddingLeft: '18px' } }, f.map((x) => h('li.small',
+      x.where ? h('span.muted', `${tr(x.where)} · `) : null,
+      fmtT('Zeile {0}', x.line), ': ', h('code.raw', x.what), ' – ',
+      x.kind === 'module' ? fmtT('lädt das Windows-Modul „{0}“', tr(x.module)) : tr((KIND || PSLINT_KIND)[x.kind]),
+      x.hint ? h('span.muted', ' → ', tr(x.hint)) : null))));
 }
 
 // Error "still in use" (409): show the list of packages instead of a long toast

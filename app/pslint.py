@@ -65,8 +65,17 @@ MODULES = (
      "Netzwerk (TCP/IP)", "netsh interface ip …, route.exe, netstat -ano – oder die CIM-Klassen unter root/StandardCimv2"),
     (r"(Get|Set|Clear|Register|Unregister|Add|Remove)-DnsClient\w*", "DNS-Client",
      "netsh interface ip set dns …, ipconfig /flushdns"),
-    (r"(Get|Set|New|Remove|Initialize|Clear|Format|Resize|Repair|Optimize|Mount|Dismount)-(Disk|PhysicalDisk|Volume|Partition|StoragePool|VirtualDisk)\b",
-     "Datenträger", "Get-CimInstance Win32_DiskDrive/Win32_Volume, diskpart, defrag.exe, chkdsk"),
+    # 2.56.1: every cmdlet of the Storage module (Get-PartitionSupportedSize, Get-StorageReliabilityCounter, Mount-DiskImage …)
+    (r"[A-Za-z]+-(Disk|DiskImage|DiskStorageNodeView|PhysicalDisk|PhysicalDiskIdentification|PhysicalDiskStorageNodeView|"
+     r"PhysicalExtent|PhysicalExtentAssociation|Partition|PartitionAccessPath|PartitionSupportedSize|Volume|VolumeCorruptionCount|"
+     r"VolumeScrubPolicy|VirtualDisk|VirtualDiskSupportedSize|Storage[A-Z]\w*|MaskingSet|InitiatorId|InitiatorPort|TargetPort|"
+     r"TargetPortal|ResiliencySetting|FileIntegrity|FileStorageTier|SupportedFileSystems|SupportedClusterSizes|"
+     r"OffloadDataTransferSetting)",
+     "Datenträger",
+     "Get-CimInstance -Namespace root/Microsoft/Windows/Storage -ClassName MSFT_Disk / MSFT_Partition / MSFT_Volume / MSFT_PhysicalDisk (dieselben Daten ohne das Modul, Statusfelder als Zahl) bzw. Win32_DiskDrive/Win32_LogicalDisk; diskpart, defrag.exe, chkdsk"),
+    (r"(Get|Enable|Disable)-PnpDevice\w*", "Geräte (PnP)",
+     "Get-CimInstance -ClassName Win32_PnPEntity bzw. pnputil.exe /enum-devices, /disable-device, /enable-device"),
+    (r"(Get|Set|New|Remove|Enable|Disable|Copy|Rename)-NetIPsec\w+", "IPsec", "netsh advfirewall consec …"),
     (r"(Get|Set|New|Remove|Grant|Revoke|Block|Unblock)-Smb\w+", "SMB-Freigaben", "net share …, icacls"),
     (r"(Get|Add|Set|Remove|Rename)-Printer\w*", "Drucker",
      "rundll32 printui.dll,PrintUIEntry … oder printui /?; Treiber mit pnputil"),
@@ -77,6 +86,16 @@ MODULES = (
     (r"(Get|Set|Enable|Disable)-NetQos\w*|(Get|Set)-NetConnectionProfile", "Netzwerk", "netsh bzw. CIM (root/StandardCimv2)"),
 )
 _MOD_RX = [(re.compile(r"(?i)\b(?:" + rx + r")\b"), name, alt) for rx, name, alt in MODULES]
+# 2.56.1: cmdlets that throw a terminating error when they cannot answer - even with -ErrorAction SilentlyContinue
+# (PowerShell logs that as event 4100)
+THROWS = (
+    (r"Confirm-SecureBootUEFI|Get-SecureBootUEFI",
+     "Secure Boot aus der Registry lesen: HKLM:\\SYSTEM\\CurrentControlSet\\Control\\SecureBoot\\State, Wert UEFISecureBootEnabled "
+     "(fehlt auf Computern ohne UEFI – vorher Test-Path)"),
+    (r"Get-ItemPropertyValue",
+     "Get-ItemProperty -Path … -Name … -ErrorAction SilentlyContinue und dann die Eigenschaft lesen (vorher Test-Path)"),
+)
+_THROW_RX = [(re.compile(r"(?i)\b(?:" + rx + r")\b"), alt) for rx, alt in THROWS]
 # member through a variable or an expression ($o.$n, $o.$($n), $o.("x")) - not inside quoted strings ("$a.$b" is text)
 _DYN_RX = re.compile(r"[\w)\]}]\.(?:\$|\()")
 
@@ -105,10 +124,10 @@ def _strip_strings(ln):
 _STOP_RX = re.compile(r"(?i)(?:^\s*|[|;({]\s*)(?:Select-Object|select)\b[^|;]{0,300}?\s-(?:f(?:i(?:r(?:st?)?)?)?|i(?:n(?:d(?:ex?)?)?)?)\b")
 STOP_HINT = "das erste Element per Index nehmen: @(Befehl)[0] bzw. @(Befehl)[0..9]"
 _lock = threading.Lock()
-STATS = {"checks": 0, "with_findings": 0, "words": 0, "modules": 0, "dynamic": 0, "stops": 0}
+STATS = {"checks": 0, "with_findings": 0, "words": 0, "modules": 0, "dynamic": 0, "stops": 0, "throws": 0}
 
 
-def check(text):
+def check(text, count=True):
     """[{line, kind (word|module|dynamic|stop), what, hint}] - at most one entry per kind and thing, in text order."""
     out: list = []
     seen: set = set()
@@ -135,15 +154,83 @@ def check(text):
             if m and ("s", no) not in seen:
                 seen.add(("s", no))
                 out.append({"line": no, "kind": "stop", "what": m.group(0).lstrip("|;({ \t"), "hint": STOP_HINT})
+            for rx, alt in _THROW_RX:
+                m = rx.search(code)
+                if m and ("t", m.group(0).lower()) not in seen:
+                    seen.add(("t", m.group(0).lower()))
+                    out.append({"line": no, "kind": "throw", "what": m.group(0), "hint": alt})
+    if not count:   # overview of stored code: not an editor check
+        return out[:50]
     with _lock:
         STATS["checks"] += 1
         if out:
             STATS["with_findings"] += 1
         for f in out:
-            STATS[{"word": "words", "module": "modules", "dynamic": "dynamic", "stop": "stops"}[str(f["kind"])]] += 1
+            STATS[{"word": "words", "module": "modules", "dynamic": "dynamic", "stop": "stops", "throw": "throws"}[str(f["kind"])]] += 1
     return out[:50]
 
 
 def stats():
     with _lock:
         return dict(STATS)
+
+
+def _scripts_of(obj, depth=0):
+    """All PowerShell texts in a package structure (steps, nested packages): yields (label, text)."""
+    if depth > 8:
+        return
+    if isinstance(obj, dict):
+        if obj.get("type") == "powershell" and isinstance(obj.get("script"), str) and obj["script"].strip():
+            yield (obj.get("title") or "PowerShell"), obj["script"]
+        for v in obj.values():
+            if isinstance(v, (dict, list)):
+                yield from _scripts_of(v, depth + 1)
+    elif isinstance(obj, list):
+        for v in obj:
+            yield from _scripts_of(v, depth + 1)
+
+
+def overview(package_ok=None):
+    """2.56.1: own PowerShell code that Windows would log as a warning or error - eigene Scanner, Tools, PowerShell steps
+    of packages. Shown in Einstellungen → Wartung and next to the scanners, so a hint does not depend on opening the
+    editor. [{kind: scanner|tool|package, id, name, findings: [...]}]; package_ok(pid) filters packages (tenants)."""
+    import json as _json
+    from . import db
+    out = []
+
+    def add(kind, rid, name, texts):
+        found: list = []
+        for label, text in texts:
+            for f in check(text, count=False):
+                if len(found) < 20:
+                    found.append({**f, "where": label})
+        if found:
+            out.append({"kind": kind, "id": rid, "name": name, "findings": found})
+    for r in db.q("SELECT id, name, target FROM custom_scanners WHERE type='powershell' ORDER BY name"):
+        add("scanner", r["id"], r["name"], [("Abfrage", r["target"] or "")])
+    try:
+        rows = db.q("SELECT id, name, script FROM tools WHERE type='powershell' ORDER BY name")
+    except Exception:  # noqa: BLE001 - table of the tools module
+        rows = []
+    for r in rows:
+        add("tool", r["id"], r["name"], [("Skript", r["script"] or "")])
+    for r in db.q("SELECT id, name, steps, conditions, tenant_id FROM packages ORDER BY name"):
+        if package_ok and not package_ok(r):
+            continue
+        try:
+            data = [_json.loads(r["steps"] or "null"), _json.loads(r["conditions"] or "null")]
+        except ValueError:
+            continue
+        add("package", r["id"], r["name"], list(_scripts_of(data)))
+    return out
+
+
+def overview_counts():
+    """Diagnostic package: how much own code has hints - counts only, never names or code."""
+    ov = overview()
+    kinds: dict = {}
+    for o in ov:
+        for f in o["findings"]:
+            kinds[f["kind"]] = kinds.get(f["kind"], 0) + 1
+    return {"scanners": sum(1 for o in ov if o["kind"] == "scanner"), "tools": sum(1 for o in ov if o["kind"] == "tool"),
+            "packages": sum(1 for o in ov if o["kind"] == "package"), "findings_per_kind": kinds}
