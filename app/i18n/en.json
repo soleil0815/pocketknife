@@ -6660,5 +6660,6 @@
  "Fehler auf {0} von {1} Computern: {2}": "Errors on {0} of {1} computers: {2}",
  "Liefert seit der Änderung am {0} auf keinem Computer mehr Werte (vorher schon).": "Delivers no values on any computer any more since the change on {0} (it did before).",
  "Liefert seit der Änderung am {0} die Spalte(n) {1} nicht mehr ({2} Computer noch mit altem Stand).": "No longer delivers column(s) {1} since the change on {0} ({2} computer(s) still with the old state).",
- "Solange das nicht behoben ist, enthält die Sammlung keine Computer – Bereitstellungen und Zeitpläne auf sie brechen mit diesem Fehler ab, statt die falschen Computer zu treffen.": "Until this is fixed, the collection contains no computers – deployments and schedules on it stop with this error instead of hitting the wrong computers."
+ "Solange das nicht behoben ist, enthält die Sammlung keine Computer – Bereitstellungen und Zeitpläne auf sie brechen mit diesem Fehler ab, statt die falschen Computer zu treffen.": "Until this is fixed, the collection contains no computers – deployments and schedules on it stop with this error instead of hitting the wrong computers.",
+ ".tree-item.active, .tree-item.focus": null
 }

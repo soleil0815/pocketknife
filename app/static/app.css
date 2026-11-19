@@ -783,3 +783,6 @@ body.pk-busy, body.pk-busy * { cursor: progress !important; }
   background: rgba(255, 204, 0, .12); }
 @media (max-width: 900px) { .fcond.fmissing { grid-template-columns: auto 1fr; } }
 .tile.mark::before { background: #FFCC00; }
+
+/* 2.57.1: computer list while another collection loads - the click is visibly received */
+.pane.loading { opacity: .55; transition: opacity .12s ease .08s; cursor: progress; }

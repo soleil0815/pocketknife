@@ -519,7 +519,7 @@ Keyboard shortcuts of tools are not exported, because they may already be taken 
 
 ## Computer List {#computerlist}
 
-The **collection tree** is on the left, the computers of the selected collection on the right. A green dot indicates that a computer is online. **Right-click** one or more computers to access: Details, Scan ▸ profile, Heartbeat, Deploy, Tools ▸, Remote Desktop, Add to collection ▸, Remove from collection, Copy name, CSV, "Scanning allowed" and Delete.
+The **collection tree** is on the left, the computers of the selected collection on the right. A click on a collection only swaps the list on the right. The tree stays as it is, with open folders and scroll position (from 2.57.1). It is also back at the same place after saving a collection or coming back from a computer. A green dot indicates that a computer is online. **Right-click** one or more computers to access: Details, Scan ▸ profile, Heartbeat, Deploy, Tools ▸, Remote Desktop, Add to collection ▸, Remove from collection, Copy name, CSV, "Scanning allowed" and Delete.
 
 Clearing "Scanning allowed" blocks automatic scans for a computer (e.g. for sensitive servers); manual scans remain possible.
 
