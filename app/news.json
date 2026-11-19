@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.56.2",
+   "date": "2026-11-19",
+   "items": [
+    {
+     "kind": "fixed",
+     "audience": "admin",
+     "de": "Der Hinweis zu eigenem PowerShell-Code steht jetzt direkt unter dem Code-Feld statt eingequetscht in der linken Spalte (eigene Scanner, Tools, Befehl ausführen).",
+     "en": "The hint on own PowerShell code now sits directly below the code field instead of squeezed into the left column (own scanners, tools, Run command)."
+    }
+   ]
+  },
+  {
    "version": "2.56.1",
    "date": "2026-11-19",
    "items": [

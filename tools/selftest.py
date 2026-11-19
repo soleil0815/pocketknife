@@ -11403,6 +11403,21 @@ def _():
     assert 'msg = interrupted(why) or f"Fehlgeschlagen – {why}"' in dsrc and "(interrupted(str(e)) or str(e))" in dsrc
 
 
+@test("2.56.2 PowerShell hint sits below the code field (code column, full width), not in the label column; empty box takes no space; on narrow screens one column")
+def _():
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static")
+    css = open(os.path.join(root, "app.css"), encoding="utf-8").read()
+    assert ".form > .pslint { grid-column: 2;" in css and ".form > .pslint:empty { display: none; }" in css
+    assert ".form.one > .pslint { grid-column: 1; }" in css
+    narrow = css[css.index(".form { grid-template-columns: 1fr; }"):]
+    assert ".form > .pslint { grid-column: 1; }" in narrow[:400], "narrow layout: one column"
+    js = open(os.path.join(root, "app.js"), encoding="utf-8").read()
+    assert "const box = h('div.pslint');" in js and "x.hint ? h('div.muted', { style: { marginTop: '2px' } }, '→ '" in js
+    # the forms put the box directly after the code field
+    for frag in ("tLabel, target, tLint, hint", "h('label', 'Befehl'), script, sLint, hint", "h('label', 'Befehl / URL'), script, sLint, hint"):
+        assert frag in js, frag
+
+
 def main():
     ok = 0
     for name, fn in RESULTS:

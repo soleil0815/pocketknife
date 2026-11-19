@@ -2,6 +2,10 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.56.2 (19.11.2026)
+- **PowerShell hint below the code field:** in the dialogs with a grid (own scanner, tool, "Befehl ausführen") the hint box landed in the narrow label column next to the field and pushed the help text down. It now sits directly below the code, as wide as the field; an empty box takes no space; on narrow screens one column. The better alternative is on its own line
+- **Self-test:** CSS rules and placement in the three dialogs
+
 ## pocketknife-2.56.1 (19.11.2026)
 - **Hints for own PowerShell code also without opening the editor:** the diagnostic package showed 121 warnings (4104) from an own scanner that loads the Storage module, but the hint only appeared while its editor was open - code written before 2.52.0 or never reopened went unnoticed. Now:
   - list of own scanners: new column "PowerShell-Protokoll" ("sauber" or the number of hints, details as tooltip)
