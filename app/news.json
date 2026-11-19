@@ -2,6 +2,24 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.56.1",
+   "date": "2026-11-19",
+   "items": [
+    {
+     "kind": "improved",
+     "audience": "admin",
+     "de": "Eigener PowerShell-Code: Hinweise, was Windows als Warnung oder Fehler protokolliert, stehen jetzt auch ohne den Editor zu öffnen – in der Liste der eigenen Scanner und gesammelt für Scanner, Tools und Paket-Schritte unter Einstellungen → Wartung → PowerShell-Protokoll prüfen → Eigener Code. Erkannt werden jetzt alle Datenträger-Cmdlets, Get-PnpDevice und Confirm-SecureBootUEFI.",
+     "en": "Own PowerShell code: hints about what Windows logs as a warning or error are now shown without opening the editor – in the list of own scanners and collected for scanners, tools and package steps under Settings → Maintenance → Check PowerShell log → Own code. All disk cmdlets, Get-PnpDevice and Confirm-SecureBootUEFI are now recognized."
+    },
+    {
+     "kind": "fixed",
+     "audience": "admin",
+     "de": "Wird POCKET KNIFE während einer Verteilung beendet (z. B. Update), steht am Computer „Unterbrochen“ statt einer technischen Fehlermeldung.",
+     "en": "If POCKET KNIFE is stopped during a deployment (e.g. update), the computer shows \"Interrupted\" instead of a technical error message."
+    }
+   ]
+  },
+  {
    "version": "2.56.0",
    "date": "2026-11-18",
    "items": [

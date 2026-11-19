@@ -8499,7 +8499,7 @@ def _():
     assert k("$a.$b") == [("dynamic", "$a.$b")] and k('$a.("x")') == [("dynamic", '$a.("x")')]
     assert k('"$a.$b"') == [] and k("'$a.$b'") == [] and k("$a.Name") == [] and k("1..(5)") == [] and k("$a.$b # x") == [("dynamic", "$a.$b # x")]
     assert k("$o.PSObject.Properties") == [("word", "Properties")] and k("# CimClassMethods") == [("word", "Methods")], "substring, also comments"
-    assert k("powershell -ExecutionPolicy BYPASS -File x") == [("word", "Bypass")] and k("Get-ItemPropertyValue -Name x") == []
+    assert k("powershell -ExecutionPolicy BYPASS -File x") == [("word", "Bypass")] and k("Get-ItemPropertyValue -Name x") == [("throw", "Get-ItemPropertyValue")]  # no 4104 word; since 2.56.1 flagged as 4100 (throws)
     assert k("New-NetFirewallRule -Name x") == [("module", "New-NetFirewallRule")] and k("# Register-ScheduledTask") == []
     assert k("Add-Printer -Name x\nadd-printerport -Name y") == [("module", "Add-Printer"), ("module", "add-printerport")]
     f = pslint.check("Suspend-BitLocker -MountPoint C:")[0]
@@ -8522,7 +8522,7 @@ def _():
         except _m.HTTPException as e:
             assert e.status_code == 400
     st = diagnostics._pslint()
-    assert st["checks"] >= 3 and st["with_findings"] >= 2 and set(st) == {"checks", "with_findings", "words", "modules", "dynamic", "stops"}, st
+    assert st["checks"] >= 3 and st["with_findings"] >= 2 and set(st) == {"checks", "with_findings", "words", "modules", "dynamic", "stops", "throws", "own_code"}, st
     js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
     for hook in ("return h('div', a, psLintBox(a))", "psLintBox(target, () => type.value === 'powershell')", "psLintBox(script, () => type === 'powershell')",
                  "psLintBox(script, () => type.value === 'powershell')", "/\\.(ps1|psm1|psd1)$/i.test(path) ? psLintBox(ta) : null,"):
@@ -11343,6 +11343,64 @@ def _():
                 db.ex("DELETE FROM settings WHERE key=?", (k,))
             else:
                 db.set_setting(k, v)
+
+
+@test("2.56.1 Own PowerShell code: hints also without opening the editor (scanner list, overview of scanners/tools/package steps incl. nested, tenants), all Storage cmdlets and PnpDevice flagged without false positives, cmdlets that throw (4100) flagged; run interrupted by a shutdown reads 'Unterbrochen'")
+def _():
+    from app import deploy, diagnostics, pslint, scanners
+    kinds = lambda t: [(f["kind"], f["what"]) for f in pslint.check(t, count=False)]
+    for cmd in ("Get-Disk", "Get-PartitionSupportedSize -DriveLetter C", "Get-StorageReliabilityCounter", "Mount-DiskImage -ImagePath x",
+                "Optimize-Volume -DriveLetter C", "Get-PhysicalDisk", "Get-PnpDevice -Class Net", "Get-NetIPsecRule"):
+        assert kinds(cmd) and kinds(cmd)[0][0] == "module", cmd
+    for clean in ("Get-DiskSpace", "Get-VolumeInfo", "Get-CimInstance -Namespace root/Microsoft/Windows/Storage -ClassName MSFT_Disk",
+                  "Get-PSDrive", "Format-Table", "# Get-Disk"):
+        assert kinds(clean) == [], (clean, kinds(clean))
+    assert kinds("$s = Confirm-SecureBootUEFI") == [("throw", "Confirm-SecureBootUEFI")]
+    assert kinds("Get-ItemPropertyValue -Path HKLM:\\X -Name Y") == [("throw", "Get-ItemPropertyValue")]
+    assert kinds("'Confirm-SecureBootUEFI'") == [], "inside a string it is not called"
+    before = pslint.stats()["checks"]
+    pslint.check("Get-Disk", count=False)
+    assert pslint.stats()["checks"] == before, "overviews do not count as editor checks"
+    pslint.check("Get-Disk")
+    assert pslint.stats()["checks"] == before + 1 and pslint.stats()["throws"] >= 0
+    # stored code: scanner, tool, package step (nested), clean code not listed, tenant filter
+    from app import tools as _tools
+    if not db.val("SELECT name FROM sqlite_master WHERE type='table' AND name='tools'"):
+        _tools.init()
+    made = []
+    try:
+        sid = db.ex("INSERT INTO custom_scanners(name, type, target, extra, enabled) VALUES('PK-T Datenträger', 'powershell', 'Get-Disk | Select-Object Number, Size', '{}', 1)")
+        sid2 = db.ex("INSERT INTO custom_scanners(name, type, target, extra, enabled) VALUES('PK-T sauber', 'powershell', 'Get-CimInstance -ClassName Win32_BIOS', '{}', 1)")
+        tid = db.ex("INSERT INTO tools(name, type, script) VALUES('PK-T SecureBoot', 'powershell', 'Confirm-SecureBootUEFI')")
+        steps_json = json.dumps({"main": [{"type": "nested", "package": {"name": "innen", "steps": {"main": [
+            {"type": "powershell", "script": "Get-Service | Select-Object -First 1"}]}}}]})
+        pid = db.ex("INSERT INTO packages(name, steps, tenant_id) VALUES('PK-T Paket', ?, NULL)", (steps_json,))
+        made += [("custom_scanners", sid), ("custom_scanners", sid2), ("tools", tid), ("packages", pid)]
+        ov = {(o["kind"], o["name"]): o for o in pslint.overview()}
+        assert ("scanner", "PK-T Datenträger") in ov and ("scanner", "PK-T sauber") not in ov
+        assert ov[("tool", "PK-T SecureBoot")]["findings"][0]["kind"] == "throw"
+        assert ov[("package", "PK-T Paket")]["findings"][0]["kind"] == "stop", ov[("package", "PK-T Paket")]
+        assert ("package", "PK-T Paket") not in {(o["kind"], o["name"]) for o in pslint.overview(package_ok=lambda r: False)}
+        lst = {r["name"]: r for r in scanners.list_all()}
+        assert lst["PK-T Datenträger"]["lint"] and lst["PK-T sauber"]["lint"] == []
+        cnt = pslint.overview_counts()
+        assert cnt["scanners"] >= 1 and cnt["tools"] >= 1 and cnt["packages"] >= 1 and cnt["findings_per_kind"].get("throw", 0) >= 1
+        dg = diagnostics._pslint()
+        assert "own_code" in dg and "PK-T" not in json.dumps(dg) and "Get-Disk" not in json.dumps(dg)
+    finally:
+        for t, i in made:
+            db.ex(f"DELETE FROM {t} WHERE id=?", (i,))
+    main_src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "main.py"), encoding="utf-8").read()
+    assert '@app.get("/api/pslint/overview")' in main_src and 'r["kind"] == "package" or main_admin' in main_src
+    js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
+    for k in ("function ownCodeLint()", "/api/pslint/overview", "key: 'lint'", "throw: '", "card.appendChild(ownCodeLint())"):
+        assert k in js, k
+    # interrupted by a shutdown: readable, not a technical error text
+    assert deploy.interrupted("PowerShell: $cmd = 'msiexec.exe /x {1}: cannot schedule new futures after interpreter shutdown") == deploy.INTERRUPTED
+    assert deploy.interrupted("cannot schedule new futures after shutdown") == deploy.INTERRUPTED
+    assert deploy.interrupted("Exitcode 1603") is None and deploy.INTERRUPTED.startswith("Unterbrochen")
+    dsrc = open(deploy.__file__, encoding="utf-8").read()
+    assert 'msg = interrupted(why) or f"Fehlgeschlagen – {why}"' in dsrc and "(interrupted(str(e)) or str(e))" in dsrc
 
 
 def main():

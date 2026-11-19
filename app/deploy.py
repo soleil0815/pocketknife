@@ -1134,7 +1134,7 @@ def _run_target(did, tid):
             msg = done[-1]["message"] if len(runner.results) == 1 and done else \
                 f"Erfolgreich ({len(done)} von {len(runner.results)} Schritten ausgeführt)"
         else:
-            msg = f"Fehlgeschlagen – {why}"
+            msg = interrupted(why) or f"Fehlgeschlagen – {why}"
         ok = res != "failed"
         reboot = p.get("reboot") or "never"
         if res == "success" and (reboot == "always" or (reboot == "if_required" and runner.reboot_needed)):
@@ -1170,16 +1170,28 @@ def _run_target(did, tid):
                 for pid in rescan_profiles(p):
                     inventory.queue_scan(c["id"], None, pid, follow=True)
         except Exception as e:
-            pklog.warn("deploy", f"#{did}: Nacharbeiten (Protokoll/Scan) fehlgeschlagen: {e}", computer_id=c["id"])
+            if not interrupted(str(e)):   # 2.56.1: shutting down is not worth a warning
+                pklog.warn("deploy", f"#{did}: Nacharbeiten (Protokoll/Scan) fehlgeschlagen: {e}", computer_id=c["id"])
     except remote.Cancelled:
         _set(tid, status="cancelled", message="Abgebrochen", output="\n".join(runner.log), steps=json.dumps(runner.results),
              finished_at=util.now())
     except Exception as e:
-        _set(tid, status="failed", message=str(e)[:1000], output="\n".join(runner.log), steps=json.dumps(runner.results),
-             finished_at=util.now())
+        _set(tid, status="failed", message=(interrupted(str(e)) or str(e))[:1000], output="\n".join(runner.log),
+             steps=json.dumps(runner.results), finished_at=util.now())
         pklog.warn("deploy", f"#{did} {p['name']} auf {c['name']}: {e}", computer_id=c["id"])
     finally:
         _after_target(did, tid)
+
+
+INTERRUPTED = ("Unterbrochen – POCKET KNIFE wurde während der Ausführung beendet (z. B. Update oder Neustart des Containers). "
+               "Ob der Schritt auf dem Computer noch fertig wurde, zeigt der nächste Scan.")
+
+
+def interrupted(text):
+    """2.56.1: Python refuses new threads while the program shuts down ("cannot schedule new futures after
+    interpreter shutdown") - that is not an error of the package or the computer. Returns the readable message or None."""
+    t = str(text or "")
+    return INTERRUPTED if re.search(r"cannot schedule new futures after (interpreter )?shutdown", t) else None
 
 
 def _in_use(d, p, c, tid):

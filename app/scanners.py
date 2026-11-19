@@ -192,8 +192,11 @@ $ErrorActionPreference = 'SilentlyContinue'""")
 
 
 def list_all():
+    from . import pslint
     rows = db.q("SELECT * FROM custom_scanners ORDER BY type, name")
     for r in rows:
         r["extra"] = json.loads(r.get("extra") or "{}")
         r["type_label"] = TYPES.get(r["type"], r["type"])
+        # 2.56.1: hints of the PowerShell code also in the list, not only while the editor is open
+        r["lint"] = pslint.check(r.get("target") or "", count=False) if r["type"] == "powershell" else []
     return rows

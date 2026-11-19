@@ -2869,6 +2869,16 @@ def _repo_call(user, fn, *a, **kw):
 
 
 # 2.52.0: hints for own PowerShell code - what script block logging would write as a warning (event 4104); only hints
+@app.get("/api/pslint/overview")
+def api_pslint_overview(user=U):
+    """2.56.1: own PowerShell code with hints (scanners, tools, package steps) - packages only of the user's area;
+    scanners and tools only for main administrators (like their editors)."""
+    from . import pslint
+    main_admin = not access.scoped(user)
+    rows = pslint.overview(package_ok=lambda row: access.can_see_package(user, row))
+    return {"rows": [r for r in rows if r["kind"] == "package" or main_admin]}
+
+
 @app.post("/api/pslint")
 def api_pslint(data: dict = Body(...), user=U):
     from . import pslint

@@ -2,7 +2,7 @@ Deutsche Fassung: [README.md](README.md)
 
 # POCKET KNIFE
 
-Current version: **pocketknife-2.56.0** – see `CHANGELOG.md` (German).
+Current version: **pocketknife-2.56.1** – see `CHANGELOG.md` (German).
 
 Website: [helfi.space](https://helfi.space)
 
@@ -584,7 +584,7 @@ Backup: stop the container briefly and copy `data/` – or, while running, `sqli
 
 **Diagnostics package:** **Settings → Maintenance → Diagnostics package** creates a ZIP with log, errors, statistics and settings of the last 1–30 days for passing on – anonymized by default (computers, users, domain, addresses → fixed placeholders such as PC-001), never with passwords or keys. Placeholders can be mapped back to the real names there. Every line carries the version under which it was created; the statistics separate the running version from older ones, and changes and fixed bugs are included. After an update, it is best to choose the period "Since the last update".
 
-**Check PowerShell log:** POCKET KNIFE itself should leave no warnings (event 4104) and no errors (event 4100) in the PowerShell log on the clients – otherwise SIEM or EDR raise alarms. To verify this, **Settings → Maintenance** has the **Check mode**: when switched on, POCKET KNIFE looks into the computer's log after each of its own calls and records every entry with the function that caused it (only entries from POCKET KNIFE, none from other programs). **Start test run** runs the reading functions once on one computer. The report is in the diagnostics package (`powershell_protokoll.txt`, names replaced). In check mode every call takes about 2 seconds longer – switch it off again afterwards.
+**Check PowerShell log:** POCKET KNIFE itself should leave no warnings (event 4104) and no errors (event 4100) in the PowerShell log on the clients – otherwise SIEM or EDR raise alarms. To verify this, **Settings → Maintenance** has the **Check mode**: when switched on, POCKET KNIFE looks into the computer's log after each of its own calls and records every entry with the function that caused it (only entries from POCKET KNIFE, none from other programs). **Start test run** runs the reading functions once on one computer. The report is in the diagnostics package (`powershell_protokoll.txt`, names replaced). In check mode every call takes about 2 seconds longer – switch it off again afterwards. Below, **Own code** (from 2.56.1) lists all own scanners, tools and PowerShell steps in packages that Windows would log as a warning or error – with line, reason and a better alternative, without running the code; the list of own scanners also shows this in its own column.
 
 
 | Message | Cause / solution |

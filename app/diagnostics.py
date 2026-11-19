@@ -572,7 +572,12 @@ def _stats(since, an):
 def _pslint():
     """2.52.0: hints for own PowerShell code since the start (checks, with findings, findings per kind - never code)."""
     from . import pslint
-    return pslint.stats()
+    out = pslint.stats()
+    try:   # 2.56.1: stored own code with hints (scanners, tools, package steps) - counts only
+        out["own_code"] = pslint.overview_counts()
+    except Exception as e:  # noqa: BLE001
+        out["own_code"] = {"error": type(e).__name__}
+    return out
 
 
 def _pscheck():
@@ -898,6 +903,7 @@ Dateien
                        davon mit ausstehendem Neustart),
                        Prüfmodus PowerShell-Protokoll (an/aus, Aufrufe und Einträge 4100/4104 und
                        Abstürze je POCKET-KNIFE-Funktion),
+                       eigener Code mit PowerShell-Hinweisen (Anzahl Scanner/Tools/Pakete, Hinweise je Art),
                        Updatesperre (Prüfungen: geöffnet/frei/unbekannt/Fehler, zurückgestellte Ziele,
                        längste Wartezeit, Einstellungen, Nutzung in Paketen und Zeitplänen – nur Anzahlen)
   powershell_protokoll.txt  Bericht des Prüfmodus: was POCKET KNIFE in den PowerShell-Protokollen der

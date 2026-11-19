@@ -2,7 +2,7 @@ English version: [README.en.md](README.en.md)
 
 # POCKET KNIFE
 
-Aktuelle Version: **pocketknife-2.56.0** – siehe `CHANGELOG.md`.
+Aktuelle Version: **pocketknife-2.56.1** – siehe `CHANGELOG.md`.
 
 Webseite: [helfi.space](https://helfi.space)
 
@@ -582,7 +582,7 @@ Sicherung: Container kurz stoppen und `data/` kopieren – oder im laufenden Bet
 
 **Diagnosepaket:** **Einstellungen → Wartung → Diagnosepaket** erstellt ein ZIP mit Protokoll, Fehlern, Statistik und Einstellungen der letzten 1–30 Tage zum Weitergeben – standardmäßig anonymisiert (Rechner, Benutzer, Domäne, Adressen → feste Platzhalter wie PC-001), nie mit Kennwörtern oder Schlüsseln. Platzhalter lassen sich dort wieder dem echten Namen zuordnen. Jede Zeile trägt die Version, unter der sie entstand; die Statistik trennt die laufende Version von älteren, Änderungen und behobene Fehler liegen bei. Nach einem Update am besten den Zeitraum „Seit dem letzten Update“ wählen.
 
-**PowerShell-Protokoll prüfen:** POCKET KNIFE selbst soll auf den Clients keine Warnungen (Ereignis 4104) und keine Fehler (Ereignis 4100) im PowerShell-Protokoll hinterlassen – sonst schlagen SIEM oder EDR Alarm. Zum Nachprüfen gibt es unter **Einstellungen → Wartung** den **Prüfmodus**: Eingeschaltet schaut POCKET KNIFE nach jedem eigenen Aufruf auf dem Computer in dessen Protokoll nach und merkt sich jeden Eintrag mit der Funktion, die ihn ausgelöst hat (nur Einträge von POCKET KNIFE, keine anderer Programme). **Prüflauf starten** führt die lesenden Funktionen einmal auf einem Computer aus. Der Bericht steht im Diagnosepaket (`powershell_protokoll.txt`, Namen ersetzt). Jeder Aufruf dauert im Prüfmodus etwa 2 Sekunden länger – danach wieder ausschalten.
+**PowerShell-Protokoll prüfen:** POCKET KNIFE selbst soll auf den Clients keine Warnungen (Ereignis 4104) und keine Fehler (Ereignis 4100) im PowerShell-Protokoll hinterlassen – sonst schlagen SIEM oder EDR Alarm. Zum Nachprüfen gibt es unter **Einstellungen → Wartung** den **Prüfmodus**: Eingeschaltet schaut POCKET KNIFE nach jedem eigenen Aufruf auf dem Computer in dessen Protokoll nach und merkt sich jeden Eintrag mit der Funktion, die ihn ausgelöst hat (nur Einträge von POCKET KNIFE, keine anderer Programme). **Prüflauf starten** führt die lesenden Funktionen einmal auf einem Computer aus. Der Bericht steht im Diagnosepaket (`powershell_protokoll.txt`, Namen ersetzt). Jeder Aufruf dauert im Prüfmodus etwa 2 Sekunden länger – danach wieder ausschalten. Darunter listet **Eigener Code** (ab 2.56.1) alle eigenen Scanner, Tools und PowerShell-Schritte in Paketen, die Windows als Warnung oder Fehler protokollieren würde – mit Zeile, Grund und besserer Alternative, ohne den Code auszuführen; die Liste der eigenen Scanner zeigt das zusätzlich in einer eigenen Spalte.
 
 
 | Meldung | Ursache / Lösung |
