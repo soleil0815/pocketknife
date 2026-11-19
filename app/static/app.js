@@ -2076,23 +2076,28 @@ async function viewComputers(_parts, params) {
 }
 
 // 2.58.0: labels with computer name and serial number (62 × 29 mm, e.g. Brother QL) - one PDF, one page per label
-function labelsDlg(comps) {
+async function labelsDlg(comps) {
   if (!comps.length) { toast(tr('Bitte Computer auswählen.'), 'err'); return; }
+  // 2.58.1: the footer comes from the settings (the same for everyone); changed here it applies to this print only
+  let central = '';
+  try { central = (await GET('/api/labels/defaults')).footer || ''; } catch (e) { central = ''; }
   let pref = {};
   try { pref = JSON.parse(localStorage.getItem('pk-labels') || '{}') || {}; } catch (e) { pref = {}; }
   const barcode = sel([['serial', 'Seriennummer'], ['name', 'Computername'], ['none', 'keiner (Name und Seriennummer größer)']], pref.barcode || 'serial');
-  const footer = h('input', { value: pref.footer || '', maxlength: 80, placeholder: 'z. B. Firma GmbH – IT · 0123 456789' });
+  const footer = h('input', { value: central || pref.footer || '', maxlength: 80, placeholder: 'z. B. Firma GmbH – IT · 0123 456789' });
+  const footHint = central ? 'Vorgabe aus Einstellungen → Inventar → Etiketten. Hier geändert gilt es nur für diesen Druck.'
+    : 'Klein unten rechts, z. B. Firma und Telefonnummer der IT. Dauerhaft für alle unter Einstellungen → Inventar → Etiketten festlegen.';
   const copies = h('input', { type: 'number', min: 1, max: 10, value: pref.copies || 1, style: { width: '80px' } });
   const names = comps.slice(0, 8).map((c) => c.name).join(', ') + (comps.length > 8 ? fmtT(' und {0} weitere', comps.length - 8) : '');
   modal(comps.length === 1 ? fmtT('Etikett: {0}', comps[0].name) : fmtT('Etiketten für {0} Computer', comps.length), h('div.form',
     field('Computer', h('span.raw', names)),
     field('Barcode', barcode, 'Code 128 unter Name und Seriennummer. Ohne brauchbare Seriennummer (z. B. „To be filled by O.E.M.“) steht der Computername im Barcode.'),
-    field('Fußzeile', footer, 'Klein unten rechts, z. B. Firma und Telefonnummer der IT. Leer = keine.'),
+    field('Fußzeile', footer, footHint),
     field('Anzahl je Computer', copies),
     h('div.full.muted.small', tr('Format 62 × 29 mm – z. B. Brother QL (QL-700, QL-820NWB …) mit Etiketten DK-11209 oder 62-mm-Endlosband (im Druckertreiber Länge 29 mm). Im Druckdialog die Etikettengröße wählen und „Tatsächliche Größe“ / 100 % einstellen, nicht „an Seite anpassen“. Für Laptops halten Kunststoff-Etiketten (z. B. DK-22113) länger.'))),
   [{ label: 'Abbrechen' }, { label: 'PDF öffnen', cls: 'primary', icon: 'print', onClick: async () => {
     const body = { ids: comps.map((c) => c.id), barcode: barcode.value, footer: footer.value, copies: Number(copies.value) || 1 };
-    try { localStorage.setItem('pk-labels', JSON.stringify({ barcode: body.barcode, footer: body.footer, copies: body.copies })); } catch (e) { /* ignore */ }
+    try { localStorage.setItem('pk-labels', JSON.stringify({ barcode: body.barcode, copies: body.copies, ...(central ? {} : { footer: body.footer }) })); } catch (e) { /* ignore */ }
     const win = window.open('', '_blank');  // open right away - after waiting, the browser would block the new tab
     let r;
     try {
@@ -6456,6 +6461,11 @@ async function viewSettings() {
     field('Grenze „wenig Speicher“ (GB)', n('low_disk_gb')),
     field('Speicherplatz-Scanner: Tiefe', n('du_scan_depth', { min: 1, max: 8 }), 'Wie tief der optionale Scanner „Speicherplatz“ die Ordner aufschlüsselt (1–8). Tiefer = mehr Details, aber langsamer und größer. Nachträglich lässt sich in der Ansicht gezielt tiefer analysieren.'))));
 
+  // 2.58.1: labels - footer for everyone
+  const labelCard = h('div.card', h('div.card-h', h('h2', 'Etiketten')), h('div.card-b', h('div.form',
+    field('Fußzeile', (inputs.label_footer = h('input', { value: s.label_footer ?? '', maxlength: 80, placeholder: 'z. B. Firma GmbH – IT · 0123 456789' })),
+      'Steht klein unten rechts auf jedem Etikett (Computer → Etikett bzw. Computerliste → Etiketten …) und ist im Druckdialog für alle vorausgefüllt; dort lässt es sich für einen einzelnen Druck ändern. Höchstens 80 Zeichen, leer = keine Fußzeile.'))));
+
   const instCard = h('div.card', h('div.card-h', h('h2', 'Installationen')), h('div.card-b', h('div.form',
     field('Parallele Installationen', n('deploy_concurrency', { min: 1 }), 'Wirksam nach Neustart des Containers.'),
     field('Zeitlimit Installation (Min.)', n('deploy_timeout_minutes', { min: 1 })),
@@ -6829,7 +6839,7 @@ async function viewSettings() {
     ['ad', 'Active Directory', 'ad', [adCard()], false],
     ['security', 'Sicherheit', 'shield', [secCard, tlsCard()], false],
     ['network', 'Netzwerk & Fernzugriff', 'monitor', [dnsCard, wolCard, rdCard], true],
-    ['inventory', 'Inventar', 'db', [invCard, scCard, fCard], true],
+    ['inventory', 'Inventar', 'db', [invCard, scCard, fCard, labelCard], true],
     ['updates', 'Updates & Aktualität', 'refresh', [updCard, wg, proxyCard(), exclCard], true],
     ['software', 'Pakete & Repository', 'box', [runCard, instCard, repo, upCard, integCard], true],
     ['client', 'Am Client', 'bell', [toastCard, rebootCard], true],

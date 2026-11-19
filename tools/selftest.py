@@ -10547,10 +10547,10 @@ def _():
     cards = re.findall(r"\[([^\[\]]*)\], (?:true|false)\]", sec)
     names = [c.strip() for grp in cards for c in grp.split(",")]
     for c in ("conn", "accountsCard()", "authCard(sys)", "adCard()", "secCard", "tlsCard()", "dnsCard", "wolCard", "rdCard", "invCard",
-              "scCard", "fCard", "updCard", "wg", "proxyCard()", "exclCard", "runCard", "instCard", "repo", "upCard", "integCard",
+              "scCard", "fCard", "labelCard", "updCard", "wg", "proxyCard()", "exclCard", "runCard", "instCard", "repo", "upCard", "integCard",
               "toastCard", "rebootCard", "mailCard()", "alertsCard()", "tenantsCard()", "bkCard", "maint", "retCard", "updatesCard()", "diagCard", "psCheckCard()"):
         assert names.count(c) == 1, (c, names)
-    assert len(names) == 32, names
+    assert len(names) == 33, names  # 2.58.1: + labelCard
     # every setting of the former "Zeitpläne & Leistung" card is in exactly one of the new cards
     for k in ("heartbeat_minutes", "scan_online_delay_minutes", "scan_concurrency", "deploy_concurrency", "deploy_timeout_minutes",
               "rescan_after_deploy", "msix_hide_builtin", "log_retention_days", "scan_log_retention_days", "deployment_retention_days",
@@ -11628,6 +11628,31 @@ def _():
     js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
     for k in ("function labelsDlg(comps)", "fetch('/api/labels'", "'X-PK-Request': '1'", "const win = window.open('', '_blank');",
               "labelsDlg(targetsOf(selRows))", "labelsDlg(targetsOf(t.selected()))", "labelsDlg([{ id, name: c.name }])"):
+        assert k in js, k
+
+
+@test("2.58.1 Label footer set once in the settings (Inventar → Etiketten): cleaned (one line, max. 80), used when the print request has no footer of its own, prefilled in the dialog; a footer typed in the dialog applies to that print only")
+def _():
+    from app import access, diagnostics, labels
+    from app import main as m
+    assert labels.clean_footer("  Firma\tGmbH \n IT\x07 ") == "Firma GmbH IT" and len(labels.clean_footer("x" * 200)) == 80
+    assert "label_footer" in db.DEFAULT_SETTINGS and "label_footer" in m.EDITABLE
+    assert ("GET", "/api/labels/defaults") in access.ROUTES
+    old = db.setting("label_footer")
+    try:
+        db.set_setting("label_footer", "Firma GmbH – IT")
+        assert m.api_labels_defaults(user={"username": "t"}) == {"footer": "Firma GmbH – IT"}
+    finally:
+        db.set_setting("label_footer", old or "")
+    dg = open(diagnostics.__file__, encoding="utf-8").read()
+    assert '"central_footer": bool(db.setting("label_footer"))' in dg, "diagnostic package: only whether set, never the text"
+    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "main.py"), encoding="utf-8").read()
+    h = src[src.index("def api_labels("):]
+    assert 'labels.clean_footer(data["footer"] if "footer" in data else db.setting("label_footer"))' in h
+    assert 'if k == "label_footer":\n            v = labels.clean_footer(v)' in src
+    js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
+    for k in ("(await GET('/api/labels/defaults')).footer", "value: central || pref.footer || ''", "inputs.label_footer = h('input'",
+              "[invCard, scCard, fCard, labelCard]", "...(central ? {} : { footer: body.footer })"):
         assert k in js, k
 
 

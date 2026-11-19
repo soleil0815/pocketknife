@@ -2553,6 +2553,12 @@ def api_packages_export(data: dict = Body(...), user=U):
     return {"filename": pkgexport.filename(), "data": out, "warnings": warnings, "extra": extra}
 
 
+@app.get("/api/labels/defaults")
+def api_labels_defaults(user=U):
+    """2.58.1: the central footer for the print dialog (also for OU admins - it is not a secret)."""
+    return {"footer": labels.clean_footer(db.setting("label_footer"))}
+
+
 @app.post("/api/labels")
 def api_labels(data: dict = Body(...), user=U):
     """2.58.0: labels (62 × 29 mm, e.g. Brother QL) with computer name and serial number as PDF - one page per label."""
@@ -2560,7 +2566,8 @@ def api_labels(data: dict = Body(...), user=U):
     if not ids:
         _err("Bitte Computer auswählen.")
     barcode = str(data.get("barcode")) if data.get("barcode") in labels.BARCODES else "serial"
-    footer = " ".join(str(data.get("footer") or "").split())[:80]
+    # without "footer" in the request: the central footer from the settings
+    footer = labels.clean_footer(data["footer"] if "footer" in data else db.setting("label_footer"))
     try:
         copies = max(1, min(labels.MAX_COPIES, int(data.get("copies") or 1)))
     except (TypeError, ValueError):
@@ -4117,6 +4124,8 @@ def api_settings_save(data: dict = Body(...), user=U):
                 v = inuse.clean_exempt(v)   # 2.56.0: winget IDs/patterns that may update while open
             except ValueError as e:
                 _err(e)
+        if k == "label_footer":
+            v = labels.clean_footer(v)
         if k == "toast_sender":
             v = re.sub(r"[\x00-\x1f<>]", "", str(v or "")).strip()[:60]
         if k == "repo_upload_types":

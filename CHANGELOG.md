@@ -2,6 +2,12 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.58.1 (19.11.2026)
+- **Label footer in the settings:** Einstellungen → Inventar → Etiketten → "Fußzeile" (e.g. company and IT phone) – set once for everyone instead of per browser. The print dialog is prefilled with it; a change there applies to that print only (no longer stored in the browser while a central footer exists). Without a footer in the request the server uses the central one. Cleaned to one line, at most 80 characters. New endpoint `GET /api/labels/defaults` (also for OU admins)
+- **Diagnostic package:** `labels.central_footer` – only whether one is set, never the text
+- **Help (de/en), README**
+- **Self-test:** footer cleaning, setting editable, defaults endpoint, fallback in the label endpoint, dialog prefill
+
 ## pocketknife-2.58.0 (19.11.2026)
 - **Label printing:** labels with computer name, serial number and manufacturer/model as PDF in the format 62 × 29 mm (Brother QL with DK-11209 or 62 mm continuous tape) – single via "Etikett" in the computer view, or for the selection in the computer list ("Etiketten …", right-click "Etiketten drucken …"). Barcode Code 128 with the serial number (default), the computer name or none (then name and serial larger); optional footer; 1–10 copies per computer; at most 500 labels. Placeholder serials from BIOS/UEFI ("To be filled by O.E.M.", "Default string", 0000 …) never go into the barcode – "S/N unbekannt" and the computer name instead. PDF without extra libraries (code taken over from AssetLotse, same author and licence), opened in a new tab and printed from the browser at 100 %. New endpoint `POST /api/labels` (OU admins: only own computers); settings remembered in the browser
 - **Diagnostic package:** `statistik.json` → `labels.prints` (number of print jobs in the period)

@@ -167,6 +167,11 @@ class Label:
     footer: str     # e.g. "Eigentum der Firma …"
 
 
+def clean_footer(v) -> str:
+    """One line, no control characters, at most 80 characters (fits on the label in small print)."""
+    return " ".join("".join(ch if ch >= " " else " " for ch in str(v or "")).split())[:80]
+
+
 def real_serial(serial) -> str:
     s = " ".join(str(serial or "").split())
     return "" if s.lower() in DUMMY_SERIALS or set(s) <= {"0", " "} else s

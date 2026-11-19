@@ -6699,5 +6699,8 @@
  "PDF öffnen": "Open PDF",
  "keiner (Name und Seriennummer größer)": "none (name and serial number larger)",
  "z. B. Firma GmbH – IT · 0123 456789": "e.g. Firma GmbH – IT · 0123 456789",
- "{0} Etiketten drucken …": "Print {0} labels …"
+ "{0} Etiketten drucken …": "Print {0} labels …",
+ "Klein unten rechts, z. B. Firma und Telefonnummer der IT. Dauerhaft für alle unter Einstellungen → Inventar → Etiketten festlegen.": "Small at the bottom right, e.g. company and IT phone number. Set it permanently for everyone under Settings → Inventory → Labels.",
+ "Steht klein unten rechts auf jedem Etikett (Computer → Etikett bzw. Computerliste → Etiketten …) und ist im Druckdialog für alle vorausgefüllt; dort lässt es sich für einen einzelnen Druck ändern. Höchstens 80 Zeichen, leer = keine Fußzeile.": "Printed small at the bottom right of every label (Computer → Label or computer list → Labels …) and prefilled in the print dialog for everyone; it can be changed there for a single print. At most 80 characters, empty = no footer.",
+ "Vorgabe aus Einstellungen → Inventar → Etiketten. Hier geändert gilt es nur für diesen Druck.": "Default from Settings → Inventory → Labels. Changed here, it applies to this print only."
 }
