@@ -1215,6 +1215,63 @@ function psCheckCard() {
   return card;
 }
 
+// 2.57.0: the yellow "!" - the same marker everywhere for what needs attention (scanner, tool, scan profile, collection,
+// package). Tooltip = reason, click = the place to fix it. Yellow: noticed faster than red, and it is a hint, not a stop.
+const MARKS_EMPTY = { scanner: {}, tool: {}, profile: {}, collection: {}, package: {} };
+let MARKS = null;
+async function marksData() {
+  try { MARKS = await GET('/api/marks'); } catch (e) { MARKS = MARKS || MARKS_EMPTY; }
+  return MARKS;
+}
+function markOf(kind, id) { return (MARKS && MARKS[kind] && MARKS[kind][id]) || []; }
+function wmark(reasons, onClick) {
+  if (!reasons || !reasons.length) return null;
+  const text = reasons.map((x) => tr(x)).join('\n');
+  return h('span.wmark', { class: onClick ? 'click' : '', title: text + (onClick ? `\n${tr('Klick: zur Stelle, an der es sich beheben lässt')}` : ''), 'aria-label': text,
+    onclick: onClick ? (e) => { e.preventDefault(); e.stopPropagation(); onClick(); } : null, ondblclick: (e) => e.stopPropagation() }, '!');
+}
+const MARK_KINDS = [['scanner', 'Eigener Scanner'], ['profile', 'Scanprofil'], ['collection', 'Sammlung'], ['tool', 'Tool'], ['package', 'Paket']];
+async function marksList() {
+  await marksData();
+  const open = { scanner: openScanner, tool: openTool, profile: openProfile, collection: openCollection, package: (id) => packageDlg(id) };
+  const rows = MARK_KINDS.flatMap(([k, label]) => Object.entries(MARKS[k] || {}).map(([id, why]) => ({ k, label, id: Number(id), why,
+    name: ((MARKS.names || {})[k] || {})[id] || `#${id}` })));
+  const body = h('div', rows.length ? rows.map((r) => h('div', { style: { marginTop: '10px' } },
+    h('div.row', { style: { gap: '6px', alignItems: 'baseline' } }, h('span.badge', tr(r.label)),
+      h('a.raw', { href: '#', onclick: (e) => { e.preventDefault(); closeModals(); open[r.k](r.id); } }, r.name)),
+    r.why.map((w) => h('div.small', { style: { marginLeft: '4px' } }, wmark([w]), w)))) : h('p', tr('Nichts mit Warnzeichen.')));
+  modal(tr('Gelbes Warnzeichen'), h('div', h('p.muted.small', { style: { marginTop: 0 } },
+    tr('Was Aufmerksamkeit braucht – Klick auf den Namen öffnet die Stelle, an der es sich beheben lässt.')), body), [{ label: 'Schließen' }], { wide: true });
+}
+function marksBox(reasons) {
+  if (!reasons || !reasons.length) return null;
+  return h('div.wbox', h('span.wmark', '!'), h('div', reasons.map((x) => h('div', x))));
+}
+async function openScanner(id) {
+  await marksData();
+  const meta = await GET('/api/scanprofiles');
+  const r = meta.scanners.find((x) => x.id === id);
+  if (r) scannerDlg(r, meta); else toast(tr('Scanner nicht gefunden.'), 'err');
+}
+async function openTool(id) {
+  await marksData();
+  const d = await toolsData();
+  const t = d.tools.find((x) => x.id === id);
+  if (t) toolDlg(t); else toast(tr('Tool nicht gefunden.'), 'err');
+}
+async function openProfile(id) {
+  await marksData();
+  const meta = await GET('/api/scanprofiles');
+  const p = meta.profiles.find((x) => x.id === id);
+  if (p) profileDlg(p, meta); else toast(tr('Scanprofil nicht gefunden.'), 'err');
+}
+async function openCollection(id) {
+  const c = (await collections(true)).find((x) => x.id === id);
+  if (!c) { toast(tr('Sammlung nicht gefunden.'), 'err'); return; }
+  if (c.editable === false || c.builtin) { go(`#/computers?c=${c.id}`); return; }
+  collectionDlg(c);
+}
+
 // 2.56.1: own PowerShell code (eigene Scanner, Tools, PowerShell steps of packages) that Windows would log as a
 // warning or error - without having to open each editor
 function ownCodeLint() {
@@ -1223,10 +1280,8 @@ function ownCodeLint() {
   (async () => {
     let d;
     try { d = await GET('/api/pslint/overview'); } catch (e) { box.replaceChildren(h('p.muted.small', e.message)); return; }
-    const open = (r) => {
-      if (r.kind === 'package') packageDlg(r.id);
-      else go(r.kind === 'scanner' ? '#/scanners' : '#/tools');
-    };
+    // 2.57.0: directly into the editor - also for scanners and tools, not only to their list
+    const open = (r) => (r.kind === 'package' ? packageDlg(r.id) : r.kind === 'scanner' ? openScanner(r.id) : openTool(r.id));
     box.replaceChildren(...kids(
       h('b', 'Eigener Code'),
       h('p.muted.small', { style: { margin: '4px 0 6px' } }, tr('Eigene Scanner, Tools und PowerShell-Schritte in Paketen, die Windows beim Ausführen als Warnung (4104) oder Fehler (4100) protokollieren würde – geprüft wird der gespeicherte Code, ohne ihn auszuführen.')),
@@ -1513,8 +1568,9 @@ async function logout() {
 // ---------------------------------------------------------------------------
 async function viewDashboard() {
   setTop('Übersicht', 'Zustand der Umgebung auf einen Blick');
-  const d = await GET('/api/dashboard');
+  const [d] = await Promise.all([GET('/api/dashboard'), marksData()]);
   const cols = await collections();
+  const nMarks = MARK_KINDS.reduce((a, [k]) => a + Object.keys(MARKS[k] || {}).length, 0);
   const byName = (n) => (cols.find((c) => c.builtin && c.name === n) || {}).id;
   const toColl = (n) => () => go(`#/computers?c=${byName(n) || ''}`);
   const tile = (v, l, cls, onClick) => h('div.card.tile', { class: cls, onclick: onClick }, h('div.v', num(v)), h('div.l', l));
@@ -1530,7 +1586,9 @@ async function viewDashboard() {
     // 2.26: only if there are any – packages with a break in the repository (deployments are interrupted)
     d.packages_broken ? tile(d.packages_broken, 'Pakete mit Bruch im Repository', 'err', () => go('#/packages')) : null,
     // 2.56.0: update lock - programs that have been open for days
-    d.inuse_long ? tile(d.inuse_long, 'Updates zurückgestellt – Programm seit Tagen geöffnet', 'warn', () => inUseList()) : null);
+    d.inuse_long ? tile(d.inuse_long, 'Updates zurückgestellt – Programm seit Tagen geöffnet', 'warn', () => inUseList()) : null,
+    // 2.57.0: everything with the yellow "!" in one list
+    nMarks ? tile(nMarks, 'Mit gelbem Warnzeichen – bitte ansehen', 'mark', () => marksList()) : null);
 
   const maxOs = Math.max(1, ...d.os.map((o) => o.n));
   const osCard = h('div.card', h('div.card-h', h('h2', 'Betriebssysteme')), h('div.card-b',
@@ -1674,7 +1732,7 @@ async function memberIdsOf(cid) { return (await GET(`/api/computers?collection=$
 const COLL_ICON = (c) => (c.ad_kind === 'root' ? 'ad' : c.type === 'folder' ? 'folder' : c.type === 'static' ? 'stat' : 'coll');
 
 async function viewComputers(_parts, params) {
-  const cols = await collections(true);
+  const [cols] = await Promise.all([collections(true), marksData()]);
   let cid = params.get('c') ? Number(params.get('c')) : (cols.find((c) => c.builtin === 1 && c.name === 'Alle Computer') || {}).id;
   const current = cols.find((c) => c.id === cid);
   const isAd = (c) => c && c.builtin === 2;
@@ -1752,6 +1810,10 @@ async function viewComputers(_parts, params) {
         { label: 'Statische Sammlung …', icon: 'stat', onClick: () => collectionDlg(null, { parentId: newIn(c), type: 'static' }) },
         { label: 'Ordner …', icon: 'folder', onClick: () => collectionDlg(null, { parentId: newIn(c), type: 'folder' }) }] },
       c && canNew ? { label: 'Duplizieren', icon: 'coll', onClick: () => duplicate(c) } : null,
+      // 2.57.0: export/import of collections - single ones or a whole folder (main admins)
+      c && !isOU() && !c.builtin && !c.ad_kind ? { label: c.type === 'folder' ? 'Ordner exportieren' : 'Exportieren', icon: 'download', onClick: () => exportConfig({ collections: [c.id] }) } : null,
+      !isOU() ? { label: c && c.type !== 'static' && !locked(c) ? fmtT('Importieren nach „{0}“ …', c.name) : 'Importieren …', icon: 'up',
+        onClick: () => importConfigDlg({ parentId: c && c.type !== 'static' && !locked(c) ? c.id : null }) } : null,
       '-',
       c && c.type !== 'folder' ? { label: 'Sammlung scannen', icon: 'refresh', sub: () => scanSubItems(() => memberIdsOf(c.id)) } : null,
       c && c.type !== 'folder' ? { label: 'Heartbeat', icon: 'net', onClick: async () => heartbeatIds(await memberIdsOf(c.id)) } : null,
@@ -1809,6 +1871,10 @@ async function viewComputers(_parts, params) {
       style: { paddingLeft: `${8 + depth * 14}px` }, draggable: locked(c) ? 'false' : 'true', title: c.description || '',
       onclick: () => { selId = c.id; if (c.type !== 'folder') go(`#/computers?c=${c.id}`); else { openState[c.id] = !isOpen; saveOpen(); drawTree(); } },
     }, tw, h('span.ic-s', icon(COLL_ICON(c))), h('span.lbl', { class: c.builtin === 1 ? '' : 'raw' }, c.name),
+    wmark(markOf('collection', c.id), () => openEdit(c)),
+    // collapsed: a "!" further down stays visible on the closed folder
+    !isOpen && kids.length && collDescendants(cols, c.id).some((x) => markOf('collection', x).length)
+      ? wmark([tr('Enthält Sammlungen mit Warnzeichen – zum Anzeigen aufklappen')], () => { openState[c.id] = true; saveOpen(); drawTree(); }) : null,
     c.count !== null && c.count !== undefined ? h('span.cnt', num(c.count)) : null);
     it.addEventListener('dblclick', () => openEdit(c, true));
     it.addEventListener('contextmenu', (e) => { e.preventDefault(); e.stopPropagation(); treeMenu(c, e); });
@@ -1845,7 +1911,17 @@ async function viewComputers(_parts, params) {
   });
 
   // Computer list ---------------------------------------------------------------------------
-  const rows = await GET('/api/computers' + (cid ? `?collection=${cid}` : ''));
+  let rows;
+  try { rows = await GET('/api/computers' + (cid ? `?collection=${cid}` : '')); } catch (e) {
+    // 2.57.0: a collection that cannot be evaluated (e.g. missing reference after an import) - keep the tree, show why
+    // and where to fix it instead of an empty page
+    const fix = current && !locked(current) ? btn('Sammlung bearbeiten', () => collectionDlg(current), { icon: 'edit', cls: 'primary' }) : null;
+    setContent(h('div', { style: { display: 'flex', flex: '1', minWidth: '0' } }, tree, splitter(tree, 'collections'),
+      h('div.pane', h('div', { style: { padding: '24px', maxWidth: '760px' } }, marksBox([e.message]),
+        h('p.muted', tr('Solange das nicht behoben ist, enthält die Sammlung keine Computer – Bereitstellungen und Zeitpläne auf sie brechen mit diesem Fehler ab, statt die falschen Computer zu treffen.')),
+        fix))), true);
+    return;
+  }
   const t = table([
     { key: 'online', label: '', chooserLabel: 'Status (Punkt)', width: '24px', nosort: true, render: (r) => (r.addr_problem
       // Another device answers at the address (stale DNS entry, not a domain member …): separate notice
@@ -2026,7 +2102,46 @@ function filterEditor(root, schema, cols, selfId, onChange, newCond, emptyText) 
   const changed = () => { if (onChange) onChange(); };
   const box = h('div.feditor');
 
+  // 2.57.0: a reference that does not exist here (import, deleted scanner or field) is shown as such and re-assigned -
+  // never silently rewritten to another table/column
+  const cfCols = (tables.find((x) => x.ui === '__cf') || { columns: [] }).columns;
+  const missingOf = (it) => {
+    if (it.missing) return it.missing;
+    const tb = String(it.table || '');
+    if (tb.startsWith('custom:') && !tables.some((x) => x.key === tb)) return { kind: 'scanner', name: `#${tb.slice(7)}` };
+    if (tb === 'computer' && String(it.column || '').startsWith('cf_') && !cfCols.some((x) => x.key === it.column)) return { kind: 'field', name: `#${String(it.column).slice(3)}` };
+    if ((tb === 'computer' || !tb) && it.column === 'collection' && /^\d+$/.test(String(it.value || '')) && !cols.some((x) => String(x.id) === String(it.value))) {
+      return { kind: 'collection', name: `#${it.value}` };
+    }
+    return null;
+  };
+  const MISSING_KIND = { collection: 'Sammlung', scanner: 'eigener Scanner', field: 'Feld' };
+  function missingRow(it, parent, m) {
+    const kind = m.kind === 'collection' || it.column === 'collection' ? 'collection' : m.kind === 'field' ? 'field' : 'scanner';
+    const choices = (kind === 'collection' ? cols.filter((x) => x.type !== 'folder' && x.id !== selfId).map((x) => [x.id, collPath(cols, x.id), true])
+      : kind === 'field' ? cfCols.map((x) => [x.key, x.label, true])
+        : tables.filter((x) => String(x.key).startsWith('custom:')).map((x) => [x.key, x.label, true])).sort((a, b) => deCmp(a[1], b[1]));
+    const pick = sel([['', tr('— neu zuordnen —')], ...choices], '', { onchange: (e) => {
+      const v = e.target.value;
+      if (!v) return;
+      if (kind === 'collection') { it.table = 'computer'; it.column = 'collection'; it.value = v; }
+      else if (kind === 'field') { it.table = 'computer'; it.column = v; }
+      else it.table = v;
+      delete it.missing;
+      redraw(); changed();
+    } });
+    const col = it.column && kind !== 'field' && it.column !== 'collection' ? it.column : '';
+    const val = it.value && kind !== 'collection' ? `„${it.value}“` : '';
+    return h('div.fcond.fmissing', wmark([`Verweis fehlt: ${tr(MISSING_KIND[kind])} „${m.name || '?'}“ – bitte neu zuordnen.`]),
+      h('span', h('b', fmtT('{0} fehlt:', tr(MISSING_KIND[kind]))), ' ', h('span.raw', m.name || '?'),
+        col || it.op || val ? h('span.muted', ' · ', col ? h('span.raw', col + ' ') : null, it.op ? tr(schema.op_labels[it.op] || it.op) : '', val ? h('span.raw', ' ' + val) : null) : null),
+      choices.length ? pick : h('span.muted.small', kind === 'field' ? 'Kein Feld vorhanden – unter Einstellungen → Felder anlegen.' : kind === 'scanner' ? 'Kein eigener Scanner vorhanden.' : 'Keine Sammlung vorhanden.'),
+      h('button.ghost', { type: 'button', title: 'Bedingung entfernen', onclick: async () => { if (!(await askRemove('Diese Bedingung entfernen?'))) return; parent.items.splice(parent.items.indexOf(it), 1); redraw(); changed(); } }, icon('x')));
+  }
+
   function condRow(it, parent) {
+    const miss = missingOf(it);
+    if (miss) return missingRow(it, parent, miss);
     let t = tdef(uiKey(it));
     if (!it.table || !tables.some((x) => x.ui === uiKey(it))) it.table = t.alias ? 'computer' : t.key;
     let col = t.columns.find((c) => c.key === it.column);
@@ -2196,7 +2311,8 @@ async function collectionDlgOpen(c, opt, dlgKey) {
   const snap = () => JSON.stringify([name.value, type.value, parent.value, desc.value, tree, type.value === 'static' ? [...picker.selected()].sort() : null]);
   const start = snap();
   modal(isNew ? (opt.copy ? 'Sammlung kopieren' : 'Neue Sammlung') : `Sammlung bearbeiten: ${c.name}`,
-    h('div.form', field('Name', name), field('Typ', type), field('Ablegen in', parent, 'Unter einer Sammlung (nicht Ordner) enthält eine dynamische Sammlung nur Computer der übergeordneten Sammlung.'),
+    h('div.form', c.id && !opt.copy && markOf('collection', c.id).length ? h('div.full', marksBox(markOf('collection', c.id))) : null,
+      field('Name', name), field('Typ', type), field('Ablegen in', parent, 'Unter einer Sammlung (nicht Ordner) enthält eine dynamische Sammlung nur Computer der übergeordneten Sammlung.'),
       field('Beschreibung', desc), dyn, stat), buttons, { wide: true, sticky: true, help: "collections", key: dlgKey, dirty: () => snap() !== start });
 }
 
@@ -3591,7 +3707,7 @@ let PKG_META = null;
 async function pkgMeta(force) { if (!PKG_META || force) PKG_META = await GET('/api/packages/meta'); return PKG_META; }
 
 async function viewPackages(_p, params) {
-  const [rows, meta, wcl, wr] = await Promise.all([GET('/api/packages'), pkgMeta(true), wcList(true), wrList()]);
+  const [rows, meta, wcl, wr] = await Promise.all([GET('/api/packages'), pkgMeta(true), wcList(true), wrList(), marksData()]);
   const wrOf = (r) => (wr && r.winget_id && r.type === 'winget' ? wr.items[r.winget_id.toLowerCase()] : null);
   const wcOf = (r) => (wcl && r.winget_id && r.type === 'winget' ? wcl.byId[r.winget_id.toLowerCase()] : null);
   const isCachePkg = (r) => !!(wcl && wcl.byPkg[r.id]);
@@ -3613,7 +3729,7 @@ async function viewPackages(_p, params) {
   const kind = (r) => (r.type === 'winget' ? 'winget' : ITYPE[r.install_type] || (r.step_types.includes('uninstall') ? 'Deinstallation' : r.step_types.includes('powershell') ? 'PowerShell' : r.step_types.includes('command') ? 'Befehl' : 'Schritte'));
   t = table([
     { key: 'name', label: 'Name', render: (r) => h('span', h('a', { href: '#', onclick: (e) => { e.preventDefault(); packageDlg(r.id); } }, r.name),
-      r.tenant_name ? h('span.badge', { style: { marginLeft: '6px' } }, r.tenant_name) : null), value: (r) => r.name, title: (r) => r.catalog_name || r.description || '' },
+      wmark(pkgMarks(r), () => packageDlg(r.id)), r.tenant_name ? h('span.badge', { style: { marginLeft: '6px' } }, r.tenant_name) : null), value: (r) => r.name, title: (r) => r.catalog_name || r.description || '' },
     { key: 'version', label: 'Version', value: (r) => (r.type === 'winget' ? (r.winget_version || (r.latest ? `${r.latest} (neueste)` : 'neueste')) : r.version || ''),
       title: (r) => (r.type === 'winget' && !r.winget_version ? 'Ohne feste Version wird immer die aktuelle Katalogversion installiert.' : '') },
     { key: 'latest', label: 'Katalog', value: (r) => r.latest || '', title: () => 'Neueste Version im winget-Katalog' },
@@ -3800,6 +3916,120 @@ function importPackagesDlg(meta) {
   } }], { wide: true });
 }
 
+// --- 2.57.0: export / import tools, custom scanners, scan profiles and collections (*.pkconfig.json) -----------
+const CFG_KIND = { scanners: 'Eigener Scanner', collections: 'Sammlung', profiles: 'Scanprofil', tools: 'Tool' };
+async function exportPickDlg(kinds) {
+  const groups = [];
+  if (kinds.includes('profiles') || kinds.includes('scanners')) {
+    const meta = await GET('/api/scanprofiles');
+    if (kinds.includes('profiles')) groups.push(['profiles', 'Eigene Scanprofile', meta.profiles.filter((p) => !p.builtin_key).map((p) => [p.id, p.name, ''])]);
+    if (kinds.includes('scanners')) groups.push(['scanners', 'Eigene Scanner', meta.scanners.map((x) => [x.id, x.name, x.type_label])]);
+  }
+  if (kinds.includes('tools')) groups.push(['tools', 'Eigene Tools', (await toolsData()).tools.map((t) => [t.id, t.name, t.folder || ''])]);
+  const chosen = {};
+  const box = h('div');
+  for (const [k, label, items] of groups) {
+    chosen[k] = new Set(items.map((x) => x[0]));
+    const list = h('div', { style: { columns: '2 260px', maxHeight: '40vh', overflow: 'auto' } });
+    const draw = () => list.replaceChildren(...items.map(([id, name, sub]) => h('label.chk', { style: { display: 'flex', breakInside: 'avoid', padding: '2px 0' } },
+      h('input', { type: 'checkbox', checked: chosen[k].has(id), onchange: (e) => (e.target.checked ? chosen[k].add(id) : chosen[k].delete(id)) }),
+      h('span.raw', name), sub ? h('span.muted.small.raw', ` (${sub})`) : null)));
+    draw();
+    box.append(h('h3', { style: { marginTop: groups[0][0] === k ? 0 : '14px' } }, label),
+      items.length ? h('div', h('div.row', { style: { marginBottom: '6px' } },
+        btn('Alle', () => { items.forEach((x) => chosen[k].add(x[0])); draw(); }, { cls: 'small ghost' }),
+        btn('Keine', () => { chosen[k].clear(); draw(); }, { cls: 'small ghost' })), list) : h('p.muted', 'Keine vorhanden.'));
+  }
+  if (kinds.includes('profiles')) box.append(h('p.muted.small', tr('Eigene Scanner, die ein Profil verwendet, kommen automatisch mit. Ziel-Sammlungen und einzelne Computer werden in der anderen Installation über den Namen zugeordnet.')));
+  modal(tr('Exportieren'), box, [{ label: 'Abbrechen' }, { label: 'Exportieren …', cls: 'primary', onClick: async () => {
+    const sel = Object.fromEntries(Object.entries(chosen).map(([k, v]) => [k, [...v]]));
+    if (!Object.values(sel).some((v) => v.length)) { toast(tr('Nichts gewählt.'), 'err'); return false; }
+    exportConfig(sel);
+  } }], { wide: true });
+}
+
+async function exportConfig(sel) {
+  const r = await run(() => POST('/api/config/export', sel));
+  if (!r) return;
+  const save = () => saveTextFile(r.filename, JSON.stringify(r.data, null, 1));
+  const n = ['scanners', 'collections', 'profiles', 'tools'].reduce((a, k) => a + (r.data[k] || []).length, 0);
+  if (!r.warnings.length && !r.extra.length) { save(); toast(fmtT('{0} Eintrag/Einträge exportiert', n), 'ok'); return; }
+  modal(tr('Exportieren'), h('div',
+    h('p', fmtT('{0} Eintrag/Einträge werden exportiert.', n)),
+    r.extra.length ? h('p.muted', fmtT('Mit dabei, weil sie verwendet werden: {0}', r.extra.join(', '))) : null,
+    r.warnings.length ? h('div', h('b', tr('Bitte prüfen:')), h('ul', r.warnings.map((w) => h('li.raw', w)))) : null,
+    h('p.muted.small', tr('Skripte, Abfragen und Befehle stehen in der Datei so, wie sie gespeichert sind – Kennwörter gehören nicht hinein. Tastenkürzel von Tools werden nicht exportiert.'))),
+  [{ label: 'Abbrechen' }, { label: 'Datei speichern', cls: 'primary', onClick: () => save() }], { wide: true });
+}
+
+async function importConfigDlg(opt = {}) {
+  let data = null;
+  const cols = await collections(true);
+  const file = h('input', { type: 'file', accept: '.json,application/json' });
+  const conflict = sel([['skip', 'Überspringen (das vorhandene wird verwendet)'], ['copy', 'Zusätzlich anlegen als „… (Import)“']], 'skip');
+  const place = sel([['', '— oberste Ebene —'], ...cols.filter((x) => !x.builtin && x.editable !== false && x.type !== 'static').map((x) => [x.id, collPath(cols, x.id), true])],
+    opt.parentId ? String(opt.parentId) : '');
+  const placeRow = field('Sammlungen ablegen in', place, 'Wohin die Sammlungen aus der Datei kommen. Ordner mit gleichem Namen werden zusammengeführt.');
+  const out = h('div', h('p.muted', tr('Eine Datei *.pkconfig.json wählen (Tools, Scanprofile oder Sammlungen → Exportieren).')));
+  let last = null, gen = 0, done = false;
+  const STATUS = { new: ['ok', 'neu'], copy: ['info', 'als Kopie'], skip: ['', 'übersprungen'], error: ['err', 'Fehler'] };
+  const showResult = (r, head) => {
+    const c = r.count;
+    out.replaceChildren(...kids(
+      h('p', head || fmtT('{0} neu, {1} als Kopie, {2} übersprungen, {3} mit Fehler', c.new, c.copy, c.skip, c.error)),
+      r.missing ? h('div.wbox', h('span.wmark', '!'), h('div', fmtT('{0} Verweis(e) gibt es hier nicht – unten aufgeführt. Sammlungen damit bekommen das gelbe Ausrufezeichen und werden erst ausgewertet, wenn der Verweis im Editor neu zugeordnet ist. Nichts wird stillschweigend weggelassen.', r.missing))) : null,
+      h('div', { style: { maxHeight: '45vh', overflow: 'auto' } },
+        h('table.tbl', { style: { width: '100%', tableLayout: 'fixed' } },
+          h('thead', h('tr', h('th', { style: { width: '120px' } }, 'Art'), h('th', { style: { width: '34%' } }, 'Name'), h('th', { style: { width: '110px' } }, 'Ergebnis'), h('th', 'Hinweis'))),
+          h('tbody', r.items.map((x) => h('tr', h('td', tr(CFG_KIND[x.kind] || x.kind)),
+            h('td.wrap.raw', x.status === 'copy' ? `${x.name} → ${x.new_name}` : x.name),
+            h('td', h('span.badge', { class: STATUS[x.status][0] }, tr(STATUS[x.status][1]))),
+            h('td.wrap', [x.message, ...(x.warnings || [])].filter(Boolean).map((w) => h('div.raw', w)),
+              ['new', 'copy'].includes(x.status) ? (x.missing || []).map((m) => h('div', { style: { display: 'flex', gap: '4px', alignItems: 'flex-start' } }, wmark([m]), h('span.raw', m))) : null))))))));
+  };
+  async function check() {
+    if (!data || done) return;
+    const my = ++gen;
+    last = null;
+    out.replaceChildren(h('div.muted', tr('Wird geprüft …')));
+    const r = await run(() => POST('/api/config/import', { data, conflict: conflict.value, parent_id: place.value || null, dry_run: true }));
+    if (my !== gen) return;
+    if (!r) { out.replaceChildren(); return; }
+    last = r;
+    showResult(r);
+  }
+  file.addEventListener('change', async () => {
+    const f = file.files[0];
+    last = null; data = null; gen++;
+    if (!f) return;
+    if (f.size > 19 * 1024 * 1024) { toast(tr('Datei zu groß (höchstens 19 MB).'), 'err'); return; }
+    try { data = JSON.parse(await f.text()); } catch (e) { data = null; out.replaceChildren(h('div.empty', tr('Die Datei ist keine gültige Export-Datei (kein JSON).'))); return; }
+    placeRow.forEach((x) => x && (x.style.display = (data.collections || []).length ? '' : 'none'));
+    check();
+  });
+  conflict.addEventListener('change', check);
+  place.addEventListener('change', check);
+  placeRow.forEach((x) => x && (x.style.display = opt.parentId ? '' : 'none'));
+  modal(tr('Importieren'), h('div.form', field('Datei', file), field('Gibt es schon', conflict, 'Gleicher Name wie ein vorhandener Eintrag.'), placeRow, h('div.full', out)),
+    [{ label: 'Schließen' }, { label: 'Importieren', cls: 'primary', close: false, onClick: async () => {
+      if (done) return;
+      if (!last) { toast(tr(data ? 'Die Prüfung läuft noch – bitte einen Moment.' : 'Nichts zu importieren – zuerst eine Datei wählen.'), 'err'); return; }
+      if (!(last.count.new + last.count.copy)) { toast(tr('Nichts zu importieren – alles gibt es schon oder hat Fehler.'), 'err'); return; }
+      const r = await run(() => POST('/api/config/import', { data, conflict: conflict.value, parent_id: place.value || null, dry_run: false }));
+      if (!r) return;
+      const c = r.count;
+      done = true;
+      [file, conflict, place].forEach((x) => { x.disabled = true; });
+      const ib = out.closest('.modal') && out.closest('.modal').querySelector('.modal-f button.primary');
+      if (ib) ib.style.display = 'none';
+      const msg = fmtT('{0} angelegt, {1} übersprungen, {2} mit Fehler', c.new + c.copy, c.skip, c.error);
+      showResult(r, msg);
+      S.collections = null; S.schema = null;
+      route();
+      toast(msg, c.error ? 'err' : 'ok');
+    } }], { wide: true });
+}
+
 // --- Condition editor (package and step) -------------------------------------------------
 function conditionsEditor(c, meta, opt = {}) {
   c.os = c.os || meta.default_conditions.os; c.arch = c.arch || meta.default_conditions.arch;
@@ -3860,6 +4090,12 @@ function integBadge(ig) {
   const [cls, sym, text] = INTEG[ig.state];
   const first = (ig.issues || []).filter((x) => x.level !== 'unknown').slice(0, 3).map((x) => `${x.path ? x.path + ': ' : ''}${tr(x.note || x.kind)}`);
   return h('span.badge', { class: cls, title: [tr(text), ...first].join('\n') + (ig.at ? `\n${tr('Geprüft')}: ${fmtDate(ig.at)}` : '') }, sym);
+}
+// 2.57.0: reasons for the yellow "!" of a package - break check of the repository files and PowerShell hints
+function pkgMarks(r) {
+  const ig = r.integrity || {};
+  return [...(ig.state === 'broken' ? ['Bruch im Repository – Bereitstellungen werden unterbrochen'] : ig.state === 'warn' ? ['Abweichung im Repository – Lauf geht weiter'] : []),
+    ...markOf('package', r.id)];
 }
 function integText(ig) { return ig && INTEG[ig.state] ? tr({ ok: 'OK', warn: 'Abweichung', broken: 'Bruch', unknown: 'nicht prüfbar' }[ig.state]) : ''; }
 
@@ -6621,7 +6857,8 @@ function scannerDlg(sc, meta) {
     } catch (e) { testOut.replaceChildren(h('p', h('span.badge.err', 'Fehler'), ' ', e.message)); }
     finally { testBtn.disabled = false; }
   }, { cls: 'small', icon: 'refresh' });
-  const form = h('div.form', field('Name', name), field('Typ', type), tLabel, target, tLint, hint, nsRow, recRow, field('Größenangaben', h('div.row', bMode, bCols), 'Werte in Bytes werden als KB/MB/GB/TB angezeigt (Tooltip: genauer Wert). Automatisch: Spalten wie Size, Length, FreeSpace, Größe mit reinen Zahlen. Gespeichert und exportiert (CSV) wird weiterhin der Bytewert.'),
+  const health = isNew ? null : marksBox(markOf('scanner', sc.id));
+  const form = h('div.form', health ? h('div.full', health) : null, field('Name', name), field('Typ', type), tLabel, target, tLint, hint, nsRow, recRow, field('Größenangaben', h('div.row', bMode, bCols), 'Werte in Bytes werden als KB/MB/GB/TB angezeigt (Tooltip: genauer Wert). Automatisch: Spalten wie Size, Length, FreeSpace, Größe mit reinen Zahlen. Gespeichert und exportiert (CSV) wird weiterhin der Bytewert.'),
     field('Aktiv', h('label.chk', en, 'beim nächsten Scan ausführen')), profBox ? field('In Scanprofilen', profBox) : null,
     field('Testen', h('div.row', testPc, testBtn), 'Führt den Scanner sofort auf dem gewählten Computer aus.'), h('div.full', testOut));
   toggle();
@@ -7264,16 +7501,18 @@ async function viewTools() {
       if (n) { toolDlg(null, n.toUpperCase()); }
     }, { icon: 'folder' }),
     btn('Tastenkürzel …', () => hotkeysDlg(() => route()), { icon: 'key', title: 'Tastenkürzel aller Tools – eigene Tools bekommen ihr Kürzel im Tool selbst' }),
+    isOU() ? null : btn('Exportieren …', () => exportPickDlg(['tools']), { icon: 'download', title: 'Eigene Tools als Datei speichern – z. B. für eine andere POCKET-KNIFE-Installation' }),
+    isOU() ? null : btn('Importieren …', () => importConfigDlg(), { icon: 'up', title: 'Tools, Scanner, Scanprofile oder Sammlungen aus einer Export-Datei übernehmen' }),
     isOU() ? null : btn('Neues Tool', () => toolDlg(null), { icon: 'plus', cls: 'primary' }));
-  const data = await toolsData();
+  const [data] = await Promise.all([toolsData(), marksData()]);
   const q = h('input', { type: 'search', placeholder: 'Filtern …' });
   const box = h('div.ttree');
   let closed = new Set();
   try { closed = new Set(JSON.parse(localStorage.getItem('pk-tools-closed') || '[]')); } catch (e) { /* ignore */ }
   const saveClosed = () => { try { localStorage.setItem('pk-tools-closed', JSON.stringify([...closed])); } catch (e) { /* ignore */ } };
   const typeIcon = (t) => (t.type === 'url' ? 'net' : 'terminal');
-  const row = (ic, name, type, runas, desc, onClick, cls = '', hk = '') => h('div.trow', { class: cls, onclick: onClick, ondblclick: onClick },
-    h('span.tname', h('span.ic', { 'data-ic': ic }, icon(ic)), h('span', name), hk ? h('kbd.hk', { title: 'Mein Tastenkürzel' }, hk) : null), h('span.muted', type), h('span.muted', runas), h('span.muted.trunc', desc));
+  const row = (ic, name, type, runas, desc, onClick, cls = '', hk = '', mark = null) => h('div.trow', { class: cls, onclick: onClick, ondblclick: onClick },
+    h('span.tname', h('span.ic', { 'data-ic': ic }, icon(ic)), h('span', name), mark, hk ? h('kbd.hk', { title: 'Mein Tastenkürzel' }, hk) : null), h('span.muted', type), h('span.muted', runas), h('span.muted.trunc', desc));
   function draw() {
     const f = q.value.trim().toLowerCase();
     const els = [h('div.trow.thead', h('span', 'Name'), h('span', 'Typ'), h('span', 'Ausführung'), h('span', 'Beschreibung'))];
@@ -7296,7 +7535,7 @@ async function viewTools() {
       }
       if (open) {
         list.forEach((t) => els.push(row(typeIcon(t), t.name, data.types[t.type], t.type === 'url' ? 'im Browser' : data.run_as[t.run_as],
-          t.description || t.script.split('\n')[0], () => toolDlg(t), fn ? 'tchild' : '', hotkeyOf(`tool:${t.id}`))));
+          t.description || t.script.split('\n')[0], () => toolDlg(t), fn ? 'tchild' : '', hotkeyOf(`tool:${t.id}`), wmark(markOf('tool', t.id), () => toolDlg(t)))));
       }
     }
     box.replaceChildren(...els);
@@ -7361,7 +7600,8 @@ async function toolDlg(tool, presetFolder) {
   };
   type.addEventListener('change', toggle);
   type.addEventListener('change', () => sLint.refresh());
-  const form = h('div.form', field('Name', name), field('Ordner', combo(folder, folders, { width: '100%' })),
+  const form = h('div.form', isNew || !markOf('tool', tool.id).length ? null : h('div.full', marksBox(markOf('tool', tool.id))),
+    field('Name', name), field('Ordner', combo(folder, folders, { width: '100%' })),
     field('Typ', type), runRow, h('label', 'Befehl / URL'), script, sLint, hint, ...extraRows,
     field('Beschreibung', desc), field('Rückfrage', h('label.chk', confirm, 'vor dem Ausführen bestätigen (für ändernde Aktionen)')),
     field('Tastenkürzel', hk.el, 'Startet das Tool für die markierten Computer bzw. den geöffneten Computer.'),
@@ -7396,12 +7636,14 @@ function profStatus(r) {
 
 async function viewScanners() {
   setTop('Scanprofile', 'Standard- und eigene Scanner zu Profilen bündeln, auf Sammlungen oder einzelne Computer anwenden und zeitlich steuern',
+    btn('Exportieren …', () => exportPickDlg(['profiles', 'scanners']), { icon: 'download', title: 'Eigene Scanprofile und Scanner als Datei speichern – z. B. für eine andere POCKET-KNIFE-Installation' }),
+    btn('Importieren …', () => importConfigDlg(), { icon: 'up', title: 'Scanprofile, Scanner, Tools oder Sammlungen aus einer Export-Datei übernehmen' }),
     btn('Neues Scanprofil', async () => profileDlg(null, await GET('/api/scanprofiles')), { icon: 'plus', cls: 'primary' }));
-  const meta = await GET('/api/scanprofiles');
+  const [meta] = await Promise.all([GET('/api/scanprofiles'), marksData()]);
   const colName = (id) => (meta.collections.find((c) => c.id === id) || { name: `#${id}` }).name;
   const t = table([
     { key: 'name', label: 'Name', render: (r) => h('span', h('a', { href: '#', onclick: (e) => { e.preventDefault(); profileDlg(r, meta); } }, r.name),
-      r.is_default ? h('span.badge.accent', { style: { marginLeft: '6px' } }, 'Standard') : null, r.enabled ? null : h('span.badge', { style: { marginLeft: '6px' } }, 'deaktiviert')),
+      wmark(markOf('profile', r.id), () => profileDlg(r, meta)), r.is_default ? h('span.badge.accent', { style: { marginLeft: '6px' } }, 'Standard') : null, r.enabled ? null : h('span.badge', { style: { marginLeft: '6px' } }, 'deaktiviert')),
       sort: (r) => (r.is_default ? '0' : r.builtin_key ? '1' : '2') + r.name },
     { key: 'kind', label: 'Art', value: (r) => (r.builtin_key ? 'Fest' : 'Eigen') },
     { key: 'scanners_n', label: 'Scanner', value: (r) => r.modules.length + r.scanners.length + (r.scanner_types || []).length,
@@ -7416,7 +7658,8 @@ async function viewScanners() {
   ], meta.profiles, { noun: 'Profile', sort: 'name', onRow: (r) => profileDlg(r, meta), empty: 'Keine Scanprofile.', fill: false });
 
   const sc = table([
-    { key: 'name', label: 'Name', render: (r) => h('a', { href: '#', onclick: (e) => { e.preventDefault(); scannerDlg(r, meta); } }, r.name) },
+    { key: 'name', label: 'Name', render: (r) => h('span', h('a', { href: '#', onclick: (e) => { e.preventDefault(); scannerDlg(r, meta); } }, r.name),
+      wmark(markOf('scanner', r.id), () => scannerDlg(r, meta))), value: (r) => r.name },
     { key: 'type_label', label: 'Typ', render: (r) => h('span.badge.info', r.type_label) },
     { key: 'target', label: 'Ziel / Abfrage', cls: 'trunc mono', title: (r) => r.target },
     { key: 'in', label: 'In Profilen', value: (r) => meta.profiles.filter((p) => p.scanners.includes(r.id) || (p.builtin_key && (p.scanner_types || []).includes(r.type))).map((p) => p.name).join(', ') || '—' },
@@ -7563,7 +7806,8 @@ async function profileDlg(p, meta) {
     }).catch((e) => compBox.replaceChildren(h('p.muted', e.message)));
   }
   const tabs = [
-    ['Details', h('div.form', field('Name', name), field('Beschreibung', desc), field('Aktiv', h('label.chk', en, 'automatische Auslöser ausführen')))],
+    ['Details', h('div.form', isNew || !markOf('profile', p.id).length ? null : h('div.full', marksBox(markOf('profile', p.id))),
+      field('Name', name), field('Beschreibung', desc), field('Aktiv', h('label.chk', en, 'automatische Auslöser ausführen')))],
     ['Scanner', fixed ? h('div',
       h('p', h('span.badge.accent', 'Festes Profil'), ' Fest vorgegeben – die Scanner lassen sich nicht ändern. Für eine eigene Zusammenstellung „Duplizieren“.'),
       h('div.chips', [...p.modules.map((m) => h('span.badge', (meta.modules.find((x) => x.key === m) || { label: m }).label)),

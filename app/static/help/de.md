@@ -472,6 +472,49 @@ Spaltenreihenfolge, -breiten, ausgeblendete Spalten und Sortierung merkt sich de
 | F2 | Sammlung umbenennen |
 | Esc | Dialog oder Menü schließen |
 
+## Gelbes Warnzeichen {#warnmark}
+
+Ab 2.57.0 kennzeichnet ein **gelbes Ausrufezeichen** überall gleich, was Aufmerksamkeit braucht – bei eigenen Scannern, Scanprofilen, Sammlungen, Tools und Paketen. **Darüberfahren** zeigt den Grund, ein **Klick** öffnet die Stelle, an der es sich beheben lässt (Scanner, Tool, Profil, Sammlung oder Paket). Im Dialog steht der Grund oben in einem gelben Kasten. Die Kachel **„Mit gelbem Warnzeichen“** in der Übersicht listet alles zusammen auf. Bei einem zugeklappten Ordner im Sammlungsbaum zeigt das Zeichen an, dass darin etwas betroffen ist.
+
+| Grund | Wo | Was tun |
+|---|---|---|
+| Warnung im PowerShell-Protokoll | eigener Scanner, Tool, Paket | Code umschreiben – siehe [Eigener PowerShell-Code](#runas) |
+| Bruch / Abweichung im Repository | Paket | [Bruchprüfung](#repository) ansehen, Datei ersetzen oder neuen Stand übernehmen |
+| Fehler auf vielen Computern | eigener Scanner | ab 5 Computern oder einem Fünftel der gescannten; der erste Fehlertext steht dabei |
+| Liefert seit der Änderung keine Werte mehr | eigener Scanner | Abfrage oder Code nach der letzten Änderung prüfen (vorher kamen Werte) |
+| Liefert seit der Änderung eine Spalte nicht mehr | eigener Scanner | Spalte wieder ausgeben oder Sammlungen anpassen; verschwindet, wenn alle Computer neu gescannt sind |
+| Liefert auf keinem Computer Werte | eigener WMI- oder PowerShell-Scanner | ab 3 gescannten Computern |
+| Sammlung prüft eine Spalte, die der Scanner nicht liefert | Scanner und Sammlung | Spaltennamen in der Sammlung korrigieren |
+| Scanner ausgeschaltet, aber von einer Sammlung geprüft | Scanner und Sammlung | Scanner einschalten oder Bedingung entfernen – sonst bleiben die Werte alt |
+| Nicht auswertbar / Verweis fehlt | Sammlung | im Editor neu zuordnen (siehe [Export und Import](#configexport)) |
+| Scanner oder Ziel-Sammlung mit Warnzeichen | Scanprofil | das genannte Teil beheben |
+
+„Seit der Änderung“ heißt: seit Typ, Abfrage bzw. Code oder Pfadoptionen des Scanners zuletzt geändert wurden. Name, „Aktiv“ und Größenangaben zählen nicht. Verglichen werden die Ergebnisse der Computer, die seitdem gescannt wurden, mit denen davor. OU-Admins sehen das Zeichen nur bei Paketen und Sammlungen ihres Bereichs.
+
+## Export und Import {#configexport}
+
+Ab 2.57.0 lassen sich **Tools**, **eigene Scanner**, **Scanprofile** und **Sammlungen** als Datei (`*.pkconfig.json`) speichern und in einer anderen POCKET-KNIFE-Installation übernehmen. Für Pakete gibt es den eigenen [Paket-Export](#packages).
+
+- **Tools → Exportieren …** bzw. **Scanprofile → Exportieren …**: Einträge anhaken, Datei speichern.
+- **Sammlungen:** Rechtsklick im Baum → **Exportieren** bzw. **Ordner exportieren**. Ein Ordner kommt mit allem darunter.
+- **Importieren …** (Tools, Scanprofile oder Rechtsklick im Sammlungsbaum) nimmt jede dieser Dateien. Per Rechtsklick auf einen Ordner landen die Sammlungen dort.
+
+**Verweise über den Namen:** Die Datei enthält keine IDs. Verweise werden in der Zielinstallation über den Namen gesucht:
+
+- „Ist Mitglied von“ und Ziel-Sammlungen von Profilen: über Name und Pfad der übergeordneten Sammlungen.
+- Eigene Scanner und benutzerdefinierte Felder: über den Namen.
+- Mitglieder statischer Sammlungen und einzeln gewählte Computer: über den Computernamen.
+
+Eigene Scanner, die ein exportiertes Profil oder eine exportierte Sammlung verwendet, kommen automatisch mit. Gibt es einen Eintrag schon (gleicher Name), wird er übersprungen und der vorhandene verwendet, oder auf Wunsch als „… (Import)“ zusätzlich angelegt. Ordner mit gleichem Namen werden zusammengeführt.
+
+**Nichts geht stillschweigend verloren:** Die Prüfung vor dem Import listet jeden Verweis, den es in der Zielinstallation nicht gibt, mit gelbem Warnzeichen auf.
+
+- Eine Sammlung mit fehlendem Verweis behält die Bedingung. Sie trägt das gelbe Ausrufezeichen und wird nicht ausgewertet: Sie hat keine Computer, und Bereitstellungen auf sie brechen mit einer klaren Meldung ab, statt die falschen Computer zu treffen.
+- Im Sammlungseditor steht die Bedingung gelb hinterlegt mit **„— neu zuordnen —“**: die passende Sammlung, den Scanner oder das Feld wählen, speichern – fertig. Fehlt ein Feld, zuerst unter **Einstellungen → Felder** anlegen.
+- Fehlt bei einem Scanprofil eine Ziel-Sammlung, steht das ebenfalls in der Prüfung; das Profil wird ohne dieses Ziel angelegt.
+
+Tastenkürzel von Tools werden nicht exportiert, weil sie in der Zielinstallation schon vergeben sein können. Feste Scanprofile sowie Standard- und AD-Sammlungen gibt es in jeder Installation; sie werden nicht exportiert, Verweise darauf aber über den Namen zugeordnet. Export und Import sind nur für Hauptadmins.
+
 # Computer und Sammlungen {#computers}
 
 ## Computerliste {#computerlist}
@@ -519,6 +562,8 @@ Alle
 
 Eine dynamische Sammlung *unter* einer anderen Sammlung (nicht unter einem Ordner) enthält nur Computer, die auch in der übergeordneten Sammlung sind.
 
+**Fehlender Verweis (ab 2.57.0):** Verweist eine Bedingung auf etwas, das es nicht gibt, kennzeichnet der Editor sie mit dem [gelben Warnzeichen](#warnmark) und bietet **„— neu zuordnen —“** an. Das passiert z. B. nach einem [Import](#configexport), bei einer gelöschten Sammlung oder bei einem gelöschten Feld. Die Bedingung wird nie stillschweigend auf eine andere Tabelle umgestellt. Bis zur Zuordnung ist die Sammlung nicht auswertbar: Die Computerliste nennt den Grund und bietet „Sammlung bearbeiten“.
+
 **Schneller Weg – direkt aus den Inventardaten:** Rechtsklick auf einen Eintrag (z. B. ein Programm, einen Drucker, einen Dienst oder einen Hotfix in der Computeransicht, ein Programm in der Softwareübersicht, eine Zelle in der Computerliste oder einen Wert auf der Seite *Allgemein* wie Modell oder Betriebssystem) → **Dynamische Sammlung erstellen**. Zur Wahl stehen u. a.:
 
 - bei Programmen ganz oben **„Name“ installiert** und **„Name“ nicht installiert** – die Sammlung heißt dann gleich passend, z. B. „PdfCraft installiert“ / „PdfCraft nicht installiert“ (ohne Präfix wie „Anwendungen:“). Steht im Namen eine Versionsnummer, gilt das für jede Version (`7-Zip*`); „Computer mit genau …“ nimmt den vollständigen Namen,
@@ -529,7 +574,7 @@ Eine dynamische Sammlung *unter* einer anderen Sammlung (nicht unter einem Ordne
 
 Danach öffnet sich der normale Sammlungsdialog mit dem fertigen Filter – Name, Ablageort und Bedingungen lassen sich vor dem Speichern anpassen.
 
-**Bedienen:** Rechtsklick im Baum bietet Öffnen, Bearbeiten, Neu ▸, Duplizieren, Sammlung scannen, Heartbeat, Bereitstellen, Tools, Bericht, Ausschneiden/Kopieren/Einfügen, Umbenennen und Löschen. Ziehen verschiebt eine Sammlung, mit gedrückter **Strg**-Taste wird sie kopiert. Standard- und AD-Sammlungen sind schreibgeschützt und fest an ihrem Platz – sie lassen sich nur auf- und zuklappen, nicht ziehen; „Duplizieren“ bzw. Kopieren/Einfügen erzeugt eine änderbare Kopie.
+**Bedienen:** Rechtsklick im Baum bietet Öffnen, Bearbeiten, Neu ▸, Duplizieren, Exportieren / Importieren (ab 2.57.0, [Export und Import](#configexport)), Sammlung scannen, Heartbeat, Bereitstellen, Tools, Bericht, Ausschneiden/Kopieren/Einfügen, Umbenennen und Löschen. Ziehen verschiebt eine Sammlung, mit gedrückter **Strg**-Taste wird sie kopiert. Standard- und AD-Sammlungen sind schreibgeschützt und fest an ihrem Platz – sie lassen sich nur auf- und zuklappen, nicht ziehen; „Duplizieren“ bzw. Kopieren/Einfügen erzeugt eine änderbare Kopie.
 
 **Löschschutz:** Eine Sammlung, die noch von einer anderen Sammlung (Filter „Mitglied von“), einem Zeitplan, Scanprofil, Mandanten, eigenen Bericht, Berichtsversand oder einer Benachrichtigung verwendet wird, lässt sich nicht löschen – die Meldung nennt die Stellen. Gleiches gilt für benutzerdefinierte Felder. Zirkelbezüge (A verweist auf B, B auf A) werden beim Speichern abgelehnt.
 
@@ -614,6 +659,8 @@ Ein Scanprofil legt fest, **was** gescannt wird (Scanner), **bei welchen Compute
 ## Eigene Scanner {#customscanners}
 
 Unter **Scanprofile → Eigene Scanner** legen Sie Scanner vom Typ Registry, Dateien & Ordner, WMI oder PowerShell an. Jeder eigene Scanner läuft im festen Profil seines Typs (z. B. „PowerShell“) und zusätzlich in eigenen Profilen. Das Ergebnis steht beim Computer in der gleichnamigen Kategorie. Gibt es dort mehrere Scanner, wählt man oben per **Auswahlliste** (oder ‹ ›) einen aus oder zeigt mit „Alle Scanner“ alle untereinander; die Auswahl wird je Kategorie gemerkt. Mit **Testen** führen Sie einen Scanner sofort auf einem Computer aus und sehen das Ergebnis.
+
+**Zustand (ab 2.57.0):** Liefert ein Scanner auf vielen Computern Fehler oder seit einer Änderung keine Werte bzw. eine Spalte nicht mehr, oder prüft eine Sammlung eine Spalte, die er nicht liefert, steht das [gelbe Warnzeichen](#warnmark) in der Liste, im Dialog und bei den Profilen, die ihn verwenden. Ein Scanner, den eine Sammlung oder ein eigener Bericht verwendet, lässt sich nicht löschen. Die Meldung nennt die Stellen, sonst verlöre die Sammlung still ihre Bedingung. Export und Import: [Export und Import](#configexport).
 
 > **Wichtig:** Das feste Profil „PowerShell“ hat zunächst keinen Auslöser. Damit eigene PowerShell-Scanner regelmäßig laufen, dort einen Auslöser setzen (z. B. täglich) – oder den Scanner in ein eigenes Profil mit Auslöser aufnehmen.
 
@@ -839,7 +886,7 @@ Scans und Tools laufen davon unabhängig weiter über das Dienstkonto (WinRM). T
 - Die Ergebnisse liegen in einer eigenen Datei im Datenordner (nicht in der Datenbank, höchstens 2000 Funde) und bleiben über einen Neustart erhalten, bis Sie sie zurücksetzen.
 
 
-**Eigener PowerShell-Code ohne Warnungen (ab 2.52.0):** Für PowerShell-Schritte, Tools, „Befehl ausführen“, eigene Scanner und `.ps1`-Dateien im Repository-Editor zeigt POCKET KNIFE schon beim Schreiben einen **Hinweis**, wenn Windows den Code als Warnung protokollieren würde – gesperrt wird nichts, der Code läuft wie geschrieben. Ab 2.56.1 stehen die Hinweise auch **ohne den Editor zu öffnen** da: in der Liste der eigenen Scanner (Spalte „PowerShell-Protokoll“) und gesammelt für eigene Scanner, Tools und PowerShell-Schritte aller Pakete unter **Einstellungen → Wartung → PowerShell-Protokoll prüfen → Eigener Code** (geprüft wird der gespeicherte Code, ohne ihn auszuführen). Vorher erschien ein Hinweis nur, solange der Editor offen war – älterer Code fiel so nicht auf. Darauf achten:
+**Eigener PowerShell-Code ohne Warnungen (ab 2.52.0):** Für PowerShell-Schritte, Tools, „Befehl ausführen“, eigene Scanner und `.ps1`-Dateien im Repository-Editor zeigt POCKET KNIFE schon beim Schreiben einen **Hinweis**, wenn Windows den Code als Warnung protokollieren würde – gesperrt wird nichts, der Code läuft wie geschrieben. Ab 2.56.1 stehen die Hinweise auch **ohne den Editor zu öffnen** da: in der Liste der eigenen Scanner (Spalte „PowerShell-Protokoll“) und gesammelt für eigene Scanner, Tools und PowerShell-Schritte aller Pakete unter **Einstellungen → Wartung → PowerShell-Protokoll prüfen → Eigener Code** (geprüft wird der gespeicherte Code, ohne ihn auszuführen). Vorher erschien ein Hinweis nur, solange der Editor offen war – älterer Code fiel so nicht auf. Ab 2.57.0 öffnet ein Klick auf einen Scanner oder ein Tool in „Eigener Code“ direkt dessen Dialog (wie bei Paketen), und betroffene Einträge tragen überall das [gelbe Warnzeichen](#warnmark). Darauf achten:
 
 | Was | Warum | Besser |
 |---|---|---|
@@ -1573,7 +1620,7 @@ Unter **Einstellungen → Wartung → Diagnosepaket** erstellt POCKET KNIFE ein 
 | `leistung.json` – Ergänzungen ab 2.44.4 | Dauer jeder Seite/Abfrage seit dem Start (Median, 95 %, Maximum), Größe der Scan-Ergebnisse je Bereich (ein Bereich über 5 MB steht zusätzlich als Warnung im Protokoll), Datenbank je Tabelle und Begleitdatei (WAL), Fernsitzungen (Dauer, Datenmenge, wodurch beendet), Hintergrundaufgaben mit Fehlern, letzte tägliche Läufe |
 | `inventar.json` (ab 2.44.4) | Scan-Fehler je Bereich, winget-Zuordnung (sicher/unsicher, veraltet, MSIX), Clients je PowerShell-Version, Sprachmodus (ConstrainedLanguage = Softwareeinschränkung) und winget |
 | Ergänzungen ab 2.48.2 | `statistik.json`: **Ketten** (mehrere Pakete nacheinander – Anzahl, mit „Bei Fehler abbrechen“, wegen der Kette übersprungene und gerade wartende Ziele); `bereitstellungen.csv`: Kette und Position; `inventar.json`: Clients je Edition, ESU, Entra-ID-Beitritt, MDM, Virtualisierung, Office Klick-und-Los, Secure Boot, SMB1 … (nur Anzahlen, nie der Entra-Mandant), **Gruppenrichtlinien-Verlauf und gpresult seit dem Start** (Aufrufe, Fehler, Dauer und Auswertungsqualität, z. B. Verarbeitungen ohne GPO-Liste oder unbekannte Einstellungsarten – nie Computer-, Benutzer- oder GPO-Namen), Tools je Typ und gpupdate-Zeilen ohne Antwort |
-| Ergänzungen ab 2.49.0 | `statistik.json`: Änderungen im **Texteditor** des Repositorys (aufbewahrte Fassungen, Dateien, Kodierungen – nie Inhalte oder Pfade); ab 2.50.2 auch per Hochladen **ersetzte benutzte Dateien** seit dem Start (Anzahl Dateien und betroffene Pakete); ab 2.52.0 **Hinweise zu eigenem PowerShell-Code** seit dem Start (Prüfungen, Funde je Art – nie der Code), ab 2.53.1 auch `Select-Object -First`; ab 2.53.2 **abgestürzte Programme** in Schritten/Tools (Anzahl, davon „Fenster als SYSTEM“ und mit ausstehendem Neustart); ab 2.54.0 **Prüfmodus PowerShell-Protokoll** (an/aus, Aufrufe und Einträge 4100/4104 je Funktion), ab 2.54.1 dazu Abstürze und der vollständige Bericht als `powershell_protokoll.txt` (Namen ersetzt); ab 2.56.1 **eigener Code mit Hinweisen** (Anzahl Scanner/Tools/Pakete, Hinweise je Art); ab 2.56.0 **Updatesperre** (Prüfungen geöffnet/frei/unbekannt/Fehler, zurückgestellte Ziele, längste Wartezeit, Einstellungen, Nutzung in Paketen und Zeitplänen – nur Anzahlen) |
+| Ergänzungen ab 2.49.0 | `statistik.json`: Änderungen im **Texteditor** des Repositorys (aufbewahrte Fassungen, Dateien, Kodierungen – nie Inhalte oder Pfade); ab 2.50.2 auch per Hochladen **ersetzte benutzte Dateien** seit dem Start (Anzahl Dateien und betroffene Pakete); ab 2.52.0 **Hinweise zu eigenem PowerShell-Code** seit dem Start (Prüfungen, Funde je Art – nie der Code), ab 2.53.1 auch `Select-Object -First`; ab 2.53.2 **abgestürzte Programme** in Schritten/Tools (Anzahl, davon „Fenster als SYSTEM“ und mit ausstehendem Neustart); ab 2.54.0 **Prüfmodus PowerShell-Protokoll** (an/aus, Aufrufe und Einträge 4100/4104 je Funktion), ab 2.54.1 dazu Abstürze und der vollständige Bericht als `powershell_protokoll.txt` (Namen ersetzt); ab 2.56.1 **eigener Code mit Hinweisen** (Anzahl Scanner/Tools/Pakete, Hinweise je Art); ab 2.56.0 **Updatesperre** (Prüfungen geöffnet/frei/unbekannt/Fehler, zurückgestellte Ziele, längste Wartezeit, Einstellungen, Nutzung in Paketen und Zeitplänen – nur Anzahlen); ab 2.57.0 **gelbes Warnzeichen** (wie viele Scanner, Tools, Scanprofile, Sammlungen und Pakete es tragen, Gründe nach Art, Exporte und Importe von Tools, Scannern, Profilen und Sammlungen – nur Anzahlen) |
 | `protokoll.csv`, `fehler.txt` | Protokoll des Zeitraums, Warnungen und Fehler gesondert |
 | `bereitstellungen.csv`, `fehlgeschlagen.json` | Bereitstellungen; bei Fehlschlägen das Ende der Ausgabe (höchstens 3000 Zeichen je Schritt) |
 | `scans.csv` | Scan-Läufe mit Dauer und Ergebnis |

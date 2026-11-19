@@ -2,7 +2,7 @@ Deutsche Fassung: [README.md](README.md)
 
 # POCKET KNIFE
 
-Current version: **pocketknife-2.56.2** – see `CHANGELOG.md` (German).
+Current version: **pocketknife-2.57.0** – see `CHANGELOG.md` (German).
 
 Website: [helfi.space](https://helfi.space)
 
@@ -45,8 +45,8 @@ For developers: the manual texts are in `app/static/help/de.md` and `en.md`; `py
 |---|---|
 | Computers | Automatic sync from AD, heartbeat (online/offline – only if this computer really answers at the address; outdated DNS addresses are detected, DNS cache configurable), scans via WinRM. Hardware, BIOS, OS with version/build, drives, network, installed software (computer + user), hotfixes, services, local administrators, Defender, BitLocker, TPM, pending restart, App Installer version |
 | Computer view | Clear layout with 28 categories: Computer, Active Directory groups, Applications, Collections, CPU, Custom Fields, Deployments, Drives, Displays, Environment Variables, Files & Folders, Hardware, Hotfixes, Local groups, Local users, Memory Modules, Network Adapters, PowerShell, Printers (local), Processes, Product key, Registry, Scans, Services, Shares, Windows Features, Scheduled Tasks, WMI |
-| Scan profiles | Freely combine 20 standard scanners and custom scanners (Registry, Files, WMI, PowerShell) into profiles, apply them to collections or individual computers and control them with triggers (Once, Interval, Daily, Weekly, Monthly, Scan age with time window, Heartbeat). Custom fields (e.g. asset number) under Settings |
-| Collections | Static and dynamic collections with nested filter groups (All / Any / Not all / None) across all scan data, version comparison, patterns, RegEx, date filters, live preview, templates, folder structure; create directly from inventory data via right-click (e.g. "Computers with printer XY", "Software XY older than version …") |
+| Scan profiles | Freely combine 20 standard scanners and custom scanners (Registry, Files, WMI, PowerShell) into profiles, apply them to collections or individual computers and control them with triggers (Once, Interval, Daily, Weekly, Monthly, Scan age with time window, Heartbeat). Custom fields (e.g. asset number) under Settings. **State of custom scanners**: errors on many computers, no values or columns any more since a change, columns checked by collections that are missing – with the yellow warning sign |
+| Collections | Static and dynamic collections with nested filter groups (All / Any / Not all / None) across all scan data, version comparison, patterns, RegEx, date filters, live preview, templates, folder structure; create directly from inventory data via right-click (e.g. "Computers with printer XY", "Software XY older than version …"); missing references (deleted collection, scanner or field) are never skipped silently but marked yellow and re-assigned in the editor |
 | Software | Overview of all programs, automatic matching against the official **winget repository** (index `source2.msix`), marking of outdated versions, manual assignment or ignoring; optionally via a **proxy server** (also for winget on the clients) |
 | winget cache | Selected winget programs are kept in their current version in the repository – downloaded and selected **like with `winget download`** (same installer as winget, checksum from the catalog, manifest as YAML next to it), updated daily. Packages, schedules, kiosk and "Update" use it automatically: for computers without winget (e.g. Server 2016) and – configurable – also with winget, so each program comes from the internet only once |
 | Packages | Built from **steps** (Preparation, Steps, Finalize): Install (winget or file from the repository: MSI, MSP, MSU, EXE, CMD/BAT, PS1, REG – with MSI auto-detection), Command, PowerShell, nested package, file copy, Registry (set and delete values/keys, .reg import), Scan, Restart, Wait, Message, Sign out. Conditions (operating system, architecture, PowerShell, sign-in status, file, registry, collection), run as service account/System/logged-on user, error behavior, preview of the actual command line; after a successful installation/update optionally a **Windows notification** for the logged-on user ("7-Zip has been updated. Installed version: 26.00"); repository search while building packages (instant, via an in-memory directory); **export/import** of packages as a file (e.g. into a second installation – without IDs, repository paths relative); **break detection**: size, date and fingerprint of the repository files used are recorded – if a file is missing or the installation file changes, deployments and schedules are interrupted until someone accepts the new state (quick check every 5 minutes, weekly full check at night) |
@@ -61,6 +61,8 @@ For developers: the manual texts are in `app/static/help/de.md` and `en.md`; `py
 | E-mail | **Reports by e-mail** at fixed times (several reports in one e-mail, table + CSV attachment, optionally only if not empty) and optional **notifications** on events (low disk space, offline for a long time, scan/deployment/backup failed, service account protection) – SMTP with STARTTLS/SSL, password encrypted |
 | Remote sessions | RDP and VNC directly in the browser (Apache Guacamole), optionally with your own POCKET KNIFE sign-in or a central VNC password, clipboard, Ctrl+Alt+Del, full screen |
 | Log | All events in the database (filterable, CSV) and as a rotating file in `/data/logs/` |
+| Yellow warning sign | One uniform yellow **!** on custom scanners, scan profiles, collections, tools and packages when something is wrong (warning in the PowerShell log, break in the repository, scanner returns errors or no values any more, reference missing …) – tooltip with the reason, a click leads to the place to fix it; the overview shows everything in one list |
+| Export/import | Packages, tools, custom scanners, scan profiles and collections (single ones or whole folders) as a file – e.g. into a second installation; references are matched by name, missing ones are listed before the import |
 
 ## How access to the clients works
 
@@ -400,7 +402,7 @@ Every retrieval of passwords or keys is logged with the user name. The values ar
 
 ## Tools
 
-Select computers (or open a computer) → **Tools ▾** → choose a tool. The output appears per computer.
+Select computers (or open a computer) → **Tools ▾** → choose a tool. The output appears per computer. Own tools can be saved as a file under **Tools → Export …** and imported into another installation (without keyboard shortcuts).
 
 | Type | Runs | Example |
 |---|---|---|
@@ -584,7 +586,7 @@ Backup: stop the container briefly and copy `data/` – or, while running, `sqli
 
 **Diagnostics package:** **Settings → Maintenance → Diagnostics package** creates a ZIP with log, errors, statistics and settings of the last 1–30 days for passing on – anonymized by default (computers, users, domain, addresses → fixed placeholders such as PC-001), never with passwords or keys. Placeholders can be mapped back to the real names there. Every line carries the version under which it was created; the statistics separate the running version from older ones, and changes and fixed bugs are included. After an update, it is best to choose the period "Since the last update".
 
-**Check PowerShell log:** POCKET KNIFE itself should leave no warnings (event 4104) and no errors (event 4100) in the PowerShell log on the clients – otherwise SIEM or EDR raise alarms. To verify this, **Settings → Maintenance** has the **Check mode**: when switched on, POCKET KNIFE looks into the computer's log after each of its own calls and records every entry with the function that caused it (only entries from POCKET KNIFE, none from other programs). **Start test run** runs the reading functions once on one computer. The report is in the diagnostics package (`powershell_protokoll.txt`, names replaced). In check mode every call takes about 2 seconds longer – switch it off again afterwards. Below, **Own code** (from 2.56.1) lists all own scanners, tools and PowerShell steps in packages that Windows would log as a warning or error – with line, reason and a better alternative, without running the code; the list of own scanners also shows this in its own column.
+**Check PowerShell log:** POCKET KNIFE itself should leave no warnings (event 4104) and no errors (event 4100) in the PowerShell log on the clients – otherwise SIEM or EDR raise alarms. To verify this, **Settings → Maintenance** has the **Check mode**: when switched on, POCKET KNIFE looks into the computer's log after each of its own calls and records every entry with the function that caused it (only entries from POCKET KNIFE, none from other programs). **Start test run** runs the reading functions once on one computer. The report is in the diagnostics package (`powershell_protokoll.txt`, names replaced). In check mode every call takes about 2 seconds longer – switch it off again afterwards. Below, **Own code** (from 2.56.1) lists all own scanners, tools and PowerShell steps in packages that Windows would log as a warning or error – with line, reason and a better alternative, without running the code; the list of own scanners also shows this in its own column. A click opens the scanner, tool or package directly; affected entries carry the yellow warning sign everywhere.
 
 
 | Message | Cause / solution |
@@ -617,6 +619,8 @@ app/
 ├── main.py          web API
 ├── ad.py            LDAPS, sign-in, group check, computer sync
 ├── inuse.py         update lock: program open? postpone and ask again
+├── health.py        yellow warning sign: state of custom scanners, collections with missing references
+├── cfgexport.py     export/import of tools, custom scanners, scan profiles and collections
 ├── inventory.py     scan process and storage (per standard scanner)
 ├── scan_modules.ps1 the 20 standard scanners (PowerShell)
 ├── profiles.py      scan profiles and triggers

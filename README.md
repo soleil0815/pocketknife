@@ -2,7 +2,7 @@ English version: [README.en.md](README.en.md)
 
 # POCKET KNIFE
 
-Aktuelle Version: **pocketknife-2.56.2** – siehe `CHANGELOG.md`.
+Aktuelle Version: **pocketknife-2.57.0** – siehe `CHANGELOG.md`.
 
 Webseite: [helfi.space](https://helfi.space)
 
@@ -45,8 +45,8 @@ Für Entwickler: Die Texte des Handbuchs stehen in `app/static/help/de.md` und `
 |---|---|
 | Computer | Automatischer Abgleich aus dem AD, Heartbeat (online/offline – nur wenn unter der Adresse wirklich dieser Computer antwortet; veraltete DNS-Adressen werden erkannt, DNS-Cache einstellbar), Scans über WinRM. Hardware, BIOS, OS mit Version/Build, Datenträger, Netzwerk, installierte Software (Computer + Benutzer), Hotfixes, Dienste, lokale Administratoren, Defender, BitLocker, TPM, ausstehender Neustart, App-Installer-Version |
 | Computeransicht | Übersichtlicher Aufbau mit 28 Kategorien: Computer, Active-Directory-Gruppen, Anwendungen, Sammlungen, CPU, Benutzerdefinierte Felder, Bereitstellungen, Laufwerke, Bildschirme, Umgebungsvariablen, Dateien & Ordner, Hardware, Hotfixes, Lokale Gruppen, Lokale Benutzer, Speichermodule, Netzwerkkarten, PowerShell, Drucker (lokal), Prozesse, Produktschlüssel, Registry, Scans, Dienste, Freigaben, Windows-Features, Geplante Aufgaben, WMI |
-| Scanprofile | 20 Standard-Scanner und eigene Scanner (Registry, Dateien, WMI, PowerShell) frei zu Profilen kombinieren, auf Sammlungen oder einzelne Computer anwenden und mit Auslösern steuern (Einmalig, Intervall, Täglich, Wöchentlich, Monatlich, Scan-Alter mit Zeitfenster, Heartbeat). Benutzerdefinierte Felder (z. B. Inventarnummer) unter Einstellungen |
-| Sammlungen | statische und dynamische Sammlungen mit verschachtelten Filtergruppen (Alle / Eine / Nicht alle / Keine) über alle Scan-Daten, Versionsvergleich, Muster, RegEx, Datumsfilter, Live-Vorschau, Vorlagen, Ordnerstruktur; per Rechtsklick direkt aus Inventardaten erstellen (z. B. „Computer mit Drucker XY“, „Software XY älter als Version …“) |
+| Scanprofile | 20 Standard-Scanner und eigene Scanner (Registry, Dateien, WMI, PowerShell) frei zu Profilen kombinieren, auf Sammlungen oder einzelne Computer anwenden und mit Auslösern steuern (Einmalig, Intervall, Täglich, Wöchentlich, Monatlich, Scan-Alter mit Zeitfenster, Heartbeat). Benutzerdefinierte Felder (z. B. Inventarnummer) unter Einstellungen. **Zustand der eigenen Scanner**: Fehler auf vielen Computern, seit einer Änderung keine Werte oder Spalten mehr, von Sammlungen geprüfte Spalten, die fehlen – mit dem gelben Warnzeichen |
+| Sammlungen | statische und dynamische Sammlungen mit verschachtelten Filtergruppen (Alle / Eine / Nicht alle / Keine) über alle Scan-Daten, Versionsvergleich, Muster, RegEx, Datumsfilter, Live-Vorschau, Vorlagen, Ordnerstruktur; per Rechtsklick direkt aus Inventardaten erstellen (z. B. „Computer mit Drucker XY“, „Software XY älter als Version …“); fehlende Verweise (gelöschte Sammlung, Scanner oder Feld) werden nie still übergangen, sondern gelb markiert und im Editor neu zugeordnet |
 | Software | Übersicht aller Programme, automatischer Abgleich mit dem offiziellen **winget-Repository** (Index `source2.msix`), Kennzeichnung veralteter Versionen, manuelle Zuordnung oder Ignorieren; optional über einen **Proxyserver** (auch für winget auf den Clients) |
 | winget-Cache | Ausgewählte winget-Programme liegen in der jeweils aktuellen Version im Repository – geladen und ausgewählt **wie mit `winget download`** (gleicher Installer wie winget, Prüfsumme aus dem Katalog, Manifest als YAML daneben), täglich aktualisiert. Pakete, Zeitpläne, Kiosk und „Aktualisieren“ nehmen ihn automatisch: für Computer ohne winget (z. B. Server 2016) und – einstellbar – auch mit winget, damit jedes Programm nur einmal aus dem Internet kommt |
 | Pakete | Aus **Schritten** (Vorbereitung, Schritte, Abschluss): Installieren (winget oder Datei aus dem Repository: MSI, MSP, MSU, EXE, CMD/BAT, PS1, REG – mit MSI-Autoerkennung), Befehl, PowerShell, verschachteltes Paket, Dateikopie, Registry (Werte/Schlüssel setzen und löschen, .reg-Import), Scannen, Neustart, Warten, Nachricht, Abmelden. Bedingungen (Betriebssystem, Architektur, PowerShell, Anmeldestatus, Datei, Registry, Sammlung), Ausführen als Dienstkonto/System/angemeldeter Benutzer, Fehlerverhalten, Vorschau des tatsächlichen Aufrufs; nach erfolgreicher Installation/Aktualisierung optional eine **Windows-Benachrichtigung** für den angemeldeten Benutzer („7-Zip wurde aktualisiert. Installierte Version: 26.00“); Repository-Suche beim Paketbau (sofort, über ein Verzeichnis im Arbeitsspeicher); **Export/Import** von Paketen als Datei (z. B. in eine zweite Installation – ohne IDs, Repository-Pfade relativ); **Bruchprüfung**: Größe, Datum und Fingerabdruck der benutzten Repository-Dateien werden festgehalten – fehlt eine Datei oder ändert sich die Installationsdatei, werden Bereitstellungen und Zeitpläne unterbrochen, bis jemand den neuen Stand übernimmt (Schnellprüfung alle 5 Minuten, wöchentliche Vollprüfung nachts) |
@@ -61,6 +61,8 @@ Für Entwickler: Die Texte des Handbuchs stehen in `app/static/help/de.md` und `
 | E-Mail | **Berichte per E-Mail** zu festen Zeiten (mehrere Berichte in einer Mail, Tabelle + CSV-Anhang, optional nur wenn nicht leer) und optionale **Benachrichtigungen** bei Ereignissen (wenig Speicherplatz, lange offline, Scan/Bereitstellung/Sicherung fehlgeschlagen, Dienstkonto-Schutz) – SMTP mit STARTTLS/SSL, Kennwort verschlüsselt |
 | Fernsitzungen | RDP und VNC direkt im Browser (Apache Guacamole), wahlweise mit der eigenen POCKET KNIFE-Anmeldung bzw. einem zentralen VNC-Kennwort, Zwischenablage, Strg+Alt+Entf, Vollbild |
 | Protokoll | Alle Ereignisse in der Datenbank (filterbar, CSV) und als rotierende Datei in `/data/logs/` |
+| Gelbes Warnzeichen | Ein einheitliches gelbes **!** bei eigenen Scannern, Scanprofilen, Sammlungen, Tools und Paketen, wenn etwas nicht stimmt (Warnung im PowerShell-Protokoll, Bruch im Repository, Scanner liefert Fehler oder keine Werte mehr, Verweis fehlt …) – Tooltip mit dem Grund, Klick führt zur Stelle; die Übersicht zeigt alles in einer Liste |
+| Export/Import | Pakete, Tools, eigene Scanner, Scanprofile und Sammlungen (einzeln oder ganze Ordner) als Datei – z. B. in eine zweite Installation; Verweise werden über den Namen zugeordnet, fehlende vor dem Import aufgelistet |
 
 ## So funktioniert der Zugriff auf die Clients
 
@@ -398,7 +400,7 @@ Jeder Abruf von Kennwörtern oder Schlüsseln wird mit Benutzername protokollier
 
 ## Tools
 
-Computer auswählen (oder einen Computer öffnen) → **Tools ▾** → Tool wählen. Die Ausgabe erscheint je Computer.
+Computer auswählen (oder einen Computer öffnen) → **Tools ▾** → Tool wählen. Die Ausgabe erscheint je Computer. Eigene Tools lassen sich unter **Tools → Exportieren …** als Datei speichern und in einer anderen Installation importieren (ohne Tastenkürzel).
 
 | Typ | Wird ausgeführt | Beispiel |
 |---|---|---|
@@ -582,7 +584,7 @@ Sicherung: Container kurz stoppen und `data/` kopieren – oder im laufenden Bet
 
 **Diagnosepaket:** **Einstellungen → Wartung → Diagnosepaket** erstellt ein ZIP mit Protokoll, Fehlern, Statistik und Einstellungen der letzten 1–30 Tage zum Weitergeben – standardmäßig anonymisiert (Rechner, Benutzer, Domäne, Adressen → feste Platzhalter wie PC-001), nie mit Kennwörtern oder Schlüsseln. Platzhalter lassen sich dort wieder dem echten Namen zuordnen. Jede Zeile trägt die Version, unter der sie entstand; die Statistik trennt die laufende Version von älteren, Änderungen und behobene Fehler liegen bei. Nach einem Update am besten den Zeitraum „Seit dem letzten Update“ wählen.
 
-**PowerShell-Protokoll prüfen:** POCKET KNIFE selbst soll auf den Clients keine Warnungen (Ereignis 4104) und keine Fehler (Ereignis 4100) im PowerShell-Protokoll hinterlassen – sonst schlagen SIEM oder EDR Alarm. Zum Nachprüfen gibt es unter **Einstellungen → Wartung** den **Prüfmodus**: Eingeschaltet schaut POCKET KNIFE nach jedem eigenen Aufruf auf dem Computer in dessen Protokoll nach und merkt sich jeden Eintrag mit der Funktion, die ihn ausgelöst hat (nur Einträge von POCKET KNIFE, keine anderer Programme). **Prüflauf starten** führt die lesenden Funktionen einmal auf einem Computer aus. Der Bericht steht im Diagnosepaket (`powershell_protokoll.txt`, Namen ersetzt). Jeder Aufruf dauert im Prüfmodus etwa 2 Sekunden länger – danach wieder ausschalten. Darunter listet **Eigener Code** (ab 2.56.1) alle eigenen Scanner, Tools und PowerShell-Schritte in Paketen, die Windows als Warnung oder Fehler protokollieren würde – mit Zeile, Grund und besserer Alternative, ohne den Code auszuführen; die Liste der eigenen Scanner zeigt das zusätzlich in einer eigenen Spalte.
+**PowerShell-Protokoll prüfen:** POCKET KNIFE selbst soll auf den Clients keine Warnungen (Ereignis 4104) und keine Fehler (Ereignis 4100) im PowerShell-Protokoll hinterlassen – sonst schlagen SIEM oder EDR Alarm. Zum Nachprüfen gibt es unter **Einstellungen → Wartung** den **Prüfmodus**: Eingeschaltet schaut POCKET KNIFE nach jedem eigenen Aufruf auf dem Computer in dessen Protokoll nach und merkt sich jeden Eintrag mit der Funktion, die ihn ausgelöst hat (nur Einträge von POCKET KNIFE, keine anderer Programme). **Prüflauf starten** führt die lesenden Funktionen einmal auf einem Computer aus. Der Bericht steht im Diagnosepaket (`powershell_protokoll.txt`, Namen ersetzt). Jeder Aufruf dauert im Prüfmodus etwa 2 Sekunden länger – danach wieder ausschalten. Darunter listet **Eigener Code** (ab 2.56.1) alle eigenen Scanner, Tools und PowerShell-Schritte in Paketen, die Windows als Warnung oder Fehler protokollieren würde – mit Zeile, Grund und besserer Alternative, ohne den Code auszuführen; die Liste der eigenen Scanner zeigt das zusätzlich in einer eigenen Spalte. Ein Klick öffnet den Scanner, das Tool oder das Paket direkt; betroffene Einträge tragen überall das gelbe Warnzeichen.
 
 
 | Meldung | Ursache / Lösung |
@@ -615,6 +617,8 @@ app/
 ├── main.py          Web-API
 ├── ad.py            LDAPS, Anmeldung, Gruppenprüfung, Computer-Abgleich
 ├── inuse.py         Updatesperre: Programm geöffnet? Zurückstellen und erneut fragen
+├── health.py        gelbes Warnzeichen: Zustand eigener Scanner, Sammlungen mit fehlenden Verweisen
+├── cfgexport.py     Export/Import von Tools, eigenen Scannern, Scanprofilen und Sammlungen
 ├── inventory.py     Scan-Ablauf und Speicherung (je Standard-Scanner)
 ├── scan_modules.ps1 die 20 Standard-Scanner (PowerShell)
 ├── profiles.py      Scanprofile und Auslöser

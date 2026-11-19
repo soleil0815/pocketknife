@@ -768,3 +768,18 @@ body.pk-busy, body.pk-busy * { cursor: progress !important; }
 .code-edit { flex: 1; border: 0 !important; border-radius: 0 !important; resize: none; padding: 8px 10px; margin: 0; outline: none; tab-size: 4;
   white-space: pre; overflow: auto; font: 12.5px/1.5 var(--mono); background: transparent; color: var(--text, inherit); box-shadow: none !important; }
 .alert.info { background: var(--info-soft, rgba(37,99,235,.08)); border: 1px solid var(--line); border-radius: 6px; padding: 8px 12px; }
+
+/* 2.57.0: the yellow "!" - the same marker everywhere (scanner, tool, scan profile, collection, package) */
+.wmark { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 16px; height: 16px; margin: 0 4px;
+  border-radius: 50%; background: #FFCC00; color: #1D1D1F; font: 800 11px/1 -apple-system, system-ui, sans-serif;
+  vertical-align: -2px; box-shadow: 0 0 0 2px rgba(255, 204, 0, .25); cursor: help; user-select: none; }
+.wmark.click { cursor: pointer; }
+.wmark.click:hover { box-shadow: 0 0 0 3px rgba(255, 204, 0, .45); }
+.tree-item .wmark { margin-left: 6px; }
+.wbox { display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; margin-bottom: 4px; border-radius: 8px;
+  background: rgba(255, 204, 0, .14); border: 1px solid rgba(255, 204, 0, .55); }
+.wbox > .wmark { margin: 1px 0 0; }
+.fcond.fmissing { grid-template-columns: auto minmax(160px, 1.4fr) minmax(160px, 1.3fr) auto; padding: 4px 6px; border-radius: 6px;
+  background: rgba(255, 204, 0, .12); }
+@media (max-width: 900px) { .fcond.fmissing { grid-template-columns: auto 1fr; } }
+.tile.mark::before { background: #FFCC00; }
