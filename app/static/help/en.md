@@ -616,11 +616,10 @@ From 2.58.0 POCKET KNIFE prints **labels with computer name and serial number**:
 
 | Setting | Meaning |
 |---|---|
-| Barcode | **serial number** (default), **computer name** or **none** – then name and serial number are printed larger. Code 128, readable with any barcode scanner |
 | Footer | small text at the bottom right, e.g. "Firma GmbH – IT · 0123 456789". From 2.58.1 set it once for everyone under **Settings → Inventory → Labels**; the print dialog is then prefilled, a change there applies to that print only |
 | Copies per computer | 1 to 10 identical labels |
 
-The label shows the computer name (large), "S/N" with the serial number, and manufacturer/model. Serial number and model come from the last scan. Without a usable serial number (empty or a manufacturer placeholder such as "To be filled by O.E.M." or "Default string") the label reads "S/N unbekannt" and the barcode contains the computer name. The browser remembers the settings.
+The label always shows the computer name (large), "S/N" with the serial number, and manufacturer/model, with a barcode (Code 128, readable with any barcode scanner) containing the serial number below – no choice (from 2.58.2). Serial number and model come from the last scan. Without a usable serial number (empty or a manufacturer placeholder such as "To be filled by O.E.M." or "Default string") the label reads "S/N unbekannt" and the barcode contains the computer name. The browser remembers the number of copies.
 
 **Format and printer:** 62 × 29 mm, suitable e.g. for **Brother QL** (QL-700, QL-800, QL-820NWB …) with **DK-11209** labels or 62 mm continuous tape (then set the length to 29 mm in the printer driver). In the print dialog choose the label size and **"Actual size" / 100 %**, not "Fit to page" – otherwise the barcode gets too small. For laptops and other heavily used devices, plastic labels (e.g. Brother **DK-22113**) last much longer than paper. At most 500 labels at once; OU admins print only for computers in their area.
 

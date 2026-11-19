@@ -2,6 +2,11 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.58.2 (19.11.2026)
+- **Label content fixed:** every label shows the computer name and the serial number as text, with a barcode of the serial number below – the barcode choice in the print dialog (serial / computer name / none) is gone and a `barcode` value in `POST /api/labels` is ignored. Without a usable serial the label still reads "S/N unbekannt" and the barcode carries the computer name
+- **Help (de/en), README:** label section and feature row
+- **Self-test:** dialog without choice, endpoint ignores the barcode value
+
 ## pocketknife-2.58.1 (19.11.2026)
 - **Label footer in the settings:** Einstellungen → Inventar → Etiketten → "Fußzeile" (e.g. company and IT phone) – set once for everyone instead of per browser. The print dialog is prefilled with it; a change there applies to that print only (no longer stored in the browser while a central footer exists). Without a footer in the request the server uses the central one. Cleaned to one line, at most 80 characters. New endpoint `GET /api/labels/defaults` (also for OU admins)
 - **Diagnostic package:** `labels.central_footer` – only whether one is set, never the text

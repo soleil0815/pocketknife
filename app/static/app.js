@@ -2083,7 +2083,6 @@ async function labelsDlg(comps) {
   try { central = (await GET('/api/labels/defaults')).footer || ''; } catch (e) { central = ''; }
   let pref = {};
   try { pref = JSON.parse(localStorage.getItem('pk-labels') || '{}') || {}; } catch (e) { pref = {}; }
-  const barcode = sel([['serial', 'Seriennummer'], ['name', 'Computername'], ['none', 'keiner (Name und Seriennummer größer)']], pref.barcode || 'serial');
   const footer = h('input', { value: central || pref.footer || '', maxlength: 80, placeholder: 'z. B. Firma GmbH – IT · 0123 456789' });
   const footHint = central ? 'Vorgabe aus Einstellungen → Inventar → Etiketten. Hier geändert gilt es nur für diesen Druck.'
     : 'Klein unten rechts, z. B. Firma und Telefonnummer der IT. Dauerhaft für alle unter Einstellungen → Inventar → Etiketten festlegen.';
@@ -2091,13 +2090,15 @@ async function labelsDlg(comps) {
   const names = comps.slice(0, 8).map((c) => c.name).join(', ') + (comps.length > 8 ? fmtT(' und {0} weitere', comps.length - 8) : '');
   modal(comps.length === 1 ? fmtT('Etikett: {0}', comps[0].name) : fmtT('Etiketten für {0} Computer', comps.length), h('div.form',
     field('Computer', h('span.raw', names)),
-    field('Barcode', barcode, 'Code 128 unter Name und Seriennummer. Ohne brauchbare Seriennummer (z. B. „To be filled by O.E.M.“) steht der Computername im Barcode.'),
+    // 2.58.2: fixed content - computer name and serial number as text, barcode with the serial number (no choice)
+    field('Auf dem Etikett', h('span', tr('Computername und Seriennummer, darunter ein Barcode mit der Seriennummer')),
+      'Ohne brauchbare Seriennummer (z. B. „To be filled by O.E.M.“) steht „S/N unbekannt“ darauf und der Computername im Barcode.'),
     field('Fußzeile', footer, footHint),
     field('Anzahl je Computer', copies),
     h('div.full.muted.small', tr('Format 62 × 29 mm – z. B. Brother QL (QL-700, QL-820NWB …) mit Etiketten DK-11209 oder 62-mm-Endlosband (im Druckertreiber Länge 29 mm). Im Druckdialog die Etikettengröße wählen und „Tatsächliche Größe“ / 100 % einstellen, nicht „an Seite anpassen“. Für Laptops halten Kunststoff-Etiketten (z. B. DK-22113) länger.'))),
   [{ label: 'Abbrechen' }, { label: 'PDF öffnen', cls: 'primary', icon: 'print', onClick: async () => {
-    const body = { ids: comps.map((c) => c.id), barcode: barcode.value, footer: footer.value, copies: Number(copies.value) || 1 };
-    try { localStorage.setItem('pk-labels', JSON.stringify({ barcode: body.barcode, copies: body.copies, ...(central ? {} : { footer: body.footer }) })); } catch (e) { /* ignore */ }
+    const body = { ids: comps.map((c) => c.id), footer: footer.value, copies: Number(copies.value) || 1 };
+    try { localStorage.setItem('pk-labels', JSON.stringify({ copies: body.copies, ...(central ? {} : { footer: body.footer }) })); } catch (e) { /* ignore */ }
     const win = window.open('', '_blank');  // open right away - after waiting, the browser would block the new tab
     let r;
     try {
