@@ -8654,7 +8654,7 @@ function psLintList(f, KIND) {
       x.where ? h('span.muted', `${tr(x.where)} · `) : null,
       fmtT('Zeile {0}', x.line), ': ', h('code.raw', x.what), ' – ',
       x.kind === 'module' ? fmtT('lädt das Windows-Modul „{0}“', tr(x.module)) : tr((KIND || PSLINT_KIND)[x.kind]),
-      x.hint ? h('span.muted', ' → ', tr(x.hint)) : null))));
+      x.hint ? h('div.muted', { style: { marginTop: '2px' } }, '→ ', tr(x.hint)) : null))));
 }
 
 // Error "still in use" (409): show the list of packages instead of a long toast

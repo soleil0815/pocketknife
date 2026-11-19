@@ -241,6 +241,10 @@ td.trunc { max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-sp
 .form .row { flex-wrap: nowrap; }
 .form .row > input, .form .row > select { flex: 1; width: auto; }
 .form .hint { grid-column: 2; color: var(--muted); font-size: 12px; margin-top: -6px; }
+/* 2.56.2: PowerShell hints directly below the code field (not squeezed into the label column), hidden when empty */
+.form > .pslint { grid-column: 2; margin-top: -4px; }
+.form > .pslint:empty { display: none; }
+.pslint .alert { margin: 0 !important; }
 .section-t { grid-column: 1 / -1; margin-top: 6px; padding-bottom: 4px; border-bottom: 1px solid var(--line-2); }
 .filter-row { display: grid; grid-template-columns: 1.3fr 1fr 1.3fr auto; gap: 6px; margin-bottom: 6px; }
 .list-pick { border: 1px solid var(--line); border-radius: 6px; max-height: 220px; overflow: auto; }
@@ -288,6 +292,7 @@ pre.out { background: var(--nav); color: #E5E5EA; padding: 12px 14px; border-rad
   .form .row { flex-wrap: nowrap; }
 .form .row > input, .form .row > select { flex: 1; width: auto; }
 .form .hint { grid-column: 1; }
+.form > .pslint { grid-column: 1; }
 }
 
 .card.guard { border-color: var(--err); background: var(--err-soft); }
@@ -486,7 +491,7 @@ tr[draggable="true"] { cursor: default; }
 .badge.inc { background: rgba(46,160,67,.15); color: #2ea043; }
 .badge.exc { background: rgba(218,54,51,.15); color: #da3633; }
 .tree { display: flex; flex-direction: column; overflow: hidden; }
-.form.one { grid-template-columns: 1fr; gap: 4px; } .form.one .hint { grid-column: 1; margin-top: 0; }
+.form.one { grid-template-columns: 1fr; gap: 4px; } .form.one .hint { grid-column: 1; margin-top: 0; } .form.one > .pslint { grid-column: 1; }
 @media (max-width: 700px) { .acct-row { grid-template-columns: 1fr; } }
 
 /* 2.3: Package editor */
