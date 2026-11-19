@@ -567,7 +567,8 @@ def _stats(since, an):
         "pscheck": _pscheck(),
         "inuse": _inuse(since),
         "marks": _warnmarks(since),
-        "labels": {"prints": db.val("SELECT COUNT(*) FROM logs WHERE ts >= ? AND message LIKE 'Etiketten gedruckt:%'", (since,), 0)},
+        "labels": {"prints": db.val("SELECT COUNT(*) FROM logs WHERE ts >= ? AND message LIKE 'Etiketten gedruckt:%'", (since,), 0),
+                   "central_footer": bool(db.setting("label_footer"))},  # 2.58.1: only whether one is set, never the text
     }
 
 
@@ -937,7 +938,8 @@ Dateien
                        längste Wartezeit, Einstellungen, Nutzung in Paketen und Zeitplänen – nur Anzahlen),
                        gelbes Warnzeichen (wie viele Scanner/Tools/Scanprofile/Sammlungen/Pakete es tragen,
                        Gründe nach Art, Exporte/Importe von Tools, Scannern, Profilen, Sammlungen – nur Anzahlen),
-                       Etikettendruck (Anzahl Druckaufträge im Zeitraum)
+                       Etikettendruck (Anzahl Druckaufträge im Zeitraum, ob eine zentrale Fußzeile gesetzt ist –
+                       nicht ihr Text)
   powershell_protokoll.txt  Bericht des Prüfmodus: was POCKET KNIFE in den PowerShell-Protokollen der
                        Computer ausgelöst hat (Funktion, Meldung, Fehler-ID) – Namen ersetzt
   leistung.json        Rechenlast und Lastspitzen, Dauer der wichtigsten Abfragen, langsamste Sammlungen, größte Felder

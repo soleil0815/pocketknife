@@ -444,7 +444,8 @@ ROUTES = {
     # Read only (for the UI)
     ("GET", "/api/scanners"): OPEN,
     ("GET", "/api/marks"): OPEN,
-    ("POST", "/api/labels"): OPEN,                   # 2.58.0: handler checks the IDs (own computers only)                     # 2.57.0: handler filters (packages/collections of the own area)
+    ("POST", "/api/labels"): OPEN,
+    ("GET", "/api/labels/defaults"): OPEN,           # 2.58.1: central footer for the print dialog                   # 2.58.0: handler checks the IDs (own computers only)                     # 2.57.0: handler filters (packages/collections of the own area)
     ("GET", "/api/scanprofiles"): OPEN,
     ("GET", "/api/fields"): OPEN,
     ("GET", "/api/collections"): OPEN,                 # handler counts only own computers

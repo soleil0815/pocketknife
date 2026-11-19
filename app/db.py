@@ -295,6 +295,8 @@ DEFAULT_SETTINGS = {
     # 2.56.0: update lock - schedules do not install while the program is open in a user session (inuse.py)
     "inuse_enabled": 1, "inuse_retry_minutes": 30, "inuse_warn_days": 7,
     "inuse_exempt": "Google.Chrome*\nMicrosoft.Edge*\nBrave.Brave*",
+    # 2.58.1: footer of the labels for everyone (e.g. company and IT phone) - prefilled in the print dialog
+    "label_footer": "",
     # 2.39: account for packages ("Wie in den Einstellungen"): "system" (Local System, standard) or "deploy" (service
     # account through a short-lived scheduled task with its password) - only via PUT /api/settings/pkg-run-as
     "pkg_run_as": "system",

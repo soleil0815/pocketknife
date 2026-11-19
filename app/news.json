@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.58.1",
+   "date": "2026-11-19",
+   "items": [
+    {
+     "kind": "improved",
+     "audience": "admin",
+     "de": "Etiketten: Die Fußzeile (z. B. Firma und Telefonnummer der IT) lässt sich jetzt einmal für alle unter Einstellungen → Inventar → Etiketten festlegen und ist im Druckdialog vorausgefüllt.",
+     "en": "Labels: the footer (e.g. company and IT phone number) can now be set once for everyone under Settings → Inventory → Labels and is prefilled in the print dialog."
+    }
+   ]
+  },
+  {
    "version": "2.58.0",
    "date": "2026-11-19",
    "items": [

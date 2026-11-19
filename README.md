@@ -2,7 +2,7 @@ English version: [README.en.md](README.en.md)
 
 # POCKET KNIFE
 
-Aktuelle Version: **pocketknife-2.58.0** – siehe `CHANGELOG.md`.
+Aktuelle Version: **pocketknife-2.58.1** – siehe `CHANGELOG.md`.
 
 Webseite: [helfi.space](https://helfi.space)
 
@@ -61,7 +61,7 @@ Für Entwickler: Die Texte des Handbuchs stehen in `app/static/help/de.md` und `
 | E-Mail | **Berichte per E-Mail** zu festen Zeiten (mehrere Berichte in einer Mail, Tabelle + CSV-Anhang, optional nur wenn nicht leer) und optionale **Benachrichtigungen** bei Ereignissen (wenig Speicherplatz, lange offline, Scan/Bereitstellung/Sicherung fehlgeschlagen, Dienstkonto-Schutz) – SMTP mit STARTTLS/SSL, Kennwort verschlüsselt |
 | Fernsitzungen | RDP und VNC direkt im Browser (Apache Guacamole), wahlweise mit der eigenen POCKET KNIFE-Anmeldung bzw. einem zentralen VNC-Kennwort, Zwischenablage, Strg+Alt+Entf, Vollbild |
 | Protokoll | Alle Ereignisse in der Datenbank (filterbar, CSV) und als rotierende Datei in `/data/logs/` |
-| Etiketten | Etiketten mit Computername, Seriennummer und Modell (62 × 29 mm, z. B. Brother QL mit DK-11209) – einzeln aus der Computeransicht oder für die Auswahl in der Computerliste; Barcode (Code 128) mit Seriennummer oder Computername, Fußzeile frei wählbar; PDF ohne Zusatzsoftware |
+| Etiketten | Etiketten mit Computername, Seriennummer und Modell (62 × 29 mm, z. B. Brother QL mit DK-11209) – einzeln aus der Computeransicht oder für die Auswahl in der Computerliste; Barcode (Code 128) mit Seriennummer oder Computername, Fußzeile zentral unter Einstellungen festlegbar; PDF ohne Zusatzsoftware |
 | Gelbes Warnzeichen | Ein einheitliches gelbes **!** bei eigenen Scannern, Scanprofilen, Sammlungen, Tools und Paketen, wenn etwas nicht stimmt (Warnung im PowerShell-Protokoll, Bruch im Repository, Scanner liefert Fehler oder keine Werte mehr, Verweis fehlt …) – Tooltip mit dem Grund, Klick führt zur Stelle; die Übersicht zeigt alles in einer Liste |
 | Export/Import | Pakete, Tools, eigene Scanner, Scanprofile und Sammlungen (einzeln oder ganze Ordner) als Datei – z. B. in eine zweite Installation; Verweise werden über den Namen zugeordnet, fehlende vor dem Import aufgelistet |
 
