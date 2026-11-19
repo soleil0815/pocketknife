@@ -8499,7 +8499,7 @@ def _():
     assert k("$a.$b") == [("dynamic", "$a.$b")] and k('$a.("x")') == [("dynamic", '$a.("x")')]
     assert k('"$a.$b"') == [] and k("'$a.$b'") == [] and k("$a.Name") == [] and k("1..(5)") == [] and k("$a.$b # x") == [("dynamic", "$a.$b # x")]
     assert k("$o.PSObject.Properties") == [("word", "Properties")] and k("# CimClassMethods") == [("word", "Methods")], "substring, also comments"
-    assert k("powershell -ExecutionPolicy BYPASS -File x") == [("word", "Bypass")] and k("Get-ItemPropertyValue -Name x") == []
+    assert k("powershell -ExecutionPolicy BYPASS -File x") == [("word", "Bypass")] and k("Get-ItemPropertyValue -Name x") == [("throw", "Get-ItemPropertyValue")]  # no 4104 word; since 2.56.1 flagged as 4100 (throws)
     assert k("New-NetFirewallRule -Name x") == [("module", "New-NetFirewallRule")] and k("# Register-ScheduledTask") == []
     assert k("Add-Printer -Name x\nadd-printerport -Name y") == [("module", "Add-Printer"), ("module", "add-printerport")]
     f = pslint.check("Suspend-BitLocker -MountPoint C:")[0]
@@ -8522,7 +8522,7 @@ def _():
         except _m.HTTPException as e:
             assert e.status_code == 400
     st = diagnostics._pslint()
-    assert st["checks"] >= 3 and st["with_findings"] >= 2 and set(st) == {"checks", "with_findings", "words", "modules", "dynamic", "stops"}, st
+    assert st["checks"] >= 3 and st["with_findings"] >= 2 and set(st) == {"checks", "with_findings", "words", "modules", "dynamic", "stops", "throws", "own_code"}, st
     js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
     for hook in ("return h('div', a, psLintBox(a))", "psLintBox(target, () => type.value === 'powershell')", "psLintBox(script, () => type === 'powershell')",
                  "psLintBox(script, () => type.value === 'powershell')", "/\\.(ps1|psm1|psd1)$/i.test(path) ? psLintBox(ta) : null,"):
