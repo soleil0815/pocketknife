@@ -11560,6 +11560,45 @@ def _():
     assert ".wmark {" in css and "#FFCC00" in css, "yellow, not red"
 
 
+@test("2.57.1 Example tool 'CPU-Last' clean and language independent (CIM instead of Get-Counter); every earlier delivered version is replaced, also after saving in the editor (\\n instead of \\r\\n) - own changes stay; a click in the collection tree swaps only the computer list (tree keeps open folders and scroll position, address changes, older answers are dropped)")
+def _():
+    from app import pslint, tools as _tools
+    if not db.val("SELECT name FROM sqlite_master WHERE type='table' AND name='tools'"):
+        _tools.init()
+    cpu = _tools.CPU_LOAD
+    assert "Get-Counter" not in cpu and "Win32_Processor" in cpu and "LoadPercentage" in cpu and pslint.check(cpu, count=False) == []
+    assert [x for x in _tools.SEED if x[1].startswith("CPU-Last")][0][3] == cpu
+    olds = [o for (_t, o), v in _tools.QUIET_TOOLS.items() if v == ("powershell", cpu)]
+    assert len(olds) == 3 and any("[math]::Round" in o for o in olds), "all delivered versions since 2.4"
+    made = []
+    try:
+        for o in olds:
+            made.append(db.ex("INSERT INTO tools(name, folder, type, script) VALUES('CPU-Last (5 Sekunden)', 'SYSTEM', 'powershell', ?)", (o,)))
+        # saved once in the editor: the browser turns \r\n into \n (and a trailing space)
+        made.append(db.ex("INSERT INTO tools(name, folder, type, script) VALUES('CPU-Last (5 Sekunden)', 'SYSTEM', 'powershell', ?)",
+                          (olds[1].replace("\r\n", " \n"),)))
+        own = olds[0] + "\r\nGet-Date"
+        made.append(db.ex("INSERT INTO tools(name, folder, type, script) VALUES('CPU eigen', 'SYSTEM', 'powershell', ?)", (own,)))
+        _tools._migrate_quiet_tools()
+        got = [db.val("SELECT script FROM tools WHERE id=?", (i,)) for i in made]
+        assert got[:-1] == [cpu] * (len(made) - 1), got
+        assert got[-1] == own, "own changes stay"
+        assert pslint.overview() is not None and not [o for o in pslint.overview() if o["kind"] == "tool" and o["id"] in made[:-1]]
+    finally:
+        for i in made:
+            db.ex("DELETE FROM tools WHERE id=?", (i,))
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static")
+    js = open(os.path.join(root, "app.js"), encoding="utf-8").read()
+    v = js[js.index("async function viewComputers("):js.index("async function scanIds(")]
+    assert "if (c.type !== 'folder') selectColl(c.id);" in v and "go(`#/computers?c=${c.id}`)" not in v, "tree click without rebuilding the page"
+    assert "history.pushState(null, '', `#/computers?c=${cid}`)" in v and "'data-cid': c.id" in v
+    assert "S.treeScroll = treeBody.scrollTop" in v and "if (S.treeScroll) treeBody.scrollTop = S.treeScroll;" in v
+    assert "if (my !== listGen) return;" in v and "pane.classList.add('loading')" in v
+    assert v.count("every(20000") == 1, "one refresh timer, not one per click"
+    css = open(os.path.join(root, "app.css"), encoding="utf-8").read()
+    assert ".pane.loading {" in css
+
+
 def main():
     ok = 0
     for name, fn in RESULTS:

@@ -1734,15 +1734,30 @@ const COLL_ICON = (c) => (c.ad_kind === 'root' ? 'ad' : c.type === 'folder' ? 'f
 async function viewComputers(_parts, params) {
   const [cols] = await Promise.all([collections(true), marksData()]);
   let cid = params.get('c') ? Number(params.get('c')) : (cols.find((c) => c.builtin === 1 && c.name === 'Alle Computer') || {}).id;
-  const current = cols.find((c) => c.id === cid);
+  let current = cols.find((c) => c.id === cid);
   const isAd = (c) => c && c.builtin === 2;
   // 2.30: locked = default/AD collection or (OU admin) a collection that only a main admin may change
   const locked = (c) => !!(c && (c.builtin || c.editable === false));
   const canNew = !isOU() || mayBuild();
   const lockMsg = (c) => (c.builtin ? 'Standard- und AD-Sammlungen können nicht geändert werden.' : 'Diese Sammlung kann nur ein Hauptadmin ändern – Sie können sie als Kopie für Ihren Bereich anlegen.');
-  setTop('Computer', current ? `Sammlung: ${collPath(cols, current.id)}${isAd(current) ? ' (aus dem AD)' : ''}` : '',
+  const top = () => setTop('Computer', current ? `Sammlung: ${collPath(cols, current.id)}${isAd(current) ? ' (aus dem AD)' : ''}` : '',
     btn('Computer hinzufügen', addComputerDlg, { icon: 'plus' }),
     canNew ? btn('Neue Sammlung', () => collectionDlg(null), { icon: 'coll' }) : null);
+  top();
+  // 2.57.1: a click in the tree only swaps the computer list - the tree stays as it is (open folders, scroll position)
+  // instead of being rebuilt and jumping back to the top; the address still changes (back button, reload, bookmark)
+  const selectColl = (id) => {
+    if (id === cid) return;
+    cid = id;
+    current = cols.find((c) => c.id === cid);
+    selId = cid;
+    try { history.pushState(null, '', `#/computers?c=${cid}`); } catch (e) { /* ignore */ }
+    top();
+    // only move the highlight - rebuilding the items between the two clicks of a double-click lost the double-click
+    treeBody.querySelectorAll('.tree-item.active, .tree-item.focus').forEach((x) => x.classList.remove('active', 'focus'));
+    treeBody.querySelectorAll(`.tree-item[data-cid="${cid}"]`).forEach((x) => x.classList.add('active'));
+    showList();
+  };
 
   // Collection tree ---------------------------------------------------------------------------
   const filterIn = h('input', { type: 'search', placeholder: 'Sammlung suchen …' });
@@ -1803,7 +1818,7 @@ async function viewComputers(_parts, params) {
     const membersT = async () => (c ? (await GET(`/api/computers?collection=${c.id}`)).map((x) => ({ id: x.id, name: x.name, online: x.online })) : []);
     const clip = S.collClip;
     contextMenu(e.clientX, e.clientY, [
-      c && c.type !== 'folder' ? { label: 'Öffnen', icon: 'coll', onClick: () => go(`#/computers?c=${c.id}`) } : null,
+      c && c.type !== 'folder' ? { label: 'Öffnen', icon: 'coll', onClick: () => selectColl(c.id) } : null,
       c && (!locked(c) || canNew) ? { label: !locked(c) ? 'Bearbeiten' : (isOU() ? 'Als Kopie für Ihren Bereich' : 'Als Kopie bearbeiten'), icon: 'edit', hint: 'Doppelklick', onClick: () => openEdit(c) } : null,
       !canNew ? null : { label: 'Neu', icon: 'plus', sub: [
         { label: 'Dynamische Sammlung …', icon: 'coll', onClick: () => collectionDlg(null, { parentId: newIn(c), type: 'dynamic' }) },
@@ -1868,8 +1883,8 @@ async function viewComputers(_parts, params) {
       class: (c.id === cid ? 'active ' : '') + (c.id === selId && c.id !== cid ? 'focus ' : '') + (S.collClip && S.collClip.mode === 'cut' && S.collClip.id === c.id ? 'cut ' : '')
         + (c.builtin === 2 ? 'ad ' : ''),
       // Default and AD areas are fixed: only expand/collapse, no dragging (copy via right click → Kopieren)
-      style: { paddingLeft: `${8 + depth * 14}px` }, draggable: locked(c) ? 'false' : 'true', title: c.description || '',
-      onclick: () => { selId = c.id; if (c.type !== 'folder') go(`#/computers?c=${c.id}`); else { openState[c.id] = !isOpen; saveOpen(); drawTree(); } },
+      style: { paddingLeft: `${8 + depth * 14}px` }, draggable: locked(c) ? 'false' : 'true', title: c.description || '', 'data-cid': c.id,
+      onclick: () => { selId = c.id; if (c.type !== 'folder') selectColl(c.id); else { openState[c.id] = !isOpen; saveOpen(); drawTree(); } },
     }, tw, h('span.ic-s', icon(COLL_ICON(c))), h('span.lbl', { class: c.builtin === 1 ? '' : 'raw' }, c.name),
     wmark(markOf('collection', c.id), () => openEdit(c)),
     // collapsed: a "!" further down stays visible on the closed folder
@@ -1883,7 +1898,14 @@ async function viewComputers(_parts, params) {
     dragTarget(it, c);
     return [it, kids.length && isOpen ? kids.map((k) => renderNode(k, depth + 1)) : null];
   };
+  // 2.57.1: scroll position of the tree survives redrawing and a full reload of the page view (e.g. after saving)
+  treeBody.addEventListener('scroll', () => { S.treeScroll = treeBody.scrollTop; }, { passive: true });
   function drawTree() {
+    const keep = treeBody.scrollTop;
+    drawTreeInner();
+    if (keep) treeBody.scrollTop = keep;
+  }
+  function drawTreeInner() {
     const f = filterIn.value.trim().toLowerCase();
     if (f) {
       const hits = cols.filter((c) => c.name.toLowerCase().includes(f));
@@ -1911,17 +1933,33 @@ async function viewComputers(_parts, params) {
   });
 
   // Computer list ---------------------------------------------------------------------------
-  let rows;
-  try { rows = await GET('/api/computers' + (cid ? `?collection=${cid}` : '')); } catch (e) {
-    // 2.57.0: a collection that cannot be evaluated (e.g. missing reference after an import) - keep the tree, show why
-    // and where to fix it instead of an empty page
-    const fix = current && !locked(current) ? btn('Sammlung bearbeiten', () => collectionDlg(current), { icon: 'edit', cls: 'primary' }) : null;
-    setContent(h('div', { style: { display: 'flex', flex: '1', minWidth: '0' } }, tree, splitter(tree, 'collections'),
-      h('div.pane', h('div', { style: { padding: '24px', maxWidth: '760px' } }, marksBox([e.message]),
+  const pane = h('div.pane', h('p.muted', { style: { padding: '24px' } }, 'Wird geladen …'));
+  setContent(h('div', { style: { display: 'flex', flex: '1', minWidth: '0' } }, tree, splitter(tree, 'collections'), pane), true);
+  if (S.treeScroll) treeBody.scrollTop = S.treeScroll;
+  { const act = treeBody.querySelector('.tree-item.active'); if (act && act.scrollIntoView) act.scrollIntoView({ block: 'nearest' }); }  // came from elsewhere: show it
+  let listT = null;
+  let listGen = 0;
+  async function showList() {
+    const my = ++listGen;
+    listT = null;
+    pane.classList.add('loading');  // visible right away that the click arrived, even if the list takes a moment
+    let rows;
+    try { rows = await GET('/api/computers' + (cid ? `?collection=${cid}` : '')); } catch (e) {
+      if (my !== listGen) return;
+      pane.classList.remove('loading');
+      // 2.57.0: a collection that cannot be evaluated (e.g. missing reference after an import) - keep the tree, show why
+      // and where to fix it instead of an empty page
+      const fix = current && !locked(current) ? btn('Sammlung bearbeiten', () => collectionDlg(current), { icon: 'edit', cls: 'primary' }) : null;
+      pane.replaceChildren(h('div', { style: { padding: '24px', maxWidth: '760px' } }, marksBox([e.message]),
         h('p.muted', tr('Solange das nicht behoben ist, enthält die Sammlung keine Computer – Bereitstellungen und Zeitpläne auf sie brechen mit diesem Fehler ab, statt die falschen Computer zu treffen.')),
-        fix))), true);
-    return;
+        ...kids(fix)));
+      return;
+    }
+    if (my !== listGen) return;  // clicked on - an older answer must not overwrite the newer list
+    pane.classList.remove('loading');
+    listT = buildList(rows);
   }
+  function buildList(rows) {
   const t = table([
     { key: 'online', label: '', chooserLabel: 'Status (Punkt)', width: '24px', nosort: true, render: (r) => (r.addr_problem
       // Another device answers at the address (stale DNS entry, not a domain member …): separate notice
@@ -2024,10 +2062,14 @@ async function viewComputers(_parts, params) {
   upd([]);
   const hint = h('div.tbl-hint.muted.small', 'Rechtsklick für weitere Aktionen · Strg/Umschalt + Klick für Mehrfachauswahl · Doppelklick öffnet · Computer auf eine statische Sammlung ziehen fügt sie hinzu');
 
-  setContent(h('div', { style: { display: 'flex', flex: '1', minWidth: '0' } }, tree, splitter(tree, 'collections'), h('div.pane', t.el, hint)), true);
+  pane.replaceChildren(t.el, hint);
+  return t;
+  }
+  await showList();
   every(20000, async () => {
-    if (parseHash().parts[0] !== 'computers' || document.querySelector('.cmenu')) return;
-    try { t.setRows(await GET('/api/computers' + (cid ? `?collection=${cid}` : ''))); } catch (e) { /* silent */ }
+    if (parseHash().parts[0] !== 'computers' || document.querySelector('.cmenu') || !listT) return;
+    const my = listGen, t = listT;
+    try { const rows = await GET('/api/computers' + (cid ? `?collection=${cid}` : '')); if (my === listGen && t === listT) t.setRows(rows); } catch (e) { /* silent */ }
   });
 }
 

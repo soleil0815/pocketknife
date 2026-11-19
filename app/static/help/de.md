@@ -519,7 +519,7 @@ Tastenkürzel von Tools werden nicht exportiert, weil sie in der Zielinstallatio
 
 ## Computerliste {#computerlist}
 
-Links steht der **Sammlungsbaum**, rechts die Computer der gewählten Sammlung. Der grüne Punkt zeigt, dass ein Computer online ist. Über **Rechtsklick** auf einen oder mehrere Computer erreichen Sie: Details, Scannen ▸ Profil, Heartbeat, Bereitstellen, Tools ▸, Remotedesktop, Zur Sammlung ▸, Aus Sammlung entfernen, Namen kopieren, CSV, „Scannen erlaubt“ und Löschen.
+Links steht der **Sammlungsbaum**, rechts die Computer der gewählten Sammlung. Ein Klick auf eine Sammlung tauscht nur die Liste rechts aus. Der Baum bleibt, wie er ist, mit aufgeklappten Ordnern und Scrollposition (ab 2.57.1). Auch nach dem Speichern einer Sammlung oder dem Zurückkommen von einem Computer steht er wieder an derselben Stelle. Der grüne Punkt zeigt, dass ein Computer online ist. Über **Rechtsklick** auf einen oder mehrere Computer erreichen Sie: Details, Scannen ▸ Profil, Heartbeat, Bereitstellen, Tools ▸, Remotedesktop, Zur Sammlung ▸, Aus Sammlung entfernen, Namen kopieren, CSV, „Scannen erlaubt“ und Löschen.
 
 „Scannen erlaubt“ abwählen sperrt automatische Scans für einen Computer (z. B. für empfindliche Server); manuelle Scans bleiben möglich.
 

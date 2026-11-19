@@ -27,6 +27,16 @@ CREATE TABLE IF NOT EXISTS tools(
   confirm INTEGER DEFAULT 0, description TEXT, sort INTEGER DEFAULT 100, created_at TEXT);
 """
 
+# 2.57.1: CPU load via CIM - Get-Counter needs the counter names in the language of Windows (on a German Windows
+# "\\Processor(_Total)\\% Processor Time" does not exist and the tool failed); LoadPercentage is the same everywhere
+CPU_LOAD = ("$rows = foreach ($i in 1..5) {\r\n"
+            "  if ($i -gt 1) { Start-Sleep -Seconds 1 }\r\n"
+            "  Get-CimInstance -ClassName Win32_Processor | Measure-Object -Property LoadPercentage -Average |\r\n"
+            "    Select-Object @{n='Zeit';e={Get-Date -Format 'HH:mm:ss'}}, @{n='CPU %';e={[int]$_.Average}}\r\n"
+            "}\r\n"
+            "$rows | Format-Table -AutoSize\r\n"
+            "@(Get-Process | Sort-Object CPU -Descending)[0..9] | Format-Table Name, Id, CPU, @{n='RAM MB';e={[int]($_.WorkingSet64/1MB)}} -AutoSize")
+
 # Example tools (freely editable or deletable)
 SEED = [
     ("BITLOCKER", "TPM-Status", "powershell", "Get-Tpm | Format-List", "service", 0, "Zeigt den Zustand des TPM-Chips."),
@@ -61,10 +71,7 @@ SEED = [
     ("SYSTEM", "Anwendungsfehler (24 Std.)", "powershell",
      "Get-WinEvent -FilterHashtable @{LogName='Application'; Level=2; StartTime=(Get-Date).AddDays(-1)} -MaxEvents 50 -ErrorAction SilentlyContinue | "
      "Format-Table TimeCreated, ProviderName, Id, Message -AutoSize -Wrap", "service", 0, ""),
-    ("SYSTEM", "CPU-Last (5 Sekunden)", "powershell",
-     "(Get-Counter '\\Processor(_Total)\\% Processor Time' -SampleInterval 1 -MaxSamples 5).CounterSamples | Format-Table Timestamp, @{n='CPU %';e={[int]($_.CookedValue * 10) / 10}}\r\n"
-     "@(Get-Process | Sort-Object CPU -Descending)[0..9] | Format-Table Name, Id, CPU, @{n='RAM MB';e={[int]($_.WorkingSet64/1MB)}} -AutoSize",
-     "service", 0, ""),
+    ("SYSTEM", "CPU-Last (5 Sekunden)", "powershell", CPU_LOAD, "service", 0, ""),
     ("SYSTEM", "Datenträger prüfen (nur lesen)", "cmd", "chkdsk C: /scan", "service", 0, "Online-Prüfung ohne Reparatur."),
     ("SYSTEM", "Systemdateien prüfen (SFC)", "cmd", "sfc /scannow", "system", 1, "Dauert mehrere Minuten."),
     ("SYSTEM", "Uptime", "powershell", "$b = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime\r\n\"Gestartet: $b\"\r\n\"Laufzeit:  $((Get-Date) - $b)\"", "service", 0, ""),
@@ -246,17 +253,33 @@ QUIET_TOOLS = {
     ("powershell", "Get-NetTCPConnection -State Established | Sort-Object RemoteAddress | Format-Table LocalPort, RemoteAddress, RemotePort, OwningProcess -AutoSize"):
         ("powershell", "Get-CimInstance -Namespace root/StandardCimv2 -ClassName MSFT_NetTCPConnection -Filter 'State = 5' | Sort-Object RemoteAddress | "
                        "Format-Table LocalPort, RemoteAddress, RemotePort, OwningProcess -AutoSize"),
-    # 2.53.1: "Select-Object -First" stops the pipeline with an exception that PowerShell logs as event 4100
+    # 2.53.1: "Select-Object -First" stops the pipeline with an exception that PowerShell logs as event 4100;
+    # 2.57.1: all earlier versions of "CPU-Last" (also [math]::Round from before 2.38) → CIM instead of Get-Counter
     ("powershell", "(Get-Counter '\\Processor(_Total)\\% Processor Time' -SampleInterval 1 -MaxSamples 5).CounterSamples | Format-Table Timestamp, @{n='CPU %';e={[int]($_.CookedValue * 10) / 10}}\r\n"
                    "Get-Process | Sort-Object CPU -Descending | Select-Object -First 10 Name, Id, CPU, @{n='RAM MB';e={[int]($_.WorkingSet64/1MB)}} | Format-Table -AutoSize"):
-        ("powershell", "(Get-Counter '\\Processor(_Total)\\% Processor Time' -SampleInterval 1 -MaxSamples 5).CounterSamples | Format-Table Timestamp, @{n='CPU %';e={[int]($_.CookedValue * 10) / 10}}\r\n"
-                       "@(Get-Process | Sort-Object CPU -Descending)[0..9] | Format-Table Name, Id, CPU, @{n='RAM MB';e={[int]($_.WorkingSet64/1MB)}} -AutoSize"),
+        ("powershell", CPU_LOAD),
+    ("powershell", "(Get-Counter '\\Processor(_Total)\\% Processor Time' -SampleInterval 1 -MaxSamples 5).CounterSamples | Format-Table Timestamp, @{n='CPU %';e={[math]::Round($_.CookedValue,1)}}\r\n"
+                   "Get-Process | Sort-Object CPU -Descending | Select-Object -First 10 Name, Id, CPU, @{n='RAM MB';e={[math]::Round($_.WorkingSet64/1MB)}} | Format-Table -AutoSize"):
+        ("powershell", CPU_LOAD),
+    ("powershell", "(Get-Counter '\\Processor(_Total)\\% Processor Time' -SampleInterval 1 -MaxSamples 5).CounterSamples | Format-Table Timestamp, @{n='CPU %';e={[int]($_.CookedValue * 10) / 10}}\r\n"
+                   "@(Get-Process | Sort-Object CPU -Descending)[0..9] | Format-Table Name, Id, CPU, @{n='RAM MB';e={[int]($_.WorkingSet64/1MB)}} -AutoSize"):
+        ("powershell", CPU_LOAD),
 }
 
 
+def _norm_script(text):
+    """2.57.1: line breaks and spaces at line ends do not count - a tool saved once in the editor has "\\n" instead of
+    "\\r\\n" (the browser converts them) and was then no longer recognised as an unchanged example tool."""
+    return "\n".join(line.rstrip() for line in str(text or "").replace("\r\n", "\n").replace("\r", "\n").strip().split("\n"))
+
+
 def _migrate_quiet_tools():
-    for (ot, os_), (nt, ns) in QUIET_TOOLS.items():
-        db.ex("UPDATE tools SET type=?, script=? WHERE type=? AND script=?", (nt, ns, ot, os_))
+    """Replace example tools that are still unchanged (only those - own changes stay)."""
+    old = {(ot, _norm_script(os_)): (nt, ns) for (ot, os_), (nt, ns) in QUIET_TOOLS.items()}
+    for r in db.q("SELECT id, type, script FROM tools WHERE type IN ('powershell', 'cmd')"):
+        hit = old.get((r["type"], _norm_script(r["script"])))
+        if hit and (hit[0], hit[1]) != (r["type"], r["script"]):
+            db.ex("UPDATE tools SET type=?, script=? WHERE id=?", (hit[0], hit[1], r["id"]))
 
 
 def _migrate_gpupdate():

@@ -2,6 +2,24 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.57.1",
+   "date": "2026-11-19",
+   "items": [
+    {
+     "kind": "fixed",
+     "audience": "admin",
+     "de": "Das mitgelieferte Tool „CPU-Last“ funktioniert jetzt auch auf deutschem Windows und hinterlässt keine Warnung im PowerShell-Protokoll. Ältere unveränderte Fassungen werden automatisch ersetzt.",
+     "en": "The included tool “CPU-Last” now also works on German Windows and leaves no warning in the PowerShell log. Older unchanged versions are replaced automatically."
+    },
+    {
+     "kind": "improved",
+     "audience": "admin",
+     "de": "Sammlungsbaum: Ein Klick auf eine Sammlung tauscht nur die Computerliste aus – der Baum springt nicht mehr nach oben und reagiert schneller.",
+     "en": "Collection tree: a click on a collection only swaps the computer list – the tree no longer jumps to the top and responds faster."
+    }
+   ]
+  },
+  {
    "version": "2.57.0",
    "date": "2026-11-19",
    "items": [
