@@ -11599,6 +11599,38 @@ def _():
     assert ".pane.loading {" in css
 
 
+@test("2.58.0 Labels 62 x 29 mm with computer name, serial number and model: valid PDF (one page per label, copies), Code 128 with check digit, placeholder serials ('To be filled by O.E.M.') never in the barcode (computer name instead), model without doubled manufacturer; endpoint limited to own computers; UI entry points")
+def _():
+    from app import access, labels
+    assert labels.real_serial("To be filled by O.E.M.") == "" and labels.real_serial(" Default string ") == "" and labels.real_serial("0000") == ""
+    assert labels.real_serial("5CG1234XYZ") == "5CG1234XYZ"
+    a = labels.label_for({"name": "PC-0001", "serial": "5CG1234XYZ", "manufacturer": "HP", "model": "EliteBook 840 G9"}, "serial", "Firma")
+    assert (a.code, a.serial, a.model, a.footer) == ("5CG1234XYZ", "5CG1234XYZ", "HP EliteBook 840 G9", "Firma")
+    b = labels.label_for({"name": "PC-0002", "serial": "To be filled by O.E.M.", "manufacturer": "Dell Inc.", "model": "Dell Latitude 5440"})
+    assert (b.code, b.serial, b.model) == ("PC-0002", "", "Dell Latitude 5440")
+    assert labels.label_for({"name": "PC-0003", "serial": "X1"}, "none").code == ""
+    assert labels.label_for({"name": "PC-0003", "serial": "X1"}, "name").code == "PC-0003"
+    assert labels.label_for({"name": "PC-Ü", "serial": "Ä" * 3}, "serial").code == "", "no unreadable barcode"
+    # Code 128: start B, data, check digit (mod 103), stop - "PJJ123C" from the Code 128 reference example
+    v = labels.code128_values("PJJ123C")
+    assert v[0] == labels.START_B and v[-1] == labels.STOP and v[-2] == (v[0] + sum(i * x for i, x in enumerate(v[1:-2], 1))) % 103
+    assert labels.code128_values("12345678")[0] == labels.START_C
+    pdf = labels.build_pdf([a, a, b], "Etiketten")
+    assert pdf.startswith(b"%PDF-1.4") and pdf.rstrip().endswith(b"%%EOF") and pdf.count(b"/Type /Page ") == 3
+    assert b"/MediaBox [0 0 175.75 82.2]" in pdf and b"(PC-0001)" in pdf and b"(S/N unbekannt)" in pdf and b"/PrintScaling /None" in pdf
+    xref = int(pdf[pdf.rindex(b"startxref") + 10:].split()[0])
+    assert pdf[xref:xref + 4] == b"xref", "xref offset correct"
+    must_fail(labels.build_pdf, [], contains="no labels")
+    assert ("POST", "/api/labels") in access.ROUTES
+    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "main.py"), encoding="utf-8").read()
+    h = src[src.index("def api_labels("):src.index("@app.post(\"/api/config/export\")")]
+    assert "access.check_ids(user, data.get(\"ids\"))" in h and "labels.MAX_LABELS" in h and 'media_type="application/pdf"' in h
+    js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
+    for k in ("function labelsDlg(comps)", "fetch('/api/labels'", "'X-PK-Request': '1'", "const win = window.open('', '_blank');",
+              "labelsDlg(targetsOf(selRows))", "labelsDlg(targetsOf(t.selected()))", "labelsDlg([{ id, name: c.name }])"):
+        assert k in js, k
+
+
 def main():
     ok = 0
     for name, fn in RESULTS:

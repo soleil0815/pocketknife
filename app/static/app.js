@@ -2035,6 +2035,7 @@ async function viewComputers(_parts, params) {
         if (await run(() => POST(`/api/collections/${cid}/members`, { remove: ids }), 'Entfernt') !== undefined) { S.collections = null; route(); }
       } } : null,
       '-',
+      { label: selRows.length === 1 ? 'Etikett drucken …' : `${selRows.length} Etiketten drucken …`, icon: 'print', onClick: () => labelsDlg(targetsOf(selRows)) },
       { label: 'Namen kopieren', icon: 'coll', hint: 'Strg+C', onClick: () => copyText(selRows.map((r) => r.name).join('\r\n'), `${selRows.length} Name(n) kopiert`) },
       { label: 'Als CSV speichern', icon: 'download', onClick: () => downloadText(`computer_${localDate()}.csv`, tableCsv(t, selRows)) },
       '-',
@@ -2057,8 +2058,9 @@ async function viewComputers(_parts, params) {
   const bCsv = btn('CSV', () => downloadText(`computer_${localDate()}.csv`, tableCsv(t, t.filtered())), { icon: 'download', cls: 'ghost', title: 'Gefilterte Liste als CSV speichern' });
   const editColl = current && !current.builtin && current.editable !== false ? btn('Sammlung bearbeiten', () => collectionDlg(current), { icon: 'edit', cls: 'ghost' }) : null;
   const addMembers = current && current.type === 'static' ? btn('Mitglieder …', () => collectionDlg(current), { icon: 'stat', cls: 'ghost', title: 'Computer zu dieser statischen Sammlung hinzufügen oder entfernen' }) : null;
-  t.actions.append(bScan, bDeploy, bTools, addMembers || '', editColl || '', bCsv);
-  function upd(sx) { [bScan, bDeploy, bTools].forEach((b) => (b.disabled = !sx.length)); }
+  const bLabels = btn('Etiketten …', () => labelsDlg(targetsOf(t.selected())), { icon: 'print', cls: 'ghost', title: 'Etiketten mit Computername und Seriennummer für die markierten Computer (62 × 29 mm, z. B. Brother QL)' });
+  t.actions.append(bScan, bDeploy, bTools, addMembers || '', editColl || '', bLabels, bCsv);
+  function upd(sx) { [bScan, bDeploy, bTools, bLabels].forEach((b) => (b.disabled = !sx.length)); }
   upd([]);
   const hint = h('div.tbl-hint.muted.small', 'Rechtsklick für weitere Aktionen · Strg/Umschalt + Klick für Mehrfachauswahl · Doppelklick öffnet · Computer auf eine statische Sammlung ziehen fügt sie hinzu');
 
@@ -2071,6 +2073,43 @@ async function viewComputers(_parts, params) {
     const my = listGen, t = listT;
     try { const rows = await GET('/api/computers' + (cid ? `?collection=${cid}` : '')); if (my === listGen && t === listT) t.setRows(rows); } catch (e) { /* silent */ }
   });
+}
+
+// 2.58.0: labels with computer name and serial number (62 × 29 mm, e.g. Brother QL) - one PDF, one page per label
+function labelsDlg(comps) {
+  if (!comps.length) { toast(tr('Bitte Computer auswählen.'), 'err'); return; }
+  let pref = {};
+  try { pref = JSON.parse(localStorage.getItem('pk-labels') || '{}') || {}; } catch (e) { pref = {}; }
+  const barcode = sel([['serial', 'Seriennummer'], ['name', 'Computername'], ['none', 'keiner (Name und Seriennummer größer)']], pref.barcode || 'serial');
+  const footer = h('input', { value: pref.footer || '', maxlength: 80, placeholder: 'z. B. Firma GmbH – IT · 0123 456789' });
+  const copies = h('input', { type: 'number', min: 1, max: 10, value: pref.copies || 1, style: { width: '80px' } });
+  const names = comps.slice(0, 8).map((c) => c.name).join(', ') + (comps.length > 8 ? fmtT(' und {0} weitere', comps.length - 8) : '');
+  modal(comps.length === 1 ? fmtT('Etikett: {0}', comps[0].name) : fmtT('Etiketten für {0} Computer', comps.length), h('div.form',
+    field('Computer', h('span.raw', names)),
+    field('Barcode', barcode, 'Code 128 unter Name und Seriennummer. Ohne brauchbare Seriennummer (z. B. „To be filled by O.E.M.“) steht der Computername im Barcode.'),
+    field('Fußzeile', footer, 'Klein unten rechts, z. B. Firma und Telefonnummer der IT. Leer = keine.'),
+    field('Anzahl je Computer', copies),
+    h('div.full.muted.small', tr('Format 62 × 29 mm – z. B. Brother QL (QL-700, QL-820NWB …) mit Etiketten DK-11209 oder 62-mm-Endlosband (im Druckertreiber Länge 29 mm). Im Druckdialog die Etikettengröße wählen und „Tatsächliche Größe“ / 100 % einstellen, nicht „an Seite anpassen“. Für Laptops halten Kunststoff-Etiketten (z. B. DK-22113) länger.'))),
+  [{ label: 'Abbrechen' }, { label: 'PDF öffnen', cls: 'primary', icon: 'print', onClick: async () => {
+    const body = { ids: comps.map((c) => c.id), barcode: barcode.value, footer: footer.value, copies: Number(copies.value) || 1 };
+    try { localStorage.setItem('pk-labels', JSON.stringify({ barcode: body.barcode, footer: body.footer, copies: body.copies })); } catch (e) { /* ignore */ }
+    const win = window.open('', '_blank');  // open right away - after waiting, the browser would block the new tab
+    let r;
+    try {
+      r = await fetch('/api/labels', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-PK-Request': '1' }, body: JSON.stringify(body) });
+    } catch (e) { if (win) win.close(); toast(e.message, 'err'); return false; }
+    if (!r.ok) {
+      if (win) win.close();
+      let msg = `HTTP ${r.status}`;
+      try { msg = (await r.json()).detail || msg; } catch (e) { /* ignore */ }
+      toast(tr(msg), 'err');
+      return false;
+    }
+    const url = URL.createObjectURL(await r.blob());
+    if (win) win.location.href = url;
+    else { const a = h('a', { href: url, download: `etiketten-${localDate()}.pdf`, style: { display: 'none' } }); document.body.append(a); a.click(); a.remove(); }
+    setTimeout(() => URL.revokeObjectURL(url), 120000);
+  } }]);
 }
 
 async function scanIds(ids, profileId) {
@@ -2685,7 +2724,8 @@ async function viewComputer(parts, params) {
       }, { icon: 'plug' }),
       btn('Remotedesktop', () => openRemote([{ id, name: c.name }], 'rdp'), { icon: 'monitor', title: 'RDP-Sitzung im Browser' }),
       // 2.39.6: VNC right next to it (before only under Tools) – e.g. TightVNC with the central VNC password from the settings
-      btn('VNC', () => openRemote([{ id, name: c.name }], 'vnc'), { icon: 'monitor', title: 'VNC-Sitzung im Browser (zentrales VNC-Kennwort unter Einstellungen → Fernsitzungen)' }), more));
+      btn('VNC', () => openRemote([{ id, name: c.name }], 'vnc'), { icon: 'monitor', title: 'VNC-Sitzung im Browser (zentrales VNC-Kennwort unter Einstellungen → Fernsitzungen)' }),
+      btn('Etikett', () => labelsDlg([{ id, name: c.name }]), { icon: 'print', title: 'Etikett mit Computername und Seriennummer (62 × 29 mm, z. B. Brother QL)' }), more));
 
   const link = (k) => () => go(`#/computer/${id}?cat=${k}`);
   const nav = h('nav.pc-nav', PC_CATS.map(([k, label, ic, ck]) => {
