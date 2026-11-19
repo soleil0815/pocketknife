@@ -567,6 +567,7 @@ def _stats(since, an):
         "pscheck": _pscheck(),
         "inuse": _inuse(since),
         "marks": _warnmarks(since),
+        "labels": {"prints": db.val("SELECT COUNT(*) FROM logs WHERE ts >= ? AND message LIKE 'Etiketten gedruckt:%'", (since,), 0)},
     }
 
 
@@ -935,7 +936,8 @@ Dateien
                        Updatesperre (Prüfungen: geöffnet/frei/unbekannt/Fehler, zurückgestellte Ziele,
                        längste Wartezeit, Einstellungen, Nutzung in Paketen und Zeitplänen – nur Anzahlen),
                        gelbes Warnzeichen (wie viele Scanner/Tools/Scanprofile/Sammlungen/Pakete es tragen,
-                       Gründe nach Art, Exporte/Importe von Tools, Scannern, Profilen, Sammlungen – nur Anzahlen)
+                       Gründe nach Art, Exporte/Importe von Tools, Scannern, Profilen, Sammlungen – nur Anzahlen),
+                       Etikettendruck (Anzahl Druckaufträge im Zeitraum)
   powershell_protokoll.txt  Bericht des Prüfmodus: was POCKET KNIFE in den PowerShell-Protokollen der
                        Computer ausgelöst hat (Funktion, Meldung, Fehler-ID) – Namen ersetzt
   leistung.json        Rechenlast und Lastspitzen, Dauer der wichtigsten Abfragen, langsamste Sammlungen, größte Felder

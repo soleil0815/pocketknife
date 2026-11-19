@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTex
 from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 
-from . import (access, backup, cfgexport, health, inuse, gphistory, clientfiles, loadstats, integrity, kiosk, news, pkgexport, repofiles, sso, customreports, mailer, notify, diskusage, kerberos, presence, tls, actions, ad, auth, guard, profiles, remote_desktop, scanners, tools, uninstall, collections_, config, db, deploy, inventory, pklog, remote, reports, scheduler,
+from . import (access, backup, cfgexport, health, inuse, labels, gphistory, clientfiles, loadstats, integrity, kiosk, news, pkgexport, repofiles, sso, customreports, mailer, notify, diskusage, kerberos, presence, tls, actions, ad, auth, guard, profiles, remote_desktop, scanners, tools, uninstall, collections_, config, db, deploy, inventory, pklog, remote, reports, scheduler,
                schedules, steps, util, winget, wingetcache)
 
 
@@ -2551,6 +2551,31 @@ def api_packages_export(data: dict = Body(...), user=U):
     out, warnings, extra = pkgexport.export(user, data.get("ids") or [])
     pklog.info("deploy", f"{len(out['packages'])} Paket(e) exportiert.", user=user["username"])
     return {"filename": pkgexport.filename(), "data": out, "warnings": warnings, "extra": extra}
+
+
+@app.post("/api/labels")
+def api_labels(data: dict = Body(...), user=U):
+    """2.58.0: labels (62 × 29 mm, e.g. Brother QL) with computer name and serial number as PDF - one page per label."""
+    ids = access.check_ids(user, data.get("ids"))  # OU admin: only own computers
+    if not ids:
+        _err("Bitte Computer auswählen.")
+    barcode = str(data.get("barcode")) if data.get("barcode") in labels.BARCODES else "serial"
+    footer = " ".join(str(data.get("footer") or "").split())[:80]
+    try:
+        copies = max(1, min(labels.MAX_COPIES, int(data.get("copies") or 1)))
+    except (TypeError, ValueError):
+        copies = 1
+    if len(ids) * copies > labels.MAX_LABELS:
+        _err(f"Höchstens {labels.MAX_LABELS} Etiketten auf einmal.")
+    rows = {r["id"]: r for r in db.q(f"SELECT id, name, serial, manufacturer, model FROM computers WHERE id IN ({','.join('?' * len(ids))})",
+                                     tuple(ids))}
+    order = sorted((rows[i] for i in ids if i in rows), key=lambda r: str(r["name"] or "").lower())
+    items = [labels.label_for(r, barcode, footer) for r in order for _ in range(copies)]
+    if not items:
+        _err("Keine Computer gefunden.")
+    pklog.info("system", f"Etiketten gedruckt: {len(items)} für {len(order)} Computer.", user=user["username"])
+    return Response(labels.build_pdf(items, "Etiketten"), media_type="application/pdf",
+                    headers={"Content-Disposition": f'inline; filename="etiketten-{util.now()[:10]}.pdf"', "Cache-Control": "no-store"})
 
 
 @app.post("/api/config/export")

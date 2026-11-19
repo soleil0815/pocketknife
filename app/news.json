@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.58.0",
+   "date": "2026-11-19",
+   "items": [
+    {
+     "kind": "new",
+     "audience": "admin",
+     "de": "Etiketten drucken: Computername und Seriennummer (mit Barcode) im Format 62 × 29 mm, z. B. für Brother-QL-Drucker – einzeln in der Computeransicht oder für alle markierten Computer in der Computerliste.",
+     "en": "Print labels: computer name and serial number (with barcode) in the 62 × 29 mm format, e.g. for Brother QL printers – single in the computer view or for all selected computers in the computer list."
+    }
+   ]
+  },
+  {
    "version": "2.57.1",
    "date": "2026-11-19",
    "items": [
