@@ -989,25 +989,20 @@ function every(ms, fn) {
 }
 function clearTimers() { S.timers.forEach(clearInterval); S.timers = []; }
 
-const NAV = [
-  ['dashboard', 'Übersicht', 'dash'],
-  ['computers', 'Computer', 'pc'],
-  ['software', 'Software', 'apps'],
-  null,
-  ['packages', 'Pakete', 'box'],
-  ['wingetcache', 'winget-Cache', 'db'],
-  ['repository', 'Repository', 'folder'],
-  ['deployments', 'Bereitstellungen', 'send'],
-  ['schedules', 'Zeitpläne', 'clock'],
-  ['scanners', 'Scanprofile', 'db'],
-  ['tools', 'Tools', 'terminal'],
-  ['kiosk', 'Kiosk', 'users'],
-  null,
-  ['reports', 'Berichte', 'report'],
-  ['logs', 'Protokoll', 'log'],
-  ['settings', 'Einstellungen', 'gear'],
-  ['help', 'Hilfe', 'help'],
+// 2.59.0: navigation at the top like a Windows program - four areas (one click) with tabs below instead of a side bar
+// with 15 entries; the full width belongs to the page (collection tree, tables). Settings, log and help at the top right.
+const NAV_GROUPS = [
+  ['dashboard', 'Übersicht', 'dash', [['dashboard', 'Übersicht']]],
+  ['inventory', 'Inventar', 'pc', [['computers', 'Computer'], ['software', 'Software'], ['scanners', 'Scanprofile'], ['reports', 'Berichte']]],
+  ['distribution', 'Verteilung', 'box', [['packages', 'Pakete'], ['deployments', 'Bereitstellungen'], ['schedules', 'Zeitpläne'],
+    ['repository', 'Repository'], ['wingetcache', 'winget-Cache'], ['kiosk', 'Kiosk']]],
+  ['tools', 'Tools', 'terminal', [['tools', 'Tools']]],
 ];
+const NAV_SYSTEM = ['system', 'System', 'gear', [['settings', 'Einstellungen'], ['logs', 'Protokoll'], ['help', 'Hilfe']]];
+// detail pages belong to their list (computer page with its sub pages, single deployment)
+const NAV_ALIAS = { computer: 'computers', diskusage: 'computers', files: 'computers', eventlog: 'computers', gphistory: 'computers', deployment: 'deployments' };
+const navAllowed = (page) => (!isOU() || !OU_HIDDEN.has(page)) && (page !== 'repository' || mayBuild());
+const navGroupOf = (page) => [...NAV_GROUPS, NAV_SYSTEM].find((g) => g[3].some((x) => x[0] === (NAV_ALIAS[page] || page)));
 
 // OU admins (members of a tenant's group): only see their computers; these areas do not exist for them
 // (the server blocks them anyway – app/access.py)
@@ -1059,17 +1054,74 @@ function rawCol(c) {
 }
 
 function renderShell() {
-  const nav = h('nav.nav',
-    h('div.brand', h('img', { src: '/static/logo.svg', alt: '' }), h('div', h('b', 'POCKET KNIFE'), h('small', `Version ${S.me.version || ''}`), h('div#news-pill'))),
-    h('ul', NAV.filter((n) => !n || ((!isOU() || !OU_HIDDEN.has(n[0])) && (n[0] !== 'repository' || mayBuild()))).map((n) => (n ? h('li', h('a', { href: `#/${n[0]}`, 'data-nav': n[0] }, icon(n[2]), n[1])) : h('li.sep')))),
-    h('div.user', h('b', S.me.display_name || S.me.username), h('span.muted', S.me.username),
-      isOU() ? h('span.badge.info', { style: { marginTop: '6px', display: 'block', width: 'fit-content' }, title: tr('Sie sehen und verwalten nur die Computer dieses Mandanten.') },
-        tr('OU-Admin: ') + (S.me.tenants || []).map((x) => x.name).join(', ')) : null,
-      h('div.row', { style: { gap: '6px', marginTop: '8px' } }, btn('Abmelden', logout, { cls: 'small' }), langSwitch(), themeToggle()),
-      websiteLink('nav-web'), h('div', coffeeLink())));
-  const main = h('div.main', h('header.topbar#topbar'), h('div#tabs'), h('main.content#content'));
+  const S_last = (S.navLast = S.navLast || {});
+  const pages = (g) => g[3].filter((x) => navAllowed(x[0]));
+  // a click on an area opens the page last used there (otherwise the first one)
+  const area = (g) => h('a.nav-area', { href: `#/${S_last[g[0]] && navAllowed(S_last[g[0]]) ? S_last[g[0]] : pages(g)[0][0]}`, 'data-area': g[0],
+    onclick: (e) => { e.preventDefault(); go(`#/${S_last[g[0]] && navAllowed(S_last[g[0]]) ? S_last[g[0]] : pages(g)[0][0]}`); } }, icon(g[2]), h('span.lbl', g[1]));
+  const sysLink = (page, ic, label) => (navAllowed(page) ? h('a.nav-ic', { href: `#/${page}`, 'data-nav': page, title: tr(label), 'aria-label': tr(label) }, icon(ic)) : null);
+  const user = h('button.nav-user', { type: 'button', title: tr('Konto, Sprache, Darstellung, Abmelden'), onclick: (e) => { e.stopPropagation(); userMenu(e.currentTarget); } },
+    h('span', h('b', S.me.display_name || S.me.username), h('small', isOU() ? tr('OU-Admin') : tr('Hauptadmin'))), h('span.caret', '▾'));
+  const nav = h('nav.nav.topnav',
+    h('a.brand', { href: '#/dashboard', title: `POCKET KNIFE ${S.me.version || ''}` }, h('img', { src: '/static/logo.svg', alt: '' }), h('b', 'POCKET KNIFE')),
+    h('div#news-pill'),
+    h('div.nav-areas', NAV_GROUPS.filter((g) => pages(g).length).map(area)),
+    h('div.spacer'),
+    newMenuButton(),
+    sysLink('help', 'help', 'Hilfe'), sysLink('logs', 'log', 'Protokoll'), sysLink('settings', 'gear', 'Einstellungen'),
+    user);
+  const main = h('div.main', h('nav.subnav#subnav'), h('header.topbar#topbar'), h('main.content#content'));
   $('#app').replaceChildren(h('div.shell', nav, main));
   loadNews();
+}
+
+// 2.59.0: tabs of the current area (e.g. Verteilung: Pakete · Bereitstellungen · …); hidden when the area has one page
+function drawSubnav(page) {
+  const el = $('#subnav');
+  if (!el) return;
+  const g = navGroupOf(page);
+  const tabs = g ? g[3].filter((x) => navAllowed(x[0])) : [];
+  if (g) S.navLast[g[0]] = NAV_ALIAS[page] || page;
+  el.replaceChildren(...(tabs.length > 1 ? tabs.map(([k, l]) => h('a', { href: `#/${k}`, class: k === (NAV_ALIAS[page] || page) ? 'on' : '' }, l)) : []));
+  el.classList.toggle('empty', tabs.length < 2);
+  document.querySelectorAll('[data-area]').forEach((a) => a.classList.toggle('active', !!g && a.getAttribute('data-area') === g[0]));
+}
+
+// "+ Neu": create something from every page without first going to its list
+function newMenuButton() {
+  return h('button.primary.nav-new', { type: 'button', title: tr('Neues Paket, neue Bereitstellung, Computer, Sammlung, Tool …'), onclick: (e) => {
+    e.stopPropagation();
+    const r = e.currentTarget.getBoundingClientRect();
+    const items = [
+      mayBuild() ? { label: 'Neues Paket', icon: 'box', onClick: () => { go('#/packages'); packageDlg(null); } } : null,
+      { label: 'Neue Bereitstellung', icon: 'send', onClick: () => deployDlg({}) },
+      mayBuild() ? { label: 'Neuer Zeitplan', icon: 'clock', onClick: () => { go('#/schedules'); scheduleDlg(null, { kind: 'packages' }); } } : null,
+      '-',
+      { label: 'Computer hinzufügen', icon: 'pc', onClick: () => addComputerDlg() },
+      !isOU() || mayBuild() ? { label: 'Neue Sammlung', icon: 'coll', onClick: () => collectionDlg(null) } : null,
+      ...(isOU() ? [] : ['-',
+        { label: 'Neues Tool', icon: 'terminal', onClick: () => { go('#/tools'); toolDlg(null); } },
+        { label: 'Neuer Scanner', icon: 'db', onClick: async () => { go('#/scanners'); scannerDlg(null, await GET('/api/scanprofiles')); } }]),
+    ];
+    contextMenu(Math.max(8, r.right - 240), r.bottom + 4, items.filter(Boolean));
+  } }, icon('plus'), h('span.lbl', 'Neu'), ' ▾');
+}
+
+// Account menu at the top right: name, OU area, language, appearance, log out, website, coffee
+function userMenu(anchor) {
+  const old = $('.user-pop');
+  if (old) { old.remove(); return; }
+  const r = anchor.getBoundingClientRect();
+  const pop = h('div.user-pop', { style: { top: `${r.bottom + 6}px`, right: `${Math.max(8, window.innerWidth - r.right)}px` }, onclick: (e) => e.stopPropagation() },
+    h('b', S.me.display_name || S.me.username), h('div.muted.small', S.me.username),
+    h('div.muted.small', `POCKET KNIFE ${S.me.version || ''}`),
+    isOU() ? h('span.badge.info', { style: { marginTop: '6px', display: 'block', width: 'fit-content' }, title: tr('Sie sehen und verwalten nur die Computer dieses Mandanten.') },
+      tr('OU-Admin: ') + (S.me.tenants || []).map((x) => x.name).join(', ')) : null,
+    h('div.row', { style: { gap: '6px', marginTop: '10px' } }, langSwitch(), themeToggle(), h('div.spacer'), btn('Abmelden', logout, { cls: 'small' })),
+    h('div.user-pop-foot', websiteLink('nav-web'), h('div', coffeeLink())));
+  document.body.append(pop);
+  const close = () => { pop.remove(); document.removeEventListener('click', close); window.removeEventListener('hashchange', close); };
+  setTimeout(() => { document.addEventListener('click', close); window.addEventListener('hashchange', close); }, 0);
 }
 
 // --- News (2.28): unobtrusive in the sidebar below the version -------------------------------------------
@@ -1342,7 +1394,6 @@ function setContent(el, flush = false) {
   const c = $('#content');
   c.className = 'content' + (flush ? ' flush' : '');
   c.replaceChildren(el);
-  $('#tabs').replaceChildren();
 }
 
 function go(hash) { if (location.hash === hash) route(); else location.hash = hash; }
@@ -1361,11 +1412,8 @@ async function route() {
   S.toolTargets = null;  // Keyboard shortcuts: the respective view sets the targets (computer list, computer page)
   const { parts, params } = parseHash();
   const view = (isOU() && OU_HIDDEN.has(parts[0])) ? VIEWS.dashboard : (VIEWS[parts[0]] || VIEWS.dashboard);
-  document.querySelectorAll('[data-nav]').forEach((a) => {
-    const n = a.getAttribute('data-nav');
-    const active = n === parts[0] || (n === 'computers' && parts[0] === 'computer') || (n === 'deployments' && parts[0] === 'deployment');
-    a.classList.toggle('active', active);
-  });
+  document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('active', a.getAttribute('data-nav') === (NAV_ALIAS[parts[0]] || parts[0])));
+  drawSubnav(view === VIEWS.dashboard && !VIEWS[parts[0]] ? 'dashboard' : (isOU() && OU_HIDDEN.has(parts[0]) ? 'dashboard' : parts[0]));
   try { await view(parts.slice(1), params); }
   catch (e) { if (gen === S.nav) setContent(h('div.empty', 'Fehler: ' + e.message)); }
   if (gen !== S.nav && !S.reroute) {
