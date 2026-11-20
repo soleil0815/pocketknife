@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.58.3",
+   "date": "2026-11-20",
+   "items": [
+    {
+     "kind": "fixed",
+     "audience": "admin",
+     "de": "Scan: Ein von Windows als „unbekannt“ gemeldeter Wert (4294967295) hinterließ einen Fehler im PowerShell-Protokoll des Computers. Das passiert nicht mehr.",
+     "en": "Scan: a value Windows reports as “unknown” (4294967295) left an error in the computer's PowerShell log. This no longer happens."
+    }
+   ]
+  },
+  {
    "version": "2.58.2",
    "date": "2026-11-19",
    "items": [

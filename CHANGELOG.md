@@ -2,6 +2,10 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.58.3 (20.11.2026)
+- **Scan: no more event 4100 for "unknown" WMI values:** the helper that turns WMI numbers into text (`PKEnum`, e.g. network adapter medium, Wake-on-LAN, physical disks, BitLocker, scheduled tasks) cast the value to `[int]` first. WMI reports "unknown" as 4294967295 (UInt32 max), which does not fit into Int32 – PowerShell logged "Cannot convert value 4294967295 to type System.Int32" (found with the PowerShell log check mode, diagnostic package 2.58.2, once on one computer). Only values that fit are looked up now; everything else is shown as the number itself. Constrained-Language-safe
+- **Self-test:** PKEnum in real PowerShell (CLM) with UInt32 max, Int64, strings and empty values
+
 ## pocketknife-2.58.2 (19.11.2026)
 - **Label content fixed:** every label shows the computer name and the serial number as text, with a barcode of the serial number below – the barcode choice in the print dialog (serial / computer name / none) is gone and a `barcode` value in `POST /api/labels` is ignored. Without a usable serial the label still reads "S/N unbekannt" and the barcode carries the computer name
 - **Help (de/en), README:** label section and feature row

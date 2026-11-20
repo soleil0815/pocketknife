@@ -37,7 +37,9 @@ function PKO($o, [int]$max = 40) {
   $h
 }
 # 2.50.1: numeric value of a CIM class -> the text the matching cmdlet shows (unknown numbers stay as they are)
-function PKEnum($map, $v) { if ($null -eq $v -or "$v" -eq '') { '' } elseif ($map.ContainsKey([int]$v)) { $map[[int]$v] } else { [string]$v } }
+# 2.58.3: only cast to [int] what fits - WMI reports "unknown" as 4294967295 (UInt32 max), and [int] of that threw
+# inside ForEach-Object (event 4100 "Cannot convert value 4294967295 to type System.Int32")
+function PKEnum($map, $v) { $s = "$v"; if ($null -eq $v -or $s -eq '') { '' } elseif ($s -match '^-?\d{1,9}$' -and $map.ContainsKey([int]$s)) { $map[[int]$s] } else { $s } }
 function PKStr($a) { if ($a) { (($a | Where-Object { $_ -ne 0 } | ForEach-Object { [char]$_ }) -join '').Trim() } else { '' } }
 
 # @module active_directory | Active Directory

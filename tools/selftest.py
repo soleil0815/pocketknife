@@ -11669,6 +11669,24 @@ def _():
     assert (a.title, a.serial, a.code) == ("PC-0001", "5CG1234XYZ", "5CG1234XYZ")
 
 
+@test("2.58.3 Scan script: PKEnum never casts values that do not fit into Int32 - WMI 'unknown' 4294967295 (UInt32 max) threw inside ForEach-Object (event 4100 'Cannot convert value 4294967295 to type System.Int32', diagnostic package 2.58.2)")
+def _():
+    import subprocess as _sp
+    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "scan_modules.ps1"), encoding="utf-8").read()
+    line = [x for x in src.splitlines() if x.startswith("function PKEnum(")][0]
+    assert "ContainsKey([int]$v)" not in line and "'^-?\\d{1,9}$'" in line, line
+    pw = os.environ.get("PK_PWSH")
+    if pw and os.path.exists(pw):
+        script = ("$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'\n" + line + "\n"
+                  "$m = @{ 0 = 'Unsupported'; 1 = 'Disabled'; 2 = 'Enabled' }\n"
+                  "$v = @([uint32]4294967295, [uint32]2, 1, '2', $null, '', 'x', [int64]9999999999, -1)\n"
+                  "'R:' + (($v | ForEach-Object { '[' + (PKEnum $m $_) + ']' }) -join ',')\n")
+        r = _sp.run([pw, "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "-"], input=script, capture_output=True, text=True,
+                    env={**os.environ, "TERM": "dumb"})
+        assert "R:[4294967295],[Enabled],[Disabled],[Enabled],[],[],[x],[9999999999],[-1]" in r.stdout, r.stdout + r.stderr
+        assert "Int32" not in r.stderr and "Exception" not in r.stderr, r.stderr
+
+
 def main():
     ok = 0
     for name, fn in RESULTS:
