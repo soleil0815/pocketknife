@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.59.0",
+   "date": "2026-11-20",
+   "items": [
+    {
+     "kind": "new",
+     "audience": "admin",
+     "de": "Neue Navigation oben wie in einem Windows-Programm: Übersicht, Inventar, Verteilung und Tools mit Reitern darunter, „+ Neu“ für Paket, Bereitstellung, Computer, Sammlung, Tool und Scanner von jeder Seite aus. Links ist jetzt mehr Platz für Sammlungsbaum und Tabellen.",
+     "en": "New navigation at the top like a Windows program: Overview, Inventory, Distribution and Tools with tabs below, “+ New” for package, deployment, computer, collection, tool and scanner from every page. More room on the left for the collection tree and tables."
+    }
+   ]
+  },
+  {
    "version": "2.58.3",
    "date": "2026-11-20",
    "items": [

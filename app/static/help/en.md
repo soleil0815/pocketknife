@@ -376,7 +376,7 @@ sudo sh update.sh latest        # back to "always the newest"
 
 `update.sh` remembers the running images, pulls the new ones (POCKET KNIFE and guacd), starts and waits for the health check. If the new version does not start, it offers to start the previous one again – without a download. If the new image brings a newer `docker-compose.yml`, it puts it in place and keeps the previous one as `docker-compose.yml.alt`. It unpacks nothing and builds nothing. `-y` answers all questions with "yes". It also works without the script: `docker compose pull && docker compose up -d`.
 
-**docker-compose.yml:** it changes only rarely. If a new version needs a newer file, POCKET KNIFE shows main admins **⚠ Notice** in the sidebar – a `sudo sh update.sh` then puts it in place (if you only use a container manager, take it from the image as during installation). Since 2.33 guacd comes as `ghcr.io/soleil0815/pocketknife-guacd` – the same official version, checked by POCKET KNIFE and published with the security updates; the file no longer has to change for it.
+**docker-compose.yml:** it changes only rarely. If a new version needs a newer file, POCKET KNIFE shows main admins **⚠ Notice** at the top next to the logo – a `sudo sh update.sh` then puts it in place (if you only use a container manager, take it from the image as during installation). Since 2.33 guacd comes as `ghcr.io/soleil0815/pocketknife-guacd` – the same official version, checked by POCKET KNIFE and published with the security updates; the file no longer has to change for it.
 
 **Stay on a version or go back:** `sudo sh update.sh <version>` (or in the `.env` `PK_IMAGE=ghcr.io/soleil0815/pocketknife:<version>` and `PK_GUACD_IMAGE=ghcr.io/soleil0815/pocketknife-guacd:<version>`, then `docker compose up -d`). If the newer version already extended the database, restore the backup "vor-<newer version>" (see [Backup](#backup)). If an older version starts on a database that a newer one has already used, POCKET KNIFE says so in the sidebar.
 
@@ -421,7 +421,17 @@ Only known program files of earlier versions are deleted (`app/`, `tools/`, `Doc
 
 ## Navigation and Language {#navigation}
 
-The left side lists the sections Overview, Computers, Software, Packages, Deployments, Schedules, Scan profiles, Tools, Kiosk, Reports, Log, Settings and Help. At the bottom left, **DE / EN** switches the interface language and **☀ / ☾** switches between light and dark mode; both apply to this browser. "As system" can be restored under **Settings → Maintenance → Appearance**.
+From 2.59.0 the navigation is at the **top**, like in a Windows program. The full width below belongs to the page, e.g. the collection tree and the tables. At the top there are four areas, with tabs for the pages of the area below them:
+
+| Area | Tabs |
+|---|---|
+| **Overview** | – |
+| **Inventory** | Computers · Software · Scan profiles · Reports |
+| **Distribution** | Packages · Deployments · Schedules · Repository · winget-Cache · Kiosk |
+| **Tools** | – |
+| right: **?** · **≡** · **⚙** | Help · Log · Settings (as tabs: Settings · Log · Help) |
+
+A click on an area opens the page you last used there, so every page stays one click away. **+ New** at the top right creates directly from every page: new package, new deployment, new schedule, add computer, new collection, new tool, new scanner. A click on your name at the far right opens the account menu. There, **DE / EN** switches the interface language and **☀ / ☾** switches between light and dark mode; both apply to this browser. It also shows the installed version and **Log out**. "As system" can be restored under **Settings → Maintenance → Appearance**. In a narrow window the top bar shows only the icons. OU admins see only the pages of their area.
 
 To change the width of the collection tree (and the report list), drag its right edge; double-click the edge = default width.
 
@@ -429,7 +439,7 @@ Almost every page has a **?** at the top right that jumps directly to the matchi
 
 ## News and updates {#news}
 
-After an update, a discreet **New** appears below the version number at the top left – with security updates **New · Security** with a red dot. One click opens the news: short points per version, marked as **Security**, **New**, **Improved** or **Fixed** (security always at the top). Afterwards the hint disappears; the news remains available via **News** in the same place. POCKET KNIFE remembers per user what they have seen – anyone who missed several updates sees all of them since. All details remain in the CHANGELOG.
+After an update, a discreet **New** appears at the top left next to the logo – with security updates **New · Security** with a red dot. One click opens the news: short points per version, marked as **Security**, **New**, **Improved** or **Fixed** (security always at the top). Afterwards the hint disappears; the news remains available via **News** in the same place. POCKET KNIFE remembers per user what they have seen – anyone who missed several updates sees all of them since. All details remain in the CHANGELOG.
 
 **New version available** (main admins only): the POCKET KNIFE server checks GitHub for the newest release once a day – never the browser, and through the proxy server if one is set. If there is a newer version, it shows **↑ 2.28.1 available** (red if it contains security updates). The click shows its news and how to update (container manager or `sudo sh update.sh`, see [Update](#update)); it is logged once. Also here, as **⚠ Notice**: a `docker-compose.yml` that is too old, or a database already used by a newer version.
 
@@ -972,7 +982,7 @@ Before every winget step, POCKET KNIFE checks whether winget is present. If it i
 
 # Repository {#repository}
 
-Under **Repository** (left menu) you manage the installation files directly in POCKET KNIFE – nobody needs access to the share for this. Writes always use the repository account (service account) on the server, never the operator's rights. **Prerequisite:** the account has **read and write** access to the share.
+Under **Distribution → Repository** you manage the installation files directly in POCKET KNIFE – nobody needs access to the share for this. Writes always use the repository account (service account) on the server, never the operator's rights. **Prerequisite:** the account has **read and write** access to the share.
 
 ![Repository view](img/en/repository.jpg)
 
@@ -1743,7 +1753,7 @@ POCKET KNIFE is free software under the **GNU Affero General Public License, ver
 
 ## Support {#support}
 
-POCKET KNIFE is free. If you would like to support its development, you can buy me a coffee: **"Buy me a coffee"** at the bottom of the navigation or at the end of the news (visible to administrators only) opens `https://buymeacoffee.com/soleil0815` in a new tab. Nothing is loaded from the internet before you click.
+POCKET KNIFE is free. If you would like to support its development, you can buy me a coffee: **"Buy me a coffee"** in the account menu (click on your name at the top right) or at the end of the news (visible to administrators only) opens `https://buymeacoffee.com/soleil0815` in a new tab. Nothing is loaded from the internet before you click.
 
 # Glossary {#glossary}
 

@@ -2,6 +2,11 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.59.0 (20.11.2026)
+- **Navigation at the top like a Windows program:** the side bar with 15 entries is gone; the full width now belongs to the page (collection tree, tables). At the top: **Übersicht**, **Inventar** (Computer · Software · Scanprofile · Berichte), **Verteilung** (Pakete · Bereitstellungen · Zeitpläne · Repository · winget-Cache · Kiosk) and **Tools**, with the pages of the current area as tabs below; a click on an area opens the page last used there, so every page stays one click away. At the top right: **+ Neu** (new package, deployment, schedule, add computer, new collection, tool, scanner – from every page, only what the user may create), help, log, settings and the account menu (name, OU area, version, DE/EN, light/dark, log out, website, coffee). News/update pills sit next to the logo. Narrow windows show only the icons. Computer sub pages and single deployments highlight their list. OU admins see exactly the pages as before
+- **Help (de/en):** "Navigation und Sprache" rewritten; news, docker-compose hint, repository, coffee; README (feature row "Bedienung", news row); screenshots overview, computer and deployment retaken
+- **Self-test:** every former side bar page in exactly one area, aliases, OU rules, "+ Neu" entries, account menu contents, no side bar column
+
 ## pocketknife-2.58.3 (20.11.2026)
 - **Scan: no more event 4100 for "unknown" WMI values:** the helper that turns WMI numbers into text (`PKEnum`, e.g. network adapter medium, Wake-on-LAN, physical disks, BitLocker, scheduled tasks) cast the value to `[int]` first. WMI reports "unknown" as 4294967295 (UInt32 max), which does not fit into Int32 – PowerShell logged "Cannot convert value 4294967295 to type System.Int32" (found with the PowerShell log check mode, diagnostic package 2.58.2, once on one computer). Only values that fit are looked up now; everything else is shown as the number itself. Constrained-Language-safe
 - **Self-test:** PKEnum in real PowerShell (CLM) with UInt32 max, Int64, strings and empty values

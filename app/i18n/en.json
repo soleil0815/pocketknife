@@ -6705,5 +6705,8 @@
  "Vorgabe aus Einstellungen → Inventar → Etiketten. Hier geändert gilt es nur für diesen Druck.": "Default from Settings → Inventory → Labels. Changed here, it applies to this print only.",
  "Auf dem Etikett": "On the label",
  "Computername und Seriennummer, darunter ein Barcode mit der Seriennummer": "Computer name and serial number, with a barcode of the serial number below",
- "Ohne brauchbare Seriennummer (z. B. „To be filled by O.E.M.“) steht „S/N unbekannt“ darauf und der Computername im Barcode.": "Without a usable serial number (e.g. “To be filled by O.E.M.”) the label reads “S/N unbekannt” and the barcode contains the computer name."
+ "Ohne brauchbare Seriennummer (z. B. „To be filled by O.E.M.“) steht „S/N unbekannt“ darauf und der Computername im Barcode.": "Without a usable serial number (e.g. “To be filled by O.E.M.”) the label reads “S/N unbekannt” and the barcode contains the computer name.",
+ "Konto, Sprache, Darstellung, Abmelden": "Account, language, appearance, log out",
+ "Neues Paket, neue Bereitstellung, Computer, Sammlung, Tool …": "New package, new deployment, computer, collection, tool …",
+ "Verteilung": "Distribution"
 }

@@ -6555,7 +6555,7 @@ def _():
         db.ex("DELETE FROM computers WHERE id IN (?,?)", (alt, neu))
         db.set_setting("repo_path", old_repo or "")
     js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
-    assert "['wingetcache', 'winget-Cache', 'db']," in js and "'wingetcache']);" in js[js.index("const OU_HIDDEN"):js.index("const OU_HIDDEN") + 120]
+    assert "['wingetcache', 'winget-Cache']" in js and "'wingetcache']);" in js[js.index("const OU_HIDDEN"):js.index("const OU_HIDDEN") + 120]
     sw = js[js.index("async function viewSoftware("):js.index("// --- Exceptions of the up-to-date check")]
     assert "#/wingetcache" not in sw, "no longer under software"
     pk = js[js.index("async function viewPackages("):js.index("// --- 2.32: merge packages into a new one")]
@@ -9571,8 +9571,8 @@ def _():
     assert "innerHTML" not in blk
     # shown in the navigation of the administration only - not on the login page
     assert js.count("coffeeLink()") == 2, "defined once, used once"
-    sh = js[js.index("function renderShell() {"):js.index("\n}\n", js.index("function renderShell() {"))]
-    assert "coffeeLink()" in sh
+    sh = js[js.index("function userMenu(anchor) {"):js.index("\n}\n", js.index("function userMenu(anchor) {"))]
+    assert "coffeeLink()" in sh, "2.59.0: in the account menu of the administration"
     login = js[js.index("websiteLink('login-web', false)") - 400:js.index("websiteLink('login-web', false)") + 200]
     assert "coffee" not in login
     # never in the kiosk, and nothing from buymeacoffee is embedded (no image, script or font)
@@ -11685,6 +11685,40 @@ def _():
                     env={**os.environ, "TERM": "dumb"})
         assert "R:[4294967295],[Enabled],[Disabled],[Enabled],[],[],[x],[9999999999],[-1]" in r.stdout, r.stdout + r.stderr
         assert "Int32" not in r.stderr and "Exception" not in r.stderr, r.stderr
+
+
+@test("2.59.0 Navigation at the top: four areas with tabs below cover every former side bar entry exactly once, detail pages map to their list, OU rules unchanged, '+ Neu' with the create dialogs, account menu with language/theme/log out/version/website/coffee; no side bar column any more")
+def _():
+    base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static")
+    js = open(os.path.join(base, "app.js"), encoding="utf-8").read()
+    css = open(os.path.join(base, "app.css"), encoding="utf-8").read()
+    import re as _re
+    g = js[js.index("const NAV_GROUPS = ["):js.index("const NAV_ALIAS")]
+    pages = _re.findall(r"\['([a-z]+)', '[^']+'\]", g)
+    want = ["dashboard", "computers", "software", "scanners", "reports", "packages", "deployments", "schedules", "repository",
+            "wingetcache", "kiosk", "tools", "settings", "logs", "help"]
+    assert sorted(pages) == sorted(want) and len(pages) == len(set(pages)), pages
+    views = js[js.index("const VIEWS = {"):js.index("};", js.index("const VIEWS = {"))]
+    for p in want:
+        assert f"{p}:" in views or f" {p}," in views, p
+    alias = js[js.index("const NAV_ALIAS = {"):js.index("};", js.index("const NAV_ALIAS = {"))]
+    for k in ("computer: 'computers'", "deployment: 'deployments'", "diskusage: 'computers'", "files: 'computers'", "eventlog: 'computers'", "gphistory: 'computers'"):
+        assert k in alias, k
+    assert "const navAllowed = (page) => (!isOU() || !OU_HIDDEN.has(page)) && (page !== 'repository' || mayBuild());" in js
+    sh = js[js.index("function renderShell() {"):js.index("// 2.59.0: tabs of the current area")]
+    assert "h('nav.nav.topnav'" in sh and "h('nav.subnav#subnav')" in sh and "newMenuButton()" in sh and "h('div#news-pill')" in sh
+    assert "S_last[g[0]]" in sh, "an area opens the page last used there"
+    um = js[js.index("function userMenu(anchor) {"):js.index("\n}\n", js.index("function userMenu(anchor) {"))]
+    for k in ("langSwitch()", "themeToggle()", "btn('Abmelden', logout", "websiteLink('nav-web')", "coffeeLink()", "S.me.version"):
+        assert k in um, k
+    nm = js[js.index("function newMenuButton() {"):js.index("// Account menu at the top right")]
+    for k in ("packageDlg(null)", "deployDlg({})", "scheduleDlg(null", "addComputerDlg()", "collectionDlg(null)", "toolDlg(null)", "scannerDlg(null"):
+        assert k in nm, k
+    assert "mayBuild() ? { label: 'Neues Paket'" in nm and "...(isOU() ? [] :" in nm, "OU admins: only what they may create"
+    assert "drawSubnav(" in js[js.index("async function route() {"):js.index("async function route() {") + 1500]
+    assert ".shell { display: grid; grid-template-columns: 1fr; grid-template-rows: auto 1fr;" in css and ".subnav a.on" in css
+    assert "228px" not in css.split(".shell {")[1].split("}")[0]
+    assert "$('#tabs')" not in js and "h('li.sep')" not in js
 
 
 def main():

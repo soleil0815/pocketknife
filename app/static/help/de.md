@@ -376,7 +376,7 @@ sudo sh update.sh latest        # wieder „immer die neueste“
 
 `update.sh` merkt sich die laufenden Images, zieht die neuen (POCKET KNIFE und guacd), startet und wartet auf den Gesundheitscheck. Startet die neue Version nicht, bietet es an, die vorherige wieder zu starten – ohne Download. Bringt das neue Image eine neuere `docker-compose.yml` mit, legt es sie hin und behält die bisherige als `docker-compose.yml.alt`. Es entpackt nichts und baut nichts. `-y` beantwortet alle Fragen mit „ja“. Ganz ohne Skript geht es auch: `docker compose pull && docker compose up -d`.
 
-**docker-compose.yml:** Sie ändert sich nur selten. Braucht eine neue Version eine neuere Datei, zeigt POCKET KNIFE Hauptadmins in der Seitenleiste **⚠ Hinweis** – ein `sudo sh update.sh` legt sie dann hin (wer nur mit einer Container-Verwaltung arbeitet, holt sie wie bei der Installation aus dem Image). guacd kommt seit 2.33 als `ghcr.io/soleil0815/pocketknife-guacd` – dieselbe offizielle Version, von POCKET KNIFE geprüft und mit den Sicherheitsupdates veröffentlicht; die Datei muss sich dafür nicht mehr ändern.
+**docker-compose.yml:** Sie ändert sich nur selten. Braucht eine neue Version eine neuere Datei, zeigt POCKET KNIFE Hauptadmins oben neben dem Logo **⚠ Hinweis** – ein `sudo sh update.sh` legt sie dann hin (wer nur mit einer Container-Verwaltung arbeitet, holt sie wie bei der Installation aus dem Image). guacd kommt seit 2.33 als `ghcr.io/soleil0815/pocketknife-guacd` – dieselbe offizielle Version, von POCKET KNIFE geprüft und mit den Sicherheitsupdates veröffentlicht; die Datei muss sich dafür nicht mehr ändern.
 
 **Bei einer Version bleiben oder zurückgehen:** `sudo sh update.sh <Version>` (oder in der `.env` `PK_IMAGE=ghcr.io/soleil0815/pocketknife:<Version>` und `PK_GUACD_IMAGE=ghcr.io/soleil0815/pocketknife-guacd:<Version>`, dann `docker compose up -d`). Hat die neuere Version die Datenbank schon erweitert, die Sicherung „vor-<neuere Version>“ zurückspielen (siehe [Sicherung](#backup)). Startet eine ältere Version auf einer Datenbank, die schon eine neuere benutzt hat, sagt POCKET KNIFE das in der Seitenleiste.
 
@@ -421,7 +421,17 @@ Gelöscht werden nur bekannte Programmdateien früherer Versionen (`app/`, `tool
 
 ## Navigation und Sprache {#navigation}
 
-Links stehen die Bereiche Übersicht, Computer, Software, Pakete, Bereitstellungen, Zeitpläne, Scanprofile, Tools, Kiosk, Berichte, Protokoll, Einstellungen und Hilfe. Unten links wechseln Sie mit **DE / EN** die Sprache der Oberfläche und mit **☀ / ☾** zwischen heller und dunkler Darstellung; beides gilt für diesen Browser. „Wie System“ lässt sich unter **Einstellungen → Wartung → Darstellung** wieder einstellen.
+Ab 2.59.0 steht die Navigation **oben** wie in einem Windows-Programm. Die ganze Breite darunter gehört der Seite, z. B. dem Sammlungsbaum und den Tabellen. Oben gibt es vier Bereiche, darunter Reiter mit den Seiten des Bereichs:
+
+| Bereich | Reiter |
+|---|---|
+| **Übersicht** | – |
+| **Inventar** | Computer · Software · Scanprofile · Berichte |
+| **Verteilung** | Pakete · Bereitstellungen · Zeitpläne · Repository · winget-Cache · Kiosk |
+| **Tools** | – |
+| rechts: **?** · **≡** · **⚙** | Hilfe · Protokoll · Einstellungen (als Reiter: Einstellungen · Protokoll · Hilfe) |
+
+Ein Klick auf einen Bereich öffnet die Seite, die Sie dort zuletzt benutzt haben. Jede Seite bleibt also mit einem Klick erreichbar. **+ Neu** oben rechts legt von jeder Seite aus direkt an: Neues Paket, Neue Bereitstellung, Neuer Zeitplan, Computer hinzufügen, Neue Sammlung, Neues Tool, Neuer Scanner. Ein Klick auf Ihren Namen ganz rechts öffnet das Kontomenü. Dort wechseln Sie mit **DE / EN** die Sprache der Oberfläche und mit **☀ / ☾** zwischen heller und dunkler Darstellung; beides gilt für diesen Browser. Dort stehen auch die installierte Version und **Abmelden**. „Wie System“ lässt sich unter **Einstellungen → Wartung → Darstellung** wieder einstellen. In einem schmalen Fenster zeigt die obere Leiste nur noch die Symbole. OU-Admins sehen nur die Seiten ihres Bereichs.
 
 Die Breite des Sammlungsbaums (und der Berichtsliste) ändern Sie, indem Sie den Rand rechts davon ziehen; Doppelklick auf den Rand = Standardbreite.
 
@@ -429,7 +439,7 @@ Fast jede Seite hat oben rechts ein **?**, das direkt zum passenden Kapitel dies
 
 ## Neuigkeiten und Updates {#news}
 
-Unter der Versionsnummer links oben steht nach einem Update dezent **Neu** – bei Sicherheitsupdates **Neu · Sicherheit** mit rotem Punkt. Ein Klick öffnet die Neuigkeiten: je Version kurze Punkte, gekennzeichnet als **Sicherheit**, **Neu**, **Verbessert** oder **Behoben** (Sicherheit immer oben). Danach verschwindet der Hinweis; die Neuigkeiten bleiben über **Neuigkeiten** an derselben Stelle erreichbar. POCKET KNIFE merkt sich je Benutzer, was er gesehen hat – wer mehrere Updates verpasst hat, sieht alle seither. Alle Einzelheiten stehen weiterhin im CHANGELOG.
+Oben links neben dem Logo steht nach einem Update dezent **Neu** – bei Sicherheitsupdates **Neu · Sicherheit** mit rotem Punkt. Ein Klick öffnet die Neuigkeiten: je Version kurze Punkte, gekennzeichnet als **Sicherheit**, **Neu**, **Verbessert** oder **Behoben** (Sicherheit immer oben). Danach verschwindet der Hinweis; die Neuigkeiten bleiben über **Neuigkeiten** an derselben Stelle erreichbar. POCKET KNIFE merkt sich je Benutzer, was er gesehen hat – wer mehrere Updates verpasst hat, sieht alle seither. Alle Einzelheiten stehen weiterhin im CHANGELOG.
 
 **Neue Version verfügbar** (nur Hauptadmins): Der POCKET-KNIFE-Server fragt einmal täglich bei GitHub nach dem neuesten Release – nie der Browser, und über den Proxyserver, falls eingetragen. Gibt es eine neuere Version, steht dort **↑ 2.28.1 verfügbar** (rot, wenn sie Sicherheitsupdates enthält). Der Klick zeigt ihre Neuigkeiten und wie Sie aktualisieren (Container-Verwaltung oder `sudo sh update.sh`, siehe [Update](#update)); im Protokoll steht es einmal. Ebenfalls hier, als **⚠ Hinweis**: eine zu alte `docker-compose.yml` oder eine Datenbank, die schon von einer neueren Version benutzt wurde.
 
@@ -972,7 +982,7 @@ Vor jedem winget-Schritt prüft POCKET KNIFE, ob winget vorhanden ist. Fehlt es 
 
 # Repository {#repository}
 
-Unter **Repository** (links im Menü) verwalten Sie die Installationsdateien direkt in POCKET KNIFE – niemand braucht dafür Zugriff auf die Freigabe. Geschrieben wird immer mit dem Repository-Konto (Dienstkonto) auf dem Server, nie mit den Rechten des Bedieners. **Voraussetzung:** Das Konto hat auf der Freigabe **Lesen und Schreiben**.
+Unter **Verteilung → Repository** verwalten Sie die Installationsdateien direkt in POCKET KNIFE – niemand braucht dafür Zugriff auf die Freigabe. Geschrieben wird immer mit dem Repository-Konto (Dienstkonto) auf dem Server, nie mit den Rechten des Bedieners. **Voraussetzung:** Das Konto hat auf der Freigabe **Lesen und Schreiben**.
 
 ![Repository-Ansicht](img/de/repository.jpg)
 
@@ -1742,7 +1752,7 @@ POCKET KNIFE ist freie Software unter der **GNU Affero General Public License, V
 
 ## Unterstützen {#support}
 
-POCKET KNIFE ist kostenlos. Wer die Weiterentwicklung unterstützen möchte, kann einen Kaffee spendieren: **„Kaffee spendieren“** unten in der Navigation oder **„Einen Kaffee spendieren“** am Ende der Neuigkeiten (nur für Administratoren sichtbar) öffnet `https://buymeacoffee.com/soleil0815` in einem neuen Tab. Es wird dabei nichts aus dem Internet geladen, bevor Sie klicken.
+POCKET KNIFE ist kostenlos. Wer die Weiterentwicklung unterstützen möchte, kann einen Kaffee spendieren: **„Kaffee spendieren“** im Kontomenü (Klick auf Ihren Namen oben rechts) oder **„Einen Kaffee spendieren“** am Ende der Neuigkeiten (nur für Administratoren sichtbar) öffnet `https://buymeacoffee.com/soleil0815` in einem neuen Tab. Es wird dabei nichts aus dem Internet geladen, bevor Sie klicken.
 
 # Glossar {#glossary}
 
