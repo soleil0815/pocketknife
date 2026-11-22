@@ -445,7 +445,11 @@ ROUTES = {
     ("GET", "/api/scanners"): OPEN,
     ("GET", "/api/marks"): OPEN,
     ("POST", "/api/labels"): OPEN,
-    ("GET", "/api/labels/defaults"): OPEN,           # 2.58.1: central footer for the print dialog                   # 2.58.0: handler checks the IDs (own computers only)                     # 2.57.0: handler filters (packages/collections of the own area)
+    ("GET", "/api/labels/defaults"): OPEN,
+    ("GET", "/api/recent"): OPEN,                    # 2.60.0: own list, filtered by the computers in scope
+    ("POST", "/api/recent/{cid}"): _p_cid,            # foreign computer: 404 like every computer route
+    ("DELETE", "/api/recent/{cid}"): _p_cid,
+    ("DELETE", "/api/recent"): OPEN,           # 2.58.1: central footer for the print dialog                   # 2.58.0: handler checks the IDs (own computers only)                     # 2.57.0: handler filters (packages/collections of the own area)
     ("GET", "/api/scanprofiles"): OPEN,
     ("GET", "/api/fields"): OPEN,
     ("GET", "/api/collections"): OPEN,                 # handler counts only own computers

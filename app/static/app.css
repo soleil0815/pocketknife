@@ -806,3 +806,16 @@ body.pk-busy, body.pk-busy * { cursor: progress !important; }
 
 /* 2.57.1: computer list while another collection loads - the click is visibly received */
 .pane.loading { opacity: .55; transition: opacity .12s ease .08s; cursor: progress; }
+
+/* 2.60.0: last opened computers as tabs in the row below the navigation */
+.subnav .rtabs { display: flex; align-items: center; gap: 4px; margin-left: auto; padding-left: 14px; flex: none; }
+.subnav .rtabs > svg { width: 15px; height: 15px; color: var(--muted); margin-right: 2px; flex: none; }
+.subnav a.rtab { display: inline-flex; align-items: center; gap: 6px; margin: 5px 0; padding: 4px 6px 4px 10px; border: 1px solid var(--line);
+  border-radius: var(--r-s); border-bottom-width: 1px; font-size: 12.5px; color: var(--text); background: var(--panel); }
+.subnav a.rtab:hover { border-color: var(--accent); }
+.subnav a.rtab.on { border-color: var(--accent); background: var(--side-on); font-weight: 600; }
+.subnav a.rtab .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex: none; }
+.subnav a.rtab .dot.on { background: var(--ok); }
+.subnav a.rtab .dot.warn { background: var(--warn); }
+.subnav .rtab-x { width: 18px; height: 18px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--muted); line-height: 1; font-size: 14px; }
+.subnav .rtab-x:hover { background: var(--side-2); color: var(--text); }

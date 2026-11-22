@@ -6708,5 +6708,9 @@
  "Ohne brauchbare Seriennummer (z. B. „To be filled by O.E.M.“) steht „S/N unbekannt“ darauf und der Computername im Barcode.": "Without a usable serial number (e.g. “To be filled by O.E.M.”) the label reads “S/N unbekannt” and the barcode contains the computer name.",
  "Konto, Sprache, Darstellung, Abmelden": "Account, language, appearance, log out",
  "Neues Paket, neue Bereitstellung, Computer, Sammlung, Tool …": "New package, new deployment, computer, collection, tool …",
- "Verteilung": "Distribution"
+ "Verteilung": "Distribution",
+ "Alle schließen": "Close all",
+ "Andere schließen": "Close others",
+ "Tab schließen": "Close tab",
+ "Zuletzt geöffnete Computer": "Recently opened computers"
 }

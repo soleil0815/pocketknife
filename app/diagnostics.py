@@ -567,6 +567,8 @@ def _stats(since, an):
         "pscheck": _pscheck(),
         "inuse": _inuse(since),
         "marks": _warnmarks(since),
+        # 2.60.0: tabs of the last opened computers - how many users use them (counts only)
+        "recent_tabs": {"users": db.val("SELECT COUNT(*) FROM user_prefs WHERE key='recent_computers' AND value NOT IN ('', '[]')", (), 0)},
         "labels": {"prints": db.val("SELECT COUNT(*) FROM logs WHERE ts >= ? AND message LIKE 'Etiketten gedruckt:%'", (since,), 0),
                    "central_footer": bool(db.setting("label_footer"))},  # 2.58.1: only whether one is set, never the text
     }
@@ -938,6 +940,7 @@ Dateien
                        längste Wartezeit, Einstellungen, Nutzung in Paketen und Zeitplänen – nur Anzahlen),
                        gelbes Warnzeichen (wie viele Scanner/Tools/Scanprofile/Sammlungen/Pakete es tragen,
                        Gründe nach Art, Exporte/Importe von Tools, Scannern, Profilen, Sammlungen – nur Anzahlen),
+                       zuletzt geöffnete Computer (wie viele Benutzer die Reiter nutzen),
                        Etikettendruck (Anzahl Druckaufträge im Zeitraum, ob eine zentrale Fußzeile gesetzt ist –
                        nicht ihr Text)
   powershell_protokoll.txt  Bericht des Prüfmodus: was POCKET KNIFE in den PowerShell-Protokollen der

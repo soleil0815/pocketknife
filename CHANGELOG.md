@@ -2,6 +2,12 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.60.0 (22.11.2026)
+- **Recently opened computers as tabs:** the last 10 computers a user opened appear as tabs (like a browser) on the right of the tab row below the navigation – on every page, one click opens the computer again. Dot for online/offline/address not confirmed, tooltip with the logged-on user. Tabs keep their place when switching between them, a new computer is appended, beyond 10 the one used longest ago drops out; × closes a tab, right-click offers "Andere schließen" / "Alle schließen". Stored per user on the server (`user_prefs`, only computer IDs) – the same list on every PC; deleted computers disappear, OU admins only see and add computers of their area. New module `app/recent.py`, endpoints `GET/DELETE /api/recent`, `POST/DELETE /api/recent/{id}`
+- **Diagnostic package:** `recent_tabs.users` (how many users use the tabs)
+- **Help (de/en), README** (feature row "Bedienung", module tree)
+- **Self-test:** order, limit, LRU eviction, unknown/deleted computers, OU scope, routes, UI wiring
+
 ## pocketknife-2.59.0 (20.11.2026)
 - **Navigation at the top like a Windows program:** the side bar with 15 entries is gone; the full width now belongs to the page (collection tree, tables). At the top: **Übersicht**, **Inventar** (Computer · Software · Scanprofile · Berichte), **Verteilung** (Pakete · Bereitstellungen · Zeitpläne · Repository · winget-Cache · Kiosk) and **Tools**, with the pages of the current area as tabs below; a click on an area opens the page last used there, so every page stays one click away. At the top right: **+ Neu** (new package, deployment, schedule, add computer, new collection, tool, scanner – from every page, only what the user may create), help, log, settings and the account menu (name, OU area, version, DE/EN, light/dark, log out, website, coffee). News/update pills sit next to the logo. Narrow windows show only the icons. Computer sub pages and single deployments highlight their list. OU admins see exactly the pages as before
 - **Help (de/en):** "Navigation und Sprache" rewritten; news, docker-compose hint, repository, coffee; README (feature row "Bedienung", news row); screenshots overview, computer and deployment retaken

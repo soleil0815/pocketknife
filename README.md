@@ -2,7 +2,7 @@ English version: [README.en.md](README.en.md)
 
 # POCKET KNIFE
 
-Aktuelle Version: **pocketknife-2.59.0** – siehe `CHANGELOG.md`.
+Aktuelle Version: **pocketknife-2.60.0** – siehe `CHANGELOG.md`.
 
 Webseite: [helfi.space](https://helfi.space)
 
@@ -61,7 +61,7 @@ Für Entwickler: Die Texte des Handbuchs stehen in `app/static/help/de.md` und `
 | E-Mail | **Berichte per E-Mail** zu festen Zeiten (mehrere Berichte in einer Mail, Tabelle + CSV-Anhang, optional nur wenn nicht leer) und optionale **Benachrichtigungen** bei Ereignissen (wenig Speicherplatz, lange offline, Scan/Bereitstellung/Sicherung fehlgeschlagen, Dienstkonto-Schutz) – SMTP mit STARTTLS/SSL, Kennwort verschlüsselt |
 | Fernsitzungen | RDP und VNC direkt im Browser (Apache Guacamole), wahlweise mit der eigenen POCKET KNIFE-Anmeldung bzw. einem zentralen VNC-Kennwort, Zwischenablage, Strg+Alt+Entf, Vollbild |
 | Protokoll | Alle Ereignisse in der Datenbank (filterbar, CSV) und als rotierende Datei in `/data/logs/` |
-| Bedienung | Navigation oben wie in einem Windows-Programm: Übersicht, Inventar, Verteilung, Tools mit Reitern darunter, **+ Neu** für Paket, Bereitstellung, Computer, Sammlung, Tool und Scanner von jeder Seite aus; die volle Breite bleibt für Sammlungsbaum und Tabellen |
+| Bedienung | Navigation oben wie in einem Windows-Programm: Übersicht, Inventar, Verteilung, Tools mit Reitern darunter, **+ Neu** für Paket, Bereitstellung, Computer, Sammlung, Tool und Scanner von jeder Seite aus; die letzten 10 geöffneten Computer als Reiter wie im Browser (je Benutzer, auf jedem PC gleich); die volle Breite bleibt für Sammlungsbaum und Tabellen |
 | Etiketten | Etiketten mit Computername, Seriennummer und Modell (62 × 29 mm, z. B. Brother QL mit DK-11209) – einzeln aus der Computeransicht oder für die Auswahl in der Computerliste; Barcode (Code 128) mit der Seriennummer, Fußzeile zentral unter Einstellungen festlegbar; PDF ohne Zusatzsoftware |
 | Gelbes Warnzeichen | Ein einheitliches gelbes **!** bei eigenen Scannern, Scanprofilen, Sammlungen, Tools und Paketen, wenn etwas nicht stimmt (Warnung im PowerShell-Protokoll, Bruch im Repository, Scanner liefert Fehler oder keine Werte mehr, Verweis fehlt …) – Tooltip mit dem Grund, Klick führt zur Stelle; die Übersicht zeigt alles in einer Liste |
 | Export/Import | Pakete, Tools, eigene Scanner, Scanprofile und Sammlungen (einzeln oder ganze Ordner) als Datei – z. B. in eine zweite Installation; Verweise werden über den Namen zugeordnet, fehlende vor dem Import aufgelistet |
@@ -619,6 +619,7 @@ app/
 ├── main.py          Web-API
 ├── ad.py            LDAPS, Anmeldung, Gruppenprüfung, Computer-Abgleich
 ├── inuse.py         Updatesperre: Programm geöffnet? Zurückstellen und erneut fragen
+├── recent.py        zuletzt geöffnete Computer je Benutzer (Reiter oben)
 ├── labels.py        Etiketten als PDF (62 × 29 mm, Code 128)
 ├── health.py        gelbes Warnzeichen: Zustand eigener Scanner, Sammlungen mit fehlenden Verweisen
 ├── cfgexport.py     Export/Import von Tools, eigenen Scannern, Scanprofilen und Sammlungen

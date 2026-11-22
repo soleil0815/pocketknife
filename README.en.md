@@ -2,7 +2,7 @@ Deutsche Fassung: [README.md](README.md)
 
 # POCKET KNIFE
 
-Current version: **pocketknife-2.59.0** – see `CHANGELOG.md` (German).
+Current version: **pocketknife-2.60.0** – see `CHANGELOG.md` (German).
 
 Website: [helfi.space](https://helfi.space)
 
@@ -61,7 +61,7 @@ For developers: the manual texts are in `app/static/help/de.md` and `en.md`; `py
 | E-mail | **Reports by e-mail** at fixed times (several reports in one e-mail, table + CSV attachment, optionally only if not empty) and optional **notifications** on events (low disk space, offline for a long time, scan/deployment/backup failed, service account protection) – SMTP with STARTTLS/SSL, password encrypted |
 | Remote sessions | RDP and VNC directly in the browser (Apache Guacamole), optionally with your own POCKET KNIFE sign-in or a central VNC password, clipboard, Ctrl+Alt+Del, full screen |
 | Log | All events in the database (filterable, CSV) and as a rotating file in `/data/logs/` |
-| Interface | Navigation at the top like a Windows program: Overview, Inventory, Distribution, Tools with tabs below, **+ New** for package, deployment, computer, collection, tool and scanner from every page; the full width stays for the collection tree and tables |
+| Interface | Navigation at the top like a Windows program: Overview, Inventory, Distribution, Tools with tabs below, **+ New** for package, deployment, computer, collection, tool and scanner from every page; the last 10 opened computers as tabs like in a browser (per user, the same on every PC); the full width stays for the collection tree and tables |
 | Labels | Labels with computer name, serial number and model (62 × 29 mm, e.g. Brother QL with DK-11209) – single from the computer view or for the selection in the computer list; barcode (Code 128) with the serial number, footer set centrally in the settings; PDF without extra software |
 | Yellow warning sign | One uniform yellow **!** on custom scanners, scan profiles, collections, tools and packages when something is wrong (warning in the PowerShell log, break in the repository, scanner returns errors or no values any more, reference missing …) – tooltip with the reason, a click leads to the place to fix it; the overview shows everything in one list |
 | Export/import | Packages, tools, custom scanners, scan profiles and collections (single ones or whole folders) as a file – e.g. into a second installation; references are matched by name, missing ones are listed before the import |
@@ -621,6 +621,7 @@ app/
 ├── main.py          web API
 ├── ad.py            LDAPS, sign-in, group check, computer sync
 ├── inuse.py         update lock: program open? postpone and ask again
+├── recent.py        recently opened computers per user (tabs at the top)
 ├── labels.py        labels as PDF (62 × 29 mm, Code 128)
 ├── health.py        yellow warning sign: state of custom scanners, collections with missing references
 ├── cfgexport.py     export/import of tools, custom scanners, scan profiles and collections

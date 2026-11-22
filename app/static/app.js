@@ -1073,6 +1073,7 @@ function renderShell() {
   const main = h('div.main', h('nav.subnav#subnav'), h('header.topbar#topbar'), h('main.content#content'));
   $('#app').replaceChildren(h('div.shell', nav, main));
   loadNews();
+  GET('/api/recent').then((r) => { S.recent = r; drawSubnav(parseHash().parts[0] || 'dashboard'); }).catch(() => {});
 }
 
 // 2.59.0: tabs of the current area (e.g. Verteilung: Pakete · Bereitstellungen · …); hidden when the area has one page
@@ -1082,9 +1083,26 @@ function drawSubnav(page) {
   const g = navGroupOf(page);
   const tabs = g ? g[3].filter((x) => navAllowed(x[0])) : [];
   if (g) S.navLast[g[0]] = NAV_ALIAS[page] || page;
-  el.replaceChildren(...(tabs.length > 1 ? tabs.map(([k, l]) => h('a', { href: `#/${k}`, class: k === (NAV_ALIAS[page] || page) ? 'on' : '' }, l)) : []));
-  el.classList.toggle('empty', tabs.length < 2);
+  // 2.60.0: the last opened computers as tabs on the right - one click back to the object from every page
+  const rec = S.recent || [];
+  const curPc = page === 'computer' ? Number(parseHash().parts[1]) : (['diskusage', 'files', 'eventlog', 'gphistory'].includes(page) ? Number(parseHash().parts[1]) : 0);
+  const rtab = (r) => h('a.rtab', { href: `#/computer/${r.id}`, class: r.id === curPc ? 'on' : '', title: [r.name, r.current_user].filter(Boolean).join(' · '),
+    oncontextmenu: (e) => { e.preventDefault(); contextMenu(e.clientX, e.clientY, [
+      { label: 'Tab schließen', icon: 'x', onClick: () => closeRecent(r.id) },
+      rec.length > 1 ? { label: 'Andere schließen', icon: 'x', onClick: async () => { for (const x of rec) if (x.id !== r.id) await DEL(`/api/recent/${x.id}`); S.recent = await GET('/api/recent'); drawSubnav(page); } } : null,
+      { label: 'Alle schließen', icon: 'x', onClick: async () => { S.recent = await DEL('/api/recent'); drawSubnav(page); } }].filter(Boolean)); } },
+    h('span.dot', { class: r.addr_problem ? 'warn' : (r.online ? 'on' : 'off') }), h('span.raw', r.name),
+    h('button.rtab-x', { type: 'button', title: tr('Tab schließen'), 'aria-label': tr('Tab schließen'),
+      onclick: (e) => { e.preventDefault(); e.stopPropagation(); closeRecent(r.id); } }, '×'));
+  el.replaceChildren(...(tabs.length > 1 ? tabs.map(([k, l]) => h('a', { href: `#/${k}`, class: k === (NAV_ALIAS[page] || page) ? 'on' : '' }, l)) : []),
+    ...(rec.length ? [h('div.rtabs', { title: tr('Zuletzt geöffnete Computer') }, icon('pc'), ...rec.map(rtab))] : []));
+  el.classList.toggle('empty', tabs.length < 2 && !rec.length);
   document.querySelectorAll('[data-area]').forEach((a) => a.classList.toggle('active', !!g && a.getAttribute('data-area') === g[0]));
+}
+
+async function closeRecent(id) {
+  try { S.recent = await DEL(`/api/recent/${id}`); } catch (e) { return; }
+  drawSubnav(parseHash().parts[0]);
 }
 
 // "+ Neu": create something from every page without first going to its list
@@ -2759,6 +2777,7 @@ function osShort(name) {
 async function viewComputer(parts, params) {
   const id = Number(parts[0]);
   const c = await GET(`/api/computers/${id}`);
+  POST(`/api/recent/${id}`, {}).then((r) => { S.recent = r; drawSubnav(parseHash().parts[0]); }).catch(() => {});  // 2.60.0: tab at the top
   let cat = params.get('cat') || params.get('tab') || 'computer';
   if (!PC_CATS.some((x) => x[0] === cat)) cat = 'computer';
   const e = c.extra || {};

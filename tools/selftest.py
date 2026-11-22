@@ -11721,6 +11721,59 @@ def _():
     assert "$('#tabs')" not in js and "h('li.sep')" not in js
 
 
+@test("2.60.0 Recently opened computers as tabs: per user (the same on every PC), at most 10, tabs keep their place, the one used longest ago goes, deleted computers disappear, OU admins only computers of their area; tabs on every page with close/close others/close all")
+def _():
+    from app import access, recent
+    adm = {"username": "pk-t-recent", "role": "admin"}
+    db.ex("DELETE FROM user_prefs WHERE username=?", (adm["username"],))
+    ids = [r["id"] for r in db.q("SELECT id FROM computers ORDER BY id LIMIT 3")]
+    extra = []
+    try:
+        for i in range(12):
+            extra.append(db.ex("INSERT INTO computers(name) VALUES(?)", (f"PK-T-REC-{i:02d}",)))
+        allc = ids + extra
+        orig_now = recent.util.now
+        clock = iter(f"2026-11-22 10:{m:02d}:00" for m in range(60))
+        recent.util.now = lambda: next(clock)
+        try:
+            recent.touch(adm, allc[0]); recent.touch(adm, allc[1]); recent.touch(adm, allc[2])
+            lst = recent.touch(adm, allc[0])
+            assert [x["id"] for x in lst] == allc[:3], "switching does not reorder the tabs"
+            for cid in allc[3:11]:
+                lst = recent.touch(adm, cid)
+            assert len(lst) == 10 and lst[0]["id"] == allc[0]
+            lst = recent.touch(adm, allc[11])
+            assert len(lst) == 10 and allc[1] not in [x["id"] for x in lst] and allc[2] not in [x["id"] for x in lst], "the ones used longest ago go"
+            assert allc[0] in [x["id"] for x in lst], "used again recently - stays"
+            assert lst[-1]["id"] == allc[11] and set(lst[0]) == {"id", "name", "online", "addr_problem", "current_user"}
+            lst = recent.touch(adm, 999999)
+            assert 999999 not in [x["id"] for x in lst], "unknown computer is not added"
+        finally:
+            recent.util.now = orig_now
+        db.ex("DELETE FROM computers WHERE id=?", (extra[5],))
+        assert extra[5] not in [x["id"] for x in recent.listing(adm)], "deleted computer disappears"
+        assert [x["id"] for x in recent.close(adm, allc[0])][0] != allc[0]
+        orig = access.computer_ids
+        access.computer_ids = lambda u: {allc[11]}
+        try:
+            ou = {"username": adm["username"], "role": "ou"}
+            assert [x["id"] for x in recent.listing(ou)] == [allc[11]], "OU admin: only computers of the area"
+            assert [x["id"] for x in recent.touch(ou, ids[0])] == [allc[11]], "computer outside the area is not added"
+        finally:
+            access.computer_ids = orig
+        assert recent.close(adm) == []
+    finally:
+        for i in extra:
+            db.ex("DELETE FROM computers WHERE id=?", (i,))
+        db.ex("DELETE FROM user_prefs WHERE username=?", (adm["username"],))
+    for r in (("GET", "/api/recent"), ("POST", "/api/recent/{cid}"), ("DELETE", "/api/recent/{cid}"), ("DELETE", "/api/recent")):
+        assert r in access.ROUTES, r
+    js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
+    for k in ("POST(`/api/recent/${id}`, {})", "h('div.rtabs'", "'Andere schließen'", "'Alle schließen'", "closeRecent(r.id)",
+              "el.classList.toggle('empty', tabs.length < 2 && !rec.length);", "GET('/api/recent').then("):
+        assert k in js, k
+
+
 def main():
     ok = 0
     for name, fn in RESULTS:
