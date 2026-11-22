@@ -221,7 +221,7 @@ async function connect(o, size) {
   try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) { /* ignore */ }
   const tunnel = new Guacamole.WebSocketTunnel('/api/remote/tunnel');
   const client = new Guacamole.Client(tunnel);
-  S.client = client; S.ended = false; S.lastError = null;
+  S.client = client; S.ended = false; S.lastError = null; S.userClosed = false; S.wasConnected = false;
   const display = client.getDisplay();
   const el = display.getElement();
   el.classList.add('rd-display');
@@ -235,7 +235,7 @@ async function connect(o, size) {
     S.state = st;
     const txt = { 1: 'verbinde …', 2: 'warte auf Computer …', 3: 'verbunden', 4: 'trenne …', 5: 'getrennt' }[st];
     if (txt) setState(txt, st === 3 ? 'ok' : '');
-    if (st === 3) { clearOverlay(); rescale(); }
+    if (st === 3) { S.wasConnected = true; clearOverlay(); rescale(); }
     if (st === 5) ended();
     drawBar();
   };
@@ -276,20 +276,32 @@ async function connect(o, size) {
   client.connect(q.toString());
 }
 
+// 2.60.1: after "Trennen" here, or after signing out / disconnecting in Windows (guacd reports status 0 = success),
+// the tab closes by itself - you are no longer on that computer. Errors keep the tab open with the reason and
+// "Erneut verbinden". If the browser refuses to close the tab (e.g. after a reload), the card stays as before.
+function closeTab(show) {
+  try { window.close(); } catch (e) { /* ignore */ }
+  setTimeout(() => { if (!window.closed) show(); }, 400);
+}
+
 function ended() {
   if (S.ended) return;
   S.ended = true;
   const err = S.lastError;
   const reconnect = btn('Erneut verbinden', () => optionsDlg(), 'primary');
+  const card = () => overlayCard('Sitzung beendet', h('p', `Die ${LABEL}-Sitzung zu ${S.computer.name} wurde beendet.`), [btn('Schließen', () => window.close()), reconnect]);
+  // only a session that was really connected - a connection that never came up keeps the tab with its message
+  if (S.wasConnected && (S.userClosed || !(err && err.code))) { closeTab(card); return; }
   if (err && err.code) {
     const msg = STATUS[err.code] || err.message || `Fehlercode ${err.code}`;
     optionsDlg(`Verbindung fehlgeschlagen bzw. beendet: ${msg}` + (err.message && STATUS[err.code] && !/^Aborted|^Error/.test(err.message) ? `\n(${err.message})` : ''));
     return;
   }
-  overlayCard('Sitzung beendet', h('p', `Die ${LABEL}-Sitzung zu ${S.computer.name} wurde beendet.`), [btn('Schließen', () => window.close()), reconnect]);
+  card();
 }
 
 function disconnect(cancel) {
+  if (!cancel && S.state === 3) S.userClosed = true;  // own "Trennen" while connected: close the tab afterwards
   if (S.client) { try { S.client.disconnect(); } catch (e) { /* ignore */ } }
   if (cancel) optionsDlg();
 }

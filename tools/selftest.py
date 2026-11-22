@@ -11774,6 +11774,45 @@ def _():
         assert k in js, k
 
 
+@test("2.60.1 Remote session tab closes itself after 'Trennen' or after signing out/disconnecting in Windows (guacd status 0); errors and sessions that never connected keep the tab with the reason; fallback card if the browser refuses")
+def _():
+    import shutil, subprocess as _sp
+    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "remote.js"), encoding="utf-8").read()
+    fn = lambda name: src[src.index(f"function {name}("):src.index("\n}\n", src.index(f"function {name}(")) + 2]
+    assert "if (S.wasConnected && (S.userClosed || !(err && err.code))) { closeTab(card); return; }" in src
+    assert "if (!cancel && S.state === 3) S.userClosed = true;" in src and "S.userClosed = false; S.wasConnected = false;" in src
+    assert "if (st === 3) { S.wasConnected = true;" in src
+    node = shutil.which("node")
+    if not node:
+        return
+    harness = """
+const out = [];
+let closed = false;
+const window = { close() { out.push('close'); closed = REFUSE ? false : true; }, get closed() { return closed; } };
+const setTimeout = (f) => f();
+const overlayCard = (t) => out.push('card:' + t);
+const optionsDlg = (m) => out.push('options:' + (m || ''));
+const btn = () => ({}); const h = () => ({});
+const STATUS = { 519: 'nicht erreichbar' }; const LABEL = 'RDP';
+let S = {};
+""" + fn("closeTab") + fn("ended") + fn("disconnect") + """
+const run = (st, refuse) => { out.length = 0; closed = false; REFUSE = refuse; S = Object.assign({ computer: { name: 'PC-0001' }, ended: false, client: null }, st); ended(); return out.join('|'); };
+let REFUSE = false;
+console.log(JSON.stringify({
+  user: (() => { out.length = 0; S = { state: 3, client: null, computer: { name: 'x' } }; disconnect(); return S.userClosed; })(),
+  own: run({ wasConnected: true, userClosed: true, lastError: null }),
+  logoff: run({ wasConnected: true, lastError: { code: 0, message: 'Logged off.' } }),
+  error: run({ wasConnected: true, lastError: { code: 519 } }),
+  never: run({ wasConnected: false, lastError: null }),
+  refused: run({ wasConnected: true, userClosed: true }, true),
+}));
+"""
+    r = _sp.run([node, "-e", harness], capture_output=True, text=True)
+    res = json.loads(r.stdout.strip().splitlines()[-1]) if r.stdout.strip() else {}
+    assert res == {"user": True, "own": "close", "logoff": "close", "error": "options:Verbindung fehlgeschlagen bzw. beendet: nicht erreichbar",
+                   "never": "card:Sitzung beendet", "refused": "close|card:Sitzung beendet"}, (res, r.stderr[-800:])
+
+
 def main():
     ok = 0
     for name, fn in RESULTS:
