@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTex
 from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 
-from . import (access, backup, cfgexport, health, inuse, labels, gphistory, clientfiles, loadstats, integrity, kiosk, news, pkgexport, repofiles, sso, customreports, mailer, notify, diskusage, kerberos, presence, tls, actions, ad, auth, guard, profiles, remote_desktop, scanners, tools, uninstall, collections_, config, db, deploy, inventory, pklog, remote, reports, scheduler,
+from . import (access, backup, cfgexport, health, inuse, labels, recent, gphistory, clientfiles, loadstats, integrity, kiosk, news, pkgexport, repofiles, sso, customreports, mailer, notify, diskusage, kerberos, presence, tls, actions, ad, auth, guard, profiles, remote_desktop, scanners, tools, uninstall, collections_, config, db, deploy, inventory, pklog, remote, reports, scheduler,
                schedules, steps, util, winget, wingetcache)
 
 
@@ -2551,6 +2551,27 @@ def api_packages_export(data: dict = Body(...), user=U):
     out, warnings, extra = pkgexport.export(user, data.get("ids") or [])
     pklog.info("deploy", f"{len(out['packages'])} Paket(e) exportiert.", user=user["username"])
     return {"filename": pkgexport.filename(), "data": out, "warnings": warnings, "extra": extra}
+
+
+@app.get("/api/recent")
+def api_recent(user=U):
+    """2.60.0: the last computers this user opened (tabs at the top)."""
+    return recent.listing(user)
+
+
+@app.post("/api/recent/{cid}")
+def api_recent_touch(cid: int, user=U):
+    return recent.touch(user, cid)
+
+
+@app.delete("/api/recent/{cid}")
+def api_recent_close(cid: int, user=U):
+    return recent.close(user, cid)
+
+
+@app.delete("/api/recent")
+def api_recent_clear(user=U):
+    return recent.close(user)
 
 
 @app.get("/api/labels/defaults")

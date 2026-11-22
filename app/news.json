@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.60.0",
+   "date": "2026-11-22",
+   "items": [
+    {
+     "kind": "new",
+     "audience": "admin",
+     "de": "Zuletzt geöffnete Computer: Die letzten 10 Computer stehen oben rechts als Reiter wie im Browser – auf jeder Seite, mit einem Klick wieder offen. Die Liste gehört Ihrem Benutzer und ist auf jedem PC dieselbe.",
+     "en": "Recently opened computers: the last 10 computers appear at the top right as tabs like in a browser – on every page, open again with one click. The list belongs to your user and is the same on every PC."
+    }
+   ]
+  },
+  {
    "version": "2.59.0",
    "date": "2026-11-20",
    "items": [
