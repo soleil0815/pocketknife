@@ -2,6 +2,11 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.60.1 (22.11.2026)
+- **Remote session tab closes itself:** after "Trennen" in the session bar, or after signing out / disconnecting in Windows (guacd reports status 0 "Logged off" / "Disconnected"), the RDP/VNC tab closes by itself instead of showing "Sitzung beendet". Errors (computer not reachable, wrong password, session taken over …) and connections that never came up keep the tab open with the reason and "Erneut verbinden"; if the browser refuses to close the tab (e.g. after a reload) the card appears as before
+- **Help (de/en):** remote sessions
+- **Self-test:** closing logic run in node (own disconnect, Windows sign-out, error, never connected, browser refuses)
+
 ## pocketknife-2.60.0 (22.11.2026)
 - **Recently opened computers as tabs:** the last 10 computers a user opened appear as tabs (like a browser) on the right of the tab row below the navigation – on every page, one click opens the computer again. Dot for online/offline/address not confirmed, tooltip with the logged-on user. Tabs keep their place when switching between them, a new computer is appended, beyond 10 the one used longest ago drops out; × closes a tab, right-click offers "Andere schließen" / "Alle schließen". Stored per user on the server (`user_prefs`, only computer IDs) – the same list on every PC; deleted computers disappear, OU admins only see and add computers of their area. New module `app/recent.py`, endpoints `GET/DELETE /api/recent`, `POST/DELETE /api/recent/{id}`
 - **Diagnostic package:** `recent_tabs.users` (how many users use the tabs)

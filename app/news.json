@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.60.1",
+   "date": "2026-11-22",
+   "items": [
+    {
+     "kind": "improved",
+     "audience": "admin",
+     "de": "Fernsitzungen: Nach „Trennen“ oder dem Abmelden bzw. Trennen in Windows schließt sich der Tab der RDP- oder VNC-Sitzung von selbst. Bei einem Fehler bleibt er offen und zeigt den Grund.",
+     "en": "Remote sessions: after “Disconnect” or signing out / disconnecting in Windows, the tab of the RDP or VNC session closes by itself. On an error it stays open and shows the reason."
+    }
+   ]
+  },
+  {
    "version": "2.60.0",
    "date": "2026-11-22",
    "items": [
