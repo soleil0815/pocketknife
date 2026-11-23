@@ -11812,6 +11812,239 @@ console.log(JSON.stringify({
     assert res == {"user": True, "own": "close", "logoff": "close", "error": "options:Verbindung fehlgeschlagen bzw. beendet: nicht erreichbar",
                    "never": "card:Sitzung beendet", "refused": "close|card:Sitzung beendet"}, (res, r.stderr[-800:])
 
+@test("2.61.0 AD without a certificate: port 389, Kerberos first (account errors end there - one wrong logon only), NTLM fallback only without strict check, mutual authentication required, all traffic after the bind sealed; switching is tested first")
+def _():
+    import hashlib, secrets, struct as _st, time as _t
+    import spnego
+    from app import ad, auth, config, db, guard, kerberos, util
+    from app import main as _m
+    # --- connection type and port: setting before .env, 636 is never plain LDAP
+    old = (config.LDAP_SECURITY, config.LDAP_PORT_ENV)
+    try:
+        db.set_setting("ldap_security", "")
+        config.LDAP_SECURITY, config.LDAP_PORT_ENV = "ldaps", 0
+        assert (ad.security(), ad.port()) == ("ldaps", 636)
+        config.LDAP_SECURITY = "sasl"
+        assert (ad.security(), ad.port()) == ("sasl", 389)
+        config.LDAP_PORT_ENV = 636
+        assert ad.port() == 389 and ad.port("ldaps") == 636, "PK_LDAP_PORT=636 from the example .env must become 389"
+        config.LDAP_PORT_ENV = 3268
+        assert ad.port() == 3268
+        db.set_setting("ldap_security", "ldaps")
+        assert ad.security() == "ldaps" and ad.security("bogus") == "ldaps"
+    finally:
+        config.LDAP_SECURITY, config.LDAP_PORT_ENV = old
+        db.set_setting("ldap_security", "")
+    # --- a DC without certificate: the LDAPS error says what helps
+    assert ad._hint(ConnectionRefusedError("[Errno 111] Connection refused")) == ad.NO_CERT_HINT
+    assert ad._hint(Exception("socket ssl wrapping error: [SSL: UNEXPECTED_EOF_WHILE_READING]")) == ad.NO_CERT_HINT
+    assert ad._hint(Exception("no active server available in server pool after maximum number of tries")) == ad.NO_CERT_HINT
+    assert ad._hint(Exception("invalidCredentials")) == ""
+    # --- Kerberos errors: account problems vs. infrastructure
+    assert ad._krb_error(Exception("Krb5Error Preauthentication failed -1765328360"))[0] == "data 52e"
+    assert ad._krb_error(Exception("Krb5Error Client 'x@FIRMA.LOCAL' not found in Kerberos database -1765328378"))[0] == "data 52e"
+    assert ad._krb_error(Exception("Clients credentials have been revoked"))[0] == "credentials have been revoked"
+    assert ad._krb_error(Exception("Minor (2529638919): Server not found in Kerberos database, Context: x"))[0] is None
+    assert ad._krb_error(Exception("Krb5Error Cannot find KDC for realm \"FIRMA.LOCAL\" -1765328230"))[0] is None
+    assert "gesperrt oder deaktiviert" in guard.explain("Kerberos: credentials have been revoked (credentials have been revoked)")[0]
+    # --- sealed socket: length-prefixed tokens, MAC failure and oversize stop, partial reads work
+    class _W:
+        def __init__(self, data):
+            self.data = data
+
+    class _Ctx:
+        def wrap(self, data, encrypt=True):
+            assert encrypt
+            return _W(b"S" + bytes(x ^ 0x5A for x in data))
+
+        def unwrap(self, tok):
+            if not tok.startswith(b"S"):
+                raise ValueError("bad MAC")
+            return _W(bytes(x ^ 0x5A for x in tok[1:]))
+
+    class _Sock:
+        def __init__(self, incoming=b""):
+            self.out, self.inc = b"", incoming
+
+        def sendall(self, d):
+            self.out += d
+
+        def recv(self, n):
+            d, self.inc = self.inc[:min(n, 3)], self.inc[min(n, 3):]  # deliberately small pieces
+            return d
+
+        def settimeout(self, t):
+            self.t = t
+    ctx = _Ctx()
+    raw = _Sock()
+    sealed = ad._Sealed(raw, ctx)
+    sealed.sendall(b"\x30\x05hello")
+    assert raw.out[:4] == _st.pack(">I", 8) and b"hello" not in raw.out, raw.out
+    msg = ctx.wrap(b"\x30\x0bsearchreply").data
+    sealed2 = ad._Sealed(_Sock(_st.pack(">I", len(msg)) + msg), ctx)
+    got = b""
+    while len(got) < 13:
+        got += sealed2.recv(5)
+    assert got == b"\x30\x0bsearchreply"
+    sealed2.settimeout(3)
+    assert sealed2._sock.t == 3, "everything except sendall/recv goes to the socket"
+    must_fail(ad._Sealed(_Sock(_st.pack(">I", 4) + b"XXXX"), ctx).recv, 10, contains="bad MAC")
+    must_fail(ad._Sealed(_Sock(_st.pack(">I", ad.SEALED_MAX + 1)), ctx).recv, 10, contains="zu groß")
+    assert ad._Sealed(_Sock(b""), ctx).recv(10) == b"", "closed connection = empty read"
+    # --- the bind itself with a fake LDAP connection and fake SPNEGO contexts
+    calls = []
+
+    class _Server:
+        host = "dc01.firma.local"
+
+    class _Conn:
+        replies = []
+
+        def __init__(self, *a, **k):
+            self.server, self.version, self.socket, self.bound, self.closed, self.result = _Server(), 3, _Sock(), False, False, {}
+
+        def open(self):
+            return True
+
+        def send(self, kind, req, controls):
+            calls.append(("ldap", kind))
+            return 1
+
+        def post_send_single_response(self, mid):
+            self.result = _Conn.replies.pop(0)
+            return [self.result]
+
+        def unbind(self):
+            self.closed = True
+
+    class _Krb:
+        def __init__(self, mode, proto):
+            self.mode, self.proto, self.complete, self.n = mode, proto, False, 0
+            self.negotiated_protocol = {"krb": "kerberos", "ntlm": "ntlm", "incomplete": "kerberos"}.get(mode, "kerberos")
+
+        def step(self, tok=None):
+            self.n += 1
+            if self.proto == "kerberos":
+                if self.mode == "badpw":
+                    raise Exception("Krb5Error Preauthentication failed -1765328360")
+                if self.mode in ("ntlm", "nokdc"):
+                    raise Exception("Krb5Error Cannot find KDC for realm \"FIRMA.LOCAL\" -1765328230")
+                return b"krb"
+            if self.n >= 2 and self.mode != "incomplete":
+                self.complete = True
+            return b"tok%d" % self.n
+
+        def wrap(self, d, encrypt=True):
+            return ctx.wrap(d, encrypt)
+
+        def unwrap(self, t):
+            return ctx.unwrap(t)
+    mode = {"m": "krb"}
+
+    def fake_client(user, pw, hostname=None, service=None, protocol=None, context_req=None):
+        calls.append(("spnego", protocol, user))
+        return _Krb(mode["m"], protocol)
+    o_conn, o_cli, o_av, o_strict = ad.Connection, spnego.client, kerberos.available, db.setting_raw("ldap_cert_strict")
+    o_cfg = (config.LDAP_SECURITY, list(config.LDAP_SERVERS))
+    ad.Connection, spnego.client, kerberos.available = _Conn, fake_client, lambda: (True, "test")
+    config.LDAP_SECURITY, config.LDAP_SERVERS[:] = "sasl", ["dc01.firma.local"]
+    o_krb5 = os.environ.get("KRB5_CONFIG")
+    os.environ["KRB5_CONFIG"] = "/nonexistent"  # no krb5.conf is written by the test
+    try:
+        db.set_setting("ldap_cert_strict", 1)
+        # Kerberos works: Kerberos via GSS-SPNEGO, mutual authentication (server's last token processed), socket sealed
+        calls.clear(); mode["m"] = "krb"
+        _Conn.replies = [{"result": 14, "saslCreds": b"srv1"}, {"result": 0, "saslCreds": b"srv-final", "description": "success"}]
+        c = ad.bind("svc@firma.local", "pw")
+        assert c is not None and c.bound and isinstance(c.socket, ad._Sealed), calls
+        assert [x[1] for x in calls if x[0] == "spnego"] == ["kerberos", "negotiate"] and calls[0][2] == "svc@FIRMA.LOCAL", calls
+        assert ad.sasl_state()["mech"] == "kerberos"
+        # wrong password: Kerberos says so - NO second attempt via NTLM (would count twice on the DC)
+        calls.clear(); mode["m"] = "badpw"; _Conn.replies = []
+        res = {}
+        assert ad.bind("michael@firma.local", "falsch", res) is None
+        assert [x for x in calls if x[0] == "ldap"] == [] and [x[1] for x in calls if x[0] == "spnego"] == ["kerberos"], calls
+        assert "data 52e" in res["message"] and "falsch" in guard.explain(res["message"])[0]
+        # Kerberos not possible + strict: refused before anything goes out, with the reason and what helps
+        calls.clear(); mode["m"] = "nokdc"
+        must_fail(ad.bind, "svc@firma.local", "pw", contains="kein NTLM erlaubt")
+        assert not [x for x in calls if x[0] == "ldap"], calls
+        kerberos.available = lambda: (False, "no gssapi")
+        must_fail(ad.bind, "svc@firma.local", "pw", contains="Kerberos-Bibliotheken fehlen")
+        kerberos.available = lambda: (True, "test")
+        # the DC does not confirm (no final token / context not complete): refused
+        mode["m"] = "incomplete"; _Conn.replies = [{"result": 0}]
+        must_fail(ad.bind, "svc@firma.local", "pw", contains="nicht vollständig bestätigt")
+        # without strict: NTLM fallback, logged, shown
+        db.set_setting("ldap_cert_strict", 0)
+        calls.clear(); mode["m"] = "ntlm"
+        _Conn.replies = [{"result": 14, "saslCreds": b"challenge"}, {"result": 0, "description": "success"}]
+        c = ad.bind("svc@firma.local", "pw")
+        assert c is not None and isinstance(c.socket, ad._Sealed)
+        st = ad.sasl_state()
+        assert st["mech"] == "ntlm" and "Cannot find KDC" in st["reason"], st
+        assert [x[2] for x in calls if x[0] == "spnego" and x[1] == "negotiate"] == ["svc@firma.local"], "NTLM: name as entered"
+        # the DC rejects the password in the SASL bind: normal "wrong password" result
+        mode["m"] = "ntlm"; _Conn.replies = [{"result": 14, "saslCreds": b"c"}, {"result": 49, "description": "invalidCredentials",
+                                                                                  "message": "AcceptSecurityContext error, data 52e, v4563"}]
+        res = {}
+        assert ad.bind("michael@firma.local", "falsch", res) is None and "data 52e" in res["message"]
+        # bare IP/short name: no Kerberos attempt at all (it cannot work), reason shown
+        config.LDAP_SERVERS[:] = ["10.0.10.5"]
+        _Server.host = "10.0.10.5"
+        calls.clear(); mode["m"] = "krb"; _Conn.replies = [{"result": 14, "saslCreds": b"c"}, {"result": 0}]
+        assert ad.bind("svc@firma.local", "pw") is not None
+        assert [x[1] for x in calls if x[0] == "spnego"] == ["negotiate"] and "kein voller DC-Name" in ad.sasl_state()["reason"]
+    finally:
+        ad.Connection, spnego.client, kerberos.available = o_conn, o_cli, o_av
+        config.LDAP_SECURITY, config.LDAP_SERVERS[:] = o_cfg[0], o_cfg[1]
+        _Server.host = "dc01.firma.local"
+        db.set_setting("ldap_cert_strict", o_strict or 1)
+        if o_krb5 is None:
+            os.environ.pop("KRB5_CONFIG", None)
+        else:
+            os.environ["KRB5_CONFIG"] = o_krb5
+    # --- errors without certificate count as "directory unreachable" at sign-in (no DC names to the browser)
+    for m in ("LDAP-Verbindung zu dc01.firma.local:389 fehlgeschlagen: x", "Anmeldung ohne Zertifikat: Kerberos nicht möglich (x)",
+              "Der Domänencontroller dc01 hat die Anmeldung nicht vollständig bestätigt – Verbindung abgelehnt."):
+        assert any(x in m for x in auth._INFRA), m
+    # --- settings: unknown value refused; switching only after a successful test with the service account
+    tok = secrets.token_urlsafe(16)
+    db.ex("INSERT INTO sessions(token_hash, username, display_name, created, expires, ip, last_active, role, scope) VALUES(?,?,?,?,?,?,?,?,?)",
+          (hashlib.sha256(tok.encode()).hexdigest(), "haupt-ldap", "Test", util.now(), "2099-01-01 00:00:00", "127.0.0.1", util.now(), "admin", None))
+    auth._checked[hashlib.sha256(tok.encode()).hexdigest()] = _t.time() + 10 ** 6
+    st, r = _asgi("PUT", "/api/settings", tok, {"ldap_security": "plain"})
+    assert st == 400 and "Verbindungsart" in str(r), (st, r)
+    o_bind, o_user, o_pw = ad.bind, config.service_user, config.service_password
+    tried = []
+    ad.bind = lambda u, p, res=None, mode=None: (tried.append(mode), res.update({"description": "invalidCredentials", "message": "data 52e"}), None)[2]
+    config.service_user, config.service_password = (lambda: "svc"), (lambda: "pw")
+    try:
+        st, r = _asgi("PUT", "/api/settings", tok, {"ldap_security": "sasl"})
+        assert st == 400 and "Nicht umgestellt" in str(r) and tried == ["sasl"], (st, r, tried)
+        assert db.setting_raw("ldap_security") in (None, ""), "a failed test must not switch"
+
+        class _OK:
+            def unbind(self):
+                tried.append("unbind")
+        ad.bind = lambda u, p, res=None, mode=None: (tried.append(mode), _OK())[1]
+        st, r = _asgi("PUT", "/api/settings", tok, {"ldap_security": "sasl"})
+        assert st == 200 and "ldap_security" in r["changed"] and db.setting_raw("ldap_security") == "sasl", (st, r)
+        st, sysinfo = _asgi("GET", "/api/system", tok)
+        assert sysinfo["ldap_security"] == "sasl" and sysinfo["ldap_port"] == 389 and len(sysinfo["ldap_security_modes"]) == 2
+    finally:
+        ad.bind, config.service_user, config.service_password = o_bind, o_user, o_pw
+        db.set_setting("ldap_security", "")
+    # --- diagnostics: connection type, method; the reason is anonymised like everything else
+    from app import diagnostics
+    env = diagnostics._environment(lambda v: "X" if v else v)
+    assert env["ldap"]["security"] == "ldaps" and env["ldap"]["port"] == ad.port() and "sasl_mech" in env["ldap"], env.get("ldap")
+    assert "Verbindungsart zum AD" in diagnostics._readme(7, True, None)
+    # --- the UI offers the choice and shows the negotiated method instead of a certificate
+    js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
+    assert "inputs.ldap_security = sel(" in js and "ldap_security: inputs.ldap_security.value" in js
+    assert "sasl ? ['Verschlüsselung'" in js and "btn('Verbindung testen'" in js
+
 
 def main():
     ok = 0

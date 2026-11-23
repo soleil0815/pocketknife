@@ -46,7 +46,10 @@ STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 DOMAIN = _env("PK_DOMAIN").strip()                      # e.g. firma.local
 NETBIOS = _env("PK_NETBIOS").strip()                    # e.g. FIRMA
 LDAP_SERVERS = [s.strip() for s in _env("PK_LDAP_SERVERS", DOMAIN).split(",") if s.strip()]
-LDAP_PORT = int(_env("PK_LDAP_PORT", "636") or 636)
+LDAP_PORT_ENV = int(_env("PK_LDAP_PORT") or 0)       # 0 = default of the connection type (636 LDAPS, 389 without certificate)
+LDAP_PORT = LDAP_PORT_ENV or 636                         # LDAPS port (kept for compatibility); the effective port: ad.port()
+# 2.61.0: "ldaps" (default, certificate on the DC) or "sasl" (port 389, Kerberos/NTLM-encrypted - for DCs without a certificate)
+LDAP_SECURITY = _env("PK_LDAP_SECURITY", "ldaps").strip().lower()
 BASE_DN = _env("PK_BASE_DN").strip() or ",".join("DC=" + p for p in DOMAIN.split(".") if p)
 # separate multiple search bases for computers with ";"
 COMPUTER_BASE_DNS = [s.strip() for s in (_env("PK_COMPUTER_BASE_DN") or BASE_DN).split(";") if s.strip()]

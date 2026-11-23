@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.61.0",
+   "date": "2026-11-23",
+   "items": [
+    {
+     "kind": "new",
+     "audience": "admin",
+     "de": "AD ohne Zertifikat: Pocket Knife funktioniert jetzt auch mit Domänencontrollern ohne LDAPS-Zertifikat, zum Beispiel in einer Windows-Domäne ohne Zertifizierungsstelle. Unter Einstellungen → Sicherheit „Ohne Zertifikat“ wählen: Die Anmeldung läuft über Port 389 per Kerberos (sonst NTLM), der gesamte Verkehr ist verschlüsselt. Beim Umstellen wird die Verbindung zuerst getestet.",
+     "en": "AD without a certificate: Pocket Knife now also works with domain controllers without an LDAPS certificate, for example in a Windows domain without a certification authority. Choose “Without certificate” under Settings → Security: sign-in runs over port 389 with Kerberos (otherwise NTLM), all traffic is encrypted. The connection is tested first when switching."
+    }
+   ]
+  },
+  {
    "version": "2.60.1",
    "date": "2026-11-22",
    "items": [

@@ -4171,9 +4171,29 @@ def api_settings_save(data: dict = Body(...), user=U):
                 if not (norm == "/repo" or norm.startswith("/repo/")):
                     _err("Repository: UNC-Pfad (\\\\server\\freigabe) oder ein Ordner unter /repo (PK_REPO_MOUNT) angeben.")
         if k == "ldap_cert_strict" and not v and db.setting("ldap_cert_strict"):
-            pklog.warn("system", "Strikte Prüfung des LDAPS-Zertifikats ausgeschaltet – ein geändertes Zertifikat wird dann "
-                                 "ohne Bestätigung übernommen (Kennwörter gingen an jeden, der sich als DC ausgibt). "
-                                 "Empfohlen: PK_LDAP_CA_FILE (CA der Domäne).", user=user["username"])
+            if ad.security(data.get("ldap_security") or None) == "sasl":
+                pklog.warn("system", "Strikte Prüfung ausgeschaltet – ohne Zertifikat wird jetzt NTLM verwendet, wenn Kerberos "
+                                     "nicht klappt.", user=user["username"])
+            else:
+                pklog.warn("system", "Strikte Prüfung des LDAPS-Zertifikats ausgeschaltet – ein geändertes Zertifikat wird dann "
+                                     "ohne Bestätigung übernommen (Kennwörter gingen an jeden, der sich als DC ausgibt). "
+                                     "Empfohlen: PK_LDAP_CA_FILE (CA der Domäne).", user=user["username"])
+        if k == "ldap_security":
+            v = str(v or "").strip().lower()
+            if v and v not in ad.SECURITY_MODES:
+                _err("Unbekannte Verbindungsart zum AD.")
+            new_mode = ad.security(v or config.LDAP_SECURITY)
+            if new_mode != ad.security() and config.service_user():
+                # 2.61.0: test first - a connection type that does not work would lock everyone out (except emergency access)
+                res: dict = {}
+                try:
+                    tc = ad.bind(config.service_upn(), config.service_password(), res, mode=new_mode)
+                except ad.ADError as e:
+                    _err(f"Nicht umgestellt – mit „{ad.SECURITY_LABELS[new_mode]}“ klappt die Verbindung nicht: {e}")
+                if tc is None:
+                    text, _acc = guard.explain(f"{res.get('description', '')} {res.get('message', '')}")
+                    _err("Nicht umgestellt – das Dienstkonto wurde abgelehnt. " + (text or "Benutzer/Kennwort prüfen."))
+                tc.unbind()
         if k == "auth_mode":
             v = str(v or "").strip().lower()
             if v and v not in kerberos.MODES:
@@ -4186,6 +4206,8 @@ def api_settings_save(data: dict = Body(...), user=U):
                 wingetrelease.freeze(v)  # 2.36.2: previously approved versions stay approved
             db.set_setting(k, v)
             changed.append(k)
+    if "ldap_security" in changed:
+        pklog.warn("system", f"Verbindung zum AD: {ad.SECURITY_LABELS[ad.security()]}", user=user["username"])
     if "auth_mode" in changed:
         _reset_connections()  # discard existing SMB sessions using the old method
         pklog.info("system", f"Anmeldeverfahren für WinRM/SMB: {kerberos.MODE_LABELS.get(kerberos.mode(), kerberos.mode())}",
@@ -4202,7 +4224,10 @@ def api_system(user=U):
     return {
         "version": config.VERSION, "version_since": hist[-1]["started_at"] if hist else None,
         "domain": config.DOMAIN, "netbios": config.NETBIOS, "ldap_servers": config.LDAP_SERVERS,
-        "ldap_port": config.LDAP_PORT, "base_dn": config.BASE_DN, "computer_base_dns": config.COMPUTER_BASE_DNS,
+        "ldap_port": ad.port(), "ldap_security": ad.security(), "ldap_security_env": ad.security(config.LDAP_SECURITY),
+        "ldap_security_set": db.setting_raw("ldap_security") or "", "ldap_sasl": ad.sasl_state(),
+        "ldap_security_modes": [{"key": k, "label": v} for k, v in ad.SECURITY_LABELS.items()],
+        "base_dn": config.BASE_DN, "computer_base_dns": config.COMPUTER_BASE_DNS,
         "access_group": config.ACCESS_GROUP, "service_user": config.service_login(),
         "ldap_configured": config.ldap_configured(), "ldap_fingerprint": db.setting("ldap_cert_fingerprint"),
         "ldap_fingerprints": ad._fingerprints(), "ldap_pending": json.loads(db.setting_raw("ldap_cert_pending") or "{}"),
@@ -4286,7 +4311,8 @@ def api_ldaptest(user=U):
     try:
         c = ad.service_conn()
         c.unbind()
-        return {"ok": True, "fingerprint": db.setting("ldap_cert_fingerprint")}
+        return {"ok": True, "fingerprint": db.setting("ldap_cert_fingerprint"), "security": ad.security(),
+                "mech": ad.sasl_state()["mech"] if ad.security() == "sasl" else ""}
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
@@ -4446,7 +4472,7 @@ def api_accounts_save(data: dict = Body(...), user=U):
         try:
             c = ad.bind(upn, pw, res)
         except ad.ADError as e:
-            _err(f"LDAPS nicht erreichbar, Konto nicht geprüft: {e}")
+            _err(f"{ad.label()} nicht erreichbar, Konto nicht geprüft: {e}")
         if c is None:
             text, _acc = guard.explain(f"{res.get('description', '')} {res.get('message', '')}")
             _err("Anmeldung mit diesem Konto abgelehnt – nicht gespeichert. " + (text or "Benutzer/Kennwort prüfen."))

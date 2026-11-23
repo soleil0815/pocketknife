@@ -2,6 +2,17 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.61.0 (23.11.2026)
+- **AD without a certificate:** new connection type for domain controllers without an LDAPS certificate (typical: Windows domain without a certification authority; Windows Server 2016/2022/2025). `PK_LDAP_SECURITY=sasl` or Settings → Security → "Verbindung zum AD": sign-in over port 389 with SASL GSS-SPNEGO – Kerberos first, NTLM as fallback – and every LDAP message afterwards encrypted (sign and seal, length-prefixed wrapped tokens). Windows Server 2025, which refuses unencrypted simple binds, accepts this. LDAPS stays the default
+- **Account safety:** Kerberos is tried first; account errors (wrong password, locked/disabled, expired, unknown user) end there – a wrong password counts only once on the DC, never a second time through NTLM
+- **Strict check without certificate** = Kerberos only (no NTLM fallback); the DC must complete mutual authentication, otherwise the connection is refused. Without strict check the negotiated method and the reason why Kerberos did not work are logged and shown on the settings page
+- **Switching is tested first** with the service account – a connection type that does not work is not saved (nobody gets locked out)
+- **Clearer LDAPS error:** when LDAPS does not answer, the message now asks whether the DC has no certificate and names the setting
+- **Diagnostic package:** connection type, port, strict check and negotiated method (reason anonymised) in `umgebung.json`
+- **Help (de/en), README, .env.example:** new section "AD ohne Zertifikat" with limitation (without a certificate the DC's identity cannot be verified like a pinned certificate) and the PowerShell command for a self-signed LDAPS certificate as alternative
+- **Self-test:** port/type selection, sealed socket (framing, MAC failure, size limit), Kerberos error classes, one wrong logon only, strict = Kerberos only, missing mutual authentication refused, NTLM fallback, settings switch only after a successful test, diagnostics, UI
+- Verified live against a Samba AD DC with TLS switched off and "require strong auth" (Kerberos and NTLM; traffic checked to be encrypted on the wire)
+
 ## pocketknife-2.60.1 (22.11.2026)
 - **Remote session tab closes itself:** after "Trennen" in the session bar, or after signing out / disconnecting in Windows (guacd reports status 0 "Logged off" / "Disconnected"), the RDP/VNC tab closes by itself instead of showing "Sitzung beendet". Errors (computer not reachable, wrong password, session taken over …) and connections that never came up keep the tab open with the reason and "Erneut verbinden"; if the browser refuses to close the tab (e.g. after a reload) the card appears as before
 - **Help (de/en):** remote sessions

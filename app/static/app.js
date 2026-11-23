@@ -6234,7 +6234,7 @@ function accountsCard() {
         h('p.muted.small', { style: { margin: '4px 0 0' } }, help));
     };
     body.replaceChildren(
-      block('service', 'Dienstkonto', a.service, 'Konto mit lokalen Administratorrechten auf den Clients (LDAPS, WinRM, SMB). Vor dem Speichern wird die Anmeldung per LDAPS geprüft, damit ein Tippfehler nicht zur Kontosperre führt. Angabe als „benutzer“, „DOMÄNE\\benutzer“ oder „benutzer@domäne“.'),
+      block('service', 'Dienstkonto', a.service, 'Konto mit lokalen Administratorrechten auf den Clients (AD, WinRM, SMB). Vor dem Speichern wird die Anmeldung am AD geprüft, damit ein Tippfehler nicht zur Kontosperre führt. Angabe als „benutzer“, „DOMÄNE\\benutzer“ oder „benutzer@domäne“.'),
       block('repo', 'Repository-Konto', a.repo, 'Optional: eigenes Konto nur für den Lesezugriff auf das Software-Repository (SMB). Leer = Dienstkonto.'),
       h('p.muted.small', { style: { margin: 0 } }, 'Kennwörter werden verschlüsselt in der Datenbank gespeichert (Schlüssel: /data/pocketknife.key). Bei einer Sicherung beide Dateien sichern. Ein in POCKET KNIFE hinterlegtes Konto hat Vorrang vor der .env – dort können SERVICE_PASSWORD und REPO_PASSWORD dann entfernt werden.'));
   }
@@ -6493,12 +6493,19 @@ async function viewSettings() {
     repoSaved(await run(() => PUT('/api/settings', withRepoPw(body)), (r) => (r.changed.length ? 'Gespeichert' : 'Keine Änderungen')));
   }, { cls: 'primary' });
 
-  const conn = h('div.card', h('div.card-h', h('h2', 'Domäne'), btn('LDAPS testen', async () => {
+  // 2.61.0: connection type LDAPS (certificate) or without certificate (Kerberos/NTLM-encrypted, port 389)
+  const sasl = sys.ldap_security === 'sasl';
+  const saslInfo = sys.ldap_sasl || {};
+  const saslMech = !saslInfo.mech ? tr('noch nicht verbunden') : saslInfo.mech === 'kerberos' ? 'Kerberos'
+    : fmtT('NTLM – Kerberos nicht möglich: {0}', saslInfo.reason || '?');
+  const conn = h('div.card', h('div.card-h', h('h2', 'Domäne'), btn('Verbindung testen', async () => {
     const r = await run(() => POST('/api/system/ldaptest'));
-    if (r) (r.ok ? toast('LDAPS-Verbindung erfolgreich', 'ok') : toast(r.error, 'err'));
+    if (r) (r.ok ? toast(r.mech ? fmtT('Verbindung zum AD erfolgreich ({0})', r.mech === 'kerberos' ? 'Kerberos' : 'NTLM') : tr('Verbindung zum AD erfolgreich'), 'ok') : toast(r.error, 'err'));
   }, { cls: 'small' })), h('div.card-b', kv([
-    ['Domäne', sys.domain], ['NetBIOS', sys.netbios], ['LDAP-Server', `${sys.ldap_servers.join(', ')} : ${sys.ldap_port} (LDAPS)`],
-    ['Basis-DN', sys.base_dn], ['Zugriffsgruppe', sys.access_group], ['Zertifikat (SHA-256)', h('span.mono', sys.ldap_fingerprint || 'noch nicht verbunden')],
+    ['Domäne', sys.domain], ['NetBIOS', sys.netbios], ['LDAP-Server', `${sys.ldap_servers.join(', ')} : ${sys.ldap_port} (${sasl ? tr('ohne Zertifikat') : 'LDAPS'})`],
+    ['Basis-DN', sys.base_dn], ['Zugriffsgruppe', sys.access_group],
+    sasl ? ['Verschlüsselung', h('span', saslMech, saslInfo.mech && saslInfo.mech !== 'kerberos' ? h('span.badge.warn', { style: { marginLeft: '6px' } }, 'NTLM') : null)]
+      : ['Zertifikat (SHA-256)', h('span.mono', sys.ldap_fingerprint || tr('noch nicht verbunden'))],
     ['WinRM', `${sys.winrm.https ? 'HTTPS' : 'HTTP'} Port ${sys.winrm.port}, Anmeldung ${sys.winrm.auth}`],
     ['Datenverzeichnis', `${sys.data_dir} (Datenbank ${fmtBytes(sys.db_size)})`], ['Version', sys.version]]),
   sys.ldap_pending && sys.ldap_pending.host ? h('div.card.guard', { style: { margin: '10px 0' } }, h('div.card-b',
@@ -6512,12 +6519,21 @@ async function viewSettings() {
   h('p.muted.small', 'Domäne und Server kommen aus der .env. Das Dienstkonto wird unten, die AD-Container unter „Active Directory“ gepflegt.')));
 
   // 2.42: settings grouped by topic - the former "Zeitpläne & Leistung" is split into Inventar, Pakete and Wartung
+  const envSec = (sys.ldap_security_modes.find((m) => m.key === sys.ldap_security_env) || { label: sys.ldap_security_env }).label;
+  inputs.ldap_security = sel([['', fmtT('wie .env (PK_LDAP_SECURITY: {0})', envSec)], ...sys.ldap_security_modes.map((m) => [m.key, m.label])], sys.ldap_security_set || '');
   const secCard = h('div.card', h('div.card-h', h('h2', 'Anmeldung & Sitzung')), h('div.card-b',
-  h('div.form', field('LDAPS-Zertifikat', h('label.chk', c('ldap_cert_strict'), 'strikt prüfen: bei geändertem Zertifikat Verbindung ablehnen, bis es bestätigt wird'),
-    sys.ldap_ca ? 'Es wird gegen die CA aus PK_LDAP_CA_FILE geprüft.' : 'Standard: Das Zertifikat jedes Domänencontrollers wird beim ersten Kontakt vertraut und vor dem Senden eines Kennworts verglichen; eine Änderung wird protokolliert. Mit PK_LDAP_CA_FILE (CA der Domäne als PEM) erfolgt eine vollständige Prüfung.'),
+  h('div.form', field('Verbindung zum AD', inputs.ldap_security,
+    'LDAPS braucht ein Zertifikat auf jedem Domänencontroller (Samba erzeugt es selbst, Windows nur mit Zertifizierungsstelle). „Ohne Zertifikat“ verschlüsselt die Verbindung per Kerberos (sonst NTLM) – mitlesen kann niemand, aber die Identität des Domänencontrollers lässt sich ohne Zertifikat nicht so sicher prüfen wie mit festgelegtem LDAPS-Zertifikat. Beim Umstellen wird die Verbindung zuerst mit dem Dienstkonto getestet.'),
+  field('Strikte Prüfung', h('label.chk', c('ldap_cert_strict'), sasl ? 'strikt prüfen: nur Kerberos, kein NTLM-Rückfall' : 'strikt prüfen: bei geändertem Zertifikat Verbindung ablehnen, bis es bestätigt wird'),
+    sasl ? 'Ohne Zertifikat: Kerberos verlangt die vollen Namen der Domänencontroller in PK_LDAP_SERVERS (z. B. dc01.firma.local). Ausgeschaltet wird NTLM verwendet, wenn Kerberos nicht klappt – das wird protokolliert.'
+      : sys.ldap_ca ? 'Es wird gegen die CA aus PK_LDAP_CA_FILE geprüft.' : 'Standard: Das Zertifikat jedes Domänencontrollers wird beim ersten Kontakt vertraut und vor dem Senden eines Kennworts verglichen; eine Änderung wird protokolliert. Mit PK_LDAP_CA_FILE (CA der Domäne als PEM) erfolgt eine vollständige Prüfung.'),
   field('Abmelden bei Inaktivität (Min.)', n('session_idle_minutes', { min: 5, max: 720 }), 'Ohne Maus- oder Tastatureingabe wird die Sitzung nach dieser Zeit beendet (auch offene Fernsitzungen); kurz vorher erscheint ein Hinweis. Automatische Aktualisierungen zählen nicht als Aktivität. 5–720 Minuten, Standard 30.'),
   field('', h('div.row', btn('Speichern', async () => {
-    if (await run(() => PUT('/api/settings', { ldap_cert_strict: inputs.ldap_cert_strict.checked ? 1 : 0, session_idle_minutes: inputs.session_idle_minutes.value }), 'Gespeichert') && S.me) S.me.idle_minutes = Number(inputs.session_idle_minutes.value);
+    const secChanged = inputs.ldap_security.value !== (sys.ldap_security_set || '');
+    if (secChanged && !(await confirmDlg('Verbindung zum AD umstellen? Pocket Knife testet die neue Verbindung zuerst mit dem Dienstkonto; klappt sie nicht, bleibt alles wie es ist.', 'Umstellen'))) return;
+    const ok = await run(() => PUT('/api/settings', { ldap_security: inputs.ldap_security.value, ldap_cert_strict: inputs.ldap_cert_strict.checked ? 1 : 0, session_idle_minutes: inputs.session_idle_minutes.value }), 'Gespeichert');
+    if (ok && S.me) S.me.idle_minutes = Number(inputs.session_idle_minutes.value);
+    if (ok && secChanged) route();
   }, { cls: 'small' }))))));
 
   const invCard = h('div.card', h('div.card-h', h('h2', 'Scans & Inventar')), h('div.card-b', h('div.form',

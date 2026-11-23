@@ -37,8 +37,24 @@ Website: [helfi.space](https://helfi.space)
 3. Enable and secure **WinRM** through a GPO – step by step in [WinRM by Group Policy](#winrm-gpo).
 4. In the client firewall, allow **TCP 5985** (or 5986 for HTTPS) and **TCP 445** **only from the Docker host**. For remote sessions, also allow **TCP 3389** (RDP) or **5900** (VNC).
 5. Create the AD group **POCKETKNIFE-Admins** and add the operators (nested groups are supported).
-6. **LDAPS** must be enabled on the domain controllers. A self-signed certificate is sufficient – POCKET KNIFE trusts it automatically and logs every change of the fingerprint.
+6. **LDAPS** must be enabled on the domain controllers. A self-signed certificate is sufficient – POCKET KNIFE trusts it automatically and logs every change of the fingerprint. Samba creates the certificate itself; a Windows DC only has one with a certification authority (AD CS). It also works **without a certificate** – see [AD without a certificate](#ad-ohne-zertifikat).
 7. For custom packages, create a share, e.g. `\\fs01\PAKETE`, with read access for the service account.
+
+## AD without a certificate (Windows domain without a certification authority) {#ad-ohne-zertifikat}
+
+If a domain controller has no LDAPS certificate (typical: Windows domain without a certification authority), choose “Without certificate” under **Settings → Security → Connection to AD**, or set `PK_LDAP_SECURITY=sasl` in the `.env`. POCKET KNIFE then signs in over **port 389** with Kerberos (otherwise NTLM) and encrypts all traffic afterwards – Windows Server 2025, which refuses simple LDAP sign-ins without encryption, accepts this too. When switching, the connection is first tested with the service account; if it does not work, everything stays as it is.
+
+- **Kerberos** needs the full domain controller names in `PK_LDAP_SERVERS` (e.g. `dc01.firma.local`) and a correct clock. With Samba, additionally run `samba-tool spn add ldap/dc01.firma.local 'DC01$'` once.
+- **strict check** means without a certificate: Kerberos only, no NTLM fallback. When off, NTLM is used if Kerberos does not work (reason under Settings → Connection & accounts and in the log). A wrong password counts only **once** as a failed sign-in on the DC.
+- **Limitation:** nobody can eavesdrop. Without a certificate, however, it cannot be verified as reliably as with a pinned LDAPS certificate that the real domain controller is answering – someone who can get between POCKET KNIFE and the DC on the network could pose as the DC. Where possible: LDAPS with a certificate and **strict check**.
+
+**Alternative – create an LDAPS certificate on the Windows DC:** a self-signed certificate is enough. On **each** DC as administrator (adjust the names), then restart the DC or wait a few minutes; check with `ldp.exe` (port 636, SSL). Renew after 5 years – with **strict check**, confirm the new fingerprint once.
+
+```powershell
+New-SelfSignedCertificate -DnsName "dc01.firma.local","firma.local" `
+  -CertStoreLocation Cert:\LocalMachine\My `
+  -TextExtension '2.5.29.37={text}1.3.6.1.5.5.7.3.1' -NotAfter (Get-Date).AddYears(5)
+```
 
 ## Set up and secure WinRM by Group Policy {#winrm-gpo}
 
@@ -215,7 +231,7 @@ POCKET KNIFE consists of two containers: **pocketknife** (program and web interf
 | Target | Port | Purpose |
 |---|---|---|
 | DNS servers of the domain | 53 TCP/UDP | resolve names of computers and domain controllers |
-| Domain controllers | 636 TCP (LDAPS); 88 TCP/UDP with Kerberos | sign-in, AD sync |
+| Domain controllers | 636 TCP (LDAPS) – without a certificate 389 TCP instead; 88 TCP/UDP with Kerberos | sign-in, AD sync |
 | Clients | 5985 TCP (5986 with HTTPS), 445 TCP | inventory, deployments, files |
 | Clients (optional) | 3389 TCP (RDP), 5900 TCP (VNC) | remote sessions |
 | File server with the repository | 445 TCP | installation files |
@@ -259,7 +275,8 @@ Open the `.env` (e.g. `nano .env`). Every line has the form `NAME=value`, withou
 | `PK_NETBIOS` | `FIRMA` | NetBIOS name of the domain (for `FIRMA\account`). |
 | `PK_DNS_1` | `10.0.10.5` | IP address of a **DNS server of the domain** (usually a domain controller) – not the router and not a public DNS, otherwise POCKET KNIFE cannot find the computers. |
 | `PK_DNS_2` | `10.0.10.6` | Optional: a **second, different** DNS server. If there is only one, leave it empty or delete the line. |
-| `PK_LDAP_SERVERS` | `dc1.firma.local,dc2.firma.local` | Domain controllers with LDAPS, comma-separated. Empty = `PK_DOMAIN`. |
+| `PK_LDAP_SERVERS` | `dc1.firma.local,dc2.firma.local` | Domain controllers with LDAPS, comma-separated. Empty = `PK_DOMAIN`. Without a certificate, enter the **full DC names** here (for Kerberos). |
+| `PK_LDAP_SECURITY` | `ldaps` | `ldaps` (default, certificate on the DC) or `sasl` – without a certificate, Kerberos/NTLM-encrypted over port 389, see [AD without a certificate](#ad-ohne-zertifikat). Can also be changed in the settings. |
 | `PK_ACCESS_GROUP` | `POCKETKNIFE-Admins` | AD group whose members may use POCKET KNIFE (nested groups count). |
 | `PK_PUBLIC_HOSTNAME` | `pocketknife.firma.local` | DNS name of the Docker host from step 1 – used in the certificate. |
 
@@ -1468,9 +1485,9 @@ The settings are divided into sections (list on the left).
 
 | Section | Contents |
 |---|---|
-| Connection & Accounts | domain data, Test LDAPS, **service account** and optionally a repository account (checked before saving, stored encrypted), **authentication method** NTLM/Kerberos with test |
+| Connection & Accounts | domain data, test the connection to AD, **service account** and optionally a repository account (checked before saving, stored encrypted), **authentication method** NTLM/Kerberos with test |
 | Active Directory | include/exclude containers (the closest rule wins), sync interval, handling of removed and disabled computers (deleted only once a computer has been missing from AD **for 7 days**; if no container is included or suddenly almost all computers are missing, nothing is changed), AD collections |
-| Security | check the LDAPS certificate strictly, **sign out when idle**, web interface certificate (HTTPS): view, upload your own (PFX or PEM), create a request (CSR), backups, regenerate self-signed |
+| Security | **connection to AD** (LDAPS or without a certificate), strict check, **sign out when idle**, web interface certificate (HTTPS): view, upload your own (PFX or PEM), create a request (CSR), backups, regenerate self-signed |
 | Network & remote access | name resolution & reachability, Wake-on-LAN, remote sessions (guacd status, own credentials, keyboard layout, central VNC password, active sessions) |
 | Inventory | heartbeat, scan after startup, parallel scans, scan after deployments, built-in Windows apps, "low disk" limit, disk usage depth, scan profiles, custom fields (e.g. asset number, room) – can also be created directly on a computer under **Custom fields**; free-text **notes** per computer are there too (stored only in POCKET KNIFE, never overwritten by the computer) |
 | Updates & versions | [update status](#updstatus) Windows & Office, winget index, default scope, [deferring new versions](#winget-release), automatic installation of winget, offline sources, [proxy server](#proxy), update-check exclusions |
@@ -1640,7 +1657,7 @@ Under **Settings → Maintenance → Diagnostics package**, POCKET KNIFE creates
 |---|---|
 | `versionen.json`, `aenderungen.md`, `behobene_fehler.txt` | version history, changes since the oldest version in the period, fixed errors |
 | `LIESMICH.txt` | period, version, whether anonymized |
-| `umgebung.json` | version, runtime environment, number of computers/packages/collections, database size, state of the schedulers |
+| `umgebung.json` | version, runtime environment, number of computers/packages/collections, database size, state of the schedulers, connection type to AD (LDAPS or without a certificate with Kerberos/NTLM) |
 | `einstellungen.json` | settings without passwords, keys and keytab |
 | `statistik.json` | success rate per package, exit codes, most frequent errors, scan duration, warnings, kiosk requests |
 | `leistung.json` (from 2.44.3) | CPU load and load peaks, duration of dashboard, computer list, collections and software list, slowest collections, largest fields of the computer table (field names and sizes only, no contents) |
@@ -1679,6 +1696,7 @@ The mapping stays **only in your database**. If someone gives you a placeholder 
 - **Pinned versions:** Python base image (version and digest), Debian packages and all Python packages are pinned exactly (see [Update](#update)).
 - **Active sessions** are checked against AD in the background every 2 minutes – even if the user is not clicking anything: anyone disabled or removed from the access or tenant group is signed out; anyone additionally added to a tenant group or to the access group gets the extended scope; anyone who loses rights (e.g. a tenant) is signed out and signs in again – this also ends remote sessions. A brief AD disruption signs nobody out: the session stays and is checked again after one minute. OU admins, however, are signed out after at most 30 minutes without confirmation by AD. If the access group is missing in AD (deleted, renamed, ambiguous), nobody is a main admin until it is fixed (except the emergency access) – the log reports it. Signing out also ends open remote sessions.
 - **LDAPS certificate:** each domain controller's certificate is stored on first contact and compared **before** a password is sent. A change (e.g. certificate renewal) is logged; with **strict check** (Settings → Connection & accounts) the connection is refused until confirmed. With `PK_LDAP_CA_FILE` (domain CA as PEM, e.g. `/data/ca.pem`) the certificate is fully validated against the CA. New installations have **strict check** enabled from 2.13; existing installations keep their setting – enabling it is recommended.
+- **AD without a certificate:** Kerberos/NTLM-encrypted over port 389 – setup, strict check and limitation see [AD without a certificate](#ad-ohne-zertifikat).
 - **WinRM over HTTPS:** with `PK_WINRM_CA_FILE` (CA as PEM) the clients' certificate is validated; without this variable it is not validated, as before.
 - **Request size:** requests to the web interface are limited to 2 MB (Explorer uploads 2 GB, winget packages 310 MB, certificates and package import 20 MB).
 - **Sign-in error messages** do not reveal whether the user name or password was wrong or only the group membership is missing; details are in the log.
@@ -1706,7 +1724,8 @@ The mapping stays **only in your database**. If someone gives you a placeholder 
 
 | Message | Cause / Solution |
 |---|---|
-| LDAPS connection failed | Check the DC names, port 636 and DNS servers in the `.env`; is LDAPS enabled on the DC? |
+| LDAPS connection failed | Check the DC names, port 636 and DNS servers in the `.env`; is LDAPS enabled on the DC? If the DC has no certificate, use “Without certificate” ([AD without a certificate](#ad-ohne-zertifikat)). |
+| Sign-in without certificate: Kerberos not possible | Check the full DC names in `PK_LDAP_SERVERS`, the clock and DNS – or turn off “strict check”, then NTLM is used. |
 | Service account locked / 0xC0000234 | Unlock the account in AD, check the password, then click "Check & continue" |
 | No access: not a member of the group | Add the user to the access group and sign in again |
 | WinRM port not reachable | WinRM GPO, firewall, is the computer turned on? |

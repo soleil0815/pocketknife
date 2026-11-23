@@ -3,19 +3,28 @@
 The certificate of each domain controller is trusted on first contact (TOFU) and compared BEFORE the
 password is sent. On change: log (default) or reject (setting "strikt" (strict)).
 With PK_LDAP_CA_FILE, the check is made against the domain's CA instead.
+
+2.61.0: DCs without a certificate (Windows domains without a CA): connection type "sasl" - port 389, SASL
+GSS-SPNEGO bind (Kerberos, otherwise NTLM) with an encryption layer for everything after the bind (sign and seal).
+The traffic is encrypted, but without a certificate the DC's identity is not checked like a pinned certificate;
+strict check = Kerberos only (no NTLM fallback).
 """
 import datetime
 import hashlib
 import json
+import os
 import re
 import ssl
+import struct
+import threading
 import time
 import uuid
 
-from ldap3 import FIRST, LEVEL, NONE, SIMPLE, SUBTREE, Connection, Server, ServerPool, Tls
+from ldap3 import ANONYMOUS, FIRST, LEVEL, NONE, SASL, SIMPLE, SUBTREE, Connection, Server, ServerPool, Tls
+from ldap3.operation.bind import bind_operation
 from ldap3.utils.conv import escape_filter_chars
 
-from . import config, db, guard, pklog, util
+from . import config, db, guard, kerberos, pklog, util
 
 
 class ADError(Exception):
@@ -29,13 +38,41 @@ class GroupConfigError(ADError):
 CA_FILE = config._env("PK_LDAP_CA_FILE").strip()  # optional: the domain's CA (PEM) - then a real certificate check is made
 
 
-def _pool():
-    if CA_FILE:
-        tls = Tls(validate=ssl.CERT_REQUIRED, ca_certs_file=CA_FILE)
+SECURITY_MODES = ("ldaps", "sasl")
+SECURITY_LABELS = {"ldaps": "LDAPS – mit Zertifikat des Domänencontrollers (Port 636)",
+                   "sasl": "Ohne Zertifikat – Kerberos/NTLM-verschlüsselt (Port 389)"}
+
+
+def security(value=None):
+    """Connection type: setting "ldap_security" (UI) before PK_LDAP_SECURITY (.env), default LDAPS."""
+    m = str(value if value is not None else (db.setting_raw("ldap_security") or config.LDAP_SECURITY or "ldaps")).strip().lower()
+    return m if m in SECURITY_MODES else "ldaps"
+
+
+def port(mode=None):
+    """Effective port: PK_LDAP_PORT if set - but 636 is never plain LDAP, so without certificate it becomes 389."""
+    mode = security(mode) if mode else security()
+    p = config.LDAP_PORT_ENV
+    if mode == "sasl":
+        return 389 if (not p or p == 636) else p
+    return p or 636
+
+
+def label(mode=None):
+    return "LDAPS" if security(mode) == "ldaps" else "LDAP"
+
+
+def _pool(mode=None):
+    mode = security(mode) if mode else security()
+    if mode == "sasl":
+        servers = [Server(h, port=port(mode), use_ssl=False, get_info=NONE, connect_timeout=8) for h in config.LDAP_SERVERS]
     else:
-        tls = Tls(validate=ssl.CERT_NONE)
-    servers = [Server(h, port=config.LDAP_PORT, use_ssl=True, tls=tls, get_info=NONE, connect_timeout=8)
-               for h in config.LDAP_SERVERS]
+        if CA_FILE:
+            tls = Tls(validate=ssl.CERT_REQUIRED, ca_certs_file=CA_FILE)
+        else:
+            tls = Tls(validate=ssl.CERT_NONE)
+        servers = [Server(h, port=port(mode), use_ssl=True, tls=tls, get_info=NONE, connect_timeout=8)
+                   for h in config.LDAP_SERVERS]
     if not servers:
         raise ADError("Kein LDAP-Server konfiguriert (PK_LDAP_SERVERS / PK_DOMAIN).")
     return ServerPool(servers, FIRST, active=2, exhaust=60)
@@ -115,20 +152,23 @@ def trust_pending():
     return p
 
 
-def bind(user, password, result=None):
+def bind(user, password, result=None, mode=None):
     """Returns a bound connection or None if the logon was rejected.
-    If `result` is a dict, the server's LDAP response is stored in it."""
+    If `result` is a dict, the server's LDAP response is stored in it. mode: connection type (default: the configured one)."""
     if not password:
         return None
-    c = Connection(_pool(), user=user, password=password, authentication=SIMPLE,
+    mode = security(mode) if mode else security()
+    if mode == "sasl":
+        return _bind_sasl(user, password, result)
+    c = Connection(_pool(mode), user=user, password=password, authentication=SIMPLE,
                    auto_bind=False, raise_exceptions=False, receive_timeout=30)
     try:
         if not c.open() and c.closed:
-            raise ADError("LDAPS-Verbindung fehlgeschlagen: " + str(c.result))
+            raise ADError("LDAPS-Verbindung fehlgeschlagen: " + str(c.result) + NO_CERT_HINT)
     except ADError:
         raise
     except Exception as e:
-        raise ADError(f"LDAPS-Verbindung zu {', '.join(config.LDAP_SERVERS)}:{config.LDAP_PORT} fehlgeschlagen: {e}")
+        raise ADError(f"LDAPS-Verbindung zu {', '.join(config.LDAP_SERVERS)}:{port(mode)} fehlgeschlagen: {e}{_hint(e)}")
     try:
         _check_fingerprint(c)  # BEFORE the bind - the password goes only to a known server
     except ADError:
@@ -144,13 +184,211 @@ def bind(user, password, result=None):
             c.unbind()
         except Exception:
             pass
-        raise ADError(f"LDAPS-Verbindung unterbrochen: {e}")
+        raise ADError(f"LDAPS-Verbindung unterbrochen: {e}{_hint(e)}")
     if not ok:
         if result is not None:
             result.update(c.result or {})
         c.unbind()
         return None
     return c
+
+
+# 2.61.0: a DC without a certificate refuses the TLS handshake or does not listen on 636 at all - say what helps
+NO_CERT_HINT = (" – Hat der Domänencontroller kein LDAPS-Zertifikat (z. B. Windows-Domäne ohne Zertifizierungsstelle)? "
+                "Dann unter Einstellungen → Sicherheit „Ohne Zertifikat“ wählen oder in der .env "
+                "PK_LDAP_SECURITY=sasl setzen.")
+
+
+def _hint(e):
+    low = str(e).lower()
+    if any(x in low for x in ("refused", "reset by peer", "handshake", "ssl", "tls", "wrong version", "eof occurred",
+                              "socket connection error", "verweigert", "no active server available")):
+        return NO_CERT_HINT
+    return ""
+
+
+# --- Without certificate: SASL GSS-SPNEGO with sign and seal ---------------------------------------------------------
+class _Sealed:
+    """Socket wrapper after a SASL bind with a security layer (RFC 4752 / MS-NLMP): every LDAP message travels as
+    4-byte length + encrypted token. ldap3 only uses sendall()/recv() for the traffic - everything else is passed through."""
+
+    def __init__(self, sock, ctx):
+        self._sock, self._ctx, self._buf = sock, ctx, b""
+        self._lock = threading.Lock()  # wrap/unwrap keep sequence numbers - one message at a time
+
+    def sendall(self, data):
+        with self._lock:
+            tok = self._ctx.wrap(bytes(data), encrypt=True).data
+        self._sock.sendall(struct.pack(">I", len(tok)) + tok)
+
+    def _read(self, n):
+        out = b""
+        while len(out) < n:
+            d = self._sock.recv(n - len(out))
+            if not d:
+                return b""  # connection closed - ldap3 treats an empty read as the end
+            out += d
+        return out
+
+    def recv(self, n):
+        if not self._buf:
+            head = self._read(4)
+            if not head:
+                return b""
+            ln = struct.unpack(">I", head)[0]
+            if ln > SEALED_MAX:
+                raise OSError(f"LDAP: verschlüsseltes Paket zu groß ({ln} Bytes)")
+            tok = self._read(ln)
+            if len(tok) != ln:
+                return b""
+            with self._lock:
+                self._buf = self._ctx.unwrap(tok).data  # raises if the MAC is wrong - nothing unchecked reaches ldap3
+        out, self._buf = self._buf[:n], self._buf[n:]
+        return out
+
+    def __getattr__(self, name):
+        return getattr(self._sock, name)
+
+
+SEALED_MAX = 64 * 1024 * 1024  # one SASL buffer at most (large group/computer searches stay far below)
+_sasl_state = {"mech": "", "reason": "", "at": ""}  # last negotiated method - for the settings page and the diagnostics
+
+
+def sasl_state():
+    return dict(_sasl_state)
+
+
+# Kerberos errors that concern the account/password: NOT fall back to NTLM (would count a second wrong logon on the DC)
+_KRB_ACCOUNT = ((r"preauthentication failed", "data 52e"), (r"client\b[^,]*not found in kerberos database", "data 52e"),
+                (r"credentials have been revoked", "credentials have been revoked"), (r"password has expired", "data 532"),
+                (r"key has expired", "data 532"), (r"password incorrect", "data 52e"))
+
+
+def _krb_error(e):
+    """(account_code or None, short text) for a Kerberos error."""
+    txt = str(e)
+    low = txt.lower()
+    for pat, code in _KRB_ACCOUNT:
+        m = re.search(pat, low)
+        if m:
+            return code, m.group(0)
+    m = re.search(r"Minor \(\d+\): ([^,]+)", txt) or re.search(r"Krb5Error ([^-]+)", txt)
+    short = (m.group(1) if m else txt).strip()[:160]
+    return None, short
+
+
+def _req():
+    import spnego
+    return spnego.ContextReq.default | spnego.ContextReq.integrity | spnego.ContextReq.confidentiality
+
+
+def _bind_sasl(user, password, result=None):
+    import spnego
+    strict = bool(db.setting("ldap_cert_strict"))
+    c = Connection(_pool("sasl"), authentication=ANONYMOUS, auto_bind=False, raise_exceptions=False, receive_timeout=30)
+    try:
+        if not c.open() and c.closed:
+            raise ADError("LDAP-Verbindung (Port 389) fehlgeschlagen: " + str(c.result))
+    except ADError:
+        raise
+    except Exception as e:
+        raise ADError(f"LDAP-Verbindung zu {', '.join(config.LDAP_SERVERS)}:{port('sasl')} fehlgeschlagen: {e}")
+    host = (c.server.host if c.server else "") or ""
+
+    def fail(desc, msg):
+        if result is not None:
+            result.update({"result": 49, "description": desc, "message": msg})
+        _close(c)
+        return None
+
+    # 1. Kerberos first (DC proves its identity to the extent the KDC is genuine). Account errors end here - no
+    #    second wrong logon through NTLM.
+    krb_reason = ""
+    if not kerberos.available()[0]:
+        krb_reason = "Kerberos-Bibliotheken fehlen"
+    elif kerberos.is_ip(host) or "." not in host:
+        krb_reason = f"„{host}“ ist kein voller DC-Name (für Kerberos nötig, z. B. dc01.{config.DOMAIN or 'firma.local'})"
+    else:
+        try:
+            if not os.environ.get("KRB5_CONFIG"):
+                kerberos.setup()
+            spnego.client(kerberos.principal(user), password, hostname=host, service="ldap", protocol="kerberos",
+                          context_req=_req()).step()
+        except Exception as e:
+            code, short = _krb_error(e)
+            if code:
+                return fail("invalidCredentials", f"Kerberos: {short} ({code})")
+            krb_reason = short
+            if host.lower() == (config.DOMAIN or "").lower():
+                krb_reason += f" – in PK_LDAP_SERVERS die vollen DC-Namen eintragen (z. B. dc01.{config.DOMAIN})"
+    if krb_reason and strict:
+        _close(c)
+        raise ADError(f"Anmeldung ohne Zertifikat: Kerberos nicht möglich ({krb_reason}). Mit „strikt prüfen“ ist kein "
+                      f"NTLM erlaubt – Ursache beheben oder die strikte Prüfung unter Einstellungen → Sicherheit "
+                      f"ausschalten.")
+    # 2. SASL GSS-SPNEGO bind; with a working Kerberos it negotiates Kerberos, otherwise NTLM
+    name = kerberos.principal(user) if not krb_reason else user
+    try:
+        ctx = spnego.client(name, password, hostname=host or None, service="ldap", protocol="negotiate", context_req=_req())
+        tok = ctx.step()
+        for _round in range(8):
+            req = bind_operation(c.version, SASL, None, None, "GSS-SPNEGO", tok)
+            c.post_send_single_response(c.send("bindRequest", req, None))
+            r = c.result or {}
+            if r.get("result") == 14:  # saslBindInProgress
+                tok = ctx.step(r.get("saslCreds"))
+                continue
+            break
+        else:
+            return fail("protocolError", "SASL: zu viele Runden")
+    except ADError:
+        raise
+    except Exception as e:
+        code, short = _krb_error(e)
+        if code:
+            return fail("invalidCredentials", f"{short} ({code})")
+        _close(c)
+        raise ADError(f"LDAP-Anmeldung ohne Zertifikat fehlgeschlagen ({host}): {short}")
+    if r.get("result") != 0:
+        if result is not None:
+            result.update(r)
+        _close(c)
+        return None
+    try:
+        if r.get("saslCreds") and not ctx.complete:
+            ctx.step(r["saslCreds"])  # Kerberos: the DC's answer (mutual authentication)
+    except Exception as e:
+        _close(c)
+        raise ADError(f"Antwort des Domänencontrollers {host} ungültig ({_krb_error(e)[1]}) – Verbindung abgelehnt.")
+    mech = str(ctx.negotiated_protocol or "")
+    if not ctx.complete:
+        _close(c)
+        raise ADError(f"Der Domänencontroller {host} hat die Anmeldung nicht vollständig bestätigt – Verbindung abgelehnt.")
+    if strict and mech != "kerberos":
+        _close(c)
+        raise ADError(f"Anmeldung ohne Zertifikat: es wurde {mech or '?'} statt Kerberos ausgehandelt – mit „strikt prüfen“ "
+                      f"nicht erlaubt.")
+    c.socket = _Sealed(c.socket, ctx)
+    c.bound = True
+    _note_mech(mech, krb_reason)
+    return c
+
+
+def _note_mech(mech, reason):
+    changed = (mech, reason) != (_sasl_state["mech"], _sasl_state["reason"])
+    _sasl_state.update(mech=mech, reason=reason, at=util.now())
+    if changed:
+        if mech == "kerberos":
+            pklog.info("ldap", "AD-Verbindung ohne Zertifikat: Kerberos-verschlüsselt.")
+        else:
+            pklog.warn("ldap", f"AD-Verbindung ohne Zertifikat: NTLM-verschlüsselt (Kerberos nicht möglich: {reason or '?'}).")
+
+
+def _close(c):
+    try:
+        c.unbind()
+    except Exception:
+        pass
 
 
 def service_conn():
@@ -465,6 +703,8 @@ def authenticate(username, password, allow_kiosk=False):
     uc = bind(upn, password, res)
     if uc is None:
         text, _acc = guard.explain(f"{res.get('description', '')} {res.get('message', '')}")
+        if text and "gesperrt oder deaktiviert" in text:
+            raise ADError("Ihr Benutzerkonto ist gesperrt oder deaktiviert.")
         if text and "gesperrt" in text:
             raise ADError("Ihr Benutzerkonto ist gesperrt.")
         if text and "deaktiviert" in text:

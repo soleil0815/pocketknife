@@ -37,8 +37,24 @@ Webseite: [helfi.space](https://helfi.space)
 3. **WinRM** per GPO aktivieren und absichern – Schritt für Schritt in [WinRM per Gruppenrichtlinie](#winrm-gpo).
 4. In der Firewall der Clients **nur für den Docker-Host** **TCP 5985** (bzw. 5986 bei HTTPS) und **TCP 445** freigeben. Für Fernsitzungen zusätzlich **TCP 3389** (RDP) bzw. **5900** (VNC).
 5. AD-Gruppe **POCKETKNIFE-Admins** anlegen und die Bediener aufnehmen (verschachtelte Gruppen werden berücksichtigt).
-6. **LDAPS** muss auf den Domänencontrollern aktiv sein. Ein selbstsigniertes Zertifikat genügt – POCKET KNIFE vertraut ihm automatisch und protokolliert jede Änderung des Fingerabdrucks.
+6. **LDAPS** muss auf den Domänencontrollern aktiv sein. Ein selbstsigniertes Zertifikat genügt – POCKET KNIFE vertraut ihm automatisch und protokolliert jede Änderung des Fingerabdrucks. Samba erzeugt das Zertifikat selbst; ein Windows-DC hat nur mit einer Zertifizierungsstelle (AD CS) eines. **Ohne Zertifikat** geht es auch – siehe [AD ohne Zertifikat](#ad-ohne-zertifikat).
 7. Für eigene Pakete eine Freigabe anlegen, z. B. `\\fs01\PAKETE`, mit Leserecht für das Dienstkonto.
+
+## AD ohne Zertifikat (Windows-Domäne ohne Zertifizierungsstelle) {#ad-ohne-zertifikat}
+
+Hat ein Domänencontroller kein LDAPS-Zertifikat (typisch: Windows-Domäne ohne Zertifizierungsstelle), unter **Einstellungen → Sicherheit → Verbindung zum AD** „Ohne Zertifikat“ wählen oder in der `.env` `PK_LDAP_SECURITY=sasl` setzen. POCKET KNIFE meldet sich dann über **Port 389** per Kerberos an (sonst NTLM) und verschlüsselt danach den gesamten Verkehr – auch Windows Server 2025, das einfache LDAP-Anmeldungen ohne Verschlüsselung ablehnt, akzeptiert das. Beim Umstellen wird die Verbindung zuerst mit dem Dienstkonto getestet; klappt sie nicht, bleibt alles wie es ist.
+
+- **Kerberos** braucht die vollen Namen der Domänencontroller in `PK_LDAP_SERVERS` (z. B. `dc01.firma.local`) und eine passende Uhrzeit. Bei Samba zusätzlich einmal `samba-tool spn add ldap/dc01.firma.local 'DC01$'`.
+- **strikt prüfen** heißt ohne Zertifikat: nur Kerberos, kein NTLM-Rückfall. Ausgeschaltet wird NTLM verwendet, wenn Kerberos nicht klappt (Grund unter Einstellungen → Verbindung & Konten und im Protokoll). Ein falsches Kennwort zählt am DC nur **einmal** als Fehlanmeldung.
+- **Einschränkung:** Mitlesen kann niemand. Ohne Zertifikat lässt sich aber nicht so sicher wie mit einem festgelegten LDAPS-Zertifikat prüfen, dass wirklich der echte Domänencontroller antwortet – wer sich im Netz zwischen POCKET KNIFE und DC schalten kann, könnte sich als DC ausgeben. Wo möglich: LDAPS mit Zertifikat und **strikt prüfen**.
+
+**Alternative – LDAPS-Zertifikat auf dem Windows-DC anlegen:** Ein selbstsigniertes Zertifikat genügt. Auf **jedem** DC als Administrator (Namen anpassen), danach DC neu starten oder einige Minuten warten; Prüfen mit `ldp.exe` (Port 636, SSL). Nach 5 Jahren erneuern – mit **strikt prüfen** den neuen Fingerabdruck einmal bestätigen.
+
+```powershell
+New-SelfSignedCertificate -DnsName "dc01.firma.local","firma.local" `
+  -CertStoreLocation Cert:\LocalMachine\My `
+  -TextExtension '2.5.29.37={text}1.3.6.1.5.5.7.3.1' -NotAfter (Get-Date).AddYears(5)
+```
 
 ## WinRM per Gruppenrichtlinie einrichten und absichern {#winrm-gpo}
 
@@ -215,7 +231,7 @@ POCKET KNIFE besteht aus zwei Containern: **pocketknife** (Programm und Weboberf
 | Ziel | Port | Wofür |
 |---|---|---|
 | DNS-Server der Domäne | 53 TCP/UDP | Namen der Computer und Domänencontroller auflösen |
-| Domänencontroller | 636 TCP (LDAPS); 88 TCP/UDP bei Kerberos | Anmeldung, AD-Abgleich |
+| Domänencontroller | 636 TCP (LDAPS) – ohne Zertifikat stattdessen 389 TCP; 88 TCP/UDP bei Kerberos | Anmeldung, AD-Abgleich |
 | Clients | 5985 TCP (5986 bei HTTPS), 445 TCP | Inventar, Bereitstellungen, Dateien |
 | Clients (optional) | 3389 TCP (RDP), 5900 TCP (VNC) | Fernsitzungen |
 | Dateiserver mit dem Repository | 445 TCP | Installationsdateien |
@@ -259,7 +275,8 @@ Danach sieht der Ordner so aus – `data/` und `data-backup/` entstehen beim ers
 | `PK_NETBIOS` | `FIRMA` | NetBIOS-Name der Domäne (für `FIRMA\konto`). |
 | `PK_DNS_1` | `10.0.10.5` | IP-Adresse eines **DNS-Servers der Domäne** (meist ein Domänencontroller) – nicht der Router und kein öffentlicher DNS, sonst findet POCKET KNIFE die Computer nicht. |
 | `PK_DNS_2` | `10.0.10.6` | Optional: ein **zweiter, anderer** DNS-Server. Gibt es nur einen, leer lassen oder die Zeile löschen. |
-| `PK_LDAP_SERVERS` | `dc1.firma.local,dc2.firma.local` | Domänencontroller mit LDAPS, kommagetrennt. Leer = `PK_DOMAIN`. |
+| `PK_LDAP_SERVERS` | `dc1.firma.local,dc2.firma.local` | Domänencontroller mit LDAPS, kommagetrennt. Leer = `PK_DOMAIN`. Ohne Zertifikat hier die **vollen DC-Namen** eintragen (für Kerberos). |
+| `PK_LDAP_SECURITY` | `ldaps` | `ldaps` (Standard, Zertifikat auf dem DC) oder `sasl` – ohne Zertifikat, Kerberos/NTLM-verschlüsselt über Port 389, siehe [AD ohne Zertifikat](#ad-ohne-zertifikat). Lässt sich auch unter Einstellungen umstellen. |
 | `PK_ACCESS_GROUP` | `POCKETKNIFE-Admins` | AD-Gruppe, deren Mitglieder POCKET KNIFE bedienen dürfen (verschachtelte Gruppen zählen mit). |
 | `PK_PUBLIC_HOSTNAME` | `pocketknife.firma.local` | DNS-Name des Docker-Hosts aus Schritt 1 – steht im Zertifikat. |
 
@@ -1467,9 +1484,9 @@ Die Einstellungen sind in Bereiche gegliedert (Liste links).
 
 | Bereich | Inhalt |
 |---|---|
-| Verbindung & Konten | Domänendaten, LDAPS testen, **Dienstkonto** und optional ein Repository-Konto (vor dem Speichern geprüft, verschlüsselt gespeichert), **Anmeldeverfahren** NTLM/Kerberos mit Test |
+| Verbindung & Konten | Domänendaten, Verbindung zum AD testen, **Dienstkonto** und optional ein Repository-Konto (vor dem Speichern geprüft, verschlüsselt gespeichert), **Anmeldeverfahren** NTLM/Kerberos mit Test |
 | Active Directory | Container ein-/ausschließen (die nächstgelegene Regel gewinnt), Abgleich-Intervall, Umgang mit verschwundenen und deaktivierten Computern (Löschen erst, wenn ein Computer **seit 7 Tagen** im AD fehlt; ist kein Container eingeschlossen oder fehlen plötzlich fast alle Computer, wird nichts geändert), AD-Sammlungen |
-| Sicherheit | LDAPS-Zertifikat strikt prüfen, **Abmelden bei Inaktivität**, Zertifikat der Weboberfläche (HTTPS): anzeigen, eigenes hochladen (PFX oder PEM), Anforderung (CSR) erstellen, Sicherungen, selbstsigniert neu erzeugen |
+| Sicherheit | **Verbindung zum AD** (LDAPS oder ohne Zertifikat), strikte Prüfung, **Abmelden bei Inaktivität**, Zertifikat der Weboberfläche (HTTPS): anzeigen, eigenes hochladen (PFX oder PEM), Anforderung (CSR) erstellen, Sicherungen, selbstsigniert neu erzeugen |
 | Netzwerk & Fernzugriff | Namensauflösung & Erreichbarkeit, Wake-on-LAN, Fernsitzungen (Status von guacd, eigene Anmeldung, Tastaturlayout, zentrales VNC-Kennwort, aktive Sitzungen) |
 | Inventar | Heartbeat, Scan nach dem Hochfahren, parallele Scans, nach Bereitstellungen scannen, integrierte Windows-Apps, Grenze „wenig Speicher“, Speicherplatz-Tiefe, Scanprofile, benutzerdefinierte Felder (z. B. Inventarnummer, Raum) – auch direkt beim Computer unter **Benutzerdefinierte Felder** anlegbar; dort stehen außerdem freie **Notizen** je Computer (nur in POCKET KNIFE gespeichert, nie vom Computer überschrieben) |
 | Updates & Aktualität | [Update-Status](#updstatus) Windows & Office, winget-Index, Standard-Bereich, [neue Versionen zurückstellen](#winget-release), automatische Nachinstallation von winget, Offline-Quellen, [Proxyserver](#proxy), Ausnahmen der Aktualitätsprüfung |
@@ -1639,7 +1656,7 @@ Unter **Einstellungen → Wartung → Diagnosepaket** erstellt POCKET KNIFE ein 
 |---|---|
 | `versionen.json`, `aenderungen.md`, `behobene_fehler.txt` | Versionsgeschichte, Änderungen seit der ältesten Version im Zeitraum, behobene Fehler |
 | `LIESMICH.txt` | Zeitraum, Version, ob anonymisiert |
-| `umgebung.json` | Version, Laufzeitumgebung, Anzahl Computer/Pakete/Sammlungen, Datenbankgröße, Zustand der Zeitpläne |
+| `umgebung.json` | Version, Laufzeitumgebung, Anzahl Computer/Pakete/Sammlungen, Datenbankgröße, Zustand der Zeitpläne, Verbindungsart zum AD (LDAPS oder ohne Zertifikat mit Kerberos/NTLM) |
 | `einstellungen.json` | Einstellungen ohne Kennwörter, Schlüssel und Keytab |
 | `statistik.json` | Erfolgsquote je Paket, Exitcodes, häufigste Fehler, Scan-Dauer, Warnungen, Kiosk-Anfragen |
 | `leistung.json` (ab 2.44.3) | Rechenlast und Lastspitzen, Dauer von Dashboard, Computerliste, Sammlungen und Softwareliste, langsamste Sammlungen, größte Felder der Computer-Tabelle (nur Feldnamen und Größen, keine Inhalte) |
@@ -1678,6 +1695,7 @@ Die Zuordnung bleibt **nur in Ihrer Datenbank**. Nennt Ihnen jemand einen Platzh
 - **Feste Versionen:** Python-Basis-Image (Version und Digest), Debian-Pakete und alle Python-Pakete sind exakt festgeschrieben (siehe [Update](#update)).
 - **Laufende Sitzungen** werden im Hintergrund alle 2 Minuten gegen das AD geprüft – auch wenn der Benutzer gerade nichts klickt: Wer deaktiviert oder aus der Zugriffs- bzw. Mandanten-Gruppe entfernt wird, ist danach abgemeldet; wer zusätzlich in eine Mandanten-Gruppe oder in die Zugriffsgruppe kommt, bekommt den erweiterten Bereich; wer Rechte verliert (z. B. einen Mandanten), wird abgemeldet und meldet sich neu an – das beendet auch Fernsitzungen. Eine kurze Störung des AD meldet niemanden ab: Die Sitzung bleibt und wird nach einer Minute erneut geprüft. OU-Admins werden aber spätestens nach 30 Minuten ohne Bestätigung durch das AD abgemeldet. Fehlt die Zugriffsgruppe im AD (gelöscht, umbenannt, mehrdeutig), ist bis zur Korrektur niemand Hauptadmin (außer dem Notfallzugang) – das Protokoll meldet es. Abmelden beendet auch offene Fernsitzungen.
 - **LDAPS-Zertifikat:** Das Zertifikat jedes Domänencontrollers wird beim ersten Kontakt gespeichert und **vor** dem Senden eines Kennworts verglichen. Eine Änderung (z. B. Zertifikatserneuerung) wird protokolliert; mit **strikt prüfen** (Einstellungen → Verbindung & Konten) wird die Verbindung bis zur Bestätigung abgelehnt. Mit `PK_LDAP_CA_FILE` (CA der Domäne als PEM, z. B. `/data/ca.pem`) wird das Zertifikat vollständig gegen die CA geprüft. Neue Installationen haben **strikt prüfen** ab 2.13 eingeschaltet; bei bestehenden Installationen bleibt die bisherige Einstellung – empfohlen ist, sie einzuschalten.
+- **AD ohne Zertifikat:** Kerberos/NTLM-verschlüsselt über Port 389 – Einrichtung, strikte Prüfung und Einschränkung siehe [AD ohne Zertifikat](#ad-ohne-zertifikat).
 - **WinRM über HTTPS:** Mit `PK_WINRM_CA_FILE` (CA als PEM) wird das Zertifikat der Clients geprüft; ohne diese Variable wird es wie bisher nicht geprüft.
 - **Anfragegröße:** Anfragen an die Oberfläche sind auf 2 MB begrenzt (Uploads im Explorer 2 GB, winget-Pakete 310 MB, Zertifikate und Paket-Import 20 MB).
 - **Fehlermeldungen beim Anmelden** verraten nicht, ob Benutzername oder Kennwort falsch war oder nur die Gruppenmitgliedschaft fehlt; Details stehen im Protokoll.
@@ -1705,7 +1723,8 @@ Die Zuordnung bleibt **nur in Ihrer Datenbank**. Nennt Ihnen jemand einen Platzh
 
 | Meldung | Ursache / Lösung |
 |---|---|
-| LDAPS-Verbindung fehlgeschlagen | DC-Namen, Port 636, DNS-Server in der `.env` prüfen; LDAPS auf dem DC aktiv? |
+| LDAPS-Verbindung fehlgeschlagen | DC-Namen, Port 636, DNS-Server in der `.env` prüfen; LDAPS auf dem DC aktiv? Hat der DC kein Zertifikat, „Ohne Zertifikat“ verwenden ([AD ohne Zertifikat](#ad-ohne-zertifikat)). |
+| Anmeldung ohne Zertifikat: Kerberos nicht möglich | Volle DC-Namen in `PK_LDAP_SERVERS`, Uhrzeit, DNS prüfen – oder „strikt prüfen“ ausschalten, dann wird NTLM verwendet. |
 | Dienstkonto gesperrt / 0xC0000234 | Konto im AD entsperren, Kennwort prüfen, dann „Prüfen & fortsetzen“ |
 | Kein Zugriff: nicht Mitglied der Gruppe | Benutzer in die Zugriffsgruppe aufnehmen und neu anmelden |
 | WinRM-Port nicht erreichbar | WinRM-GPO, Firewall, Computer eingeschaltet? |

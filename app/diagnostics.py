@@ -497,6 +497,15 @@ def _environment(an):
     except Exception:
         pass
     try:
+        # 2.61.0: connection type to the AD; without certificate: the negotiated method (reason anonymised)
+        from . import ad
+        st = ad.sasl_state()
+        env["ldap"] = {"security": ad.security(), "port": ad.port(), "ca_file": bool(ad.CA_FILE),
+                       "strict": bool(db.setting("ldap_cert_strict")), "sasl_mech": st.get("mech") or "",
+                       "sasl_kerberos_reason": an(st.get("reason") or ""), "sasl_since": st.get("at") or ""}
+    except Exception:
+        pass
+    try:
         from . import guard
         g = guard.status()
         env["guard"] = {"paused": g.get("paused"), "reason": an(g.get("reason")), "since": g.get("since")}
@@ -923,7 +932,8 @@ Dateien
   versionen.json       Versionsgeschichte (ab wann welche Version lief), Versionen im Zeitraum
   aenderungen.md       Änderungen von der ältesten Version im Zeitraum bis heute
   behobene_fehler.txt  Behobene Fehler, die der Selbsttest bei jeder Version prüft
-  umgebung.json        Version, Umgebung, Zähler, Zustand der Hintergrundaufgaben (ohne Kennwörter/Schlüssel)
+  umgebung.json        Version, Umgebung, Zähler, Zustand der Hintergrundaufgaben (ohne Kennwörter/Schlüssel),
+                       Verbindungsart zum AD (LDAPS oder ohne Zertifikat: Kerberos/NTLM)
   einstellungen.json   Einstellungen (ohne Kennwörter, Keytab, Schlüssel)
   statistik.json       Bereitstellungen und Scans im Zeitraum: Ergebnisse, Exitcodes, häufigste Fehler, Dauer,
                        Ketten (mehrere Pakete nacheinander: Anzahl, übersprungene Ziele, wartende Ziele),
