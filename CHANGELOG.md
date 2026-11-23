@@ -27,7 +27,7 @@ New entries are in English. Entries up to and including 2.38.4-s1 (November 2026
 - **winget cache like winget:** the manifest's "Upgrade" switches are only added when an older version is installed and gets updated – before, a fresh install got them too (new column `winget_cache.upgrade_args`; existing cache packages are rebuilt on their next check)
 - **Domain rejoin:** a computer joined again (new computer object, new GUID, same name) keeps its entry with inventory, history and collections instead of appearing twice – only if the old computer object is no longer in the AD; logged
 - **Keyboard and contrast:** context menus (also "+ Neu", row menus, recent tabs) with arrow keys, Enter/Space, right/left for submenus, Esc and Tab; menu key / Shift+F10 opens the row menu of the selected rows; dialogs keep the focus inside (Tab wraps), focus the safe button when there is no field (dangerous confirmations: "Abbrechen") and give the focus back on close; filled red buttons in dark mode and the "⚠ Hinweis" pill now at least 4.5:1
-- **Security update:** Debian krb5 1.21.3-5+deb13u2 (DSA for CVE-2026-107364 and others: KDC/kadmind DoS – the image only uses the client library), Debian snapshot 2026-11-23
+- **Security update:** Debian krb5 1.21.3-5+deb13u2 (DSA for CVE-2026-107364 and others: KDC/kadmind DoS – the image only uses the client library), Debian snapshot 2026-11-23; build stage libc6-dev 2.41-12+deb13u5 (the version available at that snapshot)
 - **Help (de/en):** limitation of "without certificate" for user sign-ins, `PK_KDC` to pin the KDCs
 - **Self-test:** new test "Audit 2026-11" for all of the above
 
