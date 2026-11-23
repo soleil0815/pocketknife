@@ -289,7 +289,7 @@ function ended() {
   S.ended = true;
   const err = S.lastError;
   const reconnect = btn('Erneut verbinden', () => optionsDlg(), 'primary');
-  const card = () => overlayCard('Sitzung beendet', h('p', `Die ${LABEL}-Sitzung zu ${S.computer.name} wurde beendet.`), [btn('Schließen', () => window.close()), reconnect]);
+  const card = () => overlayCard('Sitzung beendet', h('p', `Die ${LABEL}-Sitzung zu ${S.computer.name} wurde beendet.`), [btn('Zu POCKET KNIFE', () => { location.href = '/'; }), reconnect]);
   // only a session that was really connected - a connection that never came up keeps the tab with its message
   if (S.wasConnected && (S.userClosed || !(err && err.code))) { closeTab(card); return; }
   if (err && err.code) {

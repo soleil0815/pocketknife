@@ -296,9 +296,47 @@ function cmpVal(a, b) {
 // ---------------------------------------------------------------------------
 // --- Context menu (right click) ---------------------------------------------------
 let ctxMenu = null;
-function closeCtx() { if (ctxMenu) { ctxMenu.remove(); ctxMenu = null; document.removeEventListener('mousedown', ctxOutside, true); document.removeEventListener('keydown', ctxKey, true); } }
+let ctxReturn = null;  // element that had the focus before the menu opened - gets it back when closed with the keyboard
+function closeCtx(refocus) {
+  if (ctxMenu) { ctxMenu.remove(); ctxMenu = null; document.removeEventListener('mousedown', ctxOutside, true); document.removeEventListener('keydown', ctxKey, true); }
+  if (refocus && ctxReturn && ctxReturn.isConnected) { try { ctxReturn.focus(); } catch (e) { /* ignore */ } }
+  ctxReturn = null;
+}
 function ctxOutside(e) { if (ctxMenu && !ctxMenu.contains(e.target)) closeCtx(); }
-function ctxKey(e) { if (e.key === 'Escape') { e.stopPropagation(); e.preventDefault(); closeCtx(); } }
+// Audit 2026-11: menus with the keyboard - arrows up/down, Enter/Space, right opens a submenu, left/Esc goes back, Tab closes
+const ctxItems = (m) => [...m.querySelectorAll(':scope > .cmenu-item:not(.disabled)')];
+function ctxFocus(m, i) {
+  const items = ctxItems(m);
+  if (!items.length) return;
+  const el = items[(i + items.length) % items.length];
+  m.querySelectorAll(':scope > .cmenu-item.kbd').forEach((x) => x.classList.remove('kbd'));
+  el.classList.add('kbd');
+  el.focus();
+}
+function ctxKey(e) {
+  if (!ctxMenu) return;
+  const cur = document.activeElement && document.activeElement.closest ? document.activeElement.closest('.cmenu-item') : null;
+  const menu = cur ? cur.parentElement : ctxMenu;
+  const items = ctxItems(menu);
+  const i = cur ? items.indexOf(cur) : -1;
+  const stop = () => { e.stopPropagation(); e.preventDefault(); };
+  // filter and column windows (fields, buttons): only Esc - arrows, Tab, Home/End belong to the fields there
+  if (!cur && !ctxItems(ctxMenu).length) { if (e.key === 'Escape') { stop(); closeCtx(true); } return; }
+  if (e.key === 'Escape' || (e.key === 'ArrowLeft' && menu !== ctxMenu)) {
+    stop();
+    if (menu !== ctxMenu) { const parent = menu.parentElement; menu.remove(); parent.focus(); return; }
+    closeCtx(true);
+  } else if (e.key === 'ArrowDown') { stop(); ctxFocus(menu, i + 1); }
+  else if (e.key === 'ArrowUp') { stop(); ctxFocus(menu, i < 0 ? -1 : i - 1); }
+  else if (e.key === 'Home') { stop(); ctxFocus(menu, 0); }
+  else if (e.key === 'End') { stop(); ctxFocus(menu, -1); }
+  else if (e.key === 'Tab') { stop(); closeCtx(true); }
+  else if (cur && (e.key === 'Enter' || e.key === ' ' || (e.key === 'ArrowRight' && cur.classList.contains('has-sub')))) {
+    stop();
+    if (cur.classList.contains('has-sub')) cur.dispatchEvent(new CustomEvent('pk-open-sub'));
+    else cur.click();
+  }
+}
 // 2.38.9: right click on a table cell -> "<column> kopieren" in every table context menu (also tables without own
 // menu). Copies the full value - truncated cells (paths, uninstall commands …) included; with several selected rows
 // the values of all of them, one per line.
@@ -318,35 +356,47 @@ function contextMenu(x, y, items) {
   const tidy = (list) => list.filter(Boolean).filter((it, i, a) => !((it === '-' || it.sep) && (i === 0 || a[i - 1] === '-' || a[i - 1].sep || i === a.length - 1)));
   const build = (list) => h('div.cmenu', tidy(tidy(list)).map((it) => {
     if (it === '-' || it.sep) return h('div.cmenu-sep');
-    const el = h('div.cmenu-item', { class: (it.disabled ? 'disabled ' : '') + (it.sub ? 'has-sub' : '') },
+    const el = h('div.cmenu-item', { class: (it.disabled ? 'disabled ' : '') + (it.sub ? 'has-sub' : ''), role: 'menuitem', tabIndex: -1,
+      'aria-disabled': it.disabled ? 'true' : null, 'aria-haspopup': it.sub ? 'menu' : null },
       h('span.cm-ic', it.icon ? icon(it.icon) : null), h('span.cm-l', it.label), it.hint ? h('span.cm-k', it.hint) : null, it.sub ? h('span.cm-k', '▸') : null);
     if (it.sub) {
-      el.addEventListener('mouseenter', () => {
+      const openSub = (kbd) => {
         el.querySelectorAll(':scope > .cmenu').forEach((m) => m.remove());
         const sub = typeof it.sub === 'function' ? it.sub() : it.sub;
         Promise.resolve(sub).then((items2) => {
-          if (!el.matches(':hover')) return;
+          if (!kbd && !el.matches(':hover')) return;
+          if (kbd && (!ctxMenu || !ctxMenu.contains(el))) return;
           const m = build(items2 && items2.length ? items2 : [{ label: '(leer)', disabled: true }]);
           m.classList.add('sub');
+          m.setAttribute('role', 'menu');
           el.appendChild(m);
           const r = m.getBoundingClientRect();
           if (r.right > window.innerWidth) { m.style.left = 'auto'; m.style.right = '100%'; }
           if (r.bottom > window.innerHeight) m.style.top = `${Math.max(-r.top + 8, window.innerHeight - r.bottom - 8)}px`;
+          if (kbd) ctxFocus(m, 0);
         });
-      });
+      };
+      el.addEventListener('mouseenter', () => openSub(false));
+      el.addEventListener('pk-open-sub', () => openSub(true));
       el.addEventListener('mouseleave', () => el.querySelectorAll(':scope > .cmenu').forEach((m) => m.remove()));
     } else if (!it.disabled) {
-      el.addEventListener('click', (e) => { e.stopPropagation(); closeCtx(); it.onClick && it.onClick(); });
+      el.addEventListener('click', (e) => { e.stopPropagation(); closeCtx(true); it.onClick && it.onClick(); });  // focus back first: a dialog opened by the item returns it there
     }
     return el;
   }));
+  ctxReturn = document.activeElement;
   ctxMenu = build(items);
   ctxMenu.classList.add('root');
+  ctxMenu.setAttribute('role', 'menu');
   document.body.appendChild(ctxMenu);
   const r = ctxMenu.getBoundingClientRect();
   ctxMenu.style.left = `${Math.max(4, Math.min(x, window.innerWidth - r.width - 4))}px`;
   ctxMenu.style.top = `${Math.max(4, Math.min(y, window.innerHeight - r.height - 4))}px`;
   setTimeout(() => { document.addEventListener('mousedown', ctxOutside, true); document.addEventListener('keydown', ctxKey, true); }, 0);
+  ctxMenu.addEventListener('mousemove', () => ctxMenu && ctxMenu.querySelectorAll('.cmenu-item.kbd').forEach((x) => x.classList.remove('kbd')));
+  // focus on the menu so the arrow keys work at once; the first item only shows its frame when used with the keyboard
+  const m0 = ctxMenu;
+  setTimeout(() => { const f = ctxItems(m0)[0]; if (f && ctxMenu === m0) f.focus({ preventScroll: true }); }, 0);
 }
 
 // --- Table: sorting, moving/hiding columns, column filters -------------
@@ -744,6 +794,18 @@ function table(cols, rows, opt = {}) {
       if (e.key === 'Delete' && opt.onDelete && api.selected().length) opt.onDelete(api.selected());
       if (e.key === 'Enter' && opt.onRow && api.selected().length === 1) opt.onRow(api.selected()[0], e);
     });
+    // Audit 2026-11: menu key / Shift+F10 opens the row menu of the selected rows (the browser sends "contextmenu"
+    // to the focused table, not to a row)
+    const keyMenu = (e) => {
+      if (!opt.onContext || (e.target.closest && e.target.closest('tr')) || !api.selected().length) return;
+      e.preventDefault();
+      const sel = api.selected();
+      const tr = scroll.querySelector('tbody tr.selected') || scroll.querySelector('tbody tr');
+      const r = (tr || scroll).getBoundingClientRect();
+      opt.onContext(sel[0], { clientX: r.left + 40, clientY: r.bottom, preventDefault() {}, stopPropagation() {} }, sel);
+    };
+    scroll.addEventListener('contextmenu', keyMenu);
+    scroll.addEventListener('keydown', (e) => { if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) keyMenu(e); });
   }
 
   const api = {
@@ -780,12 +842,27 @@ function table(cols, rows, opt = {}) {
 function modal(title, body, buttons = [], opt = {}) {
   const root = $('#modal-root');
   let closed = false;
+  // Audit 2026-11: focus stays inside the dialog (Tab wraps) and returns to where it was before
+  const opener = document.activeElement;
   const close = () => {
     if (closed) return;
     closed = true;
     bd.remove();
     document.removeEventListener('keydown', esc);
+    document.removeEventListener('keydown', trap, true);
     if (opt.onClose) opt.onClose();
+    if (opener && opener.isConnected && opener !== document.body && (!root.lastChild || root.lastChild.contains(opener))) { try { opener.focus({ preventScroll: true }); } catch (e) { /* ignore */ } }
+  };
+  const focusables = () => [...m.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]):not([type=hidden]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')]
+    .filter((x) => x.offsetParent !== null || x === document.activeElement);
+  const trap = (e) => {
+    if (e.key !== 'Tab' || root.lastChild !== bd || ctxMenu || openMenu) return;
+    const f = focusables();
+    if (!f.length) { e.preventDefault(); return; }
+    const a = document.activeElement;
+    if (!m.contains(a)) { e.preventDefault(); f[e.shiftKey ? f.length - 1 : 0].focus(); }
+    else if (!e.shiftKey && a === f[f.length - 1]) { e.preventDefault(); f[0].focus(); }
+    else if (e.shiftKey && a === f[0]) { e.preventDefault(); f[f.length - 1].focus(); }
   };
   const esc = async (e) => {
     if (e.key !== 'Escape' || root.lastChild !== bd || ctxMenu || openMenu) return;
@@ -816,8 +893,13 @@ function modal(title, body, buttons = [], opt = {}) {
   if (opt.key) bd.dataset.dlg = opt.key;
   root.appendChild(bd);
   document.addEventListener('keydown', esc);
+  document.addEventListener('keydown', trap, true);
   const first = m.querySelector('input:not([type=checkbox]),select,textarea');
-  if (first) setTimeout(() => first.focus(), 30);
+  // without an input field: the safe button (dangerous confirmations: "Abbrechen", otherwise the main button)
+  const btns = [...foot.querySelectorAll('button')];
+  const target = first || (btns.some((b) => b.classList.contains('danger')) ? btns[0] : btns.find((b) => b.classList.contains('primary')) || btns[0])
+    || m.querySelector('.modal-h button');
+  if (target) setTimeout(() => { if (!closed && !m.contains(document.activeElement)) target.focus(); }, 30);
   return { close, el: m };
 }
 
@@ -831,7 +913,7 @@ function confirmDlg(text, okLabel = 'OK', danger = false) {
     let ok = false;
     modal('Bestätigen', h('p', text), [
       { label: 'Abbrechen' },
-      { label: okLabel, cls: danger ? 'primary' : 'primary', onClick: () => { ok = true; } },
+      { label: okLabel, cls: danger ? 'danger' : 'primary', onClick: () => { ok = true; } },
     ], { onClose: () => resolve(ok) });
   });
 }
@@ -881,8 +963,13 @@ function showOutput(title, text) {
   modal(title, h('pre.out', text || '(keine Ausgabe)'), [{ label: 'Schließen' }], { wide: true });
 }
 
+let fieldSeq = 0;
 function field(label, input, hint) {
-  return [h('label', label), input, hint ? h('div.hint', hint) : null];
+  // Audit 2026-11: label linked to its control (accessible name, click on the label focuses the field)
+  const lab = h('label', label);
+  const ctl = input instanceof HTMLElement && input.matches('input, select, textarea') ? input : null;
+  if (ctl && label) { if (!ctl.id) ctl.id = `pkf-${++fieldSeq}`; lab.htmlFor = ctl.id; }
+  return [lab, input, hint ? h('div.hint', hint) : null];
 }
 
 // Input field with selection list (instead of <datalist>): ALWAYS shows all entries when opened – the browser
@@ -1115,7 +1202,7 @@ function newMenuButton() {
       { label: 'Neue Bereitstellung', icon: 'send', onClick: () => deployDlg({}) },
       mayBuild() ? { label: 'Neuer Zeitplan', icon: 'clock', onClick: () => { go('#/schedules'); scheduleDlg(null, { kind: 'packages' }); } } : null,
       '-',
-      { label: 'Computer hinzufügen', icon: 'pc', onClick: () => addComputerDlg() },
+      isOU() ? null : { label: 'Computer hinzufügen', icon: 'pc', onClick: () => addComputerDlg() },
       !isOU() || mayBuild() ? { label: 'Neue Sammlung', icon: 'coll', onClick: () => collectionDlg(null) } : null,
       ...(isOU() ? [] : ['-',
         { label: 'Neues Tool', icon: 'terminal', onClick: () => { go('#/tools'); toolDlg(null); } },
@@ -1670,7 +1757,7 @@ async function viewDashboard() {
   const depCard = h('div.card', h('div.card-h', h('h2', 'Letzte Bereitstellungen'), btn('Alle', () => go('#/deployments'), { cls: 'small' })),
     h('div.card-b.flush', d.deployments.length ? h('table', h('tbody', d.deployments.map((x) => h('tr.clickable', { onclick: () => go(`#/deployment/${x.id}`) },
       h('td.wrap', h('b', x.name), h('div.muted.small', fmtDate(x.created_at))), h('td.nowrap', depBadge(x.status)),
-      h('td.right.nowrap', `${x.ok}/${x.total}`))))) : h('div.empty', 'Noch keine Bereitstellungen.')));
+      h('td.right.nowrap', `${x.ok}/${x.total}`))))) : h('div.empty', 'Noch keine Bereitstellungen – über „+ Neu“ → „Neue Bereitstellung“ starten.')));
 
   const logCard = h('div.card', h('div.card-h', h('h2', 'Warnungen & Fehler'), btn('Protokoll', () => go('#/logs'), { cls: 'small' })),
     h('div.card-b.flush', d.logs.length ? h('table', h('tbody', d.logs.map((l) => h('tr',
@@ -1807,7 +1894,7 @@ async function viewComputers(_parts, params) {
   const canNew = !isOU() || mayBuild();
   const lockMsg = (c) => (c.builtin ? 'Standard- und AD-Sammlungen können nicht geändert werden.' : 'Diese Sammlung kann nur ein Hauptadmin ändern – Sie können sie als Kopie für Ihren Bereich anlegen.');
   const top = () => setTop('Computer', current ? `Sammlung: ${collPath(cols, current.id)}${isAd(current) ? ' (aus dem AD)' : ''}` : '',
-    btn('Computer hinzufügen', addComputerDlg, { icon: 'plus' }),
+    isOU() ? null : btn('Computer hinzufügen', addComputerDlg, { icon: 'plus' }),
     canNew ? btn('Neue Sammlung', () => collectionDlg(null), { icon: 'coll' }) : null);
   top();
   // 2.57.1: a click in the tree only swaps the computer list - the tree stays as it is (open folders, scroll position)
@@ -2060,7 +2147,7 @@ async function viewComputers(_parts, params) {
     { key: 'ad_last_logon', label: 'Letzte AD-Anmeldung', value: (r) => fmtDate(r.ad_last_logon), sort: (r) => r.ad_last_logon || '', hidden: true },
     { key: 'created_at', label: 'Hinzugefügt', value: (r) => fmtDate(r.created_at), sort: (r) => r.created_at || '', hidden: true },
   ], rows, { key: 'computers', selectable: true, sort: 'name', noun: 'Computer', dragRows: true, onRow: (r) => go(`#/computer/${r.id}`),
-    onSelect: (sx) => upd(sx), onContext: (r, e, selRows) => rowMenu(e, selRows), onDelete: (selRows) => delComputers(selRows.map((x) => x.id)) });
+    onSelect: (sx) => upd(sx), onContext: (r, e, selRows) => rowMenu(e, selRows), onDelete: isOU() ? null : (selRows) => delComputers(selRows.map((x) => x.id)) });
 
   const targetsOf = (selRows) => selRows.map((r) => ({ id: r.id, name: r.name, online: r.online }));
   async function delComputers(ids) {
@@ -2105,9 +2192,10 @@ async function viewComputers(_parts, params) {
       { label: 'Namen kopieren', icon: 'coll', hint: 'Strg+C', onClick: () => copyText(selRows.map((r) => r.name).join('\r\n'), `${selRows.length} Name(n) kopiert`) },
       { label: 'Als CSV speichern', icon: 'download', onClick: () => downloadText(`computer_${localDate()}.csv`, tableCsv(t, selRows)) },
       '-',
-      { label: allAllowed ? '☑ Scannen erlaubt' : '☐ Scannen erlaubt', icon: 'refresh', onClick: () => setScanAllowed(ids, !allAllowed) },
-      '-',
-      { label: 'Löschen', icon: 'trash', hint: 'Entf', onClick: () => delComputers(ids) },
+      // Audit 2026-11: OU admins may neither delete computers nor change "Scannen erlaubt" (server: 403) - not offered
+      isOU() ? null : { label: allAllowed ? '☑ Scannen erlaubt' : '☐ Scannen erlaubt', icon: 'refresh', onClick: () => setScanAllowed(ids, !allAllowed) },
+      isOU() ? null : '-',
+      isOU() ? null : { label: 'Löschen', icon: 'trash', hint: 'Entf', onClick: () => delComputers(ids) },
       { label: 'Alle auswählen', icon: 'list', hint: 'Strg+A', onClick: () => t.selectAll() },
     ]);
   }
@@ -4688,7 +4776,7 @@ async function viewSchedules() {
     { key: 'last_run', label: 'Letzter Lauf', render: (r) => h('span', { title: fmtDate(r.last_run) }, relTime(r.last_run)), sort: (r) => r.last_run || '' },
     { key: 'state', label: 'Zielverlauf', value: (r) => r.failed * 1000 + r.ok, render: (r) => h('span.row', { style: { gap: '4px' } },
       r.ok ? h('span.badge.ok', `${r.ok} OK`) : null, r.failed ? h('span.badge.err', `${r.failed} Fehler`) : null, r.pending ? h('span.badge.info', `${r.pending} warten`) : null) },
-  ], rows, { key: 'schedules', sort: 'name', noun: 'Zeitpläne', onRow: (r) => scheduleDlg(r.id), empty: 'Noch keine Zeitpläne.',
+  ], rows, { key: 'schedules', sort: 'name', noun: 'Zeitpläne', onRow: (r) => scheduleDlg(r.id), empty: mayBuild() ? 'Noch keine Zeitpläne – mit „Neuer Zeitplan“ anlegen.' : 'Noch keine Zeitpläne.',
     onContext: (r, e) => contextMenu(e.clientX, e.clientY, [
       { label: r.editable === false ? 'Anzeigen' : 'Bearbeiten', icon: 'edit', onClick: () => scheduleDlg(r.id) },
       r.runnable === false ? null : { label: 'Jetzt ausführen', icon: 'send', onClick: () => runSchedule(r) },
@@ -6234,7 +6322,7 @@ function accountsCard() {
         h('p.muted.small', { style: { margin: '4px 0 0' } }, help));
     };
     body.replaceChildren(
-      block('service', 'Dienstkonto', a.service, 'Konto mit lokalen Administratorrechten auf den Clients (LDAPS, WinRM, SMB). Vor dem Speichern wird die Anmeldung per LDAPS geprüft, damit ein Tippfehler nicht zur Kontosperre führt. Angabe als „benutzer“, „DOMÄNE\\benutzer“ oder „benutzer@domäne“.'),
+      block('service', 'Dienstkonto', a.service, 'Konto mit lokalen Administratorrechten auf den Clients (AD, WinRM, SMB). Vor dem Speichern wird die Anmeldung am AD geprüft, damit ein Tippfehler nicht zur Kontosperre führt. Angabe als „benutzer“, „DOMÄNE\\benutzer“ oder „benutzer@domäne“.'),
       block('repo', 'Repository-Konto', a.repo, 'Optional: eigenes Konto nur für den Lesezugriff auf das Software-Repository (SMB). Leer = Dienstkonto.'),
       h('p.muted.small', { style: { margin: 0 } }, 'Kennwörter werden verschlüsselt in der Datenbank gespeichert (Schlüssel: /data/pocketknife.key). Bei einer Sicherung beide Dateien sichern. Ein in POCKET KNIFE hinterlegtes Konto hat Vorrang vor der .env – dort können SERVICE_PASSWORD und REPO_PASSWORD dann entfernt werden.'));
   }
@@ -6473,7 +6561,7 @@ function adCard() {
 
 
 async function viewSettings() {
-  setTop('Einstellungen', 'Verbindung, Zeitpläne, Repository und winget');
+  setTop('Einstellungen', 'Verbindung, Sicherheit, Inventar, Updates, Pakete und Wartung');
   const [s, sys, scs, flds] = await Promise.all([GET('/api/settings'), GET('/api/system'), GET('/api/scanners'), GET('/api/fields')]);
   const inputs = {};
   const n = (k, attrs = {}) => (inputs[k] = h('input', { type: 'number', min: 0, value: s[k], style: { maxWidth: '140px' }, ...attrs }));
@@ -6487,18 +6575,27 @@ async function viewSettings() {
   repoPwRow.forEach((el) => { if (el) el.style.display = 'none'; });
   const withRepoPw = (body) => { if (repoPw.value) body.repo_password_confirm = repoPw.value; return body; };
   const repoSaved = (r) => { if (r) { s.repo_path = inputs.repo_path.value.trim(); repoPw.value = ''; repoChanged(); } return r; };
+  const SEC_KEYS = ['ldap_security', 'ldap_cert_strict', 'session_idle_minutes'];
   const save = btn('Speichern', async () => {
     const body = {};
-    for (const [k, el] of Object.entries(inputs)) body[k] = el.type === 'checkbox' ? (el.checked ? 1 : 0) : el.value;
+    // Audit 2026-11: the "Anmeldung & Sitzung" fields have their own button (with the confirmation before switching the AD connection)
+    for (const [k, el] of Object.entries(inputs)) if (!SEC_KEYS.includes(k)) body[k] = el.type === 'checkbox' ? (el.checked ? 1 : 0) : el.value;
     repoSaved(await run(() => PUT('/api/settings', withRepoPw(body)), (r) => (r.changed.length ? 'Gespeichert' : 'Keine Änderungen')));
   }, { cls: 'primary' });
 
-  const conn = h('div.card', h('div.card-h', h('h2', 'Domäne'), btn('LDAPS testen', async () => {
+  // 2.61.0: connection type LDAPS (certificate) or without certificate (Kerberos/NTLM-encrypted, port 389)
+  const sasl = sys.ldap_security === 'sasl';
+  const saslInfo = sys.ldap_sasl || {};
+  const saslMech = !saslInfo.mech ? tr('noch nicht verbunden') : saslInfo.mech === 'kerberos' ? 'Kerberos'
+    : fmtT('NTLM – Kerberos nicht möglich: {0}', saslInfo.reason || '?');
+  const conn = h('div.card', h('div.card-h', h('h2', 'Domäne'), btn('Verbindung testen', async () => {
     const r = await run(() => POST('/api/system/ldaptest'));
-    if (r) (r.ok ? toast('LDAPS-Verbindung erfolgreich', 'ok') : toast(r.error, 'err'));
+    if (r) (r.ok ? toast(r.mech ? fmtT('Verbindung zum AD erfolgreich ({0})', r.mech === 'kerberos' ? 'Kerberos' : 'NTLM') : tr('Verbindung zum AD erfolgreich'), 'ok') : toast(r.error, 'err'));
   }, { cls: 'small' })), h('div.card-b', kv([
-    ['Domäne', sys.domain], ['NetBIOS', sys.netbios], ['LDAP-Server', `${sys.ldap_servers.join(', ')} : ${sys.ldap_port} (LDAPS)`],
-    ['Basis-DN', sys.base_dn], ['Zugriffsgruppe', sys.access_group], ['Zertifikat (SHA-256)', h('span.mono', sys.ldap_fingerprint || 'noch nicht verbunden')],
+    ['Domäne', sys.domain], ['NetBIOS', sys.netbios], ['LDAP-Server', `${sys.ldap_servers.join(', ')} : ${sys.ldap_port} (${sasl ? tr('ohne Zertifikat') : 'LDAPS'})`],
+    ['Basis-DN', sys.base_dn], ['Zugriffsgruppe', sys.access_group],
+    sasl ? ['Verschlüsselung', h('span', saslMech, saslInfo.mech && saslInfo.mech !== 'kerberos' ? h('span.badge.warn', { style: { marginLeft: '6px' } }, 'NTLM') : null)]
+      : ['Zertifikat (SHA-256)', h('span.mono', sys.ldap_fingerprint || tr('noch nicht verbunden'))],
     ['WinRM', `${sys.winrm.https ? 'HTTPS' : 'HTTP'} Port ${sys.winrm.port}, Anmeldung ${sys.winrm.auth}`],
     ['Datenverzeichnis', `${sys.data_dir} (Datenbank ${fmtBytes(sys.db_size)})`], ['Version', sys.version]]),
   sys.ldap_pending && sys.ldap_pending.host ? h('div.card.guard', { style: { margin: '10px 0' } }, h('div.card-b',
@@ -6512,12 +6609,31 @@ async function viewSettings() {
   h('p.muted.small', 'Domäne und Server kommen aus der .env. Das Dienstkonto wird unten, die AD-Container unter „Active Directory“ gepflegt.')));
 
   // 2.42: settings grouped by topic - the former "Zeitpläne & Leistung" is split into Inventar, Pakete and Wartung
+  const envSec = (sys.ldap_security_modes.find((m) => m.key === sys.ldap_security_env) || { label: sys.ldap_security_env }).label;
+  inputs.ldap_security = sel([['', fmtT('wie .env (PK_LDAP_SECURITY: {0})', envSec)], ...sys.ldap_security_modes.map((m) => [m.key, m.label])], sys.ldap_security_set || '');
   const secCard = h('div.card', h('div.card-h', h('h2', 'Anmeldung & Sitzung')), h('div.card-b',
-  h('div.form', field('LDAPS-Zertifikat', h('label.chk', c('ldap_cert_strict'), 'strikt prüfen: bei geändertem Zertifikat Verbindung ablehnen, bis es bestätigt wird'),
-    sys.ldap_ca ? 'Es wird gegen die CA aus PK_LDAP_CA_FILE geprüft.' : 'Standard: Das Zertifikat jedes Domänencontrollers wird beim ersten Kontakt vertraut und vor dem Senden eines Kennworts verglichen; eine Änderung wird protokolliert. Mit PK_LDAP_CA_FILE (CA der Domäne als PEM) erfolgt eine vollständige Prüfung.'),
+  h('div.form', field('Verbindung zum AD', inputs.ldap_security,
+    'LDAPS braucht ein Zertifikat auf jedem Domänencontroller (Samba erzeugt es selbst, Windows nur mit Zertifizierungsstelle). „Ohne Zertifikat“ verschlüsselt die Verbindung per Kerberos (sonst NTLM) – mitlesen kann niemand, aber die Identität des Domänencontrollers lässt sich ohne Zertifikat nicht so sicher prüfen wie mit festgelegtem LDAPS-Zertifikat. Beim Umstellen wird die Verbindung zuerst mit dem Dienstkonto getestet.'),
+  ...(() => {
+    // Audit 2026-11: label and hint follow the CHOSEN connection type, not the saved one
+    const strictText = h('span'), strictHint = h('span');
+    const draw = () => {
+      const v = inputs.ldap_security.value || sys.ldap_security_env;
+      strictText.textContent = tr(v === 'sasl' ? 'strikt prüfen: nur Kerberos, kein NTLM-Rückfall' : 'strikt prüfen: bei geändertem Zertifikat Verbindung ablehnen, bis es bestätigt wird');
+      strictHint.textContent = tr(v === 'sasl' ? 'Ohne Zertifikat: Kerberos verlangt die vollen Namen der Domänencontroller in PK_LDAP_SERVERS (z. B. dc01.firma.local). Ausgeschaltet wird NTLM verwendet, wenn Kerberos nicht klappt – das wird protokolliert. „Strikt“ schützt die Verbindung des Dienstkontos; die Anmeldung von Benutzern lässt sich ohne Zertifikat nicht gegen einen gefälschten Domänencontroller absichern.'
+        : sys.ldap_ca ? 'Es wird gegen die CA aus PK_LDAP_CA_FILE geprüft.' : 'Standard: Das Zertifikat jedes Domänencontrollers wird beim ersten Kontakt vertraut und vor dem Senden eines Kennworts verglichen; eine Änderung wird protokolliert. Mit PK_LDAP_CA_FILE (CA der Domäne als PEM) erfolgt eine vollständige Prüfung.');
+    };
+    inputs.ldap_security.addEventListener('change', draw);
+    draw();
+    return field('Strikte Prüfung', h('label.chk', c('ldap_cert_strict'), strictText), strictHint);
+  })(),
   field('Abmelden bei Inaktivität (Min.)', n('session_idle_minutes', { min: 5, max: 720 }), 'Ohne Maus- oder Tastatureingabe wird die Sitzung nach dieser Zeit beendet (auch offene Fernsitzungen); kurz vorher erscheint ein Hinweis. Automatische Aktualisierungen zählen nicht als Aktivität. 5–720 Minuten, Standard 30.'),
   field('', h('div.row', btn('Speichern', async () => {
-    if (await run(() => PUT('/api/settings', { ldap_cert_strict: inputs.ldap_cert_strict.checked ? 1 : 0, session_idle_minutes: inputs.session_idle_minutes.value }), 'Gespeichert') && S.me) S.me.idle_minutes = Number(inputs.session_idle_minutes.value);
+    const secChanged = inputs.ldap_security.value !== (sys.ldap_security_set || '');
+    if (secChanged && !(await confirmDlg('Verbindung zum AD umstellen? POCKET KNIFE testet die neue Verbindung zuerst mit dem Dienstkonto; klappt sie nicht, bleibt alles wie es ist.', 'Umstellen'))) return;
+    const ok = await run(() => PUT('/api/settings', { ldap_security: inputs.ldap_security.value, ldap_cert_strict: inputs.ldap_cert_strict.checked ? 1 : 0, session_idle_minutes: inputs.session_idle_minutes.value }), 'Gespeichert');
+    if (ok && S.me) S.me.idle_minutes = Number(inputs.session_idle_minutes.value);
+    if (ok && secChanged) route();
   }, { cls: 'small' }))))));
 
   const invCard = h('div.card', h('div.card-h', h('h2', 'Scans & Inventar')), h('div.card-b', h('div.form',
@@ -7320,7 +7436,7 @@ async function hotkeysDlg(onSaved) {
   const ownList = own.length
     ? h('div.form', own.map((t) => field((t.folder ? t.folder + ' › ' : '') + t.name, h('div.row', h('kbd.hk', hkText(t.hotkey)),
       h('a', { href: '#', onclick: (e) => { e.preventDefault(); closeModals(); toolDlg(t); } }, 'bearbeiten')))))
-    : h('p.muted.small', 'Noch keine eigenen Tools mit Tastenkürzel – das Kürzel legst du im Tool selbst fest (Tool öffnen → „Tastenkürzel“).');
+    : h('p.muted.small', 'Noch keine eigenen Tools mit Tastenkürzel – das Kürzel legen Sie im Tool selbst fest (Tool öffnen → „Tastenkürzel“).');
   modal('Tastenkürzel', h('div',
     h('p.muted.small', 'Strg+Alt (+ Umschalt) mit Buchstabe, Ziffer oder F1–F12. Ein Kürzel startet das Tool für die markierten Computer der Computerliste oder den geöffneten Computer; bei mehreren Computern fragt POCKET KNIFE vorher nach. Die Kürzel gelten für alle Benutzer; in Eingabefeldern und Dialogen sind sie aus.'),
     h('h3', 'Eingebaute Tools'), h('div.form', rows),
@@ -7815,7 +7931,7 @@ async function viewScanners() {
     { key: 'state', label: 'Status', value: (r) => r.failed * 1000 + r.pending, render: (r) => h('span.row', { style: { gap: '4px' } },
       r.pending ? h('span.badge.info', `${r.pending} ausstehend`) : null, r.failed ? h('span.badge.err', `${r.failed} Fehler`) : null,
       !r.pending && !r.failed && r.scanned ? h('span.badge.ok', `${r.scanned} OK`) : null) },
-  ], meta.profiles, { noun: 'Profile', sort: 'name', onRow: (r) => profileDlg(r, meta), empty: 'Keine Scanprofile.', fill: false });
+  ], meta.profiles, { noun: 'Profile', sort: 'name', onRow: (r) => profileDlg(r, meta), empty: 'Keine Scanprofile – mit „Neues Scanprofil“ anlegen.', fill: false });
 
   const sc = table([
     { key: 'name', label: 'Name', render: (r) => h('span', h('a', { href: '#', onclick: (e) => { e.preventDefault(); scannerDlg(r, meta); } }, r.name),
@@ -7829,7 +7945,7 @@ async function viewScanners() {
       render: (r) => ((r.lint || []).length
         ? h('span.badge.warn', { title: r.lint.map((f) => `${fmtT('Zeile {0}', f.line)}: ${f.what}`).join('\n') }, fmtT('{0} Hinweis(e)', r.lint.length))
         : (r.type === 'powershell' ? h('span.muted.small', 'sauber') : '')) },
-  ], meta.scanners, { sort: 'name', noun: 'eigene Scanner', onRow: (r) => scannerDlg(r, meta), empty: 'Noch keine eigenen Scanner.', fill: false });
+  ], meta.scanners, { sort: 'name', noun: 'eigene Scanner', onRow: (r) => scannerDlg(r, meta), empty: 'Noch keine eigenen Scanner – mit „Neuer eigener Scanner“ anlegen.', fill: false });
   sc.actions.append(btn('Neuer eigener Scanner', () => scannerDlg(null, meta), { icon: 'plus', cls: 'small' }));
 
   const std = h('div.chips', meta.modules.map((m) => h('span.badge', m.label)));

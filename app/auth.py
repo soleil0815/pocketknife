@@ -60,7 +60,8 @@ def _ok(keys, stamp):
 
 
 INFRA_FAIL = "Anmeldung gerade nicht möglich – der Verzeichnisdienst ist nicht erreichbar. Bitte später erneut versuchen."
-_INFRA = ("LDAPS-Verbindung", "Verbindung zu", "nicht erreichbar", "Dienstkonto", ":636", ":389", "Timeout", "timed out")
+_INFRA = ("LDAPS-Verbindung", "LDAP-Verbindung", "LDAP-Anmeldung ohne Zertifikat", "Anmeldung ohne Zertifikat",
+          "Domänencontroller", "Verbindung zu", "nicht erreichbar", "Dienstkonto", ":636", ":389", "Timeout", "timed out")
 _NAME_OK = re.compile(r"^[\w.\-@\\ ]{1,64}$")
 
 

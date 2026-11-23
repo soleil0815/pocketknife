@@ -141,6 +141,9 @@ class BodyLimit:
 app.add_middleware(BodyLimit)
 
 
+PERMISSIONS_POLICY = "camera=(), microphone=(), geolocation=(), payment=(), usb=(), fullscreen=(self)"
+
+
 @app.middleware("http")
 async def security(request: Request, call_next):
     if request.url.path.startswith("/api/"):
@@ -164,6 +167,11 @@ async def security(request: Request, call_next):
         resp.headers["X-Frame-Options"] = "DENY"
     resp.headers["X-Content-Type-Options"] = "nosniff"
     resp.headers["Referrer-Policy"] = "no-referrer"
+    # Audit 2026-11 (ZAP 90004/10063): no foreign page may embed our resources or keep a handle on our windows; the UI
+    # needs no camera, microphone, location, payment or USB. COEP stays off (see .zap/rules.tsv)
+    resp.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+    resp.headers["Cross-Origin-Resource-Policy"] = "same-origin"
+    resp.headers["Permissions-Policy"] = PERMISSIONS_POLICY
     if request.url.path.startswith("/api/"):
         resp.headers["Cache-Control"] = "no-store"
     elif request.url.path.startswith("/static/") and "Cache-Control" not in resp.headers:
@@ -865,7 +873,11 @@ TOOL_FIELDS = ["name", "folder", "type", "script", "run_as", "confirm", "descrip
 
 @app.get("/api/tools")
 def api_tools(user=U):
-    return {"tools": db.q("SELECT * FROM tools ORDER BY folder COLLATE NOCASE, sort, name COLLATE NOCASE"),
+    rows = db.q("SELECT * FROM tools ORDER BY folder COLLATE NOCASE, sort, name COLLATE NOCASE")
+    if user.get("scope") is not None:
+        # Audit 2026-11: OU admins may RUN the tools of the main admins, but not read their code (could contain secrets)
+        rows = [{**r, "script": "", "repo_path": ""} for r in rows]
+    return {"tools": rows,
             "types": tools.TYPES, "run_as": tools.RUN_AS, "builtin_hotkeys": tools.builtin_hotkeys(),
             "scan_after": tools.SCAN_AFTER, "default_timeout": tools.DEFAULT_TIMEOUT,
             "profiles": [{"id": p["id"], "name": p["name"], "is_default": bool(p.get("is_default"))} for p in profiles.all_profiles()]}
@@ -4099,11 +4111,40 @@ def _check_repo_change(data):
         _err("Das Kennwort passt nicht zum gespeicherten Repository-/Dienstkonto – Repository-Pfad nicht geändert.")
 
 
+def _test_ldap_change(data):
+    """2.61.0: before a new connection type to the AD or a new strict check takes effect, test it with the service account -
+    with the TARGET values of this request (audit 2026-11: the strict check used to be tested with the old value, so
+    "without certificate" + "strict" could pass the test via NTLM and then lock everyone out)."""
+    if "ldap_security" not in data and "ldap_cert_strict" not in data:
+        return
+    raw = str(data.get("ldap_security", db.setting_raw("ldap_security") or "") or "").strip().lower()
+    if raw and raw not in ad.SECURITY_MODES:
+        _err("Unbekannte Verbindungsart zum AD.")
+    new_mode = ad.security(raw or config.LDAP_SECURITY)
+    try:
+        new_strict = bool(int(float(data.get("ldap_cert_strict", db.setting("ldap_cert_strict")) or 0)))
+    except (TypeError, ValueError):
+        new_strict = bool(db.setting("ldap_cert_strict"))
+    changed = new_mode != ad.security() or (new_mode == "sasl" and new_strict != bool(db.setting("ldap_cert_strict")))
+    if not changed or not config.service_user():
+        return
+    res: dict = {}
+    try:
+        tc = ad.bind(config.service_upn(), config.service_password(), res, mode=new_mode, strict=new_strict)
+    except ad.ADError as e:
+        _err(f"Nicht umgestellt – mit „{ad.SECURITY_LABELS[new_mode]}“ klappt die Verbindung nicht: {e}")
+    if tc is None:
+        text, _acc = guard.explain(f"{res.get('description', '')} {res.get('message', '')}")
+        _err("Nicht umgestellt – das Dienstkonto wurde abgelehnt. " + (text or "Benutzer/Kennwort prüfen."))
+    tc.unbind()
+
+
 @app.put("/api/settings")
 def api_settings_save(data: dict = Body(...), user=U):
     changed = []
     if "repo_path" in data and str(data.get("repo_path") or "").strip() != str(db.setting("repo_path") or "").strip():
         _check_repo_change(data)
+    _test_ldap_change(data)
     for k, v in data.items():
         if k not in EDITABLE:
             continue
@@ -4171,9 +4212,17 @@ def api_settings_save(data: dict = Body(...), user=U):
                 if not (norm == "/repo" or norm.startswith("/repo/")):
                     _err("Repository: UNC-Pfad (\\\\server\\freigabe) oder ein Ordner unter /repo (PK_REPO_MOUNT) angeben.")
         if k == "ldap_cert_strict" and not v and db.setting("ldap_cert_strict"):
-            pklog.warn("system", "Strikte Prüfung des LDAPS-Zertifikats ausgeschaltet – ein geändertes Zertifikat wird dann "
-                                 "ohne Bestätigung übernommen (Kennwörter gingen an jeden, der sich als DC ausgibt). "
-                                 "Empfohlen: PK_LDAP_CA_FILE (CA der Domäne).", user=user["username"])
+            if ad.security(data.get("ldap_security") or None) == "sasl":
+                pklog.warn("system", "Strikte Prüfung ausgeschaltet – ohne Zertifikat wird jetzt NTLM verwendet, wenn Kerberos "
+                                     "nicht klappt.", user=user["username"])
+            else:
+                pklog.warn("system", "Strikte Prüfung des LDAPS-Zertifikats ausgeschaltet – ein geändertes Zertifikat wird dann "
+                                     "ohne Bestätigung übernommen (Kennwörter gingen an jeden, der sich als DC ausgibt). "
+                                     "Empfohlen: PK_LDAP_CA_FILE (CA der Domäne).", user=user["username"])
+        if k == "ldap_security":
+            v = str(v or "").strip().lower()
+            if v and v not in ad.SECURITY_MODES:
+                _err("Unbekannte Verbindungsart zum AD.")
         if k == "auth_mode":
             v = str(v or "").strip().lower()
             if v and v not in kerberos.MODES:
@@ -4186,6 +4235,8 @@ def api_settings_save(data: dict = Body(...), user=U):
                 wingetrelease.freeze(v)  # 2.36.2: previously approved versions stay approved
             db.set_setting(k, v)
             changed.append(k)
+    if "ldap_security" in changed:
+        pklog.warn("system", f"Verbindung zum AD: {ad.SECURITY_LABELS[ad.security()]}", user=user["username"])
     if "auth_mode" in changed:
         _reset_connections()  # discard existing SMB sessions using the old method
         pklog.info("system", f"Anmeldeverfahren für WinRM/SMB: {kerberos.MODE_LABELS.get(kerberos.mode(), kerberos.mode())}",
@@ -4202,7 +4253,10 @@ def api_system(user=U):
     return {
         "version": config.VERSION, "version_since": hist[-1]["started_at"] if hist else None,
         "domain": config.DOMAIN, "netbios": config.NETBIOS, "ldap_servers": config.LDAP_SERVERS,
-        "ldap_port": config.LDAP_PORT, "base_dn": config.BASE_DN, "computer_base_dns": config.COMPUTER_BASE_DNS,
+        "ldap_port": ad.port(), "ldap_security": ad.security(), "ldap_security_env": ad.security(config.LDAP_SECURITY),
+        "ldap_security_set": db.setting_raw("ldap_security") or "", "ldap_sasl": ad.sasl_state(),
+        "ldap_security_modes": [{"key": k, "label": v} for k, v in ad.SECURITY_LABELS.items()],
+        "base_dn": config.BASE_DN, "computer_base_dns": config.COMPUTER_BASE_DNS,
         "access_group": config.ACCESS_GROUP, "service_user": config.service_login(),
         "ldap_configured": config.ldap_configured(), "ldap_fingerprint": db.setting("ldap_cert_fingerprint"),
         "ldap_fingerprints": ad._fingerprints(), "ldap_pending": json.loads(db.setting_raw("ldap_cert_pending") or "{}"),
@@ -4286,7 +4340,8 @@ def api_ldaptest(user=U):
     try:
         c = ad.service_conn()
         c.unbind()
-        return {"ok": True, "fingerprint": db.setting("ldap_cert_fingerprint")}
+        return {"ok": True, "fingerprint": db.setting("ldap_cert_fingerprint"), "security": ad.security(),
+                "mech": ad.sasl_state()["mech"] if ad.security() == "sasl" else ""}
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
@@ -4446,7 +4501,7 @@ def api_accounts_save(data: dict = Body(...), user=U):
         try:
             c = ad.bind(upn, pw, res)
         except ad.ADError as e:
-            _err(f"LDAPS nicht erreichbar, Konto nicht geprüft: {e}")
+            _err(f"{ad.label()} nicht erreichbar, Konto nicht geprüft: {e}")
         if c is None:
             text, _acc = guard.explain(f"{res.get('description', '')} {res.get('message', '')}")
             _err("Anmeldung mit diesem Konto abgelehnt – nicht gespeichert. " + (text or "Benutzer/Kennwort prüfen."))
@@ -4845,7 +4900,18 @@ def api_kiosk_decide(rid: int, what: str, data: dict = Body(default={}), user=U)
 
 
 # --- User interface ------------------------------------------------------------------------------
-app.mount("/static", StaticFiles(directory=config.STATIC_DIR), name="static")
+class _Static(StaticFiles):
+    """Audit 2026-11 (ZAP "Directory Browsing"): "/static/app.js/" delivered the file again - a path with a trailing
+    slash is never a file here, and there are no directory listings: 404."""
+
+    async def get_response(self, path, scope):
+        if str(scope.get("path") or "").endswith("/"):
+            from starlette.exceptions import HTTPException as _StarletteHTTPException
+            raise _StarletteHTTPException(status_code=404)
+        return await super().get_response(path, scope)
+
+
+app.mount("/static", _Static(directory=config.STATIC_DIR), name="static")
 
 
 _PAGES = {}

@@ -16,8 +16,8 @@ for de, en in src.items():
     # put back in front afterwards - so store the entries without them here as well (otherwise " - einem Scanprofil ..." never matched)
     key = PREFIX.sub("", de).rstrip()
     en = PREFIX.sub("", en).rstrip()
-    if en == de and not re.search(r"\{\d+\}", de):
-        continue  # identical texts need no dictionary entry - templates do (their placeholders are translated)
+    # Audit 2026-11: identical texts stay in the dictionary - without an entry the runtime falls back to translating word by
+    # word ("Restart für die Softwareverteilung", "Language / Language"), also for texts that must stay German (sent to Windows)
     if re.search(r"\{\d+\}", de):
         tpl.append([key, en.strip()])
     else:

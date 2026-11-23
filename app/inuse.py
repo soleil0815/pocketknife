@@ -124,6 +124,11 @@ def programs(p):
             if pkg.get("winget_id"):   # package without steps (old format)
                 (add("exempt", pkg["winget_id"]) if is_exempt(pkg["winget_id"], pats) else add("winget", pkg["winget_id"]))
             return
+        # Audit 2026-11: packages from the winget cache and own update packages carry the winget ID of the program -
+        # if it is exempt (browsers update while open), its install steps must not postpone either
+        if pkg.get("winget_id") and is_exempt(pkg["winget_id"], pats):
+            add("exempt", pkg["winget_id"])
+            return
         for ph, _l in steps.PHASES:
             for s in st.get(ph) or []:
                 if not isinstance(s, dict) or not s.get("enabled", True):

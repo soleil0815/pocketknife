@@ -819,3 +819,24 @@ body.pk-busy, body.pk-busy * { cursor: progress !important; }
 .subnav a.rtab .dot.warn { background: var(--warn); }
 .subnav .rtab-x { width: 18px; height: 18px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--muted); line-height: 1; font-size: 14px; }
 .subnav .rtab-x:hover { background: var(--side-2); color: var(--text); }
+
+/* Audit 2026-11: phones - the collection tree really hides (the .tree rule above came later and won), the area
+   navigation gets a row of its own instead of shrinking to 0 px, page headers wrap instead of overlapping */
+@media (max-width: 900px) { .shell .tree { display: none; } }
+@media (max-width: 600px) {
+  .topnav { flex-wrap: wrap; height: auto; min-height: 52px; padding: 6px 8px; row-gap: 4px; }
+  .nav-areas { order: 10; flex: 1 0 100%; }
+  .topbar, .topbar .row { flex-wrap: wrap; }
+}
+
+/* Audit 2026-11: contrast at least 4.5:1 - white text on the filled red buttons (dark mode used the light accent
+   #F0485F: 3.6:1) and on the "⚠ Hinweis" pill (dark text on red: 3.1:1) */
+:root { --fill: var(--accent); --fill-2: var(--accent-2); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --fill: #C8102E; --fill-2: #A60D26; } }
+:root[data-theme="dark"] { --fill: #C8102E; --fill-2: #A60D26; }
+button.primary, .topnav .nav-new { background: var(--fill); border-color: var(--fill); }
+button.primary:hover:not(:disabled), .topnav .nav-new:hover:not(:disabled) { background: var(--fill-2); border-color: var(--fill-2); }
+.news-pill.up.sec, .news-pill.up.sec:hover { background: #B3001B; border-color: #B3001B; color: #fff; }
+/* keyboard: menu items and focus inside dialogs are visible */
+.cmenu-item:focus { outline: none; }
+.cmenu-item:focus-visible:not(.disabled), .cmenu-item.kbd:not(.disabled) { background: var(--sel); outline: 2px solid var(--accent); outline-offset: -2px; }

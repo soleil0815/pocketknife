@@ -1,3 +1,4 @@
 # Known false positives for the ZAP scan (zap-scan.sh): one line per rule, TAB separated:
 # <rule id>	IGNORE	<why it is not a problem here>
 # Only the code audit adds lines here, each with a reason – never to silence a real finding.
+90004	IGNORE	Cross-Origin-Embedder-Policy deliberately not set: labels and reports open as PDF from a blob URL, and the browser's PDF viewer breaks under COEP require-corp. The UI loads nothing cross-origin; COOP and CORP are set (same-origin) and enforced by self-test 2.61.0. (The rule ID covers COEP, COOP and CORP together.)

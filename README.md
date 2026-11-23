@@ -2,7 +2,7 @@ English version: [README.en.md](README.en.md)
 
 # POCKET KNIFE
 
-Aktuelle Version: **pocketknife-2.60.1** – siehe `CHANGELOG.md`.
+Aktuelle Version: **pocketknife-2.61.0** – siehe `CHANGELOG.md`.
 
 Webseite: [helfi.space](https://helfi.space)
 
@@ -13,6 +13,7 @@ Webanwendung zur **Inventarisierung** und **Softwareverteilung** für Windows-Co
 - Läuft als Docker-Container, Daten (SQLite, Logs, Zertifikat, winget-Index) liegen unter `/data`
 - Anmeldung mit Domänenkonten über **LDAPS**; nur Mitglieder einer festgelegten AD-Gruppe haben Zugriff
 - Das LDAPS-Zertifikat der DCs wird **automatisch vertraut**; der SHA-256-Fingerabdruck wird gespeichert und eine Änderung protokolliert
+- **Auch ohne Zertifikat auf dem DC** (Windows-Domäne ohne Zertifizierungsstelle): Anmeldung per Kerberos (sonst NTLM) über Port 389, der gesamte Verkehr verschlüsselt
 - Die Oberfläche lädt **nichts aus dem Internet** (keine Fonts, CDNs oder Bibliotheken von fremden Servern – die Schriften Inter und IBM Plex Mono sind eingebaut; strenge Content-Security-Policy)
 
 ## Bilder
@@ -99,7 +100,7 @@ Ohne winget-Cache lädt der Container nur den winget-**Katalog** (Index für den
 4. Firewall auf den Clients für die IP des Docker-Hosts öffnen: **TCP 5985** (oder 5986) und **TCP 445**.
 5. Für Remote-Zugriff mit lokalem Admin-Token braucht es bei Domänenkonten nichts weiter. Nur falls Sie ein *lokales* Konto verwenden, wäre `LocalAccountTokenFilterPolicy=1` nötig (nicht empfohlen).
 6. AD-Gruppe **POCKETKNIFE-Admins** anlegen und die Bediener aufnehmen (verschachtelte Gruppen werden berücksichtigt).
-7. **LDAPS** muss auf den DCs aktiv sein. Samba AD stellt es standardmäßig bereit (auch mit selbstsigniertem Zertifikat). Bei Microsoft AD braucht der DC ein Serverzertifikat (z. B. aus der AD-CS); da POCKET KNIFE dem Zertifikat automatisch vertraut, reicht auch ein selbstsigniertes.
+7. **LDAPS** muss auf den DCs aktiv sein. Samba AD stellt es standardmäßig bereit (auch mit selbstsigniertem Zertifikat). Bei Microsoft AD braucht der DC ein Serverzertifikat (z. B. aus der AD-CS); da POCKET KNIFE dem Zertifikat automatisch vertraut, reicht auch ein selbstsigniertes. Ohne Zertifikat: `PK_LDAP_SECURITY=sasl` (Port 389, Kerberos/NTLM-verschlüsselt, Hilfe „AD ohne Zertifikat“).
 8. Für winget: Der **App-Installer** (Microsoft.DesktopAppInstaller) muss auf den Clients vorhanden sein (Windows 10 21H2+ / Windows 11 / Server 2025). In der Computeransicht sehen Sie, ob er gefunden wurde.
 9. Für eigene Pakete: Freigabe anlegen, z. B. `\\fs01\PAKETE`, Leserecht für das Dienstkonto (oder ein eigenes Repository-Konto). Für Hochladen, Umbenennen, Verschieben und Löschen über die Oberfläche (ab 2.27) zusätzlich **Schreibrecht**; andere Admins brauchen dann keinen direkten Zugriff mehr auf die Freigabe.
 
@@ -275,7 +276,8 @@ Trivy wird in genau einer Version geladen und per SHA-256 geprüft – keine Git
 | `PK_DOMAIN` | DNS-Name der Domäne | – |
 | `PK_NETBIOS` | NetBIOS-Name (für `DOMÄNE\konto` bei WinRM/SMB) | – |
 | `PK_LDAP_SERVERS` | DCs, kommagetrennt | `PK_DOMAIN` |
-| `PK_LDAP_PORT` | LDAPS-Port | `636` |
+| `PK_LDAP_PORT` | LDAPS-Port | `636` (ohne Zertifikat `389`) |
+| `PK_LDAP_SECURITY` | `ldaps` oder `sasl` (DC ohne Zertifikat: Port 389, Kerberos/NTLM-verschlüsselt; auch in den Einstellungen umstellbar) | `ldaps` |
 | `PK_BASE_DN` | Such-Basis | aus Domäne |
 | `PK_COMPUTER_BASE_DN` | Startwert für die Such-Basen (ab 2.2 unter Einstellungen → Active Directory pflegbar) | `PK_BASE_DN` |
 | `PK_ACCESS_GROUP` | Zugriffsgruppe (Name oder DN) | `POCKETKNIFE-Admins` |
@@ -552,7 +554,7 @@ Voraussetzungen: Computer mit DNS-Namen (keine IP-Adressen), Zeitabweichung Dock
 - Sperre nach 8 Fehlanmeldungen je Benutzer und IP bzw. 30 je IP für 15 Minuten (Schreibweisen des Benutzernamens zählen gemeinsam)
 - **Abmeldung bei Inaktivität** nach 30 Minuten ohne Maus-/Tastatureingabe (5–720 Minuten, Einstellungen → Verbindung & Konten; automatische Aktualisierungen zählen nicht, offene Fernsitzungen werden mit beendet)
 - Laufende Sitzungen werden im Hintergrund alle 2 Minuten gegen das AD geprüft (deaktiviert / nicht mehr in der Zugriffs- bzw. Mandanten-Gruppe → abgemeldet, andere Gruppe → passender Bereich); Abmelden beendet auch Fernsitzungen
-- LDAPS: Zertifikat je DC beim ersten Kontakt gemerkt und vor dem Senden des Kennworts verglichen; optional strikt (Standard für neue Installationen ab 2.13) oder mit `PK_LDAP_CA_FILE` gegen die CA
+- LDAPS: Zertifikat je DC beim ersten Kontakt gemerkt und vor dem Senden des Kennworts verglichen; optional strikt (Standard für neue Installationen ab 2.13) oder mit `PK_LDAP_CA_FILE` gegen die CA; ohne Zertifikat (`PK_LDAP_SECURITY=sasl`) Kerberos/NTLM-verschlüsselt, strikt = nur Kerberos
 - Arbeitsordner `C:\Windows\Temp\PocketKnife` auf den Clients nur für SYSTEM/Administratoren; ein vorab von Benutzern angelegter Ordner wird beiseitegeschoben
 - Anmeldefehler verraten nicht, ob Benutzername, Kennwort oder Gruppenmitgliedschaft das Problem war; Anfragen sind in der Größe begrenzt (Standard 2 MB)
 - Sicherungen zum Herunterladen enthalten keine Schlüsseldateien; CSV-Exporte sind gegen Formel-Injektion geschützt

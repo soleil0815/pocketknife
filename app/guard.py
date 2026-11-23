@@ -35,6 +35,8 @@ CODES = {
     "data 532": ("Das Passwort des Dienstkontos ist abgelaufen.", True),
     "data 773": ("Das Passwort des Dienstkontos muss geändert werden.", True),
     "data 701": ("Das Dienstkonto ist abgelaufen.", True),
+    # 2.61.0: Kerberos (connection without certificate) does not tell locked from disabled
+    "credentials have been revoked": ("Das Dienstkonto ist gesperrt oder deaktiviert.", True),
     "account_locked_out": ("Das Dienstkonto ist im AD gesperrt (zu viele Fehlanmeldungen).", True),
     "logon_failure": ("Anmeldung abgelehnt: Benutzername oder Passwort des Dienstkontos falsch.", True),
     "wrong_password": ("Falsches Passwort für das Dienstkonto.", True),

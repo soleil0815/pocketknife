@@ -467,14 +467,33 @@ def _norm_msg(m):
     return m[:160]
 
 
+# Audit 2.61.0: own texts that can hold company names, phone numbers or people - anonymised only "set / not set".
+# The label footer never goes into the package (promised since 2.58.1), the others only when anonymising.
+OWN_TEXT_SETTINGS = {"reboot_sender", "reboot_msg_restart", "reboot_msg_shutdown", "reboot_msg_deploy", "reboot_msg_step",
+                     "reboot_msg_kiosk", "kiosk_title"}
+NEVER_TEXT_SETTINGS = {"label_footer"}
+
+
+def _own_text(k, v):
+    if not v or v == db.DEFAULT_SETTINGS.get(k):
+        return v
+    return f"(eigener Text, {len(str(v))} Zeichen)"
+
+
 def _settings(an):
     out = {}
     for k in db.DEFAULT_SETTINGS:
         if NEVER_SETTINGS.search(k):
             continue
         v = db.setting(k)
-        if k == "proxy_user" and an.enabled and v:
+        if k in NEVER_TEXT_SETTINGS:
+            v = _own_text(k, v)
+        elif k == "proxy_user" and an.enabled and v:
             v = an.alias("user", _user_part(v))  # the whole value is an account – also replace short names
+        elif k == "wol_relays" and an.enabled and v:
+            v = ", ".join(an.alias("computer", x.strip()) for x in str(v).split(",") if x.strip())  # computer names
+        elif k in OWN_TEXT_SETTINGS and an.enabled:
+            v = _own_text(k, v)
         elif k in FREE_TEXT_SETTINGS and an.enabled:
             v = an(v)
         out[k] = v
@@ -494,6 +513,15 @@ def _environment(an):
     try:
         from . import kerberos
         env["kerberos"] = {"mode": kerberos.mode(), "available": kerberos.available()[0]}
+    except Exception:
+        pass
+    try:
+        # 2.61.0: connection type to the AD; without certificate: the negotiated method (reason anonymised)
+        from . import ad
+        st = ad.sasl_state()
+        env["ldap"] = {"security": ad.security(), "port": ad.port(), "ca_file": bool(ad.CA_FILE),
+                       "strict": bool(db.setting("ldap_cert_strict")), "sasl_mech": st.get("mech") or "",
+                       "sasl_kerberos_reason": an(st.get("reason") or ""), "sasl_since": st.get("at") or ""}
     except Exception:
         pass
     try:
@@ -592,8 +620,10 @@ def _pscheck():
     return pscheck.stats()
 
 
-MARK_REASONS = (("lint", "Warnung im PowerShell-Protokoll"), ("errors", "Fehler auf "), ("no_values", "Liefert"),
-                ("column_missing", "Spalte „"), ("column_checked", "Die Sammlung „"), ("scanner_off", "Ausgeschaltet"),
+# Audit 2026-11 (2.61.0): "Liefert seit der Änderung … die Spalte(n) X nicht mehr" is a lost column, not "no values" -
+# it has to be checked before the general "Liefert" prefix
+MARK_REASONS = (("lint", "Warnung im PowerShell-Protokoll"), ("errors", "Fehler auf "), ("column_missing", "die Spalte(n) "),
+                ("no_values", "Liefert"), ("column_missing", "Spalte „"), ("column_checked", "Die Sammlung „"), ("scanner_off", "Ausgeschaltet"),
                 ("missing_reference", "Nicht auswertbar: Verweis fehlt"), ("not_evaluable", "Nicht auswertbar"),
                 ("break", "Bruch"), ("scanner", "Scanner „"), ("target", "Ziel „"))
 
@@ -831,7 +861,10 @@ def _inventory_info(since, an):
           "msix": v("SELECT COUNT(*) FROM software WHERE hive='MSIX'"),
           "msix_builtin_hidden": bool(db.setting("msix_hide_builtin")),
           "overrides": v("SELECT COUNT(*) FROM winget_overrides"),
-          "update_packages": v("SELECT COUNT(*) FROM winget_update_packages")}
+          "update_packages": v("SELECT COUNT(*) FROM winget_update_packages"),
+          # 2.61.0: cache entries whose manifest has "Upgrade" switches (only used when updating, like winget)
+          "cache_entries": v("SELECT COUNT(*) FROM winget_cache"),
+          "cache_with_upgrade_switches": v("SELECT COUNT(*) FROM winget_cache WHERE COALESCE(upgrade_args, '') != ''")}
     cl = lambda expr: {str(r["k"]): r["n"] for r in db.q(  # noqa: E731
         f"SELECT {expr} k, COUNT(*) n FROM computers WHERE last_scan IS NOT NULL GROUP BY 1 ORDER BY n DESC LIMIT 15")}
     clients = {"powershell": cl("json_extract(extra, '$.ps_version')"), "language_mode": cl("json_extract(extra, '$.ps_language')"),
@@ -923,8 +956,9 @@ Dateien
   versionen.json       Versionsgeschichte (ab wann welche Version lief), Versionen im Zeitraum
   aenderungen.md       Änderungen von der ältesten Version im Zeitraum bis heute
   behobene_fehler.txt  Behobene Fehler, die der Selbsttest bei jeder Version prüft
-  umgebung.json        Version, Umgebung, Zähler, Zustand der Hintergrundaufgaben (ohne Kennwörter/Schlüssel)
-  einstellungen.json   Einstellungen (ohne Kennwörter, Keytab, Schlüssel)
+  umgebung.json        Version, Umgebung, Zähler, Zustand der Hintergrundaufgaben (ohne Kennwörter/Schlüssel),
+                       Verbindungsart zum AD (LDAPS oder ohne Zertifikat: Kerberos/NTLM)
+  einstellungen.json   Einstellungen (ohne Kennwörter, Keytab, Schlüssel; eigene Texte wie Etiketten-Fußzeile nur als Länge)
   statistik.json       Bereitstellungen und Scans im Zeitraum: Ergebnisse, Exitcodes, häufigste Fehler, Dauer,
                        Ketten (mehrere Pakete nacheinander: Anzahl, übersprungene Ziele, wartende Ziele),
                        Änderungen im Texteditor des Repositorys (Anzahl, Dateien, Kodierung – nie Inhalte),
@@ -950,7 +984,7 @@ Dateien
   update_status.json   Update-Status: Microsoft-Abgleich, Stände je Status, Office-Installationen je Produkt/Kanal/Version
                        leistung.json enthält außerdem: Dauer jeder Seite seit dem Start, Größe der Scan-Ergebnisse je Bereich,
                        Datenbank je Tabelle, Fernsitzungen, Hintergrundaufgaben und tägliche Läufe (mit Fehlern)
-  inventar.json        Scan-Fehler je Bereich, winget-Zuordnung, Clients (PowerShell-Version, Sprachmodus, winget, Edition,
+  inventar.json        Scan-Fehler je Bereich, winget-Zuordnung (mit winget-Cache-Einträgen und solchen mit Upgrade-Schaltern), Clients (PowerShell-Version, Sprachmodus, winget, Edition,
                        ESU, Entra/MDM, Virtualisierung, Office Klick-und-Los, Secure Boot, SMB1 … – nur Anzahlen),
                        Gruppenrichtlinien-Verlauf und gpresult seit dem Start (Aufrufe, Fehler, Dauer, Auswertungsqualität),
                        Tools (je Typ, gpupdate-Zeilen ohne Antwort)

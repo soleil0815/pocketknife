@@ -91,6 +91,9 @@ def update_with_package(row, wid, ids, user, pkg_name=None, **kw):
     pkg = row_to_package(row)
     if pkg_name:
         pkg["name"] = pkg_name
+    # Audit 2026-11: like cache packages, carry the winget ID - schedules recognise "already running" and "failed n times"
+    # by it (without it every trigger started the same update again and the retry limits had no effect)
+    pkg["winget_id"] = wid
     ids, _ignored = tenant_filter(steps.expand(pkg), sorted(set(ids)))
     if not ids:
         raise ValueError(f"Update-Paket „{row['name']}“ für {wid}: keine passenden Computer.")
@@ -612,7 +615,11 @@ def _chain_gate(did, tid):
         db.ex("UPDATE deployment_targets SET message=? WHERE id=? AND status='queued'",
               (f"Wartet auf „{prev['name']}“", tid))
         return "wait"
-    ok = prev["status"] == "success" or (prev["status"] == "skipped" and not (prev["message"] or "").startswith(CHAIN_SKIP))
+    # Audit 2026-11: postponed by the update lock (program open) is NOT done - the next package must not run before it
+    from . import inuse
+    pmsg = prev["message"] or ""
+    ok = prev["status"] == "success" or (prev["status"] == "skipped" and not pmsg.startswith(CHAIN_SKIP)
+                                         and not pmsg.startswith(inuse.PREFIX))
     if ok or not d["chain_stop"]:
         return "run"
     if db.ex_count("UPDATE deployment_targets SET status='skipped', message=?, finished_at=? WHERE id=? AND status='queued'",

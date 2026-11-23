@@ -354,6 +354,7 @@ DEFAULT_SETTINGS = {
     "kiosk_enabled": 0, "kiosk_groups": "", "kiosk_ous": "", "kiosk_notify": 1, "kiosk_notify_to": "",
     "kiosk_max_per_day": 10, "kiosk_title": "Software-Kiosk", "kiosk_sso": 0,  # automatic logout on inactivity (5–720 minutes, always active)
     "ldap_cert_strict": 1,  # new installations: changed DC certificates only after confirmation (existing ones keep their value)
+    "ldap_security": "",  # 2.61.0: empty = PK_LDAP_SECURITY from the .env; "ldaps" or "sasl" (DC without certificate)
     "remote_sso": 1,
     "proxy_url": "", "proxy_user": "", "proxy_clients": 0,  # 2.23: proxy server (password encrypted: proxy_password)
     "dns_cache_minutes": 5, "dns_direct": 0, "dns_servers": "",  # 2.20: name resolution (cache, directly at the DC)
@@ -533,6 +534,7 @@ MIGRATIONS = [
     ("winget_cache", "ignore_hash", "INTEGER DEFAULT 0"),   # 2.35.3: do not require the catalog checksum (per entry)
     ("winget_cache", "remote_sig", "TEXT"),                 # 2.35.3: ETag/date/size of the download URL
     ("winget_cache", "inst_arch", "TEXT"),                  # 2.35.4: architecture of the downloaded installer
+    ("winget_cache", "upgrade_args", "TEXT"),               # 2.61.0: manifest "Upgrade" switches - only added when updating (like winget)
     ("winget_releases", "base", "INTEGER DEFAULT 0"),       # 2.36: baseline (first sighting)
     ("software", "excluded", "INTEGER DEFAULT 0"),
     ("scan_profiles", "scanner_types", "TEXT"),

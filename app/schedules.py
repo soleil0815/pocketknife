@@ -355,7 +355,7 @@ def winget_candidates(s, cids=None, online_only=True, fresh=False):
                       {"AND c.online = 1 AND c.winrm = 1" if online_only else ""}
                       AND (c.os_build IS NULL OR c.os_build = '' OR CAST(c.os_build AS INTEGER) >= 17763
                            OR lower(s.winget_id) IN (SELECT lower(winget_id) FROM winget_cache
-                                                     WHERE status = 'ok' AND package_id IS NOT NULL))
+                                                     WHERE package_id IS NOT NULL AND COALESCE(version, '') != ''))
                       AND c.id IN ({q})""", tuple(targets))
     only = _ids(w["ids"]) if w["mode"] == "specific" else set()
     excl = _ids(w["exclude"])

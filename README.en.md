@@ -2,7 +2,7 @@ Deutsche Fassung: [README.md](README.md)
 
 # POCKET KNIFE
 
-Current version: **pocketknife-2.60.1** – see `CHANGELOG.md` (German).
+Current version: **pocketknife-2.61.0** – see `CHANGELOG.md` (German).
 
 Website: [helfi.space](https://helfi.space)
 
@@ -13,6 +13,7 @@ Web application for **inventory** and **software deployment** for Windows comput
 - Runs as a Docker container; data (SQLite, logs, certificate, winget index) is stored under `/data`
 - Sign-in with domain accounts via **LDAPS**; only members of a specified AD group have access
 - The DCs' LDAPS certificate is **trusted automatically**; its SHA-256 fingerprint is stored and any change is logged
+- **Also without a certificate on the DC** (Windows domain without a certification authority): sign-in with Kerberos (otherwise NTLM) over port 389, all traffic encrypted
 - The interface loads **nothing from the internet** (no fonts, CDNs or libraries from other servers – the fonts Inter and IBM Plex Mono are built in; strict Content Security Policy)
 
 ## Screenshots
@@ -99,7 +100,7 @@ Without the winget cache, the container only downloads the winget **catalog** (i
 4. Open the firewall on the clients for the IP of the Docker host: **TCP 5985** (or 5986) and **TCP 445**.
 5. For remote access with a local admin token, nothing else is needed for domain accounts. Only if you use a *local* account would `LocalAccountTokenFilterPolicy=1` be required (not recommended).
 6. Create the AD group **POCKETKNIFE-Admins** and add the operators (nested groups are taken into account).
-7. **LDAPS** must be active on the DCs. Samba AD provides it by default (also with a self-signed certificate). With Microsoft AD, the DC needs a server certificate (e.g. from AD CS); since POCKET KNIFE trusts the certificate automatically, a self-signed one is also sufficient.
+7. **LDAPS** must be active on the DCs. Samba AD provides it by default (also with a self-signed certificate). With Microsoft AD, the DC needs a server certificate (e.g. from AD CS); since POCKET KNIFE trusts the certificate automatically, a self-signed one is also sufficient. Without a certificate: `PK_LDAP_SECURITY=sasl` (port 389, Kerberos/NTLM-encrypted, help “AD without a certificate”).
 8. For winget: the **App Installer** (Microsoft.DesktopAppInstaller) must be present on the clients (Windows 10 21H2+ / Windows 11 / Server 2025). The computer view shows whether it was found.
 9. For custom packages: create a share, e.g. `\\fs01\PAKETE`, with read permission for the service account (or a separate repository account). For uploading, renaming, moving and deleting through the web interface (from 2.27) additionally **write permission**; other admins then no longer need direct access to the share.
 
@@ -275,7 +276,8 @@ Trivy is downloaded in exactly one version and verified by SHA-256 – no GitHub
 | `PK_DOMAIN` | DNS name of the domain | – |
 | `PK_NETBIOS` | NetBIOS name (for `DOMÄNE\konto` with WinRM/SMB) | – |
 | `PK_LDAP_SERVERS` | DCs, comma-separated | `PK_DOMAIN` |
-| `PK_LDAP_PORT` | LDAPS port | `636` |
+| `PK_LDAP_PORT` | LDAPS port | `636` (without certificate `389`) |
+| `PK_LDAP_SECURITY` | `ldaps` or `sasl` (DC without a certificate: port 389, Kerberos/NTLM-encrypted; can also be changed in the settings) | `ldaps` |
 | `PK_BASE_DN` | Search base | from domain |
 | `PK_COMPUTER_BASE_DN` | Initial value for the search bases (from 2.2 maintainable under Settings → Active Directory) | `PK_BASE_DN` |
 | `PK_ACCESS_GROUP` | Access group (name or DN) | `POCKETKNIFE-Admins` |
@@ -554,7 +556,7 @@ Prerequisites: computers with DNS names (no IP addresses), time offset Docker ho
 - Lockout after 8 failed sign-ins per user and IP or 30 per IP for 15 minutes (spellings of the user name count together)
 - **Sign-out when idle** after 30 minutes without mouse/keyboard input (5–720 minutes, Settings → Connection & Accounts; automatic refreshes do not count, open remote sessions are ended as well)
 - Active sessions are checked against AD in the background every 2 minutes (disabled / no longer in the access or tenant group → signed out, different group → matching scope); signing out also ends remote sessions
-- LDAPS: certificate per DC remembered on first contact and compared before the password is sent; optionally strict (default for new installations from 2.13) or against the CA with `PK_LDAP_CA_FILE`
+- LDAPS: certificate per DC remembered on first contact and compared before the password is sent; optionally strict (default for new installations from 2.13) or against the CA with `PK_LDAP_CA_FILE`; without a certificate (`PK_LDAP_SECURITY=sasl`) Kerberos/NTLM-encrypted, strict = Kerberos only
 - Working folder `C:\Windows\Temp\PocketKnife` on the clients only for SYSTEM/Administrators; a folder created beforehand by users is moved aside
 - Sign-in errors do not reveal whether the user name, password or group membership was the problem; requests are limited in size (default 2 MB)
 - Backups for download do not contain key files; CSV exports are protected against formula injection
