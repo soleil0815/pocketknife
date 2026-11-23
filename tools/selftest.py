@@ -12187,7 +12187,9 @@ def _():
     assert next(k for k, pre in diagnostics.MARK_REASONS if w.startswith(pre) or (k == "column_missing" and pre in w)) == "column_missing"
     # 10. headers and static files
     assert 'resp.headers["Cross-Origin-Opener-Policy"] = "same-origin"' in msrc and 'resp.headers["Cross-Origin-Resource-Policy"] = "same-origin"' in msrc
-    assert "camera=()" in _m.PERMISSIONS_POLICY and "90004\tIGNORE" in rd(".zap", "rules.tsv")
+    assert "camera=()" in _m.PERMISSIONS_POLICY
+    if os.path.exists(os.path.join(root, ".zap", "rules.tsv")):  # repository only - not in the image
+        assert "90004\tIGNORE" in rd(".zap", "rules.tsv")
     assert _asgi("GET", "/static/app.js")[0] == 200 and _asgi("GET", "/static/app.js/")[0] == 404, "no directory browsing"
     # 11. client PowerShell: CLM-safe registry reads, pscheck "since" validated, remote session reports an unexpected end
     sp = rd("app", "steps.py")
