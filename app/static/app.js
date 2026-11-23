@@ -831,7 +831,7 @@ function confirmDlg(text, okLabel = 'OK', danger = false) {
     let ok = false;
     modal('Bestätigen', h('p', text), [
       { label: 'Abbrechen' },
-      { label: okLabel, cls: danger ? 'primary' : 'primary', onClick: () => { ok = true; } },
+      { label: okLabel, cls: danger ? 'danger' : 'primary', onClick: () => { ok = true; } },
     ], { onClose: () => resolve(ok) });
   });
 }
@@ -881,8 +881,13 @@ function showOutput(title, text) {
   modal(title, h('pre.out', text || '(keine Ausgabe)'), [{ label: 'Schließen' }], { wide: true });
 }
 
+let fieldSeq = 0;
 function field(label, input, hint) {
-  return [h('label', label), input, hint ? h('div.hint', hint) : null];
+  // Audit 2026-11: label linked to its control (accessible name, click on the label focuses the field)
+  const lab = h('label', label);
+  const ctl = input instanceof HTMLElement && input.matches('input, select, textarea') ? input : null;
+  if (ctl && label) { if (!ctl.id) ctl.id = `pkf-${++fieldSeq}`; lab.htmlFor = ctl.id; }
+  return [lab, input, hint ? h('div.hint', hint) : null];
 }
 
 // Input field with selection list (instead of <datalist>): ALWAYS shows all entries when opened – the browser
@@ -1115,7 +1120,7 @@ function newMenuButton() {
       { label: 'Neue Bereitstellung', icon: 'send', onClick: () => deployDlg({}) },
       mayBuild() ? { label: 'Neuer Zeitplan', icon: 'clock', onClick: () => { go('#/schedules'); scheduleDlg(null, { kind: 'packages' }); } } : null,
       '-',
-      { label: 'Computer hinzufügen', icon: 'pc', onClick: () => addComputerDlg() },
+      isOU() ? null : { label: 'Computer hinzufügen', icon: 'pc', onClick: () => addComputerDlg() },
       !isOU() || mayBuild() ? { label: 'Neue Sammlung', icon: 'coll', onClick: () => collectionDlg(null) } : null,
       ...(isOU() ? [] : ['-',
         { label: 'Neues Tool', icon: 'terminal', onClick: () => { go('#/tools'); toolDlg(null); } },
@@ -1670,7 +1675,7 @@ async function viewDashboard() {
   const depCard = h('div.card', h('div.card-h', h('h2', 'Letzte Bereitstellungen'), btn('Alle', () => go('#/deployments'), { cls: 'small' })),
     h('div.card-b.flush', d.deployments.length ? h('table', h('tbody', d.deployments.map((x) => h('tr.clickable', { onclick: () => go(`#/deployment/${x.id}`) },
       h('td.wrap', h('b', x.name), h('div.muted.small', fmtDate(x.created_at))), h('td.nowrap', depBadge(x.status)),
-      h('td.right.nowrap', `${x.ok}/${x.total}`))))) : h('div.empty', 'Noch keine Bereitstellungen.')));
+      h('td.right.nowrap', `${x.ok}/${x.total}`))))) : h('div.empty', 'Noch keine Bereitstellungen – über „+ Neu“ → „Neue Bereitstellung“ starten.')));
 
   const logCard = h('div.card', h('div.card-h', h('h2', 'Warnungen & Fehler'), btn('Protokoll', () => go('#/logs'), { cls: 'small' })),
     h('div.card-b.flush', d.logs.length ? h('table', h('tbody', d.logs.map((l) => h('tr',
@@ -1807,7 +1812,7 @@ async function viewComputers(_parts, params) {
   const canNew = !isOU() || mayBuild();
   const lockMsg = (c) => (c.builtin ? 'Standard- und AD-Sammlungen können nicht geändert werden.' : 'Diese Sammlung kann nur ein Hauptadmin ändern – Sie können sie als Kopie für Ihren Bereich anlegen.');
   const top = () => setTop('Computer', current ? `Sammlung: ${collPath(cols, current.id)}${isAd(current) ? ' (aus dem AD)' : ''}` : '',
-    btn('Computer hinzufügen', addComputerDlg, { icon: 'plus' }),
+    isOU() ? null : btn('Computer hinzufügen', addComputerDlg, { icon: 'plus' }),
     canNew ? btn('Neue Sammlung', () => collectionDlg(null), { icon: 'coll' }) : null);
   top();
   // 2.57.1: a click in the tree only swaps the computer list - the tree stays as it is (open folders, scroll position)
@@ -2060,7 +2065,7 @@ async function viewComputers(_parts, params) {
     { key: 'ad_last_logon', label: 'Letzte AD-Anmeldung', value: (r) => fmtDate(r.ad_last_logon), sort: (r) => r.ad_last_logon || '', hidden: true },
     { key: 'created_at', label: 'Hinzugefügt', value: (r) => fmtDate(r.created_at), sort: (r) => r.created_at || '', hidden: true },
   ], rows, { key: 'computers', selectable: true, sort: 'name', noun: 'Computer', dragRows: true, onRow: (r) => go(`#/computer/${r.id}`),
-    onSelect: (sx) => upd(sx), onContext: (r, e, selRows) => rowMenu(e, selRows), onDelete: (selRows) => delComputers(selRows.map((x) => x.id)) });
+    onSelect: (sx) => upd(sx), onContext: (r, e, selRows) => rowMenu(e, selRows), onDelete: isOU() ? null : (selRows) => delComputers(selRows.map((x) => x.id)) });
 
   const targetsOf = (selRows) => selRows.map((r) => ({ id: r.id, name: r.name, online: r.online }));
   async function delComputers(ids) {
@@ -2105,9 +2110,10 @@ async function viewComputers(_parts, params) {
       { label: 'Namen kopieren', icon: 'coll', hint: 'Strg+C', onClick: () => copyText(selRows.map((r) => r.name).join('\r\n'), `${selRows.length} Name(n) kopiert`) },
       { label: 'Als CSV speichern', icon: 'download', onClick: () => downloadText(`computer_${localDate()}.csv`, tableCsv(t, selRows)) },
       '-',
-      { label: allAllowed ? '☑ Scannen erlaubt' : '☐ Scannen erlaubt', icon: 'refresh', onClick: () => setScanAllowed(ids, !allAllowed) },
-      '-',
-      { label: 'Löschen', icon: 'trash', hint: 'Entf', onClick: () => delComputers(ids) },
+      // Audit 2026-11: OU admins may neither delete computers nor change "Scannen erlaubt" (server: 403) - not offered
+      isOU() ? null : { label: allAllowed ? '☑ Scannen erlaubt' : '☐ Scannen erlaubt', icon: 'refresh', onClick: () => setScanAllowed(ids, !allAllowed) },
+      isOU() ? null : '-',
+      isOU() ? null : { label: 'Löschen', icon: 'trash', hint: 'Entf', onClick: () => delComputers(ids) },
       { label: 'Alle auswählen', icon: 'list', hint: 'Strg+A', onClick: () => t.selectAll() },
     ]);
   }
@@ -4688,7 +4694,7 @@ async function viewSchedules() {
     { key: 'last_run', label: 'Letzter Lauf', render: (r) => h('span', { title: fmtDate(r.last_run) }, relTime(r.last_run)), sort: (r) => r.last_run || '' },
     { key: 'state', label: 'Zielverlauf', value: (r) => r.failed * 1000 + r.ok, render: (r) => h('span.row', { style: { gap: '4px' } },
       r.ok ? h('span.badge.ok', `${r.ok} OK`) : null, r.failed ? h('span.badge.err', `${r.failed} Fehler`) : null, r.pending ? h('span.badge.info', `${r.pending} warten`) : null) },
-  ], rows, { key: 'schedules', sort: 'name', noun: 'Zeitpläne', onRow: (r) => scheduleDlg(r.id), empty: 'Noch keine Zeitpläne.',
+  ], rows, { key: 'schedules', sort: 'name', noun: 'Zeitpläne', onRow: (r) => scheduleDlg(r.id), empty: mayBuild() ? 'Noch keine Zeitpläne – mit „Neuer Zeitplan“ anlegen.' : 'Noch keine Zeitpläne.',
     onContext: (r, e) => contextMenu(e.clientX, e.clientY, [
       { label: r.editable === false ? 'Anzeigen' : 'Bearbeiten', icon: 'edit', onClick: () => scheduleDlg(r.id) },
       r.runnable === false ? null : { label: 'Jetzt ausführen', icon: 'send', onClick: () => runSchedule(r) },
@@ -6473,7 +6479,7 @@ function adCard() {
 
 
 async function viewSettings() {
-  setTop('Einstellungen', 'Verbindung, Zeitpläne, Repository und winget');
+  setTop('Einstellungen', 'Verbindung, Sicherheit, Inventar, Updates, Pakete und Wartung');
   const [s, sys, scs, flds] = await Promise.all([GET('/api/settings'), GET('/api/system'), GET('/api/scanners'), GET('/api/fields')]);
   const inputs = {};
   const n = (k, attrs = {}) => (inputs[k] = h('input', { type: 'number', min: 0, value: s[k], style: { maxWidth: '140px' }, ...attrs }));
@@ -6487,9 +6493,11 @@ async function viewSettings() {
   repoPwRow.forEach((el) => { if (el) el.style.display = 'none'; });
   const withRepoPw = (body) => { if (repoPw.value) body.repo_password_confirm = repoPw.value; return body; };
   const repoSaved = (r) => { if (r) { s.repo_path = inputs.repo_path.value.trim(); repoPw.value = ''; repoChanged(); } return r; };
+  const SEC_KEYS = ['ldap_security', 'ldap_cert_strict', 'session_idle_minutes'];
   const save = btn('Speichern', async () => {
     const body = {};
-    for (const [k, el] of Object.entries(inputs)) body[k] = el.type === 'checkbox' ? (el.checked ? 1 : 0) : el.value;
+    // Audit 2026-11: the "Anmeldung & Sitzung" fields have their own button (with the confirmation before switching the AD connection)
+    for (const [k, el] of Object.entries(inputs)) if (!SEC_KEYS.includes(k)) body[k] = el.type === 'checkbox' ? (el.checked ? 1 : 0) : el.value;
     repoSaved(await run(() => PUT('/api/settings', withRepoPw(body)), (r) => (r.changed.length ? 'Gespeichert' : 'Keine Änderungen')));
   }, { cls: 'primary' });
 
@@ -6524,13 +6532,23 @@ async function viewSettings() {
   const secCard = h('div.card', h('div.card-h', h('h2', 'Anmeldung & Sitzung')), h('div.card-b',
   h('div.form', field('Verbindung zum AD', inputs.ldap_security,
     'LDAPS braucht ein Zertifikat auf jedem Domänencontroller (Samba erzeugt es selbst, Windows nur mit Zertifizierungsstelle). „Ohne Zertifikat“ verschlüsselt die Verbindung per Kerberos (sonst NTLM) – mitlesen kann niemand, aber die Identität des Domänencontrollers lässt sich ohne Zertifikat nicht so sicher prüfen wie mit festgelegtem LDAPS-Zertifikat. Beim Umstellen wird die Verbindung zuerst mit dem Dienstkonto getestet.'),
-  field('Strikte Prüfung', h('label.chk', c('ldap_cert_strict'), sasl ? 'strikt prüfen: nur Kerberos, kein NTLM-Rückfall' : 'strikt prüfen: bei geändertem Zertifikat Verbindung ablehnen, bis es bestätigt wird'),
-    sasl ? 'Ohne Zertifikat: Kerberos verlangt die vollen Namen der Domänencontroller in PK_LDAP_SERVERS (z. B. dc01.firma.local). Ausgeschaltet wird NTLM verwendet, wenn Kerberos nicht klappt – das wird protokolliert.'
-      : sys.ldap_ca ? 'Es wird gegen die CA aus PK_LDAP_CA_FILE geprüft.' : 'Standard: Das Zertifikat jedes Domänencontrollers wird beim ersten Kontakt vertraut und vor dem Senden eines Kennworts verglichen; eine Änderung wird protokolliert. Mit PK_LDAP_CA_FILE (CA der Domäne als PEM) erfolgt eine vollständige Prüfung.'),
+  ...(() => {
+    // Audit 2026-11: label and hint follow the CHOSEN connection type, not the saved one
+    const strictText = h('span'), strictHint = h('span');
+    const draw = () => {
+      const v = inputs.ldap_security.value || sys.ldap_security_env;
+      strictText.textContent = tr(v === 'sasl' ? 'strikt prüfen: nur Kerberos, kein NTLM-Rückfall' : 'strikt prüfen: bei geändertem Zertifikat Verbindung ablehnen, bis es bestätigt wird');
+      strictHint.textContent = tr(v === 'sasl' ? 'Ohne Zertifikat: Kerberos verlangt die vollen Namen der Domänencontroller in PK_LDAP_SERVERS (z. B. dc01.firma.local). Ausgeschaltet wird NTLM verwendet, wenn Kerberos nicht klappt – das wird protokolliert. „Strikt“ schützt die Verbindung des Dienstkontos; die Anmeldung von Benutzern lässt sich ohne Zertifikat nicht gegen einen gefälschten Domänencontroller absichern.'
+        : sys.ldap_ca ? 'Es wird gegen die CA aus PK_LDAP_CA_FILE geprüft.' : 'Standard: Das Zertifikat jedes Domänencontrollers wird beim ersten Kontakt vertraut und vor dem Senden eines Kennworts verglichen; eine Änderung wird protokolliert. Mit PK_LDAP_CA_FILE (CA der Domäne als PEM) erfolgt eine vollständige Prüfung.');
+    };
+    inputs.ldap_security.addEventListener('change', draw);
+    draw();
+    return field('Strikte Prüfung', h('label.chk', c('ldap_cert_strict'), strictText), strictHint);
+  })(),
   field('Abmelden bei Inaktivität (Min.)', n('session_idle_minutes', { min: 5, max: 720 }), 'Ohne Maus- oder Tastatureingabe wird die Sitzung nach dieser Zeit beendet (auch offene Fernsitzungen); kurz vorher erscheint ein Hinweis. Automatische Aktualisierungen zählen nicht als Aktivität. 5–720 Minuten, Standard 30.'),
   field('', h('div.row', btn('Speichern', async () => {
     const secChanged = inputs.ldap_security.value !== (sys.ldap_security_set || '');
-    if (secChanged && !(await confirmDlg('Verbindung zum AD umstellen? Pocket Knife testet die neue Verbindung zuerst mit dem Dienstkonto; klappt sie nicht, bleibt alles wie es ist.', 'Umstellen'))) return;
+    if (secChanged && !(await confirmDlg('Verbindung zum AD umstellen? POCKET KNIFE testet die neue Verbindung zuerst mit dem Dienstkonto; klappt sie nicht, bleibt alles wie es ist.', 'Umstellen'))) return;
     const ok = await run(() => PUT('/api/settings', { ldap_security: inputs.ldap_security.value, ldap_cert_strict: inputs.ldap_cert_strict.checked ? 1 : 0, session_idle_minutes: inputs.session_idle_minutes.value }), 'Gespeichert');
     if (ok && S.me) S.me.idle_minutes = Number(inputs.session_idle_minutes.value);
     if (ok && secChanged) route();
@@ -7336,7 +7354,7 @@ async function hotkeysDlg(onSaved) {
   const ownList = own.length
     ? h('div.form', own.map((t) => field((t.folder ? t.folder + ' › ' : '') + t.name, h('div.row', h('kbd.hk', hkText(t.hotkey)),
       h('a', { href: '#', onclick: (e) => { e.preventDefault(); closeModals(); toolDlg(t); } }, 'bearbeiten')))))
-    : h('p.muted.small', 'Noch keine eigenen Tools mit Tastenkürzel – das Kürzel legst du im Tool selbst fest (Tool öffnen → „Tastenkürzel“).');
+    : h('p.muted.small', 'Noch keine eigenen Tools mit Tastenkürzel – das Kürzel legen Sie im Tool selbst fest (Tool öffnen → „Tastenkürzel“).');
   modal('Tastenkürzel', h('div',
     h('p.muted.small', 'Strg+Alt (+ Umschalt) mit Buchstabe, Ziffer oder F1–F12. Ein Kürzel startet das Tool für die markierten Computer der Computerliste oder den geöffneten Computer; bei mehreren Computern fragt POCKET KNIFE vorher nach. Die Kürzel gelten für alle Benutzer; in Eingabefeldern und Dialogen sind sie aus.'),
     h('h3', 'Eingebaute Tools'), h('div.form', rows),
@@ -7831,7 +7849,7 @@ async function viewScanners() {
     { key: 'state', label: 'Status', value: (r) => r.failed * 1000 + r.pending, render: (r) => h('span.row', { style: { gap: '4px' } },
       r.pending ? h('span.badge.info', `${r.pending} ausstehend`) : null, r.failed ? h('span.badge.err', `${r.failed} Fehler`) : null,
       !r.pending && !r.failed && r.scanned ? h('span.badge.ok', `${r.scanned} OK`) : null) },
-  ], meta.profiles, { noun: 'Profile', sort: 'name', onRow: (r) => profileDlg(r, meta), empty: 'Keine Scanprofile.', fill: false });
+  ], meta.profiles, { noun: 'Profile', sort: 'name', onRow: (r) => profileDlg(r, meta), empty: 'Keine Scanprofile – mit „Neues Scanprofil“ anlegen.', fill: false });
 
   const sc = table([
     { key: 'name', label: 'Name', render: (r) => h('span', h('a', { href: '#', onclick: (e) => { e.preventDefault(); scannerDlg(r, meta); } }, r.name),
@@ -7845,7 +7863,7 @@ async function viewScanners() {
       render: (r) => ((r.lint || []).length
         ? h('span.badge.warn', { title: r.lint.map((f) => `${fmtT('Zeile {0}', f.line)}: ${f.what}`).join('\n') }, fmtT('{0} Hinweis(e)', r.lint.length))
         : (r.type === 'powershell' ? h('span.muted.small', 'sauber') : '')) },
-  ], meta.scanners, { sort: 'name', noun: 'eigene Scanner', onRow: (r) => scannerDlg(r, meta), empty: 'Noch keine eigenen Scanner.', fill: false });
+  ], meta.scanners, { sort: 'name', noun: 'eigene Scanner', onRow: (r) => scannerDlg(r, meta), empty: 'Noch keine eigenen Scanner – mit „Neuer eigener Scanner“ anlegen.', fill: false });
   sc.actions.append(btn('Neuer eigener Scanner', () => scannerDlg(null, meta), { icon: 'plus', cls: 'small' }));
 
   const std = h('div.chips', meta.modules.map((m) => h('span.badge', m.label)));

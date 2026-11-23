@@ -152,14 +152,15 @@ def trust_pending():
     return p
 
 
-def bind(user, password, result=None, mode=None):
+def bind(user, password, result=None, mode=None, strict=None):
     """Returns a bound connection or None if the logon was rejected.
-    If `result` is a dict, the server's LDAP response is stored in it. mode: connection type (default: the configured one)."""
+    If `result` is a dict, the server's LDAP response is stored in it. mode: connection type (default: the configured one);
+    strict: strict check (default: the setting) - both only differ when a change is tested before saving."""
     if not password:
         return None
     mode = security(mode) if mode else security()
     if mode == "sasl":
-        return _bind_sasl(user, password, result)
+        return _bind_sasl(user, password, result, strict)
     c = Connection(_pool(mode), user=user, password=password, authentication=SIMPLE,
                    auto_bind=False, raise_exceptions=False, receive_timeout=30)
     try:
@@ -282,9 +283,49 @@ def _req():
     return spnego.ContextReq.default | spnego.ContextReq.integrity | spnego.ContextReq.confidentiality
 
 
-def _bind_sasl(user, password, result=None):
+class _KrbSpnego:
+    """SPNEGO (RFC 4178) around a pure Kerberos context: only the Kerberos mechanism is offered. pyspnego's "negotiate"
+    would also offer NTLM and switch to it on its own if Kerberos fails - that must not happen with a working Kerberos."""
+
+    def __init__(self, krb):
+        from spnego._context import GSSMech
+        self._k, self._mechs, self._mic_sent = krb, [GSSMech.kerberos.value], False
+
+    @property
+    def complete(self):
+        return self._k.complete
+
+    @property
+    def negotiated_protocol(self):
+        return "kerberos"
+
+    def step(self, in_token=None):
+        from spnego._spnego import NegState, NegTokenInit, NegTokenResp, pack_mech_type_list, unpack_token
+        if in_token is None:
+            return NegTokenInit(mech_types=self._mechs, mech_token=self._k.step()).pack()
+        resp = unpack_token(in_token)
+        if not isinstance(resp, NegTokenResp):
+            raise ValueError("SPNEGO: unerwartete Antwort des Servers")
+        if resp.neg_state == NegState.reject:
+            raise ValueError("SPNEGO: vom Server abgelehnt")
+        out = self._k.step(resp.response_token) if resp.response_token else None
+        mic = None
+        if resp.neg_state == NegState.request_mic and self._k.complete and not self._mic_sent:
+            mic, self._mic_sent = self._k.sign(pack_mech_type_list(self._mechs)), True
+        if out is None and mic is None:
+            return None
+        return NegTokenResp(response_token=out, mech_list_mic=mic).pack()
+
+    def wrap(self, data, encrypt=True):
+        return self._k.wrap(data, encrypt=encrypt)
+
+    def unwrap(self, data):
+        return self._k.unwrap(data)
+
+
+def _bind_sasl(user, password, result=None, strict=None):
     import spnego
-    strict = bool(db.setting("ldap_cert_strict"))
+    strict = bool(db.setting("ldap_cert_strict")) if strict is None else bool(strict)
     c = Connection(_pool("sasl"), authentication=ANONYMOUS, auto_bind=False, raise_exceptions=False, receive_timeout=30)
     try:
         if not c.open() and c.closed:
@@ -326,10 +367,15 @@ def _bind_sasl(user, password, result=None):
         raise ADError(f"Anmeldung ohne Zertifikat: Kerberos nicht möglich ({krb_reason}). Mit „strikt prüfen“ ist kein "
                       f"NTLM erlaubt – Ursache beheben oder die strikte Prüfung unter Einstellungen → Sicherheit "
                       f"ausschalten.")
-    # 2. SASL GSS-SPNEGO bind; with a working Kerberos it negotiates Kerberos, otherwise NTLM
-    name = kerberos.principal(user) if not krb_reason else user
+    # 2. SASL GSS-SPNEGO bind. Kerberos works: SPNEGO with Kerberos as the ONLY mechanism - no NTLM token can leave, even if
+    #    the second Kerberos exchange is disturbed (audit 2026-11: with "negotiate" pyspnego silently fell back to NTLM).
+    #    Kerberos not possible (and not strict): Negotiate, i.e. NTLM.
     try:
-        ctx = spnego.client(name, password, hostname=host or None, service="ldap", protocol="negotiate", context_req=_req())
+        if not krb_reason:
+            ctx = _KrbSpnego(spnego.client(kerberos.principal(user), password, hostname=host, service="ldap",
+                                           protocol="kerberos", context_req=_req()))
+        else:
+            ctx = spnego.client(user, password, hostname=host or None, service="ldap", protocol="negotiate", context_req=_req())
         tok = ctx.step()
         for _round in range(8):
             req = bind_operation(c.version, SASL, None, None, "GSS-SPNEGO", tok)
@@ -716,6 +762,13 @@ def authenticate(username, password, allow_kiosk=False):
         # Who is really logged on? An entered name can match a different account as UPN than the same-named
         # sAMAccountName (e.g. after renames) - the session must belong to the account whose password was correct.
         bound = _whoami_sam(uc)
+        # Audit 2026-11: with a trust, "ANDERE\\michael" signs in successfully - the session must never become the account
+        # of the same name in OUR domain. Only accounts of the configured domain (PK_NETBIOS) are accepted.
+        dom = _whoami_domain(uc)
+        own = _own_netbios(uc) if dom else None
+        if dom and own and dom.lower() != own.lower():
+            raise ADError(f"Kein Zugriff: Das Konto gehört zur Domäne „{dom}“ – angemeldet werden nur Konten der Domäne "
+                          f"„{own}“.")
         attrs = ["distinguishedName", "displayName", "sAMAccountName", "userPrincipalName", "memberOf",
                  "userAccountControl", "primaryGroupID", "objectSid"]
         if bound:
@@ -774,6 +827,48 @@ def tenant_scope(c, user_entry):
         except Exception:
             continue
     return ids
+
+
+_own_nb: dict = {}
+
+
+def _own_netbios(c):
+    """NetBIOS name of OUR domain: from the AD (crossRef in CN=Partitions with nCName = base DN), else PK_NETBIOS.
+    Read from the directory so that a typo in PK_NETBIOS cannot lock everyone out."""
+    if "v" in _own_nb:
+        return _own_nb["v"]
+    nb = None
+    try:
+        c.search("", "(objectClass=*)", search_scope="BASE", attributes=["configurationNamingContext"])
+        conf = (c.response or [{}])[0].get("attributes", {}).get("configurationNamingContext") or ""
+        conf = str(conf[0] if isinstance(conf, list) and conf else conf or "")
+        if conf:
+            c.search(f"CN=Partitions,{conf}", f"(&(objectClass=crossRef)(nCName={escape_filter_chars(config.BASE_DN)}))",
+                     search_scope=LEVEL, attributes=["nETBIOSName"])
+            for e in c.response or []:
+                v = (e.get("attributes") or {}).get("nETBIOSName")
+                if isinstance(v, list):
+                    v = v[0] if v else None
+                if v:
+                    nb = str(v)
+                    break
+    except Exception:
+        nb = None
+    nb = nb or config.NETBIOS or None
+    if nb:
+        _own_nb["v"] = nb
+    return nb
+
+
+def _whoami_domain(c):
+    """NetBIOS domain of the bound account from "Who am I?" (u:DOMAIN\\user) - or None."""
+    try:
+        w = str(c.extend.standard.who_am_i() or "").strip()
+    except Exception:
+        return None
+    if w.lower().startswith("u:"):
+        w = w[2:]
+    return w.split("\\", 1)[0] or None if "\\" in w else None
 
 
 def _whoami_sam(c):
@@ -1358,14 +1453,18 @@ def sync_computers(user=None):
         if missing:
             ph = ",".join("?" * len(missing))
             db.ex(f"UPDATE computers SET ad_present=0, ad_missing_since=? WHERE id IN ({ph})", [now] + missing)
-        # Older "nicht im AD" (not in the AD) entries (from before this version) start their grace period now
-        db.ex("UPDATE computers SET ad_missing_since=? WHERE ad_present=0 AND ad_missing_since IS NULL", (now,))
+        # Older "nicht im AD" (not in the AD) entries (from before this version) start their grace period now.
+        # Audit 2026-11: only computers that came from the AD - manually added ones (no ad_guid) were deleted after the grace period
+        db.ex("UPDATE computers SET ad_missing_since=? WHERE ad_present=0 AND ad_missing_since IS NULL "
+              "AND COALESCE(ad_guid, '') != ''", (now,))
+        db.ex("UPDATE computers SET ad_missing_since=NULL WHERE COALESCE(ad_guid, '') = '' AND ad_missing_since IS NOT NULL")
         removed = 0
         if db.setting("ad_remove_missing"):
             # Delete only after a grace period: a computer must be missing for AD_DELETE_GRACE_DAYS continuously
             # (protects against missing read rights on an OU, brief LDAP problems, etc.)
             gone = [r["id"] for r in db.q("SELECT id FROM computers WHERE ad_present=0 AND ad_missing_since IS NOT NULL "
-                                          "AND ad_missing_since < ?", (util.ago(days=AD_DELETE_GRACE_DAYS),))]
+                                          "AND COALESCE(ad_guid, '') != '' AND ad_missing_since < ?",
+                                          (util.ago(days=AD_DELETE_GRACE_DAYS),))]
             if gone:
                 db.ex(f"DELETE FROM computers WHERE id IN ({','.join('?' * len(gone))})", gone)
                 removed = len(gone)

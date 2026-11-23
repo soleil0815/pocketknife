@@ -10,6 +10,24 @@
      "audience": "admin",
      "de": "AD ohne Zertifikat: Pocket Knife funktioniert jetzt auch mit Domänencontrollern ohne LDAPS-Zertifikat, zum Beispiel in einer Windows-Domäne ohne Zertifizierungsstelle. Unter Einstellungen → Sicherheit „Ohne Zertifikat“ wählen: Die Anmeldung läuft über Port 389 per Kerberos (sonst NTLM), der gesamte Verkehr ist verschlüsselt. Beim Umstellen wird die Verbindung zuerst getestet.",
      "en": "AD without a certificate: Pocket Knife now also works with domain controllers without an LDAPS certificate, for example in a Windows domain without a certification authority. Choose “Without certificate” under Settings → Security: sign-in runs over port 389 with Kerberos (otherwise NTLM), all traffic is encrypted. The connection is tested first when switching."
+    },
+    {
+     "kind": "security",
+     "audience": "admin",
+     "de": "Monatsprüfung: Dateisuche auf Clients gegen eingeschleusten Code abgesichert, „Strikt“ ohne Zertifikat lässt nie NTLM zu, Konten vertrauter Domänen werden abgewiesen, OU-Admins sehen den Code zentraler Tools nicht mehr, zusätzliche Sicherheits-Header.",
+     "en": "Monthly audit: file search on clients hardened against injected code, “Strict” without a certificate never allows NTLM, accounts of trusted domains are refused, OU admins no longer see the code of central tools, additional security headers."
+    },
+    {
+     "kind": "fixed",
+     "audience": "admin",
+     "de": "Manuell hinzugefügte Computer werden vom AD-Abgleich nicht mehr gelöscht. Verkettete Pakete warten, wenn das vorherige wegen eines geöffneten Programms zurückgestellt ist; ausgenommene Programme (z. B. Chrome) werden nie zurückgestellt.",
+     "en": "Manually added computers are no longer deleted by the AD sync. Chained packages wait while the previous one is postponed because a program is open; exempt programs (e.g. Chrome) are never postponed."
+    },
+    {
+     "kind": "improved",
+     "audience": "all",
+     "de": "Bedienung: bessere Darstellung auf dem Handy, OU-Admins sehen keine Schaltflächen mehr, die ohnehin abgelehnt würden, rote Schaltfläche bei gefährlichen Bestätigungen, Einstellungen „Speichern“ stellt die AD-Verbindung nicht mehr ohne Rückfrage um.",
+     "en": "Usability: better layout on phones, OU admins no longer see buttons that would be refused anyway, red button for dangerous confirmations, “Save” in the settings no longer switches the AD connection without asking."
     }
    ]
   },

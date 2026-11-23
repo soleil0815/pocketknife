@@ -489,6 +489,8 @@ async def tunnel(ws, token_hash):
     pklog.info("remote", f"{PROTOCOLS[t['protocol']]}-Sitzung zu {t['computer']} gestartet"
                + (f" als {t['login']}" if t["login"] else ""), user=t["user"], computer_id=t["computer_id"])
 
+    seen = {"error": False}
+
     async def guacd_to_browser():
         if pending:
             await ws.send_text("".join(pending))
@@ -499,6 +501,8 @@ async def tunnel(ws, token_hash):
             sess.bytes_in += len(data)
             out = parser.feed(dec.decode(data))
             if out:
+                if any(x.startswith("5.error,") for x in out):
+                    seen["error"] = True  # guacd said why (sign-out = status 0, otherwise the reason)
                 await ws.send_text("".join(out))
 
     async def browser_to_guacd():
@@ -549,10 +553,21 @@ async def tunnel(ws, token_hash):
         done, rest = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
         for x in rest:
             x.cancel()
+        broken = None
         for x in done:
             if x.exception() and not isinstance(x.exception(), (ConnectionError, asyncio.CancelledError)):
                 pklog.warn("remote", f"Fernsitzung {t['computer']}: {x.exception()}", user=t["user"],
                            computer_id=t["computer_id"])
+                broken = ("Fehler in der Verbindung – siehe Protokoll", "512")
+        if broken is None and tasks[0] in done and not seen["error"] and not sess.closed_by:
+            broken = ("Verbindung zu guacd unerwartet beendet", "512")
+        if broken:
+            # Audit 2026-11: without an "error" the browser counts the end as a normal sign-out and closes the tab (2.60.1) -
+            # an unexpected end must keep the tab open with the reason
+            try:
+                await ws.send_text(encode("error", *broken))
+            except Exception:
+                pass
     finally:
         with _slock:
             _sessions.pop(sess.id, None)

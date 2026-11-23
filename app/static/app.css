@@ -819,3 +819,12 @@ body.pk-busy, body.pk-busy * { cursor: progress !important; }
 .subnav a.rtab .dot.warn { background: var(--warn); }
 .subnav .rtab-x { width: 18px; height: 18px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--muted); line-height: 1; font-size: 14px; }
 .subnav .rtab-x:hover { background: var(--side-2); color: var(--text); }
+
+/* Audit 2026-11: phones - the collection tree really hides (the .tree rule above came later and won), the area
+   navigation gets a row of its own instead of shrinking to 0 px, page headers wrap instead of overlapping */
+@media (max-width: 900px) { .shell .tree { display: none; } }
+@media (max-width: 600px) {
+  .topnav { flex-wrap: wrap; height: auto; min-height: 52px; padding: 6px 8px; row-gap: 4px; }
+  .nav-areas { order: 10; flex: 1 0 100%; }
+  .topbar, .topbar .row { flex-wrap: wrap; }
+}

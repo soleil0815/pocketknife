@@ -955,7 +955,7 @@ Dateien
   behobene_fehler.txt  Behobene Fehler, die der Selbsttest bei jeder Version prüft
   umgebung.json        Version, Umgebung, Zähler, Zustand der Hintergrundaufgaben (ohne Kennwörter/Schlüssel),
                        Verbindungsart zum AD (LDAPS oder ohne Zertifikat: Kerberos/NTLM)
-  einstellungen.json   Einstellungen (ohne Kennwörter, Keytab, Schlüssel)
+  einstellungen.json   Einstellungen (ohne Kennwörter, Keytab, Schlüssel; eigene Texte wie Etiketten-Fußzeile nur als Länge)
   statistik.json       Bereitstellungen und Scans im Zeitraum: Ergebnisse, Exitcodes, häufigste Fehler, Dauer,
                        Ketten (mehrere Pakete nacheinander: Anzahl, übersprungene Ziele, wartende Ziele),
                        Änderungen im Texteditor des Repositorys (Anzahl, Dateien, Kodierung – nie Inhalte),

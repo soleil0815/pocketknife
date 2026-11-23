@@ -11917,10 +11917,15 @@ def _():
         def unbind(self):
             self.closed = True
 
+    from spnego._spnego import NegState, NegTokenInit, NegTokenResp, unpack_token
+
+    def resp(state, tok=None):
+        return NegTokenResp(neg_state=state, response_token=tok).pack()
+
     class _Krb:
         def __init__(self, mode, proto):
             self.mode, self.proto, self.complete, self.n = mode, proto, False, 0
-            self.negotiated_protocol = {"krb": "kerberos", "ntlm": "ntlm", "incomplete": "kerberos"}.get(mode, "kerberos")
+            self.negotiated_protocol = "ntlm" if proto == "negotiate" else "kerberos"
 
         def step(self, tok=None):
             self.n += 1
@@ -11929,10 +11934,17 @@ def _():
                     raise Exception("Krb5Error Preauthentication failed -1765328360")
                 if self.mode in ("ntlm", "nokdc"):
                     raise Exception("Krb5Error Cannot find KDC for realm \"FIRMA.LOCAL\" -1765328230")
-                return b"krb"
-            if self.n >= 2 and self.mode != "incomplete":
+                if tok is None:
+                    return b"krb-ap-req"
+                if self.mode != "incomplete":
+                    self.complete = True  # the DC's AP-REP: mutual authentication done
+                return None
+            if self.n >= 2:
                 self.complete = True
             return b"tok%d" % self.n
+
+        def sign(self, data):
+            return b"mic"
 
         def wrap(self, d, encrypt=True):
             return ctx.wrap(d, encrypt)
@@ -11952,12 +11964,13 @@ def _():
     os.environ["KRB5_CONFIG"] = "/nonexistent"  # no krb5.conf is written by the test
     try:
         db.set_setting("ldap_cert_strict", 1)
-        # Kerberos works: Kerberos via GSS-SPNEGO, mutual authentication (server's last token processed), socket sealed
+        # Kerberos works: SPNEGO with Kerberos as the ONLY mechanism (no "negotiate" context that could fall back to NTLM),
+        # mutual authentication (the DC's final token processed), socket sealed
         calls.clear(); mode["m"] = "krb"
-        _Conn.replies = [{"result": 14, "saslCreds": b"srv1"}, {"result": 0, "saslCreds": b"srv-final", "description": "success"}]
+        _Conn.replies = [{"result": 0, "saslCreds": resp(NegState.accept_complete, b"ap-rep"), "description": "success"}]
         c = ad.bind("svc@firma.local", "pw")
         assert c is not None and c.bound and isinstance(c.socket, ad._Sealed), calls
-        assert [x[1] for x in calls if x[0] == "spnego"] == ["kerberos", "negotiate"] and calls[0][2] == "svc@FIRMA.LOCAL", calls
+        assert [x[1] for x in calls if x[0] == "spnego"] == ["kerberos", "kerberos"] and calls[0][2] == "svc@FIRMA.LOCAL", calls
         assert ad.sasl_state()["mech"] == "kerberos"
         # wrong password: Kerberos says so - NO second attempt via NTLM (would count twice on the DC)
         calls.clear(); mode["m"] = "badpw"; _Conn.replies = []
@@ -11975,6 +11988,8 @@ def _():
         # the DC does not confirm (no final token / context not complete): refused
         mode["m"] = "incomplete"; _Conn.replies = [{"result": 0}]
         must_fail(ad.bind, "svc@firma.local", "pw", contains="nicht vollständig bestätigt")
+        mode["m"] = "krb"; _Conn.replies = [{"result": 14, "saslCreds": resp(NegState.reject)}]
+        must_fail(ad.bind, "svc@firma.local", "pw", contains="abgelehnt")
         # without strict: NTLM fallback, logged, shown
         db.set_setting("ldap_cert_strict", 0)
         calls.clear(); mode["m"] = "ntlm"
@@ -11992,7 +12007,7 @@ def _():
         # bare IP/short name: no Kerberos attempt at all (it cannot work), reason shown
         config.LDAP_SERVERS[:] = ["10.0.10.5"]
         _Server.host = "10.0.10.5"
-        calls.clear(); mode["m"] = "krb"; _Conn.replies = [{"result": 14, "saslCreds": b"c"}, {"result": 0}]
+        calls.clear(); mode["m"] = "ntlm"; _Conn.replies = [{"result": 14, "saslCreds": b"c"}, {"result": 0}]
         assert ad.bind("svc@firma.local", "pw") is not None
         assert [x[1] for x in calls if x[0] == "spnego"] == ["negotiate"] and "kein voller DC-Name" in ad.sasl_state()["reason"]
     finally:
@@ -12017,7 +12032,7 @@ def _():
     assert st == 400 and "Verbindungsart" in str(r), (st, r)
     o_bind, o_user, o_pw = ad.bind, config.service_user, config.service_password
     tried = []
-    ad.bind = lambda u, p, res=None, mode=None: (tried.append(mode), res.update({"description": "invalidCredentials", "message": "data 52e"}), None)[2]
+    ad.bind = lambda u, p, res=None, mode=None, strict=None: (tried.append(mode), res.update({"description": "invalidCredentials", "message": "data 52e"}), None)[2]
     config.service_user, config.service_password = (lambda: "svc"), (lambda: "pw")
     try:
         st, r = _asgi("PUT", "/api/settings", tok, {"ldap_security": "sasl"})
@@ -12027,7 +12042,7 @@ def _():
         class _OK:
             def unbind(self):
                 tried.append("unbind")
-        ad.bind = lambda u, p, res=None, mode=None: (tried.append(mode), _OK())[1]
+        ad.bind = lambda u, p, res=None, mode=None, strict=None: (tried.append(mode), _OK())[1]
         st, r = _asgi("PUT", "/api/settings", tok, {"ldap_security": "sasl"})
         assert st == 200 and "ldap_security" in r["changed"] and db.setting_raw("ldap_security") == "sasl", (st, r)
         st, sysinfo = _asgi("GET", "/api/system", tok)
@@ -12044,6 +12059,156 @@ def _():
     js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
     assert "inputs.ldap_security = sel(" in js and "ldap_security: inputs.ldap_security.value" in js
     assert "sasl ? ['Verschlüsselung'" in js and "btn('Verbindung testen'" in js
+
+
+@test("Audit 2026-11: file search quoted in one pass, manual computers survive the AD sync, chain waits for a postponed package, update packages carry the winget ID, exempt cache packages never postpone, trusted foreign domain refused, OU admins neither keep foreign tabs nor read tool code, settings test the TARGET strict value, diagnostics hide own texts, security headers, no directory browsing, UI only offers what a role may do")
+def _():
+    import re as _re
+    from app import access, ad, clientfiles, deploy, diagnostics, inuse, recent, steps, util
+    from app import main as _m
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+    rd = lambda *pp: open(os.path.join(root, *pp), encoding="utf-8").read()
+    # 1. file search: a folder named "__PAT__" stays inside its quotes (before: filled with the search term afterwards)
+    start, q = "C:\\Daten\\__PAT__\\__FLT__", "x' ; Remove-Item C:\\ ; '"
+    sc = clientfiles.search_script(start, q, 50)
+    assert util.psq(start) in sc, "start path is quoted exactly once, unchanged"
+    assert "$pat = " + util.psq(clientfiles.like_pattern(q)) + ";" in sc
+    assert not _re.search(r"__(START|FLT|PAT|LIMIT|FOLLOW)__", sc.replace(util.psq(start), "")), "every placeholder filled"
+    # 2. AD sync: grace period and deletion only for computers that came from the AD (ad_guid)
+    src = rd("app", "ad.py")
+    assert src.count("AND COALESCE(ad_guid, '') != ''") >= 2
+    assert "UPDATE computers SET ad_missing_since=NULL WHERE COALESCE(ad_guid, '') = '' AND ad_missing_since IS NOT NULL" in src
+    # 3. chain: the predecessor postponed by the update lock is not "done"
+    did1 = db.ex("INSERT INTO deployments(name, package_json, created_at) VALUES('Kette A (Test)', '{}', ?)", (util.now(),))
+    did2 = db.ex("INSERT INTO deployments(name, package_json, created_at, chain_prev, chain_stop) VALUES('Kette B (Test)', '{}', ?, ?, 1)",
+                 (util.now(), did1))
+    cid = db.ex("INSERT INTO computers(name, created_at) VALUES('PK-T-CHAIN', ?)", (util.now(),))
+    try:
+        db.ex("INSERT INTO deployment_targets(deployment_id, computer_id, status, message) VALUES(?,?,?,?)",
+              (did1, cid, "skipped", inuse.PREFIX + "Programm „chrome.exe“ ist geöffnet"))
+        t2 = db.ex("INSERT INTO deployment_targets(deployment_id, computer_id, status) VALUES(?,?, 'queued')", (did2, cid))
+        assert deploy._chain_gate(did2, t2) == "skip", "postponed predecessor: the next package must not run first"
+        db.ex("UPDATE deployment_targets SET message='Bereits installiert' WHERE deployment_id=?", (did1,))
+        db.ex("UPDATE deployment_targets SET status='queued', message=NULL WHERE id=?", (t2,))
+        assert deploy._chain_gate(did2, t2) == "run", "skipped because already installed counts as done"
+    finally:
+        db.ex("DELETE FROM deployment_targets WHERE deployment_id IN (?,?)", (did1, did2))
+        db.ex("DELETE FROM deployments WHERE id IN (?,?)", (did1, did2))
+        db.ex("DELETE FROM computers WHERE id=?", (cid,))
+    # 4. update packages carry the winget ID; exempt programs (browsers) never postpone, also with install steps
+    assert 'pkg["winget_id"] = wid' in rd("app", "deploy.py")
+    inst = {"main": [{"type": "install", "source": "repo", "detect_name": "Google Chrome", "product_code": "{X}"}]}
+    pr = inuse.programs({"winget_id": "Google.Chrome", "steps": inst})
+    assert pr["exempt"] == ["Google.Chrome"] and not pr["names"] and not pr["codes"], pr
+    pr = inuse.programs({"winget_id": "7zip.7zip", "steps": inst})
+    assert not pr["exempt"] and pr["names"] == ["Google Chrome"], "not exempt: install steps are checked as before"
+    assert 'have = e["version"] and e["folder"] and e["file"]' in rd("app", "wingetcache.py")
+    assert "WHERE package_id IS NOT NULL AND COALESCE(version, '') != ''" in rd("app", "schedules.py")
+    # 5. trust: "ANDERE\\user" never becomes the account of the same name in our domain
+    class _Ext:
+        def __init__(self, w): self.standard = type("S", (), {"who_am_i": lambda _s: w})()
+    class _C:
+        def __init__(self, w, conf, nb):
+            self.extend, self._conf, self._nb, self.response = _Ext(w), conf, nb, []
+        def search(self, base, flt, search_scope=None, attributes=None):
+            self.response = ([{"attributes": {"configurationNamingContext": [self._conf]}}] if base == ""
+                             else [{"attributes": {"nETBIOSName": self._nb}}] if base == f"CN=Partitions,{self._conf}" else [])
+    assert ad._whoami_domain(_C("u:ANDERE\\michael", "", "")) == "ANDERE"
+    assert ad._whoami_domain(_C("u:michael@firma.local", "", "")) is None and ad._whoami_domain(_C("", "", "")) is None
+    ad._own_nb.clear()
+    try:
+        assert ad._own_netbios(_C("", "CN=Configuration,DC=firma,DC=local", "FIRMA")) == "FIRMA", "read from the AD, not only PK_NETBIOS"
+    finally:
+        ad._own_nb.clear()
+    assert "if dom and own and dom.lower() != own.lower():" in src and "angemeldet werden nur Konten der Domäne" in src
+    # 6. recent tabs: an OU admin's list keeps no computers outside the area
+    u = {"username": "pk-t-audit-rec", "role": "admin"}
+    db.ex("DELETE FROM user_prefs WHERE username=?", (u["username"],))
+    a = db.ex("INSERT INTO computers(name) VALUES('PK-T-AREC-A')")
+    b = db.ex("INSERT INTO computers(name) VALUES('PK-T-AREC-B')")
+    orig = access.computer_ids
+    try:
+        recent.touch(u, a)
+        access.computer_ids = lambda _u: {b}
+        ou = {"username": u["username"], "role": "ou"}
+        assert [x["id"] for x in recent.touch(ou, b)] == [b]
+        access.computer_ids = orig
+        assert [x["id"] for x in recent.listing(u)] == [b], "the foreign computer did not stay stored (took one of the 10 places)"
+    finally:
+        access.computer_ids = orig
+        db.ex("DELETE FROM computers WHERE id IN (?,?)", (a, b))
+        db.ex("DELETE FROM user_prefs WHERE username=?", (u["username"],))
+    # 7. tools: OU admins run them but do not read the code
+    msrc = rd("app", "main.py")
+    assert 'rows = [{**r, "script": "", "repo_path": ""} for r in rows]' in msrc
+    # 8. settings: the TARGET strict value is tested, not the stored one
+    calls = []
+    o_bind, o_user, o_upn, o_pw, o_sec = ad.bind, _m.config.service_user, _m.config.service_upn, _m.config.service_password, db.setting_raw("ldap_security")
+    o_strict = db.setting_raw("ldap_cert_strict")
+
+    class _Conn:
+        def unbind(self): pass
+    try:
+        db.set_setting("ldap_security", "sasl")
+        db.set_setting("ldap_cert_strict", "0")
+        _m.config.service_user = lambda: "svc"
+        _m.config.service_upn = lambda: "svc@firma.local"
+        _m.config.service_password = lambda: "x"
+        ad.bind = lambda u_, p_, res=None, mode=None, strict=None: (calls.append((mode, strict)), _Conn())[1]
+        _m._test_ldap_change({"ldap_cert_strict": 1})
+        assert calls == [("sasl", True)], calls
+        calls.clear()
+        _m._test_ldap_change({"ldap_cert_strict": 0, "session_idle_minutes": 30})
+        assert calls == [], "nothing changed - no test"
+        ad.bind = lambda *a_, **k_: None
+        try:
+            _m._test_ldap_change({"ldap_cert_strict": 1})
+            raise AssertionError("refused account must stop the change")
+        except Exception as e:
+            assert "Nicht umgestellt" in str(getattr(e, "detail", e)), e
+    finally:
+        ad.bind, _m.config.service_user, _m.config.service_upn, _m.config.service_password = o_bind, o_user, o_upn, o_pw
+        db.set_setting("ldap_security", o_sec or "")
+        db.set_setting("ldap_cert_strict", o_strict if o_strict is not None else "0")
+    # 9. diagnostics: label footer never as text, own texts only "set" when anonymising, relays aliased, lost column category
+    keep = {k: db.setting_raw(k) for k in ("label_footer", "reboot_sender", "wol_relays")}
+    try:
+        db.set_setting("label_footer", "Firma GmbH – IT · 0123 456789")
+        db.set_setting("reboot_sender", "IT Müller")
+        db.set_setting("wol_relays", "PC-GEHEIM-01")
+        plain = diagnostics._settings(diagnostics.Anonymizer(enabled=False))
+        assert plain["label_footer"] == "(eigener Text, 29 Zeichen)", plain["label_footer"]
+        an = diagnostics._settings(diagnostics.Anonymizer(enabled=True))
+        assert an["reboot_sender"] == "(eigener Text, 9 Zeichen)" and "GEHEIM" not in str(an["wol_relays"]), an["wol_relays"]
+    finally:
+        for k, v in keep.items():
+            db.set_setting(k, v if v is not None else "")
+    w = "Liefert seit der Änderung am 01.11. die Spalte(n) „Pfad“ nicht mehr"
+    assert next(k for k, pre in diagnostics.MARK_REASONS if w.startswith(pre) or (k == "column_missing" and pre in w)) == "column_missing"
+    # 10. headers and static files
+    assert 'resp.headers["Cross-Origin-Opener-Policy"] = "same-origin"' in msrc and 'resp.headers["Cross-Origin-Resource-Policy"] = "same-origin"' in msrc
+    assert "camera=()" in _m.PERMISSIONS_POLICY and "90004\tIGNORE" in rd(".zap", "rules.tsv")
+    assert _asgi("GET", "/static/app.js")[0] == 200 and _asgi("GET", "/static/app.js/")[0] == 404, "no directory browsing"
+    # 11. client PowerShell: CLM-safe registry reads, pscheck "since" validated, remote session reports an unexpected end
+    sp = rd("app", "steps.py")
+    assert ".GetValue(" not in sp and "(Get-ItemProperty -LiteralPath $rp).'(default)'" in sp
+    assert _re.search(r'if not re\.fullmatch\(r"\\d\{4\}-\\d\{2\}-\\d\{2\}T', rd("app", "pscheck.py"))
+    rsrc = rd("app", "remote_desktop.py")
+    assert '"Verbindung zu guacd unerwartet beendet", "512"' in rsrc and '"5.error,"' in rsrc
+    # 12. UI: the general "Speichern" leaves the AD connection alone; OU admins are not offered add/delete/scan allowed
+    js = rd("app", "static", "app.js")
+    assert "const SEC_KEYS = ['ldap_security', 'ldap_cert_strict', 'session_idle_minutes'];" in js and "if (!SEC_KEYS.includes(k))" in js
+    assert "isOU() ? null : btn('Computer hinzufügen'" in js and "isOU() ? null : { label: 'Löschen', icon: 'trash'" in js
+    assert "onDelete: isOU() ? null :" in js and "cls: danger ? 'danger' : 'primary'" in js and "lab.htmlFor = ctl.id" in js
+    assert "btn('Zu POCKET KNIFE', () => { location.href = '/'; })" in rd("app", "static", "remote.js")
+    for f in ("index.html", "kiosk.html", "remote.html"):
+        assert '<div id="toasts" role="status" aria-live="polite"></div>' in rd("app", "static", f), f
+    # identical German/English texts stay in the dictionary (else the runtime translated word by word)
+    i18n = rd("app", "static", "i18n.js")
+    assert '"{absender}: Neustart für die Softwareverteilung":"{absender}: Neustart für die Softwareverteilung"' in i18n
+    css = rd("app", "static", "app.css")
+    assert "@media (max-width: 900px) { .shell .tree { display: none; } }" in css and ".nav-areas { order: 10; flex: 1 0 100%; }" in css
+
 
 
 def main():

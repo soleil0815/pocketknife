@@ -183,7 +183,10 @@ def probe(host, run_raw):
     software and users are left out (see is_pk)."""
     with _lock:
         since = STATE["since"].get(str(host).lower(), "")
-    out = run_raw(host, PROBE.replace("__SINCE__", since.replace("'", "")))
+    # Audit 2026-11: the value comes from the client's own last answer - only a plain ISO timestamp goes back into the script
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}T[\d:.]+(?:Z|[+-]\d{2}:\d{2})?", since or ""):
+        since = ""
+    out = run_raw(host, PROBE.replace("__SINCE__", since))
     now, evs, me = "", [], ""
     for ln in str(out or "").splitlines():
         ln = ln.strip()

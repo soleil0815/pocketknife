@@ -46,7 +46,8 @@ Hat ein Domänencontroller kein LDAPS-Zertifikat (typisch: Windows-Domäne ohne 
 
 - **Kerberos** braucht die vollen Namen der Domänencontroller in `PK_LDAP_SERVERS` (z. B. `dc01.firma.local`) und eine passende Uhrzeit. Bei Samba zusätzlich einmal `samba-tool spn add ldap/dc01.firma.local 'DC01$'`.
 - **strikt prüfen** heißt ohne Zertifikat: nur Kerberos, kein NTLM-Rückfall. Ausgeschaltet wird NTLM verwendet, wenn Kerberos nicht klappt (Grund unter Einstellungen → Verbindung & Konten und im Protokoll). Ein falsches Kennwort zählt am DC nur **einmal** als Fehlanmeldung.
-- **Einschränkung:** Mitlesen kann niemand. Ohne Zertifikat lässt sich aber nicht so sicher wie mit einem festgelegten LDAPS-Zertifikat prüfen, dass wirklich der echte Domänencontroller antwortet – wer sich im Netz zwischen POCKET KNIFE und DC schalten kann, könnte sich als DC ausgeben. Wo möglich: LDAPS mit Zertifikat und **strikt prüfen**.
+- **Einschränkung:** Mitlesen kann niemand. Ohne Zertifikat lässt sich aber nicht so sicher wie mit einem festgelegten LDAPS-Zertifikat prüfen, dass wirklich der echte Domänencontroller antwortet. Wer sich im Netz zwischen POCKET KNIFE und Domänencontroller schalten kann und dabei auch den Kerberos-Server (KDC) vortäuscht, könnte bei der **Anmeldung von Benutzern** einen eigenen Domänencontroller vorspielen. **Strikt prüfen** verhindert dann nur, dass NTLM verwendet wird; die Verbindung des **Dienstkontos** bleibt geschützt, weil dessen Kennwort nur der echte Domänencontroller kennt. Wo möglich: LDAPS mit Zertifikat und **strikt prüfen**.
+- **KDC fest eintragen:** Mit `PK_KDC=dc01.firma.local,dc02.firma.local` fragt POCKET KNIFE nur diese Kerberos-Server und nicht das DNS – das erschwert das Vortäuschen.
 
 **Alternative – LDAPS-Zertifikat auf dem Windows-DC anlegen:** Ein selbstsigniertes Zertifikat genügt. Auf **jedem** DC als Administrator (Namen anpassen), danach DC neu starten oder einige Minuten warten; Prüfen mit `ldp.exe` (Port 636, SSL). Nach 5 Jahren erneuern – mit **strikt prüfen** den neuen Fingerabdruck einmal bestätigen.
 
@@ -1657,7 +1658,7 @@ Unter **Einstellungen → Wartung → Diagnosepaket** erstellt POCKET KNIFE ein 
 | `versionen.json`, `aenderungen.md`, `behobene_fehler.txt` | Versionsgeschichte, Änderungen seit der ältesten Version im Zeitraum, behobene Fehler |
 | `LIESMICH.txt` | Zeitraum, Version, ob anonymisiert |
 | `umgebung.json` | Version, Laufzeitumgebung, Anzahl Computer/Pakete/Sammlungen, Datenbankgröße, Zustand der Zeitpläne, Verbindungsart zum AD (LDAPS oder ohne Zertifikat mit Kerberos/NTLM) |
-| `einstellungen.json` | Einstellungen ohne Kennwörter, Schlüssel und Keytab |
+| `einstellungen.json` | Einstellungen ohne Kennwörter, Schlüssel und Keytab; die Etiketten-Fußzeile nie als Text, beim Anonymisieren auch Absender/Texte der Neustartmeldung und der Kiosk-Titel nur als „eigener Text, N Zeichen“ |
 | `statistik.json` | Erfolgsquote je Paket, Exitcodes, häufigste Fehler, Scan-Dauer, Warnungen, Kiosk-Anfragen |
 | `leistung.json` (ab 2.44.3) | Rechenlast und Lastspitzen, Dauer von Dashboard, Computerliste, Sammlungen und Softwareliste, langsamste Sammlungen, größte Felder der Computer-Tabelle (nur Feldnamen und Größen, keine Inhalte) |
 | `update_status.json` (ab 2.44.3) | Update-Status: Microsoft-Abgleich (Builds, Office-Kanäle), Anzahl je Status, Office-Installationen je Produkt, Kanal und Version |

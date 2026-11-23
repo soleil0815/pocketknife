@@ -205,9 +205,11 @@ def like_pattern(q):
 
 def search_script(start, q, limit, follow=False):
     """follow=True only for the test under PowerShell 7 (which then behaves like 5.1 and follows links)."""
-    return (SEARCH_PS.replace("__START__", util.psq(start)).replace("__FLT__", util.psq(filter_pattern(q)))
-            .replace("__PAT__", util.psq(like_pattern(q))).replace("__LIMIT__", str(int(limit)))
-            .replace("__FOLLOW__", "-FollowSymlink " if follow else ""))
+    # Audit 2026-11: ONE pass - with replace() one after another, a folder named "__PAT__" in the start path was filled with
+    # the (attacker-chosen) search term afterwards and broke out of its quotes (code ran as the service account)
+    vals = {"START": util.psq(start), "FLT": util.psq(filter_pattern(q)), "PAT": util.psq(like_pattern(q)),
+            "LIMIT": str(int(limit)), "FOLLOW": "-FollowSymlink " if follow else ""}
+    return re.sub(r"__(START|FLT|PAT|LIMIT|FOLLOW)__", lambda m: vals[m.group(1)], SEARCH_PS)
 
 
 def _fmt_folder(d):

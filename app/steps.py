@@ -172,7 +172,8 @@ if ({'-not $fv -or ' if f['mode'] == 'version_ge' else ''}($fv -and $fv {op} (PK
         if r["value"]:
             lines.append(f"if ($rx) {{ $ri = Get-ItemProperty -LiteralPath $rp -Name {q(r['value'])}; if ($ri -ne $null) {{ $rv = '' + $ri.{q(r['value'])} }} else {{ $rx = $false }} }}")
         else:
-            lines.append("if ($rx) { $rv = '' + (Get-Item -LiteralPath $rp).GetValue('') }")
+            # Audit 2026-11: no GetValue method - a call on RegistryKey is blocked in Constrained Language Mode
+            lines.append("if ($rx) { $rv = '' + (Get-ItemProperty -LiteralPath $rp).'(default)' }")
         m, data = r["mode"], q(r["data"])
         what = q(path + ((" → " + r["value"]) if r["value"] else ""))
         if m == "exists":
@@ -1336,11 +1337,11 @@ $roots = @('HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall', 'HKLM:\S
 foreach ($u in (Get-ChildItem Registry::HKEY_USERS | Where-Object { $_.PSChildName -match '^S-1-5-21-[\d-]+$' })) {
   $roots += "Registry::HKEY_USERS\$($u.PSChildName)\Software\Microsoft\Windows\CurrentVersion\Uninstall" }
 $out = foreach ($r in $roots) { Get-ChildItem -Path $r | ForEach-Object {
-  $k = $_; $dn = "" + $k.GetValue('DisplayName'); if (-not $dn) { return }
+  $k = $_; $p = Get-ItemProperty -LiteralPath $k.PSPath; $dn = "" + $p.DisplayName; if (-not $dn) { return }
   $parts = $k.Name -split '\\', 2
-  [ordered]@{ name = $dn.Trim(); version = ("" + $k.GetValue('DisplayVersion')).Trim(); key = $k.PSChildName
-    uninstall = ("" + $k.GetValue('UninstallString')).Trim(); quiet = ("" + $k.GetValue('QuietUninstallString')).Trim()
-    location = ("" + $k.GetValue('InstallLocation')).Trim(); hive = $parts[0]; reg_path = $parts[1] } } }
+  [ordered]@{ name = $dn.Trim(); version = ("" + $p.DisplayVersion).Trim(); key = $k.PSChildName
+    uninstall = ("" + $p.UninstallString).Trim(); quiet = ("" + $p.QuietUninstallString).Trim()
+    location = ("" + $p.InstallLocation).Trim(); hive = $parts[0]; reg_path = $parts[1] } } }
 'PKJSON:' + (ConvertTo-Json -InputObject @($out) -Depth 3 -Compress)"""
         rows, source = [], "live"
         try:

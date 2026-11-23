@@ -913,7 +913,9 @@ def refresh_entry(eid, force=False, user=None):
             from . import wingetrelease
             rel = wingetrelease.target(e["winget_id"])
             if rel["state"] != "latest":
-                have = e["version"] and e["folder"] and e["file"] and e["status"] in ("ok", "checking")
+                # Audit 2026-11: no status condition - e was read before "checking" was set, and after one error
+                # (e.g. "interrupted by restart") a held/pinned entry stayed in "error" forever; like ready(): the version counts
+                have = e["version"] and e["folder"] and e["file"]
                 if rel["state"] == "hold" or (have and str(e["version"]) == rel["version"]) or (have and e["ignore_hash"]):
                     if not have:
                         raise CacheError(f"{rel['reason']} – keine freigegebene Version zum Laden.")

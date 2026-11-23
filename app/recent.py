@@ -55,7 +55,8 @@ def touch(user, cid):
         return listing(user)
     now = util.now()
     exist = set(r["id"] for r in db.q("SELECT id FROM computers"))
-    items = [e for e in _load(user["username"]) if e["id"] in exist]  # deleted computers go
+    # deleted computers go - and (audit 2026-11) those an OU admin may no longer see: they took places of the 10 invisibly
+    items = [e for e in _load(user["username"]) if e["id"] in exist and (allowed is None or e["id"] in allowed)]
     hit = next((e for e in items if e["id"] == cid), None)
     if hit:
         hit["last"] = now
