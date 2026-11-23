@@ -861,7 +861,10 @@ def _inventory_info(since, an):
           "msix": v("SELECT COUNT(*) FROM software WHERE hive='MSIX'"),
           "msix_builtin_hidden": bool(db.setting("msix_hide_builtin")),
           "overrides": v("SELECT COUNT(*) FROM winget_overrides"),
-          "update_packages": v("SELECT COUNT(*) FROM winget_update_packages")}
+          "update_packages": v("SELECT COUNT(*) FROM winget_update_packages"),
+          # 2.61.0: cache entries whose manifest has "Upgrade" switches (only used when updating, like winget)
+          "cache_entries": v("SELECT COUNT(*) FROM winget_cache"),
+          "cache_with_upgrade_switches": v("SELECT COUNT(*) FROM winget_cache WHERE COALESCE(upgrade_args, '') != ''")}
     cl = lambda expr: {str(r["k"]): r["n"] for r in db.q(  # noqa: E731
         f"SELECT {expr} k, COUNT(*) n FROM computers WHERE last_scan IS NOT NULL GROUP BY 1 ORDER BY n DESC LIMIT 15")}
     clients = {"powershell": cl("json_extract(extra, '$.ps_version')"), "language_mode": cl("json_extract(extra, '$.ps_language')"),
@@ -981,7 +984,7 @@ Dateien
   update_status.json   Update-Status: Microsoft-Abgleich, Stände je Status, Office-Installationen je Produkt/Kanal/Version
                        leistung.json enthält außerdem: Dauer jeder Seite seit dem Start, Größe der Scan-Ergebnisse je Bereich,
                        Datenbank je Tabelle, Fernsitzungen, Hintergrundaufgaben und tägliche Läufe (mit Fehlern)
-  inventar.json        Scan-Fehler je Bereich, winget-Zuordnung, Clients (PowerShell-Version, Sprachmodus, winget, Edition,
+  inventar.json        Scan-Fehler je Bereich, winget-Zuordnung (mit winget-Cache-Einträgen und solchen mit Upgrade-Schaltern), Clients (PowerShell-Version, Sprachmodus, winget, Edition,
                        ESU, Entra/MDM, Virtualisierung, Office Klick-und-Los, Secure Boot, SMB1 … – nur Anzahlen),
                        Gruppenrichtlinien-Verlauf und gpresult seit dem Start (Aufrufe, Fehler, Dauer, Auswertungsqualität),
                        Tools (je Typ, gpupdate-Zeilen ohne Antwort)

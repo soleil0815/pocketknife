@@ -296,9 +296,47 @@ function cmpVal(a, b) {
 // ---------------------------------------------------------------------------
 // --- Context menu (right click) ---------------------------------------------------
 let ctxMenu = null;
-function closeCtx() { if (ctxMenu) { ctxMenu.remove(); ctxMenu = null; document.removeEventListener('mousedown', ctxOutside, true); document.removeEventListener('keydown', ctxKey, true); } }
+let ctxReturn = null;  // element that had the focus before the menu opened - gets it back when closed with the keyboard
+function closeCtx(refocus) {
+  if (ctxMenu) { ctxMenu.remove(); ctxMenu = null; document.removeEventListener('mousedown', ctxOutside, true); document.removeEventListener('keydown', ctxKey, true); }
+  if (refocus && ctxReturn && ctxReturn.isConnected) { try { ctxReturn.focus(); } catch (e) { /* ignore */ } }
+  ctxReturn = null;
+}
 function ctxOutside(e) { if (ctxMenu && !ctxMenu.contains(e.target)) closeCtx(); }
-function ctxKey(e) { if (e.key === 'Escape') { e.stopPropagation(); e.preventDefault(); closeCtx(); } }
+// Audit 2026-11: menus with the keyboard - arrows up/down, Enter/Space, right opens a submenu, left/Esc goes back, Tab closes
+const ctxItems = (m) => [...m.querySelectorAll(':scope > .cmenu-item:not(.disabled)')];
+function ctxFocus(m, i) {
+  const items = ctxItems(m);
+  if (!items.length) return;
+  const el = items[(i + items.length) % items.length];
+  m.querySelectorAll(':scope > .cmenu-item.kbd').forEach((x) => x.classList.remove('kbd'));
+  el.classList.add('kbd');
+  el.focus();
+}
+function ctxKey(e) {
+  if (!ctxMenu) return;
+  const cur = document.activeElement && document.activeElement.closest ? document.activeElement.closest('.cmenu-item') : null;
+  const menu = cur ? cur.parentElement : ctxMenu;
+  const items = ctxItems(menu);
+  const i = cur ? items.indexOf(cur) : -1;
+  const stop = () => { e.stopPropagation(); e.preventDefault(); };
+  // filter and column windows (fields, buttons): only Esc - arrows, Tab, Home/End belong to the fields there
+  if (!cur && !ctxItems(ctxMenu).length) { if (e.key === 'Escape') { stop(); closeCtx(true); } return; }
+  if (e.key === 'Escape' || (e.key === 'ArrowLeft' && menu !== ctxMenu)) {
+    stop();
+    if (menu !== ctxMenu) { const parent = menu.parentElement; menu.remove(); parent.focus(); return; }
+    closeCtx(true);
+  } else if (e.key === 'ArrowDown') { stop(); ctxFocus(menu, i + 1); }
+  else if (e.key === 'ArrowUp') { stop(); ctxFocus(menu, i < 0 ? -1 : i - 1); }
+  else if (e.key === 'Home') { stop(); ctxFocus(menu, 0); }
+  else if (e.key === 'End') { stop(); ctxFocus(menu, -1); }
+  else if (e.key === 'Tab') { stop(); closeCtx(true); }
+  else if (cur && (e.key === 'Enter' || e.key === ' ' || (e.key === 'ArrowRight' && cur.classList.contains('has-sub')))) {
+    stop();
+    if (cur.classList.contains('has-sub')) cur.dispatchEvent(new CustomEvent('pk-open-sub'));
+    else cur.click();
+  }
+}
 // 2.38.9: right click on a table cell -> "<column> kopieren" in every table context menu (also tables without own
 // menu). Copies the full value - truncated cells (paths, uninstall commands …) included; with several selected rows
 // the values of all of them, one per line.
@@ -318,35 +356,47 @@ function contextMenu(x, y, items) {
   const tidy = (list) => list.filter(Boolean).filter((it, i, a) => !((it === '-' || it.sep) && (i === 0 || a[i - 1] === '-' || a[i - 1].sep || i === a.length - 1)));
   const build = (list) => h('div.cmenu', tidy(tidy(list)).map((it) => {
     if (it === '-' || it.sep) return h('div.cmenu-sep');
-    const el = h('div.cmenu-item', { class: (it.disabled ? 'disabled ' : '') + (it.sub ? 'has-sub' : '') },
+    const el = h('div.cmenu-item', { class: (it.disabled ? 'disabled ' : '') + (it.sub ? 'has-sub' : ''), role: 'menuitem', tabIndex: -1,
+      'aria-disabled': it.disabled ? 'true' : null, 'aria-haspopup': it.sub ? 'menu' : null },
       h('span.cm-ic', it.icon ? icon(it.icon) : null), h('span.cm-l', it.label), it.hint ? h('span.cm-k', it.hint) : null, it.sub ? h('span.cm-k', '▸') : null);
     if (it.sub) {
-      el.addEventListener('mouseenter', () => {
+      const openSub = (kbd) => {
         el.querySelectorAll(':scope > .cmenu').forEach((m) => m.remove());
         const sub = typeof it.sub === 'function' ? it.sub() : it.sub;
         Promise.resolve(sub).then((items2) => {
-          if (!el.matches(':hover')) return;
+          if (!kbd && !el.matches(':hover')) return;
+          if (kbd && (!ctxMenu || !ctxMenu.contains(el))) return;
           const m = build(items2 && items2.length ? items2 : [{ label: '(leer)', disabled: true }]);
           m.classList.add('sub');
+          m.setAttribute('role', 'menu');
           el.appendChild(m);
           const r = m.getBoundingClientRect();
           if (r.right > window.innerWidth) { m.style.left = 'auto'; m.style.right = '100%'; }
           if (r.bottom > window.innerHeight) m.style.top = `${Math.max(-r.top + 8, window.innerHeight - r.bottom - 8)}px`;
+          if (kbd) ctxFocus(m, 0);
         });
-      });
+      };
+      el.addEventListener('mouseenter', () => openSub(false));
+      el.addEventListener('pk-open-sub', () => openSub(true));
       el.addEventListener('mouseleave', () => el.querySelectorAll(':scope > .cmenu').forEach((m) => m.remove()));
     } else if (!it.disabled) {
-      el.addEventListener('click', (e) => { e.stopPropagation(); closeCtx(); it.onClick && it.onClick(); });
+      el.addEventListener('click', (e) => { e.stopPropagation(); closeCtx(true); it.onClick && it.onClick(); });  // focus back first: a dialog opened by the item returns it there
     }
     return el;
   }));
+  ctxReturn = document.activeElement;
   ctxMenu = build(items);
   ctxMenu.classList.add('root');
+  ctxMenu.setAttribute('role', 'menu');
   document.body.appendChild(ctxMenu);
   const r = ctxMenu.getBoundingClientRect();
   ctxMenu.style.left = `${Math.max(4, Math.min(x, window.innerWidth - r.width - 4))}px`;
   ctxMenu.style.top = `${Math.max(4, Math.min(y, window.innerHeight - r.height - 4))}px`;
   setTimeout(() => { document.addEventListener('mousedown', ctxOutside, true); document.addEventListener('keydown', ctxKey, true); }, 0);
+  ctxMenu.addEventListener('mousemove', () => ctxMenu && ctxMenu.querySelectorAll('.cmenu-item.kbd').forEach((x) => x.classList.remove('kbd')));
+  // focus on the menu so the arrow keys work at once; the first item only shows its frame when used with the keyboard
+  const m0 = ctxMenu;
+  setTimeout(() => { const f = ctxItems(m0)[0]; if (f && ctxMenu === m0) f.focus({ preventScroll: true }); }, 0);
 }
 
 // --- Table: sorting, moving/hiding columns, column filters -------------
@@ -744,6 +794,18 @@ function table(cols, rows, opt = {}) {
       if (e.key === 'Delete' && opt.onDelete && api.selected().length) opt.onDelete(api.selected());
       if (e.key === 'Enter' && opt.onRow && api.selected().length === 1) opt.onRow(api.selected()[0], e);
     });
+    // Audit 2026-11: menu key / Shift+F10 opens the row menu of the selected rows (the browser sends "contextmenu"
+    // to the focused table, not to a row)
+    const keyMenu = (e) => {
+      if (!opt.onContext || (e.target.closest && e.target.closest('tr')) || !api.selected().length) return;
+      e.preventDefault();
+      const sel = api.selected();
+      const tr = scroll.querySelector('tbody tr.selected') || scroll.querySelector('tbody tr');
+      const r = (tr || scroll).getBoundingClientRect();
+      opt.onContext(sel[0], { clientX: r.left + 40, clientY: r.bottom, preventDefault() {}, stopPropagation() {} }, sel);
+    };
+    scroll.addEventListener('contextmenu', keyMenu);
+    scroll.addEventListener('keydown', (e) => { if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) keyMenu(e); });
   }
 
   const api = {
@@ -780,12 +842,27 @@ function table(cols, rows, opt = {}) {
 function modal(title, body, buttons = [], opt = {}) {
   const root = $('#modal-root');
   let closed = false;
+  // Audit 2026-11: focus stays inside the dialog (Tab wraps) and returns to where it was before
+  const opener = document.activeElement;
   const close = () => {
     if (closed) return;
     closed = true;
     bd.remove();
     document.removeEventListener('keydown', esc);
+    document.removeEventListener('keydown', trap, true);
     if (opt.onClose) opt.onClose();
+    if (opener && opener.isConnected && opener !== document.body && (!root.lastChild || root.lastChild.contains(opener))) { try { opener.focus({ preventScroll: true }); } catch (e) { /* ignore */ } }
+  };
+  const focusables = () => [...m.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]):not([type=hidden]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')]
+    .filter((x) => x.offsetParent !== null || x === document.activeElement);
+  const trap = (e) => {
+    if (e.key !== 'Tab' || root.lastChild !== bd || ctxMenu || openMenu) return;
+    const f = focusables();
+    if (!f.length) { e.preventDefault(); return; }
+    const a = document.activeElement;
+    if (!m.contains(a)) { e.preventDefault(); f[e.shiftKey ? f.length - 1 : 0].focus(); }
+    else if (!e.shiftKey && a === f[f.length - 1]) { e.preventDefault(); f[0].focus(); }
+    else if (e.shiftKey && a === f[0]) { e.preventDefault(); f[f.length - 1].focus(); }
   };
   const esc = async (e) => {
     if (e.key !== 'Escape' || root.lastChild !== bd || ctxMenu || openMenu) return;
@@ -816,8 +893,13 @@ function modal(title, body, buttons = [], opt = {}) {
   if (opt.key) bd.dataset.dlg = opt.key;
   root.appendChild(bd);
   document.addEventListener('keydown', esc);
+  document.addEventListener('keydown', trap, true);
   const first = m.querySelector('input:not([type=checkbox]),select,textarea');
-  if (first) setTimeout(() => first.focus(), 30);
+  // without an input field: the safe button (dangerous confirmations: "Abbrechen", otherwise the main button)
+  const btns = [...foot.querySelectorAll('button')];
+  const target = first || (btns.some((b) => b.classList.contains('danger')) ? btns[0] : btns.find((b) => b.classList.contains('primary')) || btns[0])
+    || m.querySelector('.modal-h button');
+  if (target) setTimeout(() => { if (!closed && !m.contains(document.activeElement)) target.focus(); }, 30);
   return { close, el: m };
 }
 

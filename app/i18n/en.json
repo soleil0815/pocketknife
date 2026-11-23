@@ -6778,5 +6778,16 @@
  "Fehler in der Verbindung – siehe Protokoll": "Connection error – see the log",
  "Verbindung zu guacd unerwartet beendet": "Connection to guacd ended unexpectedly",
  "input, select, textarea": null,
- "Ohne Zertifikat: Kerberos verlangt die vollen Namen der Domänencontroller in PK_LDAP_SERVERS (z. B. dc01.firma.local). Ausgeschaltet wird NTLM verwendet, wenn Kerberos nicht klappt – das wird protokolliert. „Strikt“ schützt die Verbindung des Dienstkontos; die Anmeldung von Benutzern lässt sich ohne Zertifikat nicht gegen einen gefälschten Domänencontroller absichern.": "Without a certificate: Kerberos needs the full names of the domain controllers in PK_LDAP_SERVERS (e.g. dc01.firma.local). When off, NTLM is used if Kerberos does not work – this is logged. “Strict” protects the service account’s connection; user sign-ins cannot be protected against a fake domain controller without a certificate."
+ "Ohne Zertifikat: Kerberos verlangt die vollen Namen der Domänencontroller in PK_LDAP_SERVERS (z. B. dc01.firma.local). Ausgeschaltet wird NTLM verwendet, wenn Kerberos nicht klappt – das wird protokolliert. „Strikt“ schützt die Verbindung des Dienstkontos; die Anmeldung von Benutzern lässt sich ohne Zertifikat nicht gegen einen gefälschten Domänencontroller absichern.": "Without a certificate: Kerberos needs the full names of the domain controllers in PK_LDAP_SERVERS (e.g. dc01.firma.local). When off, NTLM is used if Kerberos does not work – this is logged. “Strict” protects the service account’s connection; user sign-ins cannot be protected against a fake domain controller without a certificate.",
+ "AD-Abgleich: {0} wurde neu in die Domäne aufgenommen (neues Computerobjekt) – der bisherige Eintrag wird weiterverwendet.": "AD sync: {0} was joined to the domain again (new computer object) – the existing entry is kept.",
+ ".modal-h button": null,
+ ":scope > .cmenu-item.kbd": null,
+ ":scope > .cmenu-item:not(.disabled)": null,
+ "ArrowLeft": null,
+ "ArrowRight": null,
+ "ContextMenu": null,
+ "End": null,
+ "Home": null,
+ "a[href], button:not([disabled]), input:not([disabled]):not([type=hidden]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex=\"-1\"])": null,
+ "tbody tr.selected": null
 }

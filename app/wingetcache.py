@@ -642,10 +642,13 @@ def plan(man, inst, scope="machine"):
         typ = str(inst.get("NestedInstallerType") or "").lower()
     sw = inst.get("InstallerSwitches") if isinstance(inst.get("InstallerSwitches"), dict) else {}
     custom = str(sw.get("Custom") or "").strip()
+    # Audit 2026-11: like winget, the "Upgrade" switches of the manifest are added only when an installed version is
+    # updated - not on a fresh install (before they were always part of the arguments)
+    upgrade = str(sw.get("Upgrade") or "").strip()
     hints = []
     if typ in ("msi", "wix"):
         it = "msi"
-        args = " ".join(x for x in (custom, str(sw.get("Upgrade") or "").strip()) if x)
+        args = custom
         if scope == "machine" and "allusers" not in args.lower():
             args = (args + " ALLUSERS=1").strip()
     else:
@@ -654,8 +657,8 @@ def plan(man, inst, scope="machine"):
         if not silent:
             raise CacheError("Der Installer (EXE) nennt im Manifest keine Schalter für die stille Installation – dafür "
                              "bitte selbst ein Paket anlegen.")
-        args = " ".join(x for x in (silent, custom, str(sw.get("Upgrade") or "").strip()) if x)
-        if typ == "inno" and scope == "machine" and "/allusers" not in args.lower() and "/currentuser" not in args.lower():
+        args = " ".join(x for x in (silent, custom) if x)
+        if typ == "inno" and scope == "machine" and not re.search(r"/(allusers|currentuser)\b", args.lower()):
             args += " /ALLUSERS"
     codes = [0, 3010, 1641]
     for c in inst.get("InstallerSuccessCodes") or []:
@@ -678,7 +681,7 @@ def plan(man, inst, scope="machine"):
     if pk:
         hints.append("braucht außerdem: " + ", ".join(pk[:5]) + " (ggf. ebenfalls in den Cache aufnehmen)")
     pc = str(inst.get("ProductCode") or (arp[0].get("ProductCode") if arp else "") or "").strip()
-    return {"install_type": it, "arguments": args, "success_codes": ",".join(str(c) for c in codes),
+    return {"install_type": it, "arguments": args, "upgrade_args": upgrade[:500], "success_codes": ",".join(str(c) for c in codes),
             "detect_name": detect[:200], "detect_version": dver[:50], "product_code": pc[:60] if pc.startswith("{") else "",
             "min_os": str(inst.get("MinimumOSVersion") or "").strip(), "type": f"zip/{typ}" if nested else typ,
             "hints": hints, "nested": nested}
@@ -1085,10 +1088,10 @@ def refresh_entry(eid, force=False, user=None):
             msg.insert(0, f"Installer wie bei winget: {orig} (vom Hersteller: {urllib.parse.urlsplit(url).netloc})")
             db.ex("""UPDATE winget_cache SET status='ok', message=?, name=?, version=?, detect_version=?, folder=?, file=?,
                      size=?, sha256=?, installer_type=?, min_os=?, package_id=?, checked_at=?, remote_sig=?, inst_arch=?,
-                     updated_at=CASE WHEN COALESCE(version, '') = ? THEN updated_at ELSE ? END WHERE id=?""",
+                     upgrade_args=?, updated_at=CASE WHEN COALESCE(version, '') = ? THEN updated_at ELSE ? END WHERE id=?""",
                   ("; ".join(msg) or None, man.get("PackageName") or e["name"], ver, p["detect_version"] or ver, folder, file,
                    size, sha, p["type"], p["min_os"] or None, pid, now, sig if ign else None,
-                   str(inst.get("Architecture") or e["arch"] or "x64").lower(), ver, now, eid))
+                   str(inst.get("Architecture") or e["arch"] or "x64").lower(), p["upgrade_args"] or None, ver, now, eid))
             if not exists or (e["version"] != ver):
                 pklog.info("winget", f"winget-Cache: {e['winget_id']} {ver} geladen ({(size or 0) // 1048576} MB, {p['type']}) – "
                                      f"Paket „{man.get('PackageName') or e['winget_id']} (winget-Cache)“ aktualisiert.", user=user)
@@ -1352,7 +1355,10 @@ def step_for(st, c, pkg=None):
     base = next((x for _ph, x in steps.iter_steps(steps.normalize(cpkg)) if x.get("type") == "install"), None)
     if not base:
         return None
-    return {**base, "id": st.get("id"), "enabled": True, "on_error": st.get("on_error", "stop"),
+    args = str(base.get("arguments") or "")
+    if sw and e["upgrade_args"]:
+        args = (args + " " + e["upgrade_args"]).strip()  # an older version is installed: update like winget upgrade
+    return {**base, "arguments": args, "id": st.get("id"), "enabled": True, "on_error": st.get("on_error", "stop"),
             "conditions": st.get("conditions") or base.get("conditions"), "run_as": st.get("run_as") or "inherit",
             "timeout_min": st.get("timeout_min") or 0,
             "title": f"{steps.step_title(st)} – aus dem winget-Cache ({e['version']})"}

@@ -28,6 +28,24 @@
      "audience": "all",
      "de": "Bedienung: bessere Darstellung auf dem Handy, OU-Admins sehen keine Schaltflächen mehr, die ohnehin abgelehnt würden, rote Schaltfläche bei gefährlichen Bestätigungen, Einstellungen „Speichern“ stellt die AD-Verbindung nicht mehr ohne Rückfrage um.",
      "en": "Usability: better layout on phones, OU admins no longer see buttons that would be refused anyway, red button for dangerous confirmations, “Save” in the settings no longer switches the AD connection without asking."
+    },
+    {
+     "kind": "fixed",
+     "audience": "admin",
+     "de": "Nach einer Neuaufnahme in die Domäne bleibt ein Computer ein Eintrag (mit Inventar und Verlauf) statt doppelt zu erscheinen. Der winget-Cache hängt Upgrade-Schalter wie winget nur beim Aktualisieren an, nicht bei Neuinstallationen.",
+     "en": "After rejoining the domain a computer stays one entry (with inventory and history) instead of appearing twice. Like winget, the winget cache adds upgrade switches only when updating, not on fresh installs."
+    },
+    {
+     "kind": "improved",
+     "audience": "all",
+     "de": "Menüs lassen sich mit der Tastatur bedienen (Pfeiltasten, Enter, Menütaste), Dialoge halten den Fokus, besserer Kontrast im Dunkelmodus.",
+     "en": "Menus work with the keyboard (arrow keys, Enter, menu key), dialogs keep the focus, better contrast in dark mode."
+    },
+    {
+     "kind": "security",
+     "audience": "admin",
+     "de": "Sicherheitsupdate: Kerberos-Bibliothek (Debian krb5) aktualisiert.",
+     "en": "Security update: Kerberos library (Debian krb5) updated."
     }
    ]
   },

@@ -1149,8 +1149,9 @@ def _guid(e):
     return str(uuid.UUID(bytes_le=bytes(raw_guid))) if len(raw_guid) == 16 else str(_attr(e, "objectGUID"))
 
 
-def _upsert(e, now):
-    """Adopt a computer object from the AD. Returns (computer_id, new?)."""
+def _upsert(e, now, current=None):
+    """Adopt a computer object from the AD. Returns (computer_id, new?). current: GUIDs of all computer objects of this
+    sync - an entry of the same name whose GUID is no longer among them is the same computer after a domain rejoin."""
     guid = _guid(e)
     name = _attr(e, "cn") or ""
     dns = _attr(e, "dNSHostName") or (f"{name}.{config.DOMAIN}" if config.DOMAIN else name)
@@ -1163,6 +1164,17 @@ def _upsert(e, now):
         ex = db.q1("SELECT id FROM computers WHERE (ad_guid IS NULL OR ad_guid='') AND lower(name)=lower(?)", (name,))
         if ex:
             db.ex("UPDATE computers SET ad_guid=? WHERE id=?", (guid, ex["id"]))
+    if not ex and current is not None and name:
+        # Audit 2026-11: domain rejoin (computer object deleted and created again, new GUID) - the computer keeps its
+        # entry (inventory, history, collections) instead of appearing twice. Only if the old object is really gone:
+        # its GUID is not among the objects of this sync (in a domain the computer name is unique)
+        old = [r for r in db.q("SELECT id, ad_guid FROM computers WHERE lower(name)=lower(?) AND COALESCE(ad_guid, '') != ''",
+                               (name,)) if r["ad_guid"] not in current]
+        if len(old) == 1:
+            ex = old[0]
+            db.ex("UPDATE computers SET ad_guid=?, ad_missing_since=NULL WHERE id=?", (guid, ex["id"]))
+            pklog.info("ad", f"AD-Abgleich: {name} wurde neu in die Domäne aufgenommen (neues Computerobjekt) – "
+                             "der bisherige Eintrag wird weiterverwendet.", computer_id=ex["id"])
     new = False
     if ex:
         db.ex("""UPDATE computers SET name=?, dns_name=?, dn=?, description=?, ad_os=?, ad_os_version=?,
@@ -1422,13 +1434,14 @@ def sync_computers(user=None):
         keep.append(e)
     seen, added, updated, new_ids = set(), 0, 0, []
     now = util.now()
+    current = {g for g in (_guid(e) for e in found) if g}
     with db.tx():
         for e in keep:
             guid = _guid(e)
             if not guid or guid in seen:
                 continue
             seen.add(guid)
-            cid, new = _upsert(e, now)
+            cid, new = _upsert(e, now, current)
             if new:
                 added += 1
                 new_ids.append(cid)

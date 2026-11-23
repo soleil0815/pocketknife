@@ -534,6 +534,7 @@ MIGRATIONS = [
     ("winget_cache", "ignore_hash", "INTEGER DEFAULT 0"),   # 2.35.3: do not require the catalog checksum (per entry)
     ("winget_cache", "remote_sig", "TEXT"),                 # 2.35.3: ETag/date/size of the download URL
     ("winget_cache", "inst_arch", "TEXT"),                  # 2.35.4: architecture of the downloaded installer
+    ("winget_cache", "upgrade_args", "TEXT"),               # 2.61.0: manifest "Upgrade" switches - only added when updating (like winget)
     ("winget_releases", "base", "INTEGER DEFAULT 0"),       # 2.36: baseline (first sighting)
     ("software", "excluded", "INTEGER DEFAULT 0"),
     ("scan_profiles", "scanner_types", "TEXT"),

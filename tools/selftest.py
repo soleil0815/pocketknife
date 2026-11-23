@@ -12208,6 +12208,40 @@ def _():
     # identical German/English texts stay in the dictionary (else the runtime translated word by word)
     i18n = rd("app", "static", "i18n.js")
     assert '"{absender}: Neustart für die Softwareverteilung":"{absender}: Neustart für die Softwareverteilung"' in i18n
+    # 13. winget cache: the manifest's "Upgrade" switches only when an older version is installed (like winget upgrade)
+    from app import wingetcache
+    man = {"PackageIdentifier": "Test.App", "PackageVersion": "2.0", "PackageName": "Test App"}
+    p_msi = wingetcache.plan(man, {"InstallerType": "msi", "InstallerSwitches": {"Custom": "NOAUTOUPDATE=1", "Upgrade": "REINSTALLMODE=vomus"}})
+    assert p_msi["arguments"] == "NOAUTOUPDATE=1 ALLUSERS=1" and p_msi["upgrade_args"] == "REINSTALLMODE=vomus", p_msi
+    p_exe = wingetcache.plan(man, {"InstallerType": "inno", "InstallerSwitches": {"Upgrade": "/UPDATE"}})
+    assert "/UPDATE" not in p_exe["arguments"] and "/ALLUSERS" in p_exe["arguments"] and p_exe["upgrade_args"] == "/UPDATE", p_exe
+    wsrc = rd("app", "wingetcache.py")
+    assert 'if sw and e["upgrade_args"]:' in wsrc and "upgrade_args=?, updated_at" in wsrc
+    # 14. domain rejoin: new computer object (new GUID) with the same name keeps the existing entry - only if the old
+    # object is gone (its GUID not among this sync's objects)
+    import uuid as _uuid
+    g_old, g_new = str(_uuid.uuid4()), _uuid.uuid4()
+    ent = {"dn": "CN=PK-T-REJOIN,OU=PC,DC=firma,DC=local", "attributes": {"cn": "PK-T-REJOIN", "userAccountControl": 4096},
+           "raw_attributes": {"objectGUID": g_new.bytes_le}}
+    old = db.ex("INSERT INTO computers(name, ad_guid, ad_present, created_at) VALUES('PK-T-REJOIN', ?, 0, ?)", (g_old, util.now()))
+    try:
+        cid2, new2 = ad._upsert(ent, util.now(), {g_old, str(g_new)})
+        assert new2 and cid2 != old, "old object still in the AD: two computers of that name are possible - no takeover"
+        db.ex("DELETE FROM computers WHERE id=?", (cid2,))
+        cid2, new2 = ad._upsert(ent, util.now(), {str(g_new)})
+        assert not new2 and cid2 == old, "rejoin: existing entry reused"
+        row = db.q1("SELECT ad_guid, ad_present FROM computers WHERE id=?", (old,))
+        assert row["ad_guid"] == str(g_new) and row["ad_present"] == 1, row
+    finally:
+        db.ex("DELETE FROM computers WHERE name='PK-T-REJOIN'")
+        db.ex("DELETE FROM inventory_data WHERE computer_id NOT IN (SELECT id FROM computers)")
+    # 15. keyboard and focus: menus with arrows/Enter/submenus, menu key on tables, focus kept in dialogs and returned
+    for k in ("function ctxKey(e) {", "e.key === 'ArrowDown'", "cur.dispatchEvent(new CustomEvent('pk-open-sub'))", "role: 'menuitem', tabIndex: -1",
+              "scroll.addEventListener('contextmenu', keyMenu);", "document.addEventListener('keydown', trap, true);",
+              "opener.focus({ preventScroll: true })", "btns.some((b) => b.classList.contains('danger')) ? btns[0]"):
+        assert k in js, k
+    css = rd("app", "static", "app.css")
+    assert "--fill: #C8102E" in css and ".news-pill.up.sec, .news-pill.up.sec:hover { background: #B3001B" in css
     css = rd("app", "static", "app.css")
     assert "@media (max-width: 900px) { .shell .tree { display: none; } }" in css and ".nav-areas { order: 10; flex: 1 0 100%; }" in css
 
