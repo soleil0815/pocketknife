@@ -250,12 +250,12 @@ With a private repository the image is private too; the Docker hosts sign in onc
 
 ### Vulnerability check (Trivy)
 
-An image with known vulnerabilities is not published. `tools/trivy-scan.sh` checks the Debian and Python packages in the image for vulnerabilities of severity **HIGH and CRITICAL that have a fix** (without an available fix nothing can be done – that would block every release):
+An image with known vulnerabilities is not published – once a **time-limited exception** has expired (see below). `tools/trivy-scan.sh` checks the Debian and Python packages in the image for vulnerabilities of severity **HIGH and CRITICAL that have a fix** (without an available fix nothing can be done – that would block every release):
 
 | Workflow | When | Effect |
 |---|---|---|
-| `Release` | before uploading, amd64 and arm64 | finding → **nothing is published**; table in the run summary |
-| `Test` | every push | finding → run red (early warning before a release fails) |
+| `Release` | before uploading, amd64 and arm64 | finding → **nothing is published** once the time-limited exception has expired; before that a warning; table in the run summary |
+| `Test` | every push | finding → warning, after the time-limited exception run red (early warning before a release fails) |
 | `Security update (patch day)` | on patch day (second Tuesday of the month) 03:23 UTC, manually at any time | update base image, Debian and Python packages and guacd, build without cache, self-test, Trivy – **only if everything passes**: security update number **`<version>-s<n>`** (e.g. 2.29.7 → 2.29.7-s1 → 2.29.7-s2: same program, only new packages; a new program version starts again without `-s`) with an entry in CHANGELOG and news, saved on main – and **published straight away** like in all other programs: the workflow starts *Release* (amd64/arm64, self-test and Trivy once more), as `<version>` and `:latest`. Program changes still only come as a pull request and are published by hand. If nothing changed, nothing happens; if something fails, nothing is published (e-mail from GitHub) |
 | `Sicherheits-Scan` | daily 05:17 UTC and manually | checks the published `:latest` – vulnerabilities often become known after a release; a red run makes GitHub send an e-mail |
 | `ZAP scan` | Tuesday one week before patch day 01:37 UTC, manually at any time | [ZAP](https://www.zaproxy.org/) scan without login against a throwaway container (`zap-scan.yml`); the code audit two days later checks the findings; only reports, changes nothing |
@@ -265,7 +265,9 @@ An image with known vulnerabilities is not published. `tools/trivy-scan.sh` chec
 
 After merging and publishing, POCKET KNIFE shows the new security update like any version; it is installed with the container manager or `sudo sh update.sh`, even if nothing changes in the program. If you do not want this, pin the version (`PK_IMAGE=…:<version>`) or disable the workflow under *Actions → Security update (patch day) → Disable workflow*.
 
-**If Trivy finds something:** the run on patch day picks up fixes by itself; the daily security scan only reports (red run, e-mail) and starts nothing – as in the other programs. For an urgent fix, immediately: *Actions → Security update (patch day) → Run workflow* – or, to review first, *Versionen aktualisieren* (pull request only). If the fix has not yet arrived in Debian or on PyPI, the run stays red and shows the open finding – nothing is published then. Deliberately accepted, non-exploitable findings go into `.trivyignore` with a reason and an expiry date.
+**Time-limited exception (from 2.61.1):** a finding with an available fix does not hold up pull requests, releases or the patch day run for **45 days** – counted from the image's package state (`DEBIAN_SNAPSHOT` in the Dockerfile, set on every version update). So a program change still goes out when a fix has only just appeared; the finding is shown as a warning with its deadline. After that it blocks again until the versions are updated. The daily security scan keeps reporting every finding at once (red run, e-mail).
+
+**If Trivy finds something:** the run on patch day picks up fixes by itself; the daily security scan only reports (red run, e-mail) and starts nothing – as in the other programs. For an urgent fix, immediately: *Actions → Security update (patch day) → Run workflow* – or, to review first, *Versionen aktualisieren* (pull request only). If the fix has not yet arrived in Debian or on PyPI, the run shows the open finding; it is still published while the time-limited exception runs. Deliberately accepted, non-exploitable findings go into `.trivyignore` with a reason and an expiry date.
 
 Trivy is downloaded in exactly one version and verified by SHA-256 – no GitHub Action (in March 2026 trivy-action, setup-trivy and Trivy 0.69.4–0.69.6 were compromised, CVE-2026-33634). On a Docker host a local image can be checked the same way: `sh tools/trivy-scan.sh pocketknife:local`.
 

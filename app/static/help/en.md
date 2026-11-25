@@ -402,7 +402,7 @@ sudo sh update.sh latest        # back to "always the newest"
 
 **Private registry:** log in once on the Docker host as the user running the updates (root with `sudo`, the container manager's user otherwise): `docker login ghcr.io -u <GitHub user>`, password = **personal access token** with `read:packages`. The token is not stored in the `.env`.
 
-**Where the images come from:** for every version GitHub (workflow `.github/workflows/release.yml`) builds the image for amd64 and arm64, runs the self-test in both, checks both with **Trivy** for known vulnerabilities and only then publishes it, together with guacd under its own name; additionally once a month on patch day (the second Tuesday) with updated packages ("Security update (patch day)").
+**Where the images come from:** for every version GitHub (workflow `.github/workflows/release.yml`) builds the image for amd64 and arm64, runs the self-test in both, checks both with **Trivy** for known vulnerabilities and only then publishes it (from 2.61.1 a finding with an available fix is only a warning during the first 45 days after the last package state), together with guacd under its own name; additionally once a month on patch day (the second Tuesday) with updated packages ("Security update (patch day)").
 
 ### Switching from an installation with the program ZIP (up to 2.32) {#update-migrate}
 

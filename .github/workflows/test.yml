@@ -105,8 +105,9 @@ jobs:
       - name: Check vulnerabilities (Trivy)
         env:
           PK_TRIVY_REPORT: trivy.md
+          PK_TRIVY_GRACE_DAYS: "45"   # 2.61.1: findings with a fix do not block while the package state is younger than 45 days (tools/trivy-scan.sh)
         run: |
           rc=0; sh tools/trivy-scan.sh pocketknife-test:${{ matrix.arch }} || rc=$?
           if [ -f trivy.md ]; then cat trivy.md >> "$GITHUB_STEP_SUMMARY"; fi
-          [ "$rc" = 1 ] && echo "::error title=Trivy::Vulnerabilities with an available fix – a release would be rejected. Remedy: Actions → Update versions."
+          [ "$rc" = 1 ] && echo "::error title=Trivy::Vulnerabilities with an available fix and the time-limited exception expired – a release would be rejected. Remedy: Actions → Update versions."
           exit "$rc"
