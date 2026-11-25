@@ -12246,6 +12246,59 @@ def _():
     assert "@media (max-width: 900px) { .shell .tree { display: none; } }" in css and ".nav-areas { order: 10; flex: 1 0 100%; }" in css
 
 
+@test("2.61.1 Trivy: findings with a fix are a warning while the package state is younger than the time-limited exception, block after it; the daily scan stays strict")
+def _():
+    import datetime as _dt
+    import shutil as _sh
+    import subprocess as _sp
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+    sc = os.path.join(root, "tools", "trivy-scan.sh")
+    wfd = os.path.join(root, ".github", "workflows")
+    if not os.path.exists(sc) or not os.path.isdir(wfd) or not _sh.which("sh"):
+        return  # the script and workflows are not in the container
+    wf = {f: open(os.path.join(wfd, f), encoding="utf-8").read() for f in ("test.yml", "release.yml", "weekly.yml", "update-pins.yml", "security.yml")}
+    for f in ("test.yml", "release.yml", "weekly.yml", "update-pins.yml"):
+        assert 'PK_TRIVY_GRACE_DAYS: "45"' in wf[f], f
+    assert "PK_TRIVY_GRACE_DAYS" not in wf["security.yml"], "the daily scan of the published image reports every finding"
+    d = tempfile.mkdtemp(prefix="pk-trivy-grace-", dir=TMP)
+    fake = os.path.join(d, "trivy")
+    with open(fake, "w") as h:
+        h.write('#!/bin/sh\ncase "$1" in\n image) out=""; prev=""; for a in "$@"; do [ "$prev" = "--output" ] && out="$a"; prev="$a"; img="$a"; done\n'
+                '   case "$img" in *schlecht*) echo \'{"Results": [{"Vulnerabilities": [{"VulnerabilityID": "CVE-2026-2222", "PkgName": "libkrb5-3",'
+                ' "InstalledVersion": "1", "FixedVersion": "2", "Severity": "HIGH", "Title": "t"}]}]}\' > "$out" ;;\n'
+                '   *) echo \'{"Results": []}\' > "$out" ;; esac ;;\n convert) echo Tabelle ;;\nesac\n')
+    os.chmod(fake, 0o755)
+    today = _dt.datetime.now(_dt.timezone.utc).date()
+    fresh, old = (today - _dt.timedelta(days=10)).strftime("%Y%m%d"), (today - _dt.timedelta(days=50)).strftime("%Y%m%d")
+
+    def run(img, grace, snap, rep=None):
+        env = {**os.environ, "PK_TRIVY_BIN": fake, "PK_TRIVY_GRACE_DAYS": grace, "PK_TRIVY_SNAPSHOT": snap, "GITHUB_ACTIONS": "true"}
+        env.pop("PK_TRIVY_REPORT", None)
+        if rep:
+            env["PK_TRIVY_REPORT"] = rep
+        return _sp.run(["sh", sc, img], env=env, capture_output=True, text=True, timeout=60)
+    rep = os.path.join(d, "r.md")
+    r = run("pk-schlecht", "45", fresh, rep)
+    deadline = (today - _dt.timedelta(days=10) + _dt.timedelta(days=45)).isoformat()
+    assert r.returncode == 0, r.stderr
+    assert f"::warning title=Trivy HIGH CVE-2026-2222" in r.stderr and f"exception until {deadline}" in r.stderr, r.stderr
+    t = open(rep, encoding="utf-8").read()
+    assert f"Time-limited exception until {deadline}" in t and "CVE-2026-2222" in t, t
+    os.remove(rep)
+    r = run("pk-schlecht", "45", old, rep)
+    assert r.returncode == 1 and "::error title=Trivy HIGH CVE-2026-2222" in r.stderr and "Update versions" in r.stderr, r.stderr
+    assert "time-limited exception has expired" in open(rep, encoding="utf-8").read()
+    assert run("pk-schlecht", "0", fresh).returncode == 1, "without the variable every finding blocks"
+    assert run("pk-gut", "45", old).returncode == 0
+    for bad in ("x", "-1", "61"):
+        assert run("pk-gut", bad, fresh).returncode == 2, bad
+    src = open(sc, encoding="utf-8").read()
+    assert 'GRACE="${PK_TRIVY_GRACE_DAYS:-0}"' in src and "ARG DEBIAN_SNAPSHOT=" in src
+    # without an override the package state comes from the Dockerfile
+    dock = open(os.path.join(root, "Dockerfile"), encoding="utf-8").read()
+    assert __import__("re").search(r"^ARG DEBIAN_SNAPSHOT=\d{8}T\d{6}Z$", dock, __import__("re").M)
+
+
 
 def main():
     ok = 0

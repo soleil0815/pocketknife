@@ -137,6 +137,7 @@ jobs:
         if: steps.diff.outputs.changed == 'true'
         env:
           PK_TRIVY_REPORT: trivy.md
+          PK_TRIVY_GRACE_DAYS: "45"   # 2.61.1: findings with a fix do not block while the package state is younger than 45 days (tools/trivy-scan.sh)
         run: |
           rc=0; sh tools/trivy-scan.sh pocketknife:local || rc=$?
           if [ -f trivy.md ]; then cat trivy.md >> "$GITHUB_STEP_SUMMARY"; fi

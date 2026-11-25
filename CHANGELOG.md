@@ -2,6 +2,12 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.61.1 (25.11.2026)
+- **Time-limited exception for Trivy findings:** a vulnerability with an available fix no longer holds up pull requests, releases and the patch day run while the image's package state (`DEBIAN_SNAPSHOT`, set on every version update) is younger than 45 days. Such findings appear as warnings with their deadline in the run; after the deadline they block again until the versions are updated. Background: 2.61.0 stood still because a Debian fix had appeared after the last package update. The daily security scan of the published image stays strict and keeps reporting every finding at once
+- `tools/trivy-scan.sh`: `PK_TRIVY_GRACE_DAYS` (0 = every finding blocks, the default; at most 60); report and GitHub annotations name the deadline; the "Update versions" pull request says when open findings are inside the exception
+- README (de/en) and help: section on the time-limited exception
+- **Self-test:** findings inside the deadline pass, after the deadline they block, invalid values are refused, the daily scan stays strict
+
 ## pocketknife-2.61.0 (23.11.2026)
 - **AD without a certificate:** new connection type for domain controllers without an LDAPS certificate (typical: Windows domain without a certification authority; Windows Server 2016/2022/2025). `PK_LDAP_SECURITY=sasl` or Settings → Security → "Verbindung zum AD": sign-in over port 389 with SASL GSS-SPNEGO – Kerberos first, NTLM as fallback – and every LDAP message afterwards encrypted (sign and seal, length-prefixed wrapped tokens). Windows Server 2025, which refuses unencrypted simple binds, accepts this. LDAPS stays the default
 - **Account safety:** Kerberos is tried first; account errors (wrong password, locked/disabled, expired, unknown user) end there – a wrong password counts only once on the DC, never a second time through NTLM

@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.61.1",
+   "items": [
+    {
+     "kind": "improved",
+     "audience": "admin",
+     "de": "Releases werden nicht mehr aufgehalten, wenn eine Sicherheitskorrektur gerade erst erschienen ist: Ein solcher Befund ist 45 Tage nach dem letzten Paketstand nur eine Warnung, danach blockiert er wieder. Der tägliche Sicherheits-Scan meldet weiter jeden Befund sofort.",
+     "en": "Releases are no longer held up when a security fix has only just appeared: such a finding is only a warning for 45 days after the last package state, after that it blocks again. The daily security scan keeps reporting every finding at once."
+    }
+   ],
+   "date": "2026-11-25"
+  },
+  {
    "version": "2.61.0",
    "date": "2026-11-23",
    "items": [

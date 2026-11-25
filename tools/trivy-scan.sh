@@ -16,6 +16,11 @@
 #
 # Exceptions (deliberately accepted, e.g. not exploitable): .trivyignore in the program folder - one CVE number per line,
 # with the reason as a comment above and an expiry date ("CVE-2026-12345 exp:2026-12-31").
+# Time-limited exception (2.61.1, PK_TRIVY_GRACE_DAYS=N, set in the PR test, the release and on patch day): a finding with
+# a fix does not block while the image's package state is younger than N days - counted from DEBIAN_SNAPSHOT in the
+# Dockerfile, the point in time of the last version update. Such findings are shown as warnings with their deadline;
+# after the deadline they block again (exit code 1). Without the variable (default 0) every finding blocks - like the
+# daily scan of the published image, which keeps reporting everything.
 # Optional: PK_TRIVY_SEVERITY (default HIGH,CRITICAL), PK_TRIVY_REPORT (file for the report, Markdown),
 # PK_TRIVY_PLATFORM (2.37: e.g. linux/arm64 - for images from the registry the architecture, otherwise that of the machine).
 set -eu
@@ -29,6 +34,12 @@ REPORT="${PK_TRIVY_REPORT:-}"
 PLAT="${PK_TRIVY_PLATFORM:-}"
 case "$PLAT" in ""|linux/amd64|linux/arm64) ;; *) echo "PK_TRIVY_PLATFORM: only linux/amd64 or linux/arm64" >&2; exit 2 ;; esac
 DB="mirror.gcr.io/aquasec/trivy-db:2,ghcr.io/aquasecurity/trivy-db:2"
+GRACE="${PK_TRIVY_GRACE_DAYS:-0}"
+case "$GRACE" in ""|*[!0-9]*) echo "PK_TRIVY_GRACE_DAYS: whole number of days" >&2; exit 2 ;; esac
+[ "$GRACE" -le 60 ] || { echo "PK_TRIVY_GRACE_DAYS: at most 60" >&2; exit 2; }
+# package state = last version update (tools/pin-versions.sh sets DEBIAN_SNAPSHOT together with all other pins)
+SNAP="${PK_TRIVY_SNAPSHOT:-}"   # only for the self-test: package state YYYYMMDD instead of the Dockerfile
+[ -n "$SNAP" ] || SNAP=$(sed -n 's/^ARG DEBIAN_SNAPSHOT=\([0-9]\{8\}\)T.*/\1/p' Dockerfile 2>/dev/null | head -n 1)
 
 [ $# -ge 1 ] || { sed -n '2,20p' "$0"; exit 2; }
 
@@ -73,37 +84,61 @@ for IMG in "$@"; do
   # shellcheck disable=SC2086
   "$T" convert --format table "$WORK/r.json" || true
   N=$(grep -c '"VulnerabilityID"' "$WORK/r.json" || true)
-  command -v python3 >/dev/null 2>&1 && python3 - "$WORK/r.json" "$IMG" "$REPORT" <<'PY' || true
-import json, sys
+  # verdict: 0 = nothing, 1 = blocks, 4 = only findings inside the time-limited exception
+  V=0
+  if [ "${N:-0}" != "0" ]; then
+    V=1
+    if command -v python3 >/dev/null 2>&1; then
+      V=$(python3 - "$WORK/r.json" "$IMG" "$REPORT" "$GRACE" "$SNAP" <<'PY'
+import datetime as dt, json, os, sys
 data = json.load(open(sys.argv[1]))
-img, report = sys.argv[2], sys.argv[3]
+img, report, grace, snap = sys.argv[2], sys.argv[3], int(sys.argv[4]), sys.argv[5]
 rows = []
 for res in data.get("Results") or []:
     for v in res.get("Vulnerabilities") or []:
         rows.append((v.get("Severity", ""), v.get("VulnerabilityID", ""), v.get("PkgName", ""),
                      v.get("InstalledVersion", ""), v.get("FixedVersion", ""), (v.get("Title") or "")[:90]))
 rows.sort(key=lambda r: ({"CRITICAL": 0, "HIGH": 1}.get(r[0], 2), r[2], r[1]))
+deadline = None
+try:
+    if grace and snap:
+        deadline = dt.datetime.strptime(snap, "%Y%m%d").date() + dt.timedelta(days=grace)
+except ValueError:
+    deadline = None
+today = dt.datetime.now(dt.timezone.utc).date()
+within = bool(rows) and deadline is not None and today <= deadline
 if report:
     with open(report, "a", encoding="utf-8") as fh:
         fh.write(f"### Trivy: `{img}`\n\n")
-        if not rows:
-            fh.write("No vulnerabilities (HIGH/CRITICAL with an available fix).\n\n")
-        else:
-            fh.write("| Severity | CVE | Package | installed | fixed in | Title |\n|---|---|---|---|---|---|\n")
-            for r in rows:
-                fh.write("| " + " | ".join(str(x).replace("|", "/") for x in r) + " |\n")
-            fh.write("\n")
-import os
+        if within:
+            fh.write(f"**Time-limited exception until {deadline.isoformat()}** (package state of {snap[:4]}-{snap[4:6]}-{snap[6:]}, "
+                     f"{grace} days): these findings do not block yet. The next patch day or \"Actions → Update versions\" "
+                     "fetches the fixes; after the deadline they block every release.\n\n")
+        elif rows and deadline is not None:
+            fh.write(f"**The time-limited exception has expired ({deadline.isoformat()})** – the package state is older than "
+                     f"{grace} days. Update the versions: \"Actions → Update versions\" or the patch day run.\n\n")
+        fh.write("| Severity | CVE | Package | installed | fixed in | Title |\n|---|---|---|---|---|---|\n")
+        for r in rows:
+            fh.write("| " + " | ".join(str(x).replace("|", "/") for x in r) + " |\n")
+        fh.write("\n")
 if os.environ.get("GITHUB_ACTIONS"):
+    kind = "warning" if within else "error"
+    note = f" – exception until {deadline.isoformat()}" if within else ""
     for r in rows[:30]:
-        print(f"::error title=Trivy {r[0]} {r[1]}::{img}: {r[2]} {r[3]} → {r[4]} ({r[5]})")
+        sys.stderr.write(f"::{kind} title=Trivy {r[0]} {r[1]}::{img}: {r[2]} {r[3]} → {r[4]} ({r[5]}){note}\n")
+print(4 if within else 1)
 PY
-  if [ "${N:-0}" != "0" ]; then
-    echo "→ $N vulnerability(ies) with an available fix in $IMG." >&2
-    [ "$RC" = 0 ] && RC=1
-  else
-    echo "→ no vulnerabilities (HIGH/CRITICAL with an available fix)."
+) || V=1
+    fi
+  elif [ -n "$REPORT" ]; then
+    printf '### Trivy: `%s`\n\nNo vulnerabilities (HIGH/CRITICAL with an available fix).\n\n' "$IMG" >> "$REPORT"
   fi
+  case "$V" in
+    0) echo "→ no vulnerabilities (HIGH/CRITICAL with an available fix)." ;;
+    4) echo "→ $N vulnerability(ies) with an available fix in $IMG – time-limited exception (package state younger than $GRACE days), does not block." >&2 ;;
+    *) echo "→ $N vulnerability(ies) with an available fix in $IMG." >&2
+       [ "$RC" = 0 ] && RC=1 ;;
+  esac
 done
 if [ "$RC" = 1 ]; then
   echo

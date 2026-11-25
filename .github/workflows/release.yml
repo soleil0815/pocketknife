@@ -10,7 +10,8 @@
 # The image contains the docker-compose.yml matching the version (/opt/pocketknife/host) - update.sh puts it on the host
 # when needed; otherwise nothing of the program reaches the host.
 # All actions are pinned to a commit (like the other building blocks, see tools/pin-versions.sh).
-# Before uploading, Trivy scans both images (tools/trivy-scan.sh): vulnerabilities with a fix → no release.
+# Before uploading, Trivy scans both images (tools/trivy-scan.sh): vulnerabilities with a fix → no release once the
+# time-limited exception (package state younger than 45 days) has expired; before that they are shown as warnings.
 name: Release
 
 on:
@@ -135,12 +136,13 @@ jobs:
       - name: Check vulnerabilities (Trivy)
         env:
           PK_TRIVY_REPORT: trivy.md
+          PK_TRIVY_GRACE_DAYS: "45"   # 2.61.1: findings with a fix do not block while the package state is younger than 45 days (tools/trivy-scan.sh)
         run: |
-          # Known vulnerabilities HIGH/CRITICAL with an available fix → no release (see tools/trivy-scan.sh)
+          # Known vulnerabilities HIGH/CRITICAL with an available fix → no release once the time-limited exception has expired
           rc=0; sh tools/trivy-scan.sh "pocketknife-test:$ARCH" || rc=$?
           if [ -f trivy.md ]; then cat trivy.md >> "$GITHUB_STEP_SUMMARY"; fi
           if [ "$rc" = 1 ]; then
-            echo "::error title=Trivy ($ARCH)::Vulnerabilities with an available fix in the image – nothing will be published. Remedy: Actions → Update versions → Run workflow."
+            echo "::error title=Trivy ($ARCH)::Vulnerabilities with an available fix and the time-limited exception expired – nothing will be published. Remedy: Actions → Update versions → Run workflow."
           elif [ "$rc" != 0 ]; then
             echo "::error title=Trivy ($ARCH)::Scan not possible (exit code $rc) – no release without a scan. Run again later."
           fi

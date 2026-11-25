@@ -250,12 +250,12 @@ Bei einem privaten Repository ist auch das Image privat; die Docker-Hosts melden
 
 ### Schwachstellen-Prüfung (Trivy)
 
-Ein Image mit bekannten Schwachstellen wird nicht veröffentlicht. `tools/trivy-scan.sh` prüft Debian- und Python-Pakete im Image auf Schwachstellen der Stufen **HOCH und KRITISCH, für die es eine Korrektur gibt** (ohne verfügbare Korrektur kann man nichts tun – das würde jedes Release blockieren):
+Ein Image mit bekannten Schwachstellen wird nicht veröffentlicht – nach Ablauf einer **befristeten Ausnahme** (siehe unten). `tools/trivy-scan.sh` prüft Debian- und Python-Pakete im Image auf Schwachstellen der Stufen **HOCH und KRITISCH, für die es eine Korrektur gibt** (ohne verfügbare Korrektur kann man nichts tun – das würde jedes Release blockieren):
 
 | Workflow | Wann | Wirkung |
 |---|---|---|
-| `Release` | vor dem Hochladen, amd64 und arm64 | Befund → **nichts wird veröffentlicht**; Tabelle in der Zusammenfassung des Laufs |
-| `Test` | jeder Push | Befund → Lauf rot (frühe Warnung, bevor ein Release scheitert) |
+| `Release` | vor dem Hochladen, amd64 und arm64 | Befund → **nichts wird veröffentlicht**, sobald die befristete Ausnahme abgelaufen ist; vorher Warnung; Tabelle in der Zusammenfassung des Laufs |
+| `Test` | jeder Push | Befund → Warnung, nach Ablauf der befristeten Ausnahme Lauf rot (frühe Warnung, bevor ein Release scheitert) |
 | `Security update (patch day)` | am Patchday (zweiter Dienstag im Monat) 03:23 UTC, von Hand jederzeit | Basis-Image, Debian- und Python-Pakete und guacd auf den neuesten Stand, ohne Cache bauen, Selbsttest, Trivy – **nur wenn alles bestanden ist**: Sicherheitsupdate-Nummer **`<Version>-s<n>`** (z. B. 2.29.7 → 2.29.7-s1 → 2.29.7-s2: gleiches Programm, nur neue Pakete; eine neue Programmversion fängt wieder ohne `-s` an) mit Eintrag in CHANGELOG und Neuigkeiten, gespeichert auf main – und **gleich veröffentlicht** wie in allen anderen Programmen: der Workflow startet *Release* (amd64/arm64, Selbsttest und Trivy noch einmal), unter `<Version>` und `:latest`. Programmänderungen kommen weiter nur als Pull Request und werden von Hand veröffentlicht. Ohne Änderung passiert nichts; schlägt etwas fehl, wird nichts veröffentlicht (Mail von GitHub) |
 | `Sicherheits-Scan` | täglich 05:17 UTC und von Hand | prüft das veröffentlichte `:latest` – Schwachstellen werden oft erst nach einem Release bekannt; ein roter Lauf schickt GitHub als Mail |
 | `ZAP scan` | Dienstag eine Woche vor dem Patchday 01:37 UTC, von Hand jederzeit | [ZAP](https://www.zaproxy.org/)-Scan ohne Anmeldung gegen einen Wegwerf-Container (`zap-scan.yml`); die Funde prüft der Code-Audit zwei Tage danach; meldet nur, ändert nichts |
@@ -265,7 +265,9 @@ Ein Image mit bekannten Schwachstellen wird nicht veröffentlicht. `tools/trivy-
 
 Nach dem Zusammenführen und Veröffentlichen zeigt POCKET KNIFE das neue Sicherheitsupdate wie jede Version an; installiert wird es mit der Container-Verwaltung oder `sudo sh update.sh`, auch wenn sich am Programm nichts ändert. Wer das nicht will, legt die Version fest (`PK_IMAGE=…:<Version>`) oder schaltet den Workflow unter *Actions → Security update (patch day) → Disable workflow* ab.
 
-**Wenn Trivy etwas findet:** Der Lauf am Patchday holt Korrekturen von selbst; der tägliche Sicherheits-Scan meldet nur (roter Lauf, Mail) und startet nichts – wie in den anderen Programmen. Für eine dringende Korrektur sofort: *Actions → Security update (patch day) → Run workflow* – oder zum Ansehen vorher *Versionen aktualisieren* (nur Pull Request). Ist die Korrektur noch nicht in Debian oder auf PyPI angekommen, bleibt der Lauf rot und zeigt den offenen Befund – veröffentlicht wird dann nichts. Bewusst hingenommene, nicht ausnutzbare Befunde stehen mit Begründung und Ablaufdatum in `.trivyignore`.
+**Befristete Ausnahme (ab 2.61.1):** Ein Befund mit verfügbarer Korrektur hält Pull Requests, Releases und den Patchday-Lauf **45 Tage** lang nicht auf – gezählt ab dem Paketstand des Images (`DEBIAN_SNAPSHOT` im Dockerfile, gesetzt bei jeder Versionsaktualisierung). So geht eine Programmänderung auch dann raus, wenn eine Korrektur gerade erst erschienen ist; der Befund steht als Warnung mit Frist im Lauf. Danach blockiert er wieder, bis die Versionen aktualisiert sind. Der tägliche Sicherheits-Scan meldet weiter jeden Befund sofort (roter Lauf, Mail).
+
+**Wenn Trivy etwas findet:** Der Lauf am Patchday holt Korrekturen von selbst; der tägliche Sicherheits-Scan meldet nur (roter Lauf, Mail) und startet nichts – wie in den anderen Programmen. Für eine dringende Korrektur sofort: *Actions → Security update (patch day) → Run workflow* – oder zum Ansehen vorher *Versionen aktualisieren* (nur Pull Request). Ist die Korrektur noch nicht in Debian oder auf PyPI angekommen, zeigt der Lauf den offenen Befund; veröffentlicht wird trotzdem, solange die befristete Ausnahme läuft. Bewusst hingenommene, nicht ausnutzbare Befunde stehen mit Begründung und Ablaufdatum in `.trivyignore`.
 
 Trivy wird in genau einer Version geladen und per SHA-256 geprüft – keine GitHub Action (im März 2026 wurden trivy-action, setup-trivy und Trivy 0.69.4–0.69.6 kompromittiert, CVE-2026-33634). Auf einem Docker-Host lässt sich ein lokales Image genauso prüfen: `sh tools/trivy-scan.sh pocketknife:local`.
 

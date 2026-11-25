@@ -46,6 +46,7 @@ jobs:
         id: trivy
         env:
           PK_TRIVY_REPORT: trivy.md
+          PK_TRIVY_GRACE_DAYS: "45"   # 2.61.1: findings with a fix do not block while the package state is younger than 45 days (tools/trivy-scan.sh)
         run: |
           rc=0; sh tools/trivy-scan.sh pocketknife:local || rc=$?
           if [ -f trivy.md ]; then cat trivy.md >> "$GITHUB_STEP_SUMMARY"; fi
@@ -66,7 +67,9 @@ jobs:
           {
             echo "Versions pinned anew with \`tools/pin-versions.sh --update\`: build without cache and self-test succeeded."
             echo
-            if [ "${{ steps.trivy.outputs.rc }}" = 0 ]; then echo "**Trivy:** no vulnerabilities (HIGH/CRITICAL with an available fix)."
+            if [ "${{ steps.trivy.outputs.rc }}" = 0 ] && grep -q "Time-limited exception" trivy.md 2>/dev/null; then
+              echo "**Trivy:** vulnerabilities are still open (see below) but inside the time-limited exception – the fix may not be in Debian/PyPI yet."
+            elif [ "${{ steps.trivy.outputs.rc }}" = 0 ]; then echo "**Trivy:** no vulnerabilities (HIGH/CRITICAL with an available fix)."
             else echo "**Trivy:** vulnerabilities are still open (see below) – the fix may not be in Debian/PyPI yet."; fi
             echo
             [ -f trivy.md ] && cat trivy.md
