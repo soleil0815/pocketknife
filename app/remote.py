@@ -1099,6 +1099,20 @@ def copy_package(folder, host, name, single_file=None):
     return count, total
 
 
+def put_bytes(host, name, filename, data):
+    """2.62.0: writes data as \\\\host\\ADMIN$\\Temp\\PocketKnife\\name\\filename (e.g. print data for a label printer)."""
+    import smbclient
+    if not re.match(r"^[A-Za-z0-9_.-]{1,80}$", name or "") or not re.match(r"^[A-Za-z0-9_.-]{1,80}$", filename or ""):
+        raise RemoteError("Ungültiger Dateiname.")
+    host = kerberos.host(host)
+    secure_workdir(host)
+    _smb_session(host, config.service_login(), config.service_password())
+    dest = f"\\\\{host}\\ADMIN$\\Temp\\PocketKnife\\{name}"
+    smbclient.makedirs(dest, exist_ok=True)
+    with smbclient.open_file(ntpath.join(dest, filename), mode="wb") as fh:
+        fh.write(data)
+
+
 def remove_package_copy(host, name):
     """Removes copied package files (in case the execution was never started)."""
     try:

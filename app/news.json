@@ -2,6 +2,24 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.62.0",
+   "date": "2026-11-26",
+   "items": [
+    {
+     "kind": "new",
+     "audience": "admin",
+     "de": "Etiketten direkt auf den Etikettendrucker – ohne Druckdialog und ohne Zusatzprogramm: Brother QL, Zebra (ZPL) und Dymo LabelWriter 4xx, am Computer per USB oder im Netzwerk. Einrichten unter Einstellungen → Inventar → Etiketten; im Etikettendialog ist der Drucker an Ihrem Computer vorgewählt.",
+     "en": "Labels directly on the label printer – without the print dialog and without extra software: Brother QL, Zebra (ZPL) and Dymo LabelWriter 4xx, on a computer by USB or in the network. Set up under Settings → Inventory → Labels; in the label dialog the printer on your computer is preselected."
+    },
+    {
+     "kind": "improved",
+     "audience": "admin",
+     "de": "Die Etikettengröße ist jetzt einstellbar (eine für alle Etiketten, Standard 62 × 29 mm).",
+     "en": "The label size can now be set (one for all labels, default 62 × 29 mm)."
+    }
+   ]
+  },
+  {
    "version": "2.61.1",
    "items": [
     {

@@ -554,6 +554,7 @@ def _environment(an):
 
 
 def _stats(since, an):
+    from . import labels as _labels
     t = db.q("""SELECT t.status, t.exit_code, t.message, t.started_at, t.finished_at, d.name, d.source
                 FROM deployment_targets t JOIN deployments d ON d.id = t.deployment_id WHERE COALESCE(t.finished_at, t.started_at, d.created_at) >= ?""",
              (since,))
@@ -598,7 +599,13 @@ def _stats(since, an):
         # 2.60.0: tabs of the last opened computers - how many users use them (counts only)
         "recent_tabs": {"users": db.val("SELECT COUNT(*) FROM user_prefs WHERE key='recent_computers' AND value NOT IN ('', '[]')", (), 0)},
         "labels": {"prints": db.val("SELECT COUNT(*) FROM logs WHERE ts >= ? AND message LIKE 'Etiketten gedruckt:%'", (since,), 0),
-                   "central_footer": bool(db.setting("label_footer"))},  # 2.58.1: only whether one is set, never the text
+                   "central_footer": bool(db.setting("label_footer")),  # 2.58.1: only whether one is set, never the text
+                   # 2.62.0: size (preset or own), label printers by type and connection, direct prints and failures
+                   "size": db.setting("label_size") if db.setting("label_size") in _labels.SIZES else "own",
+                   "printers": {f"{r['lang']}/{r['kind']}": r["n"] for r in db.q("SELECT lang, kind, COUNT(*) n FROM label_printers GROUP BY lang, kind")},
+                   "printers_with_error": db.val("SELECT COUNT(*) FROM label_printers WHERE COALESCE(last_error, '') != ''", (), 0),
+                   "direct_prints": db.val("SELECT COUNT(*) FROM logs WHERE ts >= ? AND message LIKE 'Etiketten gedruckt:% auf „%'", (since,), 0),
+                   "direct_failed": db.val("SELECT COUNT(*) FROM logs WHERE ts >= ? AND message LIKE 'Etiketten auf „%nicht gedruckt:%'", (since,), 0)},
     }
 
 
@@ -976,7 +983,8 @@ Dateien
                        Gründe nach Art, Exporte/Importe von Tools, Scannern, Profilen, Sammlungen – nur Anzahlen),
                        zuletzt geöffnete Computer (wie viele Benutzer die Reiter nutzen),
                        Etikettendruck (Anzahl Druckaufträge im Zeitraum, ob eine zentrale Fußzeile gesetzt ist –
-                       nicht ihr Text)
+                       nicht ihr Text; Etikettengröße, Etikettendrucker je Typ und Anschluss, direkte Drucke und
+                       Fehlschläge – nie Namen oder Adressen)
   powershell_protokoll.txt  Bericht des Prüfmodus: was POCKET KNIFE in den PowerShell-Protokollen der
                        Computer ausgelöst hat (Funktion, Meldung, Fehler-ID) – Namen ersetzt
   leistung.json        Rechenlast und Lastspitzen, Dauer der wichtigsten Abfragen, langsamste Sammlungen, größte Felder

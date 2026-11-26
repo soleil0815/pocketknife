@@ -63,7 +63,7 @@ For developers: the manual texts are in `app/static/help/de.md` and `en.md`; `py
 | Remote sessions | RDP and VNC directly in the browser (Apache Guacamole), optionally with your own POCKET KNIFE sign-in or a central VNC password, clipboard, Ctrl+Alt+Del, full screen |
 | Log | All events in the database (filterable, CSV) and as a rotating file in `/data/logs/` |
 | Interface | Navigation at the top like a Windows program: Overview, Inventory, Distribution, Tools with tabs below, **+ New** for package, deployment, computer, collection, tool and scanner from every page; the last 10 opened computers as tabs like in a browser (per user, the same on every PC); the full width stays for the collection tree and tables |
-| Labels | Labels with computer name, serial number and model (62 × 29 mm, e.g. Brother QL with DK-11209) – single from the computer view or for the selection in the computer list; barcode (Code 128) with the serial number, footer set centrally in the settings; PDF without extra software |
+| Labels | Labels with computer name, serial number and model (default 62 × 29 mm, e.g. Brother QL with DK-11209; size adjustable) – single from the computer view or for the selection in the computer list; barcode (Code 128) with the serial number, footer set centrally in the settings; as PDF or from 2.62.0 without the print dialog directly on Brother QL, Zebra (ZPL) or Dymo LabelWriter 4xx – on a computer (USB) or in the network, without extra software |
 | Yellow warning sign | One uniform yellow **!** on custom scanners, scan profiles, collections, tools and packages when something is wrong (warning in the PowerShell log, break in the repository, scanner returns errors or no values any more, reference missing …) – tooltip with the reason, a click leads to the place to fix it; the overview shows everything in one list |
 | Export/import | Packages, tools, custom scanners, scan profiles and collections (single ones or whole folders) as a file – e.g. into a second installation; references are matched by name, missing ones are listed before the import |
 
@@ -626,7 +626,9 @@ app/
 ├── ad.py            LDAPS, sign-in, group check, computer sync
 ├── inuse.py         update lock: program open? postpone and ask again
 ├── recent.py        recently opened computers per user (tabs at the top)
-├── labels.py        labels as PDF (62 × 29 mm, Code 128)
+├── labels.py        labels as PDF (adjustable size, Code 128)
+├── labelprint.py    labels directly on Brother QL / Zebra / Dymo (USB through the printer share or network)
+├── labelfont.py     draws labels for the printer (TrueType, Liberation Sans in app/fonts)
 ├── health.py        yellow warning sign: state of custom scanners, collections with missing references
 ├── cfgexport.py     export/import of tools, custom scanners, scan profiles and collections
 ├── inventory.py     scan process and storage (per standard scanner)
@@ -666,4 +668,4 @@ POCKET KNIFE is free software: you may use, redistribute and modify it under the
 
 In short: use, including in companies, is free. Anyone who modifies POCKET KNIFE and distributes it **or makes it available to others over a network** must offer the modified source code under the same license.
 
-Bundled third-party components keep their own licenses (e.g. Apache Guacamole: `app/static/vendor/guacamole-LICENSE.txt`, fonts Inter and IBM Plex Mono: SIL Open Font License, `app/static/fonts/OFL.txt`, Python libraries: see `requirements.lock`).
+Bundled third-party components keep their own licenses (e.g. Apache Guacamole: `app/static/vendor/guacamole-LICENSE.txt`, fonts Inter and IBM Plex Mono: SIL Open Font License, `app/static/fonts/OFL.txt`, font Liberation Sans for label printers: SIL Open Font License, `app/fonts/LICENSE-Liberation.txt`, Python libraries: see `requirements.lock`).

@@ -63,7 +63,7 @@ Für Entwickler: Die Texte des Handbuchs stehen in `app/static/help/de.md` und `
 | Fernsitzungen | RDP und VNC direkt im Browser (Apache Guacamole), wahlweise mit der eigenen POCKET KNIFE-Anmeldung bzw. einem zentralen VNC-Kennwort, Zwischenablage, Strg+Alt+Entf, Vollbild |
 | Protokoll | Alle Ereignisse in der Datenbank (filterbar, CSV) und als rotierende Datei in `/data/logs/` |
 | Bedienung | Navigation oben wie in einem Windows-Programm: Übersicht, Inventar, Verteilung, Tools mit Reitern darunter, **+ Neu** für Paket, Bereitstellung, Computer, Sammlung, Tool und Scanner von jeder Seite aus; die letzten 10 geöffneten Computer als Reiter wie im Browser (je Benutzer, auf jedem PC gleich); die volle Breite bleibt für Sammlungsbaum und Tabellen |
-| Etiketten | Etiketten mit Computername, Seriennummer und Modell (62 × 29 mm, z. B. Brother QL mit DK-11209) – einzeln aus der Computeransicht oder für die Auswahl in der Computerliste; Barcode (Code 128) mit der Seriennummer, Fußzeile zentral unter Einstellungen festlegbar; PDF ohne Zusatzsoftware |
+| Etiketten | Etiketten mit Computername, Seriennummer und Modell (Standard 62 × 29 mm, z. B. Brother QL mit DK-11209; Größe einstellbar) – einzeln aus der Computeransicht oder für die Auswahl in der Computerliste; Barcode (Code 128) mit der Seriennummer, Fußzeile zentral unter Einstellungen festlegbar; als PDF oder ab 2.62.0 ohne Druckdialog direkt auf Brother QL, Zebra (ZPL) oder Dymo LabelWriter 4xx – am Computer (USB) oder im Netzwerk, ohne Zusatzsoftware |
 | Gelbes Warnzeichen | Ein einheitliches gelbes **!** bei eigenen Scannern, Scanprofilen, Sammlungen, Tools und Paketen, wenn etwas nicht stimmt (Warnung im PowerShell-Protokoll, Bruch im Repository, Scanner liefert Fehler oder keine Werte mehr, Verweis fehlt …) – Tooltip mit dem Grund, Klick führt zur Stelle; die Übersicht zeigt alles in einer Liste |
 | Export/Import | Pakete, Tools, eigene Scanner, Scanprofile und Sammlungen (einzeln oder ganze Ordner) als Datei – z. B. in eine zweite Installation; Verweise werden über den Namen zugeordnet, fehlende vor dem Import aufgelistet |
 
@@ -624,7 +624,9 @@ app/
 ├── ad.py            LDAPS, Anmeldung, Gruppenprüfung, Computer-Abgleich
 ├── inuse.py         Updatesperre: Programm geöffnet? Zurückstellen und erneut fragen
 ├── recent.py        zuletzt geöffnete Computer je Benutzer (Reiter oben)
-├── labels.py        Etiketten als PDF (62 × 29 mm, Code 128)
+├── labels.py        Etiketten als PDF (Größe einstellbar, Code 128)
+├── labelprint.py    Etiketten direkt auf Brother QL / Zebra / Dymo (USB über die Druckerfreigabe oder Netzwerk)
+├── labelfont.py     zeichnet Etiketten für den Drucker (TrueType, Liberation Sans in app/fonts)
 ├── health.py        gelbes Warnzeichen: Zustand eigener Scanner, Sammlungen mit fehlenden Verweisen
 ├── cfgexport.py     Export/Import von Tools, eigenen Scannern, Scanprofilen und Sammlungen
 ├── inventory.py     Scan-Ablauf und Speicherung (je Standard-Scanner)
@@ -664,4 +666,4 @@ POCKET KNIFE ist freie Software: Sie dürfen es unter den Bedingungen der **GNU 
 
 Kurz gesagt: Nutzung, auch im Unternehmen, ist frei. Wer POCKET KNIFE verändert und weitergibt **oder anderen über das Netzwerk zur Verfügung stellt**, muss den geänderten Quellcode unter derselben Lizenz anbieten.
 
-Mitgelieferte Fremdkomponenten behalten ihre eigenen Lizenzen (z. B. Apache Guacamole: `app/static/vendor/guacamole-LICENSE.txt`, Schriften Inter und IBM Plex Mono: SIL Open Font License, `app/static/fonts/OFL.txt`, Python-Bibliotheken: siehe `requirements.lock`).
+Mitgelieferte Fremdkomponenten behalten ihre eigenen Lizenzen (z. B. Apache Guacamole: `app/static/vendor/guacamole-LICENSE.txt`, Schriften Inter und IBM Plex Mono: SIL Open Font License, `app/static/fonts/OFL.txt`, Schrift Liberation Sans für Etikettendrucker: SIL Open Font License, `app/fonts/LICENSE-Liberation.txt`, Python-Bibliotheken: siehe `requirements.lock`).
