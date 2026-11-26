@@ -271,6 +271,12 @@ CREATE TABLE IF NOT EXISTS news_seen(username TEXT PRIMARY KEY, version TEXT, at
 -- 2.32.3: Einstellungen je Benutzer (z. B. Tastenkürzel für Tools) – folgen ihm auf jeden Rechner
 CREATE TABLE IF NOT EXISTS user_prefs(username TEXT NOT NULL, key TEXT NOT NULL, value TEXT, at TEXT,
   PRIMARY KEY(username, key));
+
+-- 2.62.0: label printers for printing without the print dialog - on a computer (USB, printer name from the scan) or in the network (host:port)
+CREATE TABLE IF NOT EXISTS label_printers(
+  id INTEGER PRIMARY KEY, name TEXT NOT NULL, lang TEXT NOT NULL, kind TEXT NOT NULL,
+  computer_id INTEGER REFERENCES computers(id) ON DELETE CASCADE, printer_name TEXT, host TEXT, port INTEGER,
+  dpi INTEGER, created_at TEXT, last_used TEXT, last_error TEXT);
 """
 
 DEFAULT_SETTINGS = {
@@ -297,6 +303,7 @@ DEFAULT_SETTINGS = {
     "inuse_exempt": "Google.Chrome*\nMicrosoft.Edge*\nBrave.Brave*",
     # 2.58.1: footer of the labels for everyone (e.g. company and IT phone) - prefilled in the print dialog
     "label_footer": "",
+    "label_size": "62x29",   # 2.62.0: one size for all labels (labels.SIZES or "W×H" in mm)
     # 2.39: account for packages ("Wie in den Einstellungen"): "system" (Local System, standard) or "deploy" (service
     # account through a short-lived scheduled task with its password) - only via PUT /api/settings/pkg-run-as
     "pkg_run_as": "system",

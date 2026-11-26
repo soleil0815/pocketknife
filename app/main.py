@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTex
 from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 
-from . import (access, backup, cfgexport, health, inuse, labels, recent, gphistory, clientfiles, loadstats, integrity, kiosk, news, pkgexport, repofiles, sso, customreports, mailer, notify, diskusage, kerberos, presence, tls, actions, ad, auth, guard, profiles, remote_desktop, scanners, tools, uninstall, collections_, config, db, deploy, inventory, pklog, remote, reports, scheduler,
+from . import (access, backup, cfgexport, health, inuse, labels, labelprint, recent, gphistory, clientfiles, loadstats, integrity, kiosk, news, pkgexport, repofiles, sso, customreports, mailer, notify, diskusage, kerberos, presence, tls, actions, ad, auth, guard, profiles, remote_desktop, scanners, tools, uninstall, collections_, config, db, deploy, inventory, pklog, remote, reports, scheduler,
                schedules, steps, util, winget, wingetcache)
 
 
@@ -2586,15 +2586,40 @@ def api_recent_clear(user=U):
     return recent.close(user)
 
 
+def _label_printers_for(user):
+    """OU admins: network printers and printers on computers of their area (no foreign computer names)."""
+    allowed = access.computer_ids(user)
+    return [p for p in labelprint.listing() if allowed is None or p["kind"] == "net" or p["computer_id"] in allowed]
+
+
+def _label_size():
+    return labels.parse_size(db.setting("label_size"))
+
+
+def _here(user, request):
+    """2.62.0: computers the browser probably runs on (address, name, last logged-on user) - like the kiosk, without a
+    live check. Only for suggesting the label printer; nothing is run on them."""
+    try:
+        return [c["id"] for c in kiosk.candidates(user["username"], _ip(request))]
+    except Exception:
+        return []
+
+
 @app.get("/api/labels/defaults")
-def api_labels_defaults(user=U):
-    """2.58.1: the central footer for the print dialog (also for OU admins - it is not a secret)."""
-    return {"footer": labels.clean_footer(db.setting("label_footer"))}
+def api_labels_defaults(request: Request, user=U):
+    """2.58.1: the central footer for the print dialog (also for OU admins - it is not a secret).
+    2.62.0: label size and the label printers; "suggested" = the printer on the computer the browser runs on."""
+    w, h = _label_size()
+    printers = [{"id": p["id"], "name": p["name"], "lang": p["lang"], "lang_label": p["lang_label"], "kind": p["kind"],
+                 "computer_id": p["computer_id"], "problem": labelprint.check_size(p["lang"], w, h, p.get("printer_name") or "")}
+                for p in _label_printers_for(user)]
+    here = [p for p in labelprint.for_computers(_here(user, request)) if any(x["id"] == p["id"] for x in printers)]
+    ok = [p for p in here if not labelprint.check_size(p["lang"], w, h, p.get("printer_name") or "")]
+    return {"footer": labels.clean_footer(db.setting("label_footer")), "size": {"w": w, "h": h, "label": labels.size_label(db.setting("label_size"))},
+            "printers": printers, "suggested": ok[0]["id"] if ok else None}
 
 
-@app.post("/api/labels")
-def api_labels(data: dict = Body(...), user=U):
-    """2.58.0: labels (62 × 29 mm, e.g. Brother QL) with computer name and serial number as PDF - one page per label."""
+def _label_items(user, data):
     ids = access.check_ids(user, data.get("ids"))  # OU admin: only own computers
     if not ids:
         _err("Bitte Computer auswählen.")
@@ -2613,9 +2638,118 @@ def api_labels(data: dict = Body(...), user=U):
     items = [labels.label_for(r, barcode, footer) for r in order for _ in range(copies)]
     if not items:
         _err("Keine Computer gefunden.")
+    return order, items
+
+
+@app.post("/api/labels")
+def api_labels(data: dict = Body(...), user=U):
+    """2.58.0: labels with computer name and serial number as PDF - one page per label (2.62.0: size from the settings)."""
+    order, items = _label_items(user, data)
+    w, h = _label_size()
     pklog.info("system", f"Etiketten gedruckt: {len(items)} für {len(order)} Computer.", user=user["username"])
-    return Response(labels.build_pdf(items, "Etiketten"), media_type="application/pdf",
+    return Response(labels.build_pdf(items, "Etiketten", w, h), media_type="application/pdf",
                     headers={"Content-Disposition": f'inline; filename="etiketten-{util.now()[:10]}.pdf"', "Cache-Control": "no-store"})
+
+
+@app.post("/api/labels/print")
+def api_labels_print(data: dict = Body(...), user=U):
+    """2.62.0: labels directly on a label printer (no print dialog) - the printer chosen in the dialog, nothing else."""
+    try:
+        pid = int(data.get("printer_id") or 0)
+    except (TypeError, ValueError):
+        pid = 0
+    printer = next((p for p in _label_printers_for(user) if p["id"] == pid), None)
+    if printer is None:
+        raise HTTPException(400, "Etikettendrucker nicht gefunden.")
+    order, items = _label_items(user, data)
+    w, h = _label_size()
+    try:
+        n = labelprint.print_labels(printer, items, w, h, user["username"])
+    except labelprint.PrintError as e:
+        _err(str(e))
+    pklog.info("system", f"Etiketten gedruckt: {n} für {len(order)} Computer auf „{printer['name']}“.", user=user["username"])
+    return {"count": n, "printer": printer["name"]}
+
+
+@app.get("/api/label-printers")
+def api_label_printers(user=U):
+    """2.62.0: label printers and sizes for the settings (main admins)."""
+    w, h = _label_size()
+    return {"printers": [{**p, "problem": labelprint.check_size(p["lang"], w, h, p.get("printer_name") or "")} for p in labelprint.listing()],
+            "langs": labelprint.LANGS, "kinds": labelprint.KINDS, "dpis": labelprint.DPIS,
+            "sizes": [{"key": k, "label": v[2]} for k, v in labels.SIZES.items()]}
+
+
+@app.get("/api/label-printers/candidates")
+def api_label_printer_candidates(q: str = "", user=U):
+    """Printers from the scans of the computers - to choose the label printer from."""
+    return labelprint.local_printers(q)
+
+
+@app.get("/api/label-printers/size-check")
+def api_label_size_check(size: str = "", user=U):
+    try:
+        key = labels.clean_size(size)
+    except ValueError as e:
+        return {"ok": False, "hint": str(e)}
+    w, h = labels.parse_size(key)
+    return {"ok": True, "hint": labels.size_check(w, h), "label": labels.size_label(key)}
+
+
+def _label_printer_save(data, pid=None):
+    try:
+        v = labelprint.clean(data)
+    except ValueError as e:
+        _err(str(e))
+    cols = ("name", "lang", "kind", "computer_id", "printer_name", "host", "port", "dpi")
+    if pid:
+        db.ex(f"UPDATE label_printers SET {', '.join(c + '=?' for c in cols)}, last_error=NULL WHERE id=?",
+              tuple(v[c] for c in cols) + (pid,))
+        return pid
+    return db.ex(f"INSERT INTO label_printers({', '.join(cols)}, created_at) VALUES({', '.join('?' * len(cols))}, ?)",
+                 tuple(v[c] for c in cols) + (util.now(),))
+
+
+@app.post("/api/label-printers")
+def api_label_printer_add(data: dict = Body(...), user=U):
+    pid = _label_printer_save(data)
+    pklog.info("system", f"Etikettendrucker angelegt: {db.val('SELECT name FROM label_printers WHERE id=?', (pid,), '')}.", user=user["username"])
+    return {"id": pid}
+
+
+@app.put("/api/label-printers/{pid}")
+def api_label_printer_edit(pid: int, data: dict = Body(...), user=U):
+    if not db.q1("SELECT id FROM label_printers WHERE id=?", (pid,)):
+        raise HTTPException(404, "Etikettendrucker nicht gefunden.")
+    _label_printer_save(data, pid)
+    pklog.info("system", f"Etikettendrucker geändert: {db.val('SELECT name FROM label_printers WHERE id=?', (pid,), '')}.", user=user["username"])
+    return {"id": pid}
+
+
+@app.delete("/api/label-printers/{pid}")
+def api_label_printer_delete(pid: int, user=U):
+    name = db.val("SELECT name FROM label_printers WHERE id=?", (pid,), None)
+    if name is None:
+        raise HTTPException(404, "Etikettendrucker nicht gefunden.")
+    db.ex("DELETE FROM label_printers WHERE id=?", (pid,))
+    pklog.info("system", f"Etikettendrucker gelöscht: {name}.", user=user["username"])
+    return {"ok": True}
+
+
+@app.post("/api/label-printers/{pid}/test")
+def api_label_printer_test(pid: int, user=U):
+    """One test label (example content) on this printer."""
+    printer = next((p for p in labelprint.listing() if p["id"] == pid), None)
+    if printer is None:
+        raise HTTPException(404, "Etikettendrucker nicht gefunden.")
+    w, h = _label_size()
+    lab = labels.Label("Testetikett", "TEST-0001", "POCKET KNIFE", "TEST-0001", labels.clean_footer(db.setting("label_footer")))
+    try:
+        labelprint.print_labels(printer, [lab], w, h, user["username"])
+    except labelprint.PrintError as e:
+        _err(str(e))
+    pklog.info("system", f"Testetikett auf „{printer['name']}“ gedruckt.", user=user["username"])
+    return {"ok": True}
 
 
 @app.post("/api/config/export")
@@ -4188,6 +4322,11 @@ def api_settings_save(data: dict = Body(...), user=U):
                 _err(e)
         if k == "label_footer":
             v = labels.clean_footer(v)
+        if k == "label_size":
+            try:
+                v = labels.clean_size(v)   # 2.62.0: one size for all labels
+            except ValueError as e:
+                _err(e)
         if k == "toast_sender":
             v = re.sub(r"[\x00-\x1f<>]", "", str(v or "")).strip()[:60]
         if k == "repo_upload_types":

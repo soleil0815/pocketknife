@@ -446,6 +446,7 @@ ROUTES = {
     ("GET", "/api/marks"): OPEN,
     ("POST", "/api/labels"): OPEN,
     ("GET", "/api/labels/defaults"): OPEN,
+    ("POST", "/api/labels/print"): OPEN,             # 2.62.0: handler checks the IDs (own computers only); printers are set by main admins
     ("GET", "/api/recent"): OPEN,                    # 2.60.0: own list, filtered by the computers in scope
     ("POST", "/api/recent/{cid}"): _p_cid,            # foreign computer: 404 like every computer route
     ("DELETE", "/api/recent/{cid}"): _p_cid,

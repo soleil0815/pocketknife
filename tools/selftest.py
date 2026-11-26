@@ -11623,7 +11623,7 @@ def _():
     must_fail(labels.build_pdf, [], contains="no labels")
     assert ("POST", "/api/labels") in access.ROUTES
     src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "main.py"), encoding="utf-8").read()
-    h = src[src.index("def api_labels("):src.index("@app.post(\"/api/config/export\")")]
+    h = src[src.index("def _label_items("):src.index("@app.post(\"/api/config/export\")")]  # 2.62.0: shared by PDF and direct print
     assert "access.check_ids(user, data.get(\"ids\"))" in h and "labels.MAX_LABELS" in h and 'media_type="application/pdf"' in h
     js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
     for k in ("function labelsDlg(comps)", "fetch('/api/labels'", "'X-PK-Request': '1'", "const win = window.open('', '_blank');",
@@ -11641,17 +11641,17 @@ def _():
     old = db.setting("label_footer")
     try:
         db.set_setting("label_footer", "Firma GmbH – IT")
-        assert m.api_labels_defaults(user={"username": "t"}) == {"footer": "Firma GmbH – IT"}
+        assert m.api_labels_defaults(request=type("R", (), {"client": None})(), user={"username": "t"})["footer"] == "Firma GmbH – IT"
     finally:
         db.set_setting("label_footer", old or "")
     dg = open(diagnostics.__file__, encoding="utf-8").read()
     assert '"central_footer": bool(db.setting("label_footer"))' in dg, "diagnostic package: only whether set, never the text"
     src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "main.py"), encoding="utf-8").read()
-    h = src[src.index("def api_labels("):]
+    h = src[src.index("def _label_items("):]
     assert 'labels.clean_footer(data["footer"] if "footer" in data else db.setting("label_footer"))' in h
     assert 'if k == "label_footer":\n            v = labels.clean_footer(v)' in src
     js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
-    for k in ("(await GET('/api/labels/defaults')).footer", "value: central || pref.footer || ''", "inputs.label_footer = h('input'",
+    for k in ("defs = await GET('/api/labels/defaults'); central = defs.footer || ''", "value: central || pref.footer || ''", "inputs.label_footer = h('input'",
               "[invCard, scCard, fCard, labelCard]", "...(central ? {} : { footer: body.footer })"):
         assert k in js, k
 
@@ -11662,7 +11662,7 @@ def _():
     d = js[js.index("async function labelsDlg("):js.index("async function scanIds(")]
     assert "field('Barcode'" not in d and "barcode.value" not in d and "['none', 'keiner" not in d and "'Computername und Seriennummer, darunter ein Barcode mit der Seriennummer'" in d
     src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "main.py"), encoding="utf-8").read()
-    h = src[src.index("def api_labels("):src.index("def api_labels(") + 2500]
+    h = src[src.index("def _label_items("):src.index("def _label_items(") + 2500]
     assert 'barcode = "serial"' in h and 'data.get("barcode")' not in h
     from app import labels
     a = labels.label_for({"name": "PC-0001", "serial": "5CG1234XYZ"}, "serial")
@@ -12297,6 +12297,214 @@ def _():
     # without an override the package state comes from the Dockerfile
     dock = open(os.path.join(root, "Dockerfile"), encoding="utf-8").read()
     assert __import__("re").search(r"^ARG DEBIAN_SNAPSHOT=\d{8}T\d{6}Z$", dock, __import__("re").M)
+
+
+def _c128_read(row: bytes) -> str:
+    """Test helper: reads a Code 128 barcode (subset B/C) from one row of dots (1 = black) - checks what a scanner sees."""
+    from app import labels
+    runs, cur, n = [], row[0], 0
+    for v in row:
+        if v == cur:
+            n += 1
+        else:
+            runs.append((cur, n))
+            cur, n = v, 1
+    runs.append((cur, n))
+    while runs and runs[0][0] == 0:
+        runs.pop(0)
+    while runs and runs[-1][0] == 0:
+        runs.pop()
+    widths = [w for _, w in runs]
+    mod = min(widths)
+    assert all(w % mod == 0 for w in widths), f"bar widths not whole modules: {sorted(set(widths))}"
+    mods = "".join(str(w // mod) for w in widths)
+    table = {p: i for i, p in enumerate(labels._PATTERNS)}
+    vals, i = [], 0
+    while i < len(mods):
+        if mods[i:i + 7] == labels._PATTERNS[labels.STOP]:
+            vals.append(labels.STOP)
+            break
+        vals.append(table[mods[i:i + 6]])
+        i += 6
+    assert vals[-1] == labels.STOP and vals[-2] == (vals[0] + sum(k * x for k, x in enumerate(vals[1:-2], 1))) % 103, "check digit"
+    out, sub = "", vals[0]
+    for v in vals[1:-2]:
+        if v == 99:
+            sub = labels.START_C
+        elif v == 100:
+            sub = labels.START_B
+        elif sub == labels.START_C:
+            out += f"{v:02d}"
+        else:
+            out += chr(v + 32)
+    return out
+
+
+@test("2.62.0 Label printers: one label size for all (presets, own size, hints), the same layout drawn as dots (Liberation Sans, barcode readable at 203/300 dpi), Brother QL raster / Zebra ZPL / Dymo LabelWriter print data, USB through a printer share that exists only for the print, network raw 9100, errors reported, printer chosen in the dialog is the one that prints, OU admins see no foreign computers")
+def _():
+    import socket as _so
+    import struct as _st
+    import threading as _th
+    from app import access, diagnostics, labelfont, labelprint, labels, remote
+    from app import main as m
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+    # --- sizes
+    assert labels.clean_size("") == "62x29" and labels.clean_size("54x25") == "54x25" and labels.clean_size(" 70 × 30 ") == "70x30"
+    for bad in ("20x10", "62x80", "30x40", "abc"):
+        must_fail(labels.clean_size, bad, contains="Etikettengröße")
+    assert labels.parse_size("unsinn") == (62.0, 29.0) and labels.parse_size("57x32") == (57.0, 32.0)
+    assert labels.size_check(62, 29) == "" and "fein" in labels.size_check(40, 20)
+    assert "label_size" in m.EDITABLE and db.DEFAULT_SETTINGS["label_size"] == "62x29"
+    lab = labels.Label("PC-0001", "5CD1234XYZ", "HP EliteBook 840 G9", "5CD1234XYZ", "Firma GmbH – IT")
+    pdf = labels.build_pdf([lab], "Etiketten", 54, 25)
+    assert b"/MediaBox [0 0 153.07 70.87]" in pdf, "PDF in the set size"
+    # --- font and drawing (font files unchanged, licence next to them)
+    for f in labelfont.FONTS.values():
+        assert os.path.getsize(os.path.join(labelfont.FONT_DIR, f)) > 300000, f
+    assert "SIL OPEN FONT LICENSE Version 1.1" in open(os.path.join(labelfont.FONT_DIR, "LICENSE-Liberation.txt"), encoding="utf-8").read()
+    fnt = labelfont.font(True)
+    assert fnt.units == 2048 and fnt.advance(fnt.glyph("H")) == 1479, "Liberation Sans Bold = Helvetica widths"
+    assert fnt.contours(fnt.glyph("Ä")), "composite glyphs (umlauts)"
+    for w, h, dpi in ((62, 29, 300), (50.8, 25.4, 203), (54, 25, 300)):
+        bm = labelprint.render(lab, w, h, dpi)
+        assert (bm.w, bm.h) == (round(w / 25.4 * dpi), round(h / 25.4 * dpi))
+        bars = next(x for x in labels.layout(lab, w, h)[2] if isinstance(x, labels.Bars))
+        y = round((labels.layout(lab, w, h)[1] - bars.y - bars.h / 2) * dpi / 72)
+        assert _c128_read(bm.row(y)) == "5CD1234XYZ", (w, h, dpi)
+        top = bm.crop(0, 0, bm.w, bm.h // 3)
+        assert top.black() > 500, "name drawn at the top"
+    assert labelprint.module_dots("5CD1234XYZ", 62, 29, 300) >= 2
+    # --- Brother QL: 62 × 29 die-cut
+    pages = [labelprint.render(lab, 62, 29, 300), labelprint.render(labels.Label("PC-0002", "", "", "PC-0002", ""), 62, 29, 300)]
+    job = labelprint.brother(pages, 62, 29)
+    assert job.startswith(b"\x00" * 400 + b"\x1b\x40\x1b\x69\x61\x01") and job.endswith(b"\x1a") and job.count(b"\x0c") >= 1
+    i = job.index(b"\x1b\x69\x7a")
+    assert job[i + 3:i + 7] == bytes([0x8E, 0x0B, 62, 29]) and _st.unpack("<I", job[i + 7:i + 11])[0] == 271 and job[i + 11] == 0
+    j = job.index(b"\x1b\x69\x7a", i + 1)
+    assert job[j + 11] == 1, "second page"
+    first = job.index(b"\x67\x00\x5a")
+    rows = []
+    k = first
+    while job[k:k + 3] == b"\x67\x00\x5a":
+        rows.append(job[k + 3:k + 93])
+        k += 93
+    assert len(rows) == 271
+    crop = pages[0].crop((pages[0].w - 696) // 2, (pages[0].h - 271) // 2, 696, 271)
+    assert rows[100] == labelfont.pack_row(crop.row(100), 90, 12, mirror=True)
+    bits = "".join(f"{b:08b}" for b in rows[100])
+    assert "1" not in bits[:12] and "1" not in bits[708:], "62 mm: dots 12-707 of 720, nothing outside"
+    cont = labelprint.brother([labelprint.render(lab, 62, 40, 300)], 62, 40)
+    i = cont.index(b"\x1b\x69\x7a")
+    assert cont[i + 4] == 0x0A and cont[i + 6] == 0 and b"\x1b\x69\x64\x23\x00" in cont, "62 mm continuous tape, 35 dots margin"
+    assert "62 mm" in labelprint.check_size("brother", 54, 25) and "1100" in labelprint.check_size("brother", 62, 29, "Brother QL-1100")
+    assert labelprint.check_size("brother", 62, 29, "Brother QL-800") == ""
+    assert "550" in labelprint.check_size("dymo", 54, 25, "DYMO LabelWriter 550") and "56 mm" in labelprint.check_size("dymo", 102, 60)
+    # --- Zebra ZPL
+    z = labelprint.zebra([labelprint.render(lab, 50.8, 25.4, 203)]).decode()
+    head = z.split("^GFA,", 1)[1].split(",")
+    assert z.startswith("^XA^PW406^LL203^LH0,0^FO0,0^GFA,") and z.strip().endswith("^FS^XZ")
+    assert int(head[0]) == int(head[1]) == 51 * 203 and int(head[2]) == 51 and len(head[3].split("^FS")[0]) == 2 * 51 * 203
+    # --- Dymo LabelWriter 4xx: turned by 90°, 84 bytes per row
+    d = labelprint.dymo([labelprint.render(lab, 54, 25, 300)])
+    assert d.startswith(b"\x1b\x40\x1b\x44\x54\x1b\x68\x1b\x65") and d.endswith(b"\x1b\x45")
+    nrows = round(54 / 25.4 * 300)
+    assert d.count(b"\x16") >= nrows and b"\x1b\x4c" + _st.pack(">H", nrows + 6) in d
+    # --- configuration
+    must_fail(labelprint.clean, {"lang": "dymo", "kind": "net", "host": "10.0.10.5"}, contains="USB")
+    must_fail(labelprint.clean, {"lang": "zebra", "kind": "net", "host": "bad host!"}, contains="Adresse")
+    must_fail(labelprint.clean, {"lang": "zebra", "kind": "net", "host": "10.0.10.5", "port": 70000}, contains="Port")
+    must_fail(labelprint.clean, {"lang": "zebra", "kind": "net", "host": "10.0.10.5", "dpi": 250}, contains="dpi")
+    must_fail(labelprint.clean, {"lang": "brother", "kind": "usb", "computer_id": 0, "printer_name": "x"}, contains="Computer")
+    assert labelprint.clean({"lang": "zebra", "kind": "net", "host": "10.0.10.5"})["name"] == "Zebra (ZPL) 10.0.10.5"
+    assert labelprint.guess_lang("Brother QL-800") == "brother" and labelprint.guess_lang("ZDesigner GK420d") == "zebra"
+    assert labelprint.guess_lang("DYMO LabelWriter 450") == "dymo" and labelprint.guess_lang("HP LaserJet") == ""
+    cid = db.ex("INSERT INTO computers(name, created_at) VALUES('PK-T-LBL', ?)", (util.now(),))
+    srv = _so.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(1)
+    got = []
+
+    def serve():
+        c, _a = srv.accept()
+        buf = b""
+        while True:
+            x = c.recv(65536)
+            if not x:
+                break
+            buf += x
+        got.append(buf)
+        c.close()
+    th = _th.Thread(target=serve, daemon=True)
+    th.start()
+    calls = []
+    o_put, o_run, o_ids = remote.put_bytes, remote.run_as_system, access.computer_ids
+    try:
+        db.ex("INSERT INTO inventory_data(computer_id, category, json, updated) VALUES(?, 'printers', ?, ?)",
+              (cid, json.dumps([{"name": "Brother QL-800", "driver": "Brother QL-800", "port": "USB001"},
+                                {"name": "\\\\fs01\\Buero", "driver": "HP", "network": True},
+                                {"name": "Microsoft Print to PDF", "driver": "Microsoft Print To PDF"}]), util.now()))
+        cand = [x for x in labelprint.local_printers("PK-T-LBL")]
+        assert [x["printer_name"] for x in cand] == ["Brother QL-800", "Microsoft Print to PDF"] and cand[0]["lang"] == "brother"
+        usb = m.api_label_printer_add({"lang": "brother", "kind": "usb", "computer_id": cid, "printer_name": "Brother QL-800"}, user={"username": "t"})["id"]
+        net = m.api_label_printer_add({"lang": "zebra", "kind": "net", "host": "127.0.0.1", "port": srv.getsockname()[1], "dpi": 203, "name": "Zebra Lager"},
+                                      user={"username": "t"})["id"]
+        # network: exactly the ZPL arrives at host:port
+        old_size = db.setting("label_size")
+        db.set_setting("label_size", "51x25")
+        r = m.api_labels_print({"ids": [cid], "printer_id": net}, user={"username": "t"})
+        th.join(10)
+        assert r == {"count": 1, "printer": "Zebra Lager"} and got and got[0].startswith(b"^XA^PW406^LL203")
+        db.set_setting("label_size", "62x29")
+        # USB: data copied, printed as SYSTEM through a share that exists only for this print
+        remote.put_bytes = lambda host, name, fn, data: calls.append(("put", name, fn, len(data)))
+        remote.run_as_system = lambda host, body, name, timeout_s=0, **kw: (calls.append(("run", name, body)), (0, "PKLBL:state:done\nPKLBL:copy:1 Datei(en) kopiert."))[1]
+        assert m.api_labels_print({"ids": [cid], "printer_id": usb, "copies": 2}, user={"username": "t"})["count"] == 2
+        put, run = calls[0], calls[1]
+        assert put[1] == run[1] and put[2] == "pk_label.bin" and put[3] > 2 * 271 * 93
+        body = run[2]
+        assert "$pkN = 'Brother QL-800'" in body and "$pkShare = 'PK-Etiketten-" in body and "Shared = $false" in body
+        assert "copy /b" in body and "Win32_PrintJob" in body and "Add-Type" not in body and "[System." not in body and "$e " not in body
+        assert "-ErrorAction Stop" not in body and "Select-Object -First" not in body and "Get-Printer" not in body
+        # errors are errors - and stored with the printer
+        remote.run_as_system = lambda host, body, name, timeout_s=0, **kw: (6, "PKLBL:state:error:Error - Printing\nPKLBL:copy:1")
+        must_fail(lambda: m.api_labels_print({"ids": [cid], "printer_id": usb}, user={"username": "t"}), contains="meldet einen Fehler")
+        assert "meldet einen Fehler" in db.val("SELECT last_error FROM label_printers WHERE id=?", (usb,), "")
+        for out, want in (("PKLBL:missing", "nicht (mehr) eingerichtet"), ("PKLBL:offline", "offline"), ("PKLBL:state:waiting:Spooling", "Warteschlange"),
+                          ("PKLBL:state:copy\nPKLBL:copy:Zugriff verweigert", "Zugriff verweigert"), ("", "Keine Rückmeldung")):
+            assert want in labelprint.parse_usb(6, out), out
+        assert labelprint.parse_usb(0, "PKLBL:state:done") == ""
+        db.set_setting("label_size", "54x25")
+        must_fail(lambda: m.api_labels_print({"ids": [cid], "printer_id": usb}, user={"username": "t"}), contains="62 mm")
+        defs = m.api_labels_defaults(request=type("R", (), {"client": None})(), user={"username": "t"})
+        assert {p["id"]: bool(p["problem"]) for p in defs["printers"]} == {usb: True, net: False} and defs["size"]["w"] == 54
+        db.set_setting("label_size", old_size or "62x29")
+        # OU admins: network printers and printers on computers of their area only; settings closed
+        access.computer_ids = lambda u: set()
+        assert [p["id"] for p in m._label_printers_for({"username": "ou"})] == [net]
+        access.computer_ids = o_ids
+        assert ("POST", "/api/labels/print") in access.ROUTES and not any("/api/label-printers" in k[1] for k in access.ROUTES)
+        st = diagnostics._stats("2000-01-01", lambda x: x)["labels"]
+        assert st["printers"] == {"brother/usb": 1, "zebra/net": 1} and st["printers_with_error"] == 1 and st["direct_prints"] >= 2
+        m.api_label_printer_delete(net, user={"username": "t"})
+        assert not db.q1("SELECT id FROM label_printers WHERE id=?", (net,))
+    finally:
+        remote.put_bytes, remote.run_as_system, access.computer_ids = o_put, o_run, o_ids
+        srv.close()
+        db.ex("DELETE FROM label_printers")
+        db.ex("DELETE FROM computers WHERE id=?", (cid,))
+    pw = os.environ.get("PK_PWSH")
+    if pw and os.path.exists(pw):
+        import subprocess
+        chk = ("$e = $null; $null = [System.Management.Automation.Language.Parser]::ParseInput($env:PKS, [ref]$null, [ref]$e); "
+               "if ($e) { $e | ForEach-Object { $_.Message } } else { 'PARSE-OK' }")
+        r = subprocess.run([pw, "-NoProfile", "-NonInteractive", "-Command", chk], capture_output=True, text=True, timeout=60,
+                           env={**os.environ, "PKS": "$PKDir = 'C:\\x'\n" + labelprint.usb_script("Brother QL-800 'x'", "PK-Etiketten-abc")})
+        assert "PARSE-OK" in r.stdout, r.stdout + r.stderr
+    js = open(os.path.join(root, "app", "static", "app.js"), encoding="utf-8").read()
+    for k in ("POST('/api/labels/print', { ...body, printer_id: Number(target.value) })", "field('Drucken auf', target, targetHint)",
+              "localStorage.setItem('pk-label-printer', target.value)", "async function labelPrinters(box)", "function labelPrinterDlg(d, p, done)",
+              "GET('/api/label-printers/size-check?size='"):
+        assert k in js, k
 
 
 

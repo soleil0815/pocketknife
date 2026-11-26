@@ -2212,7 +2212,7 @@ async function viewComputers(_parts, params) {
   const bCsv = btn('CSV', () => downloadText(`computer_${localDate()}.csv`, tableCsv(t, t.filtered())), { icon: 'download', cls: 'ghost', title: 'Gefilterte Liste als CSV speichern' });
   const editColl = current && !current.builtin && current.editable !== false ? btn('Sammlung bearbeiten', () => collectionDlg(current), { icon: 'edit', cls: 'ghost' }) : null;
   const addMembers = current && current.type === 'static' ? btn('Mitglieder …', () => collectionDlg(current), { icon: 'stat', cls: 'ghost', title: 'Computer zu dieser statischen Sammlung hinzufügen oder entfernen' }) : null;
-  const bLabels = btn('Etiketten …', () => labelsDlg(targetsOf(t.selected())), { icon: 'print', cls: 'ghost', title: 'Etiketten mit Computername und Seriennummer für die markierten Computer (62 × 29 mm, z. B. Brother QL)' });
+  const bLabels = btn('Etiketten …', () => labelsDlg(targetsOf(t.selected())), { icon: 'print', cls: 'ghost', title: 'Etiketten mit Computername und Seriennummer für die markierten Computer – direkt auf einen Etikettendrucker oder als PDF' });
   t.actions.append(bScan, bDeploy, bTools, addMembers || '', editColl || '', bLabels, bCsv);
   function upd(sx) { [bScan, bDeploy, bTools, bLabels].forEach((b) => (b.disabled = !sx.length)); }
   upd([]);
@@ -2234,7 +2234,8 @@ async function labelsDlg(comps) {
   if (!comps.length) { toast(tr('Bitte Computer auswählen.'), 'err'); return; }
   // 2.58.1: the footer comes from the settings (the same for everyone); changed here it applies to this print only
   let central = '';
-  try { central = (await GET('/api/labels/defaults')).footer || ''; } catch (e) { central = ''; }
+  let defs = { printers: [], size: { label: '62 × 29 mm' } };
+  try { defs = await GET('/api/labels/defaults'); central = defs.footer || ''; } catch (e) { central = ''; }
   let pref = {};
   try { pref = JSON.parse(localStorage.getItem('pk-labels') || '{}') || {}; } catch (e) { pref = {}; }
   const footer = h('input', { value: central || pref.footer || '', maxlength: 80, placeholder: 'z. B. Firma GmbH – IT · 0123 456789' });
@@ -2242,6 +2243,22 @@ async function labelsDlg(comps) {
     : 'Klein unten rechts, z. B. Firma und Telefonnummer der IT. Dauerhaft für alle unter Einstellungen → Inventar → Etiketten festlegen.';
   const copies = h('input', { type: 'number', min: 1, max: 10, value: pref.copies || 1, style: { width: '80px' } });
   const names = comps.slice(0, 8).map((c) => c.name).join(', ') + (comps.length > 8 ? fmtT(' und {0} weitere', comps.length - 8) : '');
+  // 2.62.0: where to print - a label printer (no print dialog) or the PDF. Preselected: the printer on the computer the
+  // browser runs on, else the last choice. What is chosen here is exactly what runs.
+  const usable = (defs.printers || []).filter((x) => !x.problem);
+  let last = '';
+  try { last = localStorage.getItem('pk-label-printer') || ''; } catch (e) { last = ''; }
+  const pre = defs.suggested ? String(defs.suggested) : (usable.some((x) => String(x.id) === last) ? last : '');
+  const target = sel([['', 'PDF öffnen (Druckdialog)'], ...usable.map((x) => [String(x.id), x.name, true])], pre);
+  const targetHint = h('div.hint');
+  const showTarget = () => {
+    const x = usable.find((y) => String(y.id) === target.value);
+    targetHint.textContent = x ? (defs.suggested && String(defs.suggested) === target.value ? tr('Drucker an dem Computer, an dem Sie sitzen – ohne Druckdialog.') : tr('Direkt auf diesen Drucker – ohne Druckdialog.'))
+      : tr('Das PDF öffnet sich in einem neuen Tab; von dort drucken.');
+  };
+  target.onchange = showTarget;
+  showTarget();
+  const skipped = (defs.printers || []).filter((x) => x.problem);
   modal(comps.length === 1 ? fmtT('Etikett: {0}', comps[0].name) : fmtT('Etiketten für {0} Computer', comps.length), h('div.form',
     field('Computer', h('span.raw', names)),
     // 2.58.2: fixed content - computer name and serial number as text, barcode with the serial number (no choice)
@@ -2249,10 +2266,22 @@ async function labelsDlg(comps) {
       'Ohne brauchbare Seriennummer (z. B. „To be filled by O.E.M.“) steht „S/N unbekannt“ darauf und der Computername im Barcode.'),
     field('Fußzeile', footer, footHint),
     field('Anzahl je Computer', copies),
-    h('div.full.muted.small', tr('Format 62 × 29 mm – z. B. Brother QL (QL-700, QL-820NWB …) mit Etiketten DK-11209 oder 62-mm-Endlosband (im Druckertreiber Länge 29 mm). Im Druckdialog die Etikettengröße wählen und „Tatsächliche Größe“ / 100 % einstellen, nicht „an Seite anpassen“. Für Laptops halten Kunststoff-Etiketten (z. B. DK-22113) länger.'))),
-  [{ label: 'Abbrechen' }, { label: 'PDF öffnen', cls: 'primary', icon: 'print', onClick: async () => {
+    usable.length ? field('Drucken auf', target, targetHint) : null,
+    skipped.length ? h('div.full.small.warn', fmtT('Nicht für diese Etikettengröße: {0}', skipped.map((x) => x.name).join(', '))) : null,
+    h('div.full.muted.small', fmtT('Format {0} (Einstellungen → Inventar → Etiketten).', tr(defs.size.label)) + ' '
+      + tr('Beim PDF im Druckdialog die Etikettengröße wählen und „Tatsächliche Größe“ / 100 % einstellen, nicht „an Seite anpassen“. Für Laptops halten Kunststoff-Etiketten (z. B. DK-22113) länger.'))),
+  [{ label: 'Abbrechen' }, { label: 'Drucken', cls: 'primary', icon: 'print', onClick: async () => {
     const body = { ids: comps.map((c) => c.id), footer: footer.value, copies: Number(copies.value) || 1 };
     try { localStorage.setItem('pk-labels', JSON.stringify({ copies: body.copies, ...(central ? {} : { footer: body.footer }) })); } catch (e) { /* ignore */ }
+    if (target.value) {
+      try { localStorage.setItem('pk-label-printer', target.value); } catch (e) { /* ignore */ }
+      try {
+        const r = await POST('/api/labels/print', { ...body, printer_id: Number(target.value) });
+        toast(fmtT('{0} Etikett(en) auf „{1}“ gedruckt.', r.count, r.printer));
+      } catch (e) { toast(tr(e.message), 'err'); return false; }
+      return undefined;
+    }
+    try { localStorage.setItem('pk-label-printer', ''); } catch (e) { /* ignore */ }
     const win = window.open('', '_blank');  // open right away - after waiting, the browser would block the new tab
     let r;
     try {
@@ -2269,6 +2298,80 @@ async function labelsDlg(comps) {
     if (win) win.location.href = url;
     else { const a = h('a', { href: url, download: `etiketten-${localDate()}.pdf`, style: { display: 'none' } }); document.body.append(a); a.click(); a.remove(); }
     setTimeout(() => URL.revokeObjectURL(url), 120000);
+  } }]);
+}
+
+// 2.62.0: label printers in the settings (main admins)
+async function labelPrinters(box) {
+  let d;
+  try { d = await GET('/api/label-printers'); } catch (e) { box.replaceChildren(h('div.err', e.message)); return; }
+  const rows = d.printers.map((p) => h('tr',
+    h('td', h('span.raw', p.name), p.problem ? h('div.small.warn', tr(p.problem)) : null, p.last_error ? h('div.small.err', fmtT('Zuletzt: {0}', tr(p.last_error))) : null),
+    h('td', tr(p.lang_label) + (p.dpi && p.lang === 'zebra' ? ` · ${p.dpi} dpi` : '')),
+    h('td', p.kind === 'usb' ? h('span', h('span.raw', p.computer || '?'), ' · ', h('span.raw', p.printer_name || '')) : h('span.raw', `${p.host}:${p.port}`)),
+    h('td.actions', btn('Testetikett', async () => {
+      try { await POST(`/api/label-printers/${p.id}/test`); toast(tr('Testetikett gedruckt.')); } catch (e) { toast(tr(e.message), 'err'); labelPrinters(box); }
+    }, { cls: 'ghost', icon: 'print' }),
+    btn('Bearbeiten', () => labelPrinterDlg(d, p, () => labelPrinters(box)), { cls: 'ghost' }),
+    btn('Löschen', async () => {
+      if (!(await confirmDlg(fmtT('Etikettendrucker „{0}“ löschen?', p.name), 'Löschen', true))) return;
+      try { await DEL(`/api/label-printers/${p.id}`); labelPrinters(box); } catch (e) { toast(tr(e.message), 'err'); }
+    }, { cls: 'ghost' }))));
+  box.replaceChildren(
+    rows.length ? h('table.tbl', h('thead', h('tr', h('th', 'Name'), h('th', 'Typ'), h('th', 'Anschluss'), h('th', ''))), h('tbody', rows))
+      : h('div.empty', tr('Noch kein Etikettendrucker – mit „Etikettendrucker hinzufügen“ anlegen. Ohne Etikettendrucker öffnet der Etikettendialog ein PDF für den Druckdialog.')),
+    h('div.row', btn('Etikettendrucker hinzufügen', () => labelPrinterDlg(d, null, () => labelPrinters(box)), { icon: 'plus' })));
+}
+
+function labelPrinterDlg(d, p, done) {
+  const v = p || { lang: 'brother', kind: 'usb', dpi: 300, port: 9100 };
+  const lang = sel(Object.entries(d.langs), v.lang);
+  const kind = sel(Object.entries(d.kinds), v.kind);
+  const dpi = h('select');
+  const fillDpi = () => { const cur = dpi.value || String(v.dpi || ''); dpi.replaceChildren(...(d.dpis[lang.value] || [300]).map((x) => h('option', { value: x, selected: String(x) === cur }, `${x} dpi`))); };
+  const name = h('input', { value: p ? p.name : '', maxlength: 80, placeholder: tr('leer = automatisch') });
+  const host = h('input', { value: v.host || '', maxlength: 253, placeholder: 'z. B. 10.0.10.50' });
+  const port = h('input', { type: 'number', min: 1, max: 65535, value: v.port || 9100, style: { width: '100px' } });
+  const q = h('input', { placeholder: tr('Computername suchen …'), value: p && p.computer ? p.computer : '' });
+  const pick = h('select', { 'data-notr': true });
+  let chosen = p && p.kind === 'usb' ? { computer_id: p.computer_id, printer_name: p.printer_name } : null;
+  const found = h('div.hint');
+  const load = async () => {
+    let list = [];
+    try { list = await GET('/api/label-printers/candidates?q=' + encodeURIComponent(q.value.trim())); } catch (e) { found.textContent = e.message; return; }
+    const cur = chosen ? `${chosen.computer_id}|${chosen.printer_name}` : '';
+    pick.replaceChildren(h('option', { value: '' }, tr('– Drucker wählen –')),
+      ...list.map((x) => h('option', { value: `${x.computer_id}|${x.printer_name}`, selected: `${x.computer_id}|${x.printer_name}` === cur, 'data-lang': x.lang }, `${x.computer}: ${x.printer_name}${x.driver && x.driver !== x.printer_name ? ` (${x.driver})` : ''}`)));
+    found.textContent = list.length ? '' : tr('Keine Drucker gefunden – der Computer muss mit dem Bereich „Drucker (lokal)“ gescannt sein, nachdem der Drucker eingerichtet wurde.');
+  };
+  pick.onchange = () => {
+    const o = pick.selectedOptions[0];
+    const [cid, ...rest] = (pick.value || '').split('|');
+    chosen = pick.value ? { computer_id: Number(cid), printer_name: rest.join('|') } : null;
+    if (o && o.dataset.lang) { lang.value = o.dataset.lang; fillDpi(); }
+  };
+  let tq;
+  q.oninput = () => { clearTimeout(tq); tq = setTimeout(load, 300); };
+  const usbPart = h('div.full.form', field('Computer', q, 'Der Computer, an dem der Drucker per USB hängt.'), field('Drucker', pick), found);
+  const netPart = h('div.full.form', field('Adresse', host), field('Port', port, 'Meist 9100 (Rohdaten).'));
+  const showKind = () => { usbPart.style.display = kind.value === 'usb' ? '' : 'none'; netPart.style.display = kind.value === 'net' ? '' : 'none'; };
+  kind.onchange = showKind;
+  lang.onchange = fillDpi;
+  fillDpi(); showKind(); load();
+  modal(p ? fmtT('Etikettendrucker: {0}', p.name) : 'Etikettendrucker hinzufügen', h('div.form',
+    field('Typ', lang, 'Brother QL: 62 mm breite Etiketten (62 × 29 mm). Dymo: LabelWriter 400/450 – die 550er nur über PDF.'),
+    field('Auflösung', dpi),
+    field('Anschluss', kind, 'Am Computer (USB): POCKET KNIFE gibt den Drucker auf diesem Computer nur für den Druck kurz frei und schickt die Daten über die Freigabe; danach ist die Freigabe wieder weg. Im Netzwerk: direkt vom Server an den Drucker.'),
+    usbPart, netPart,
+    field('Name', name, 'So erscheint der Drucker im Etikettendialog.')),
+  [{ label: 'Abbrechen' }, { label: 'Speichern', cls: 'primary', onClick: async () => {
+    const body = { name: name.value, lang: lang.value, kind: kind.value, dpi: Number(dpi.value) || 0, host: host.value, port: Number(port.value) || 9100,
+      computer_id: chosen ? chosen.computer_id : 0, printer_name: chosen ? chosen.printer_name : '' };
+    try {
+      if (p) await PUT(`/api/label-printers/${p.id}`, body); else await POST('/api/label-printers', body);
+    } catch (e) { toast(tr(e.message), 'err'); return false; }
+    done();
+    return undefined;
   } }]);
 }
 
@@ -2886,7 +2989,7 @@ async function viewComputer(parts, params) {
       btn('Remotedesktop', () => openRemote([{ id, name: c.name }], 'rdp'), { icon: 'monitor', title: 'RDP-Sitzung im Browser' }),
       // 2.39.6: VNC right next to it (before only under Tools) – e.g. TightVNC with the central VNC password from the settings
       btn('VNC', () => openRemote([{ id, name: c.name }], 'vnc'), { icon: 'monitor', title: 'VNC-Sitzung im Browser (zentrales VNC-Kennwort unter Einstellungen → Fernsitzungen)' }),
-      btn('Etikett', () => labelsDlg([{ id, name: c.name }]), { icon: 'print', title: 'Etikett mit Computername und Seriennummer (62 × 29 mm, z. B. Brother QL)' }), more));
+      btn('Etikett', () => labelsDlg([{ id, name: c.name }]), { icon: 'print', title: 'Etikett mit Computername und Seriennummer – direkt auf einen Etikettendrucker oder als PDF' }), more));
 
   const link = (k) => () => go(`#/computer/${id}?cat=${k}`);
   const nav = h('nav.pc-nav', PC_CATS.map(([k, label, ic, ck]) => {
@@ -6646,9 +6749,33 @@ async function viewSettings() {
     field('Speicherplatz-Scanner: Tiefe', n('du_scan_depth', { min: 1, max: 8 }), 'Wie tief der optionale Scanner „Speicherplatz“ die Ordner aufschlüsselt (1–8). Tiefer = mehr Details, aber langsamer und größer. Nachträglich lässt sich in der Ansicht gezielt tiefer analysieren.'))));
 
   // 2.58.1: labels - footer for everyone
+  // 2.62.0: one label size for all labels + label printers for printing without the print dialog
+  const sizeKeys = ['62x29', '54x25', '57x32', '51x25', '76x25'];
+  const curSize = s.label_size || '62x29';
+  inputs.label_size = h('input', { value: curSize, maxlength: 12, placeholder: 'z. B. 70x30', style: { width: '120px' } });
+  const sizeSel = sel([['62x29', '62 × 29 mm – Brother DK-11209 / 62-mm-Endlosband'], ['54x25', '54 × 25 mm – Dymo 11352'], ['57x32', '57 × 32 mm – Dymo 11354'],
+    ['51x25', '51 × 25 mm – Zebra 2 × 1 Zoll'], ['76x25', '76 × 25 mm – Zebra 3 × 1 Zoll'], ['custom', 'Eigene Größe (Breite × Höhe in mm)']],
+  sizeKeys.includes(curSize) ? curSize : 'custom');
+  const sizeHint = h('div.hint.warn');
+  const checkSize = async () => {
+    sizeHint.textContent = '';
+    try { const r = await GET('/api/label-printers/size-check?size=' + encodeURIComponent(inputs.label_size.value)); sizeHint.textContent = tr(r.hint || ''); } catch (e) { /* ignore */ }
+  };
+  const showCustom = () => { inputs.label_size.style.display = sizeSel.value === 'custom' ? '' : 'none'; };
+  sizeSel.onchange = () => { if (sizeSel.value !== 'custom') inputs.label_size.value = sizeSel.value; else if (sizeKeys.includes(inputs.label_size.value)) inputs.label_size.value = ''; showCustom(); checkSize(); };
+  inputs.label_size.oninput = () => checkSize();
+  showCustom(); checkSize();
+  const lpBox = h('div.full');
   const labelCard = h('div.card', h('div.card-h', h('h2', 'Etiketten')), h('div.card-b', h('div.form',
+    field('Etikettengröße', h('div.row', sizeSel, inputs.label_size),
+      'Gilt für alle Etiketten – PDF und Etikettendrucker. Empfohlen: 62 × 29 mm mit einem Brother QL (z. B. QL-800) und Etiketten DK-11209. Im Druckertreiber dieselbe Größe als Standard einstellen.'),
+    sizeHint,
     field('Fußzeile', (inputs.label_footer = h('input', { value: s.label_footer ?? '', maxlength: 80, placeholder: 'z. B. Firma GmbH – IT · 0123 456789' })),
-      'Steht klein unten rechts auf jedem Etikett (Computer → Etikett bzw. Computerliste → Etiketten …) und ist im Druckdialog für alle vorausgefüllt; dort lässt es sich für einen einzelnen Druck ändern. Höchstens 80 Zeichen, leer = keine Fußzeile.'))));
+      'Steht klein unten rechts auf jedem Etikett (Computer → Etikett bzw. Computerliste → Etiketten …) und ist im Druckdialog für alle vorausgefüllt; dort lässt es sich für einen einzelnen Druck ändern. Höchstens 80 Zeichen, leer = keine Fußzeile.'),
+    h('h3.full', 'Etikettendrucker'),
+    h('div.full.muted.small', tr('Etiketten ohne Druckdialog direkt drucken: Brother QL, Zebra (ZPL) und Dymo LabelWriter 4xx – am Computer per USB oder im Netzwerk. Im Etikettendialog ist der Drucker an dem Computer vorgewählt, an dem Sie gerade sitzen.')),
+    lpBox)));
+  labelPrinters(lpBox);
 
   const instCard = h('div.card', h('div.card-h', h('h2', 'Installationen')), h('div.card-b', h('div.form',
     field('Parallele Installationen', n('deploy_concurrency', { min: 1 }), 'Wirksam nach Neustart des Containers.'),

@@ -1,5 +1,8 @@
 """2.58.0: labels with computer name and serial number as PDF - for label printers such as Brother QL.
 
+2.62.0: the size is a setting (one for all labels, default 62 × 29 mm) and the same layout is also drawn as a picture
+for printing directly on a label printer (app/labelfont.py, app/labelprint.py).
+
 Format: 62 × 29 mm (Brother QL standard label DK-11209 or 62 mm continuous tape), one page per label. Content: computer
 name (large), serial number and model, optionally a barcode (Code 128) with the serial number or the computer name.
 Taken over from AssetLotse (same author, AGPL-3.0) - without extra libraries; the PDF uses only the standard fonts
@@ -12,6 +15,17 @@ from dataclasses import dataclass
 MM = 72 / 25.4                   # PDF points per millimeter
 LABEL_W_MM, LABEL_H_MM = 62.0, 29.0
 MARGIN_MM = 2.5
+MARGIN_Y_MM = 3.2   # 2.62.0: top/bottom - die-cut labels are not printable at the edge (Brother DK-11209: 3 mm)
+# 2.62.0: label sizes - one for all labels (setting label_size); "custom" = own width × height
+SIZES = {
+    "62x29": (62.0, 29.0, "62 × 29 mm – Brother DK-11209 / 62-mm-Endlosband"),
+    "54x25": (54.0, 25.0, "54 × 25 mm – Dymo 11352"),
+    "57x32": (57.0, 32.0, "57 × 32 mm – Dymo 11354"),
+    "51x25": (50.8, 25.4, "51 × 25 mm – Zebra 2 × 1 Zoll"),
+    "76x25": (76.2, 25.4, "76 × 25 mm – Zebra 3 × 1 Zoll"),
+}
+MIN_W, MAX_W, MIN_H, MAX_H = 30.0, 102.0, 15.0, 60.0
+MIN_MODULE_MM = 0.25   # thinner bars are no longer read reliably by hand scanners
 BARCODE_H_MM = 9.0
 QUIET_MODULES = 10               # quiet zone left and right (required for reliable scanning)
 MAX_MODULE_MM = 0.5
@@ -201,57 +215,138 @@ def label_for(c: dict, barcode: str = "serial", footer: str = "") -> Label:
     return Label(title=name, serial=serial, model=model, code=code, footer=footer or "")
 
 
-def page_content(label: Label) -> bytes:
-    W, H, M = LABEL_W_MM * MM, LABEL_H_MM * MM, MARGIN_MM * MM
-    ops: list[str] = []
+def parse_size(v) -> tuple[float, float]:
+    """Setting label_size: a key of SIZES or "W×H" in mm (also with x). Unknown or out of range → 62 × 29."""
+    t = str(v or "").strip().lower().replace("×", "x").replace(",", ".").replace(" ", "")
+    if t in SIZES:
+        return SIZES[t][0], SIZES[t][1]
+    m = __import__("re").fullmatch(r"(\d{2,3}(?:\.\d)?)x(\d{2}(?:\.\d)?)(?:mm)?", t)
+    if m:
+        w, h = float(m.group(1)), float(m.group(2))
+        if MIN_W <= w <= MAX_W and MIN_H <= h <= MAX_H and w >= h:
+            return w, h
+    return LABEL_W_MM, LABEL_H_MM
+
+
+def clean_size(v) -> str:
+    """For saving: a preset key or "W×H"; raises ValueError for sizes the layout cannot handle."""
+    t = str(v or "").strip().lower().replace("×", "x").replace(",", ".").replace(" ", "")
+    if t in ("", "62x29"):
+        return "62x29"
+    if t in SIZES:
+        return t
+    w, h = parse_size(t)
+    if (w, h) == (LABEL_W_MM, LABEL_H_MM) and t not in ("62x29", "62x29mm"):
+        raise ValueError(f"Etikettengröße: Breite {MIN_W:.0f}–{MAX_W:.0f} mm und Höhe {MIN_H:.0f}–{MAX_H:.0f} mm "
+                         "(quer, also Breite ≥ Höhe), z. B. 62x29.")
+    return f"{_f(w)}x{_f(h)}"
+
+
+def size_label(v) -> str:
+    t = str(v or "").strip().lower()
+    if t in SIZES:
+        return SIZES[t][2]
+    w, h = parse_size(v)
+    return f"{_f(w)} × {_f(h)} mm"
+
+
+@dataclass
+class Text:
+    x: float      # points from the left
+    y: float      # baseline, points from the bottom
+    size: float
+    bold: bool
+    text: str
+
+
+@dataclass
+class Bars:
+    code: str
+    left: float   # area for the barcode (points): left edge and width - the barcode is centred in it
+    width: float
+    y: float      # lower edge of the bars, points from the bottom
+    h: float
+
+
+def layout(label: Label, w_mm: float = LABEL_W_MM, h_mm: float = LABEL_H_MM) -> tuple[float, float, list]:
+    """The label as positions in points (origin bottom left) - the PDF and the printer picture draw the same."""
+    W, H = w_mm * MM, h_mm * MM
+    sc = min(w_mm / LABEL_W_MM, h_mm / LABEL_H_MM)   # 62 × 29 mm = 1
+    M, MY = MARGIN_MM * MM, MARGIN_Y_MM * MM
+    ops: list = []
     inner = W - 2 * M
     big = not label.code    # without a barcode: name and serial number larger
-    # computer name (bold, large)
-    size = 15 if big else 11
-    y = (H / 2 + 6) if big else (H - M - size * 0.78)  # without a barcode: name and serial in the middle
-    ops.append(f"BT /F2 {size} Tf {_f(M)} {_f(y)} Td {_pdf_string(fit(label.title, size, inner, True))} Tj ET")
-    # serial number (bold) and model
+    size = (15 if big else 11) * sc
+    y = (H / 2 + 6 * sc) if big else (H - MY - size * 0.78)  # without a barcode: name and serial in the middle
+    ops.append(Text(M, y, size, True, fit(label.title, size, inner, True)))
     sn = "S/N " + (label.serial or "unbekannt")
-    ssize = 10 if big else 7.5
-    y -= ssize + (6 if big else 3)
+    ssize = (10 if big else 7.5) * sc
+    y -= ssize + (6 if big else 3) * sc
     sn_txt = fit(sn, ssize, inner, True)
-    ops.append(f"BT /F2 {_f(ssize)} Tf {_f(M)} {_f(y)} Td {_pdf_string(sn_txt)} Tj ET")
+    ops.append(Text(M, y, ssize, True, sn_txt))
     if label.model:
-        room = inner - text_width(sn_txt, ssize, True) - 6
-        msize = 7 if big else 6
-        if room > 25:
-            ops.append(f"BT /F1 {msize} Tf {_f(M + inner - text_width(fit(label.model, msize, room), msize))} {_f(y)} Td "
-                       f"{_pdf_string(fit(label.model, msize, room))} Tj ET")
+        room = inner - text_width(sn_txt, ssize, True) - 6 * sc
+        msize = (7 if big else 6) * sc
+        if room > 25 * sc:
+            mt = fit(label.model, msize, room)
+            ops.append(Text(M + inner - text_width(mt, msize), y, msize, False, mt))
+    csize, fsize = 6.5 * sc, 5.5 * sc
     if label.code:
-        # barcode, horizontally centered, with quiet zone
-        modules = module_count(label.code) + 2 * QUIET_MODULES
-        module = min(MAX_MODULE_MM * MM, inner / modules)
-        bar_h = BARCODE_H_MM * MM
-        bar_y = M + 8
-        x0 = (W - modules * module) / 2 + QUIET_MODULES * module
-        for start, width in code128_modules(label.code):
-            ops.append(f"{_f(x0 + start * module)} {_f(bar_y)} {_f(width * module)} {_f(bar_h)} re")
-        ops.append("f")
-        code_text = fit(label.code, 6.5, inner * 0.6)
-        cw = text_width(code_text, 6.5)
-        ops.append(f"BT /F1 6.5 Tf {_f((W - cw) / 2)} {_f(M + 1.2)} Td {_pdf_string(code_text)} Tj ET")
-        right = (W + cw) / 2 + 6
+        bar_h = min(BARCODE_H_MM * MM * sc, y - ssize * 0.25 - (MY + 8 * sc) - 2 * sc)
+        ops.append(Bars(label.code, M, inner, MY + 8 * sc, bar_h))
+        code_text = fit(label.code, csize, inner * 0.6)
+        cw = text_width(code_text, csize)
+        ops.append(Text((W - cw) / 2, MY + 1.2 * sc, csize, False, code_text))
+        right = (W + cw) / 2 + 6 * sc
     else:
         right = M
     if label.footer:
         room = (W - M) - right
-        foot = fit(label.footer, 5.5, room) if room > 20 else ""
-        fw = text_width(foot, 5.5)
+        foot = fit(label.footer, fsize, room) if room > 20 * sc else ""
         if foot and foot != "…":
-            ops.append(f"BT /F1 5.5 Tf {_f(W - M - fw)} {_f(M + 1.2)} Td {_pdf_string(foot)} Tj ET")
+            ops.append(Text(W - M - text_width(foot, fsize), MY + 1.2 * sc, fsize, False, foot))
+    return W, H, ops
+
+
+def bar_module(code: str, width: float) -> float:
+    """Width of one bar module (points) for a barcode in `width` points incl. quiet zones."""
+    return min(MAX_MODULE_MM * MM, width / (module_count(code) + 2 * QUIET_MODULES))
+
+
+def page_content(label: Label, w_mm: float = LABEL_W_MM, h_mm: float = LABEL_H_MM) -> bytes:
+    W, _H, items = layout(label, w_mm, h_mm)
+    ops: list[str] = []
+    for it in items:
+        if isinstance(it, Text):
+            ops.append(f"BT /F{2 if it.bold else 1} {_f(it.size)} Tf {_f(it.x)} {_f(it.y)} Td {_pdf_string(it.text)} Tj ET")
+        else:
+            modules = module_count(it.code) + 2 * QUIET_MODULES
+            module = bar_module(it.code, it.width)
+            x0 = it.left + (it.width - modules * module) / 2 + QUIET_MODULES * module
+            for start, width in code128_modules(it.code):
+                ops.append(f"{_f(x0 + start * module)} {_f(it.y)} {_f(width * module)} {_f(it.h)} re")
+            ops.append("f")
     return ("0 g\n" + "\n".join(ops) + "\n").encode("latin-1")
 
 
-def build_pdf(labels: list[Label], title: str = "Etiketten") -> bytes:
+def size_check(w_mm: float, h_mm: float) -> str:
+    """Hint when the barcode of a typical serial number (12 characters) gets too fine for this size."""
+    lab = Label("PC-0001", "ABCD1234EFGH", "", "ABCD1234EFGH", "")
+    _W, _H, items = layout(lab, w_mm, h_mm)
+    bars = [x for x in items if isinstance(x, Bars)]
+    if bars and bar_module(bars[0].code, bars[0].width) / MM < MIN_MODULE_MM:
+        return ("Auf dieser Größe wird der Barcode einer langen Seriennummer sehr fein und lässt sich mit manchen "
+                "Scannern schlecht lesen – breitere Etiketten sind besser.")
+    if bars and bars[0].h < 5 * MM:
+        return "Auf dieser Größe wird der Barcode sehr niedrig – höhere Etiketten sind besser."
+    return ""
+
+
+def build_pdf(labels: list[Label], title: str = "Etiketten", w_mm: float = LABEL_W_MM, h_mm: float = LABEL_H_MM) -> bytes:
     """Multi-page PDF, one page (= one label) per entry."""
     if not labels:
         raise ValueError("no labels")
-    W, H = LABEL_W_MM * MM, LABEL_H_MM * MM
+    W, H = w_mm * MM, h_mm * MM
     objects: list[bytes] = []   # object n is at index n-1
 
     def add(body: bytes) -> int:
@@ -264,7 +359,7 @@ def build_pdf(labels: list[Label], title: str = "Etiketten") -> bytes:
     font_bold = add(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>")
     kids = []
     for label in labels:
-        stream = page_content(label)
+        stream = page_content(label, w_mm, h_mm)
         content = add(b"<< /Length %d >>\nstream\n" % len(stream) + stream + b"endstream")
         kids.append(add(
             (f"<< /Type /Page /Parent {pages} 0 R /MediaBox [0 0 {_f(W)} {_f(H)}] "
