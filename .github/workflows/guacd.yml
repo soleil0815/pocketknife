@@ -1,0 +1,188 @@
+# POCKET KNIFE – take over a new guacd automatically (2.62.2).
+#
+# The Guacamole project now and then rebuilds guacd under the same version number (e.g. 1.6.0 with updated system
+# packages after a vulnerability) or brings out a patch version (1.6.x). POCKET KNIFE publishes guacd pinned to its digest
+# (docker/guacd.txt → ghcr.io/…/pocketknife-guacd) - so container managers only get it when POCKET KNIFE publishes it.
+# This run checks every day (tools/guacd-check.sh) and, if there is a new build of the same series:
+#   1. starts it on amd64 and arm64 and tests a connection (tools/guacd-smoke.py: RDP and VNC answer),
+#   2. scans it with Trivy - it must not have a finding the current guacd does not have,
+#   3. only then: security update number (<version>-s<n>), CHANGELOG and news on main (normal push, never force) and
+#      the release workflow publishes it, like on patch day.
+# Not taken over here: a new series (e.g. 1.7) - it may need a matching guacamole-common-js and comes on patch day with
+# the full test. Not while the version on main is unpublished (a merged program change would slip out as a "security
+# update"). If a check fails, nothing is published - GitHub sends a mail. By hand: Actions → guacd update → Run workflow.
+name: guacd update
+
+on:
+  schedule:
+    - cron: "41 4 * * *"   # daily 04:41 UTC
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  # same group as the patch day run - both save on main and start the release
+  group: weekly-security
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      status: ${{ steps.chk.outputs.status }}
+      image: ${{ steps.chk.outputs.image }}
+      current: ${{ steps.chk.outputs.current }}
+      released: ${{ steps.rel.outputs.released }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: New guacd from the Guacamole project?
+        id: chk
+        run: |
+          if ! sh tools/guacd-check.sh > chk.txt; then
+            # Docker Hub or the registry not reachable: no update today, no red run (the next run checks again)
+            echo "::warning title=guacd::Could not check for a new guacd today – nothing changed."
+            echo "status=error" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          cat chk.txt
+          cat chk.txt >> "$GITHUB_OUTPUT"
+          . ./chk.txt
+          if [ "$status" = same ]; then
+            echo "guacd \`$current\` is the newest build of its series – nothing to do." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "New guacd: \`$image\` (current: \`$current\`)." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ -n "$newer" ]; then
+            echo "::notice title=guacd::guacd $newer is out – a new series comes on patch day (with the full test)."
+          fi
+
+      - name: Is the version on main published?
+        id: rel
+        if: steps.chk.outputs.status == 'update'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VER=$(tr -d ' \r\n' < VERSION)
+          if gh release view "v$VER" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "released=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "released=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=guacd::Version $VER on main is not published yet – the new guacd waits until it is."
+          fi
+
+  test:
+    needs: check
+    if: needs.check.outputs.status == 'update' && needs.check.outputs.released == 'true'
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - arch: amd64
+            os: ubuntu-24.04
+          - arch: arm64
+            os: ubuntu-24.04-arm
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Start the new guacd and test a connection
+        env:
+          NEW: ${{ needs.check.outputs.image }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          docker pull -q --platform "linux/$ARCH" "$NEW"
+          docker run -d --name pk-guacd --platform "linux/$ARCH" -p 127.0.0.1:4822:4822 "$NEW"
+          rc=0; python3 tools/guacd-smoke.py 127.0.0.1 4822 60 || rc=$?
+          docker logs pk-guacd 2>&1 | tail -n 20
+          docker rm -f pk-guacd > /dev/null
+          if [ "$rc" != 0 ]; then echo "::error title=guacd ($ARCH)::The new guacd does not answer like guacd – not taken over."; fi
+          exit "$rc"
+
+      - name: No new vulnerabilities compared with the current guacd (Trivy)
+        env:
+          NEW: ${{ needs.check.outputs.image }}
+          OLD: ${{ needs.check.outputs.current }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          # guacd findings can only be fixed by the Guacamole project - the rule is: the new build must not bring a
+          # finding the current one does not have (findings it fixes are welcome)
+          PK_TRIVY_PLATFORM="linux/$ARCH" PK_TRIVY_LIST=old.txt sh tools/trivy-scan.sh "$OLD" > /dev/null 2>&1 || true
+          PK_TRIVY_PLATFORM="linux/$ARCH" PK_TRIVY_LIST=new.txt PK_TRIVY_REPORT=trivy.md sh tools/trivy-scan.sh "$NEW" || true
+          if [ ! -f old.txt ] || [ ! -f new.txt ]; then
+            echo "::error title=guacd ($ARCH)::Trivy could not scan the current or the new guacd – not taken over."
+            exit 1
+          fi
+          sort -u old.txt > old.s; sort -u new.txt > new.s
+          added=$(comm -13 old.s new.s); fixed=$(comm -23 old.s new.s)
+          {
+            echo "### guacd $ARCH"
+            echo "Findings: current $(wc -l < old.s), new $(wc -l < new.s)."
+            [ -z "$fixed" ] || { echo "Fixed by the new build:"; echo '```'; echo "$fixed"; echo '```'; }
+            [ -z "$added" ] || { echo "**New in the new build:**"; echo '```'; echo "$added"; echo '```'; }
+            [ -f trivy.md ] && cat trivy.md
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "$added" ]; then
+            echo "::error title=guacd ($ARCH)::The new guacd brings new vulnerabilities – not taken over: $(echo $added)"
+            exit 1
+          fi
+
+  update:
+    needs: [check, test]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write        # save docker/guacd.txt, version, CHANGELOG and news on main (normal push, never force)
+      actions: write         # start the release workflow (only release.yml publishes images)
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Record the new guacd on main and publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BASE: ${{ github.event.repository.default_branch }}
+          NEW: ${{ needs.check.outputs.image }}
+          OLD: ${{ needs.check.outputs.current }}
+        run: |
+          # main may have changed since the check: same guacd and a published version are required again
+          VER=$(tr -d ' \r\n' < VERSION)
+          if ! gh release view "v$VER" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "::notice title=guacd::Version $VER on main is not published yet – nothing changed."
+            exit 0
+          fi
+          if [ "$(head -n 1 docker/guacd.txt)" != "$OLD" ]; then
+            echo "::notice title=guacd::docker/guacd.txt changed in the meantime – nothing changed (the next run checks again)."
+            exit 0
+          fi
+          git worktree add -q "$RUNNER_TEMP/vorher" HEAD
+          printf '%s\n' "$NEW" > docker/guacd.txt
+          NV=$(python3 tools/security-release.py --guacd "$RUNNER_TEMP/vorher")
+          git add -A docker/guacd.txt VERSION CHANGELOG.md app/news.json README.md README.en.md
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -qm "pocketknife $NV: security update (guacd)"
+          # Normal push (never forced): if main changed in the meantime, GitHub refuses it and nothing is published
+          if ! git push -q "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/$BASE"; then
+            echo "::error title=guacd::main changed during the update – nothing published. The next run (or Run workflow) tries again."
+            exit 1
+          fi
+          # Only release.yml publishes: it checks VERSION, CHANGELOG and news again, builds amd64/arm64, self-test and Trivy
+          gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref "$BASE"
+          echo "Security update **$NV** (guacd \`$NEW\`) saved on $BASE – the release workflow publishes it now." >> "$GITHUB_STEP_SUMMARY"

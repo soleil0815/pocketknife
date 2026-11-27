@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.62.2",
+   "date": "2026-11-27",
+   "items": [
+    {
+     "kind": "improved",
+     "audience": "admin",
+     "de": "guacd (Fernsitzungen) wird jetzt automatisch aktualisiert, sobald das Guacamole-Projekt eine neue Fassung veröffentlicht – nach Verbindungstest und Sicherheitsprüfung, nicht erst am Patchday.",
+     "en": "guacd (remote sessions) is now updated automatically as soon as the Guacamole project publishes a new build – after a connection test and a security check, not only on patch day."
+    }
+   ]
+  },
+  {
    "version": "2.62.1",
    "date": "2026-11-27",
    "items": [

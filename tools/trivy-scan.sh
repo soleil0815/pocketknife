@@ -23,6 +23,8 @@
 # daily scan of the published image, which keeps reporting everything.
 # Optional: PK_TRIVY_SEVERITY (default HIGH,CRITICAL), PK_TRIVY_REPORT (file for the report, Markdown),
 # PK_TRIVY_PLATFORM (2.37: e.g. linux/arm64 - for images from the registry the architecture, otherwise that of the machine).
+# PK_TRIVY_LIST (2.62.2: file; after a successful scan one line "CVE package" per finding is appended - the guacd
+# update compares the old and the new image with it; the file is created even without findings).
 set -eu
 cd "$(dirname "$0")/.."
 
@@ -84,6 +86,17 @@ for IMG in "$@"; do
   # shellcheck disable=SC2086
   "$T" convert --format table "$WORK/r.json" || true
   N=$(grep -c '"VulnerabilityID"' "$WORK/r.json" || true)
+  if [ -n "${PK_TRIVY_LIST:-}" ]; then
+    : >> "$PK_TRIVY_LIST"
+    if [ "${N:-0}" != "0" ]; then
+      python3 -c '
+import json, sys
+for res in json.load(open(sys.argv[1])).get("Results") or []:
+    for v in res.get("Vulnerabilities") or []:
+        print(v.get("VulnerabilityID", ""), v.get("PkgName", ""))
+' "$WORK/r.json" >> "$PK_TRIVY_LIST" || { echo "ERROR: list of findings could not be written." >&2; RC=3; }
+    fi
+  fi
   # verdict: 0 = nothing, 1 = blocks, 4 = only findings inside the time-limited exception
   V=0
   if [ "${N:-0}" != "0" ]; then

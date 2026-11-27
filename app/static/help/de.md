@@ -382,7 +382,7 @@ PK_GID=100
 
 Ab 2.33 aktualisiert man POCKET KNIFE wie jeden anderen Container – das Programm steckt komplett im Image, auf dem Host liegen nur `docker-compose.yml`, `.env` und die Daten. **Vor dem Start einer neuen Version sichert POCKET KNIFE seine Datenbank selbst** (Sicherung „vor-<Version>“, siehe [Sicherung](#backup)) und erweitert sie danach bei Bedarf – egal, wer das Image getauscht hat.
 
-**Mit einer Container-Verwaltung (empfohlen):** Dockhand, Watchtower, Tugtainer & Co. aktualisieren beide Container (`pocketknife` und `pocketknife-guacd`), sobald ein neues Image da ist. Stellen Sie die Update-Zeit möglichst **nachts** ein – ein Neustart mitten in einer Verteilung unterbricht sie (POCKET KNIFE räumt danach auf, siehe [Neustart während einer Bereitstellung](#deploy-restart)). Einmal im Monat am Patchday (zweiter Dienstag) erscheint ein Sicherheitsupdate (`<Version>-s<n>`: gleiches Programm, aktualisierte Pakete).
+**Mit einer Container-Verwaltung (empfohlen):** Dockhand, Watchtower, Tugtainer & Co. aktualisieren beide Container (`pocketknife` und `pocketknife-guacd`), sobald ein neues Image da ist. Stellen Sie die Update-Zeit möglichst **nachts** ein – ein Neustart mitten in einer Verteilung unterbricht sie (POCKET KNIFE räumt danach auf, siehe [Neustart während einer Bereitstellung](#deploy-restart)). Einmal im Monat am Patchday (zweiter Dienstag) erscheint ein Sicherheitsupdate (`<Version>-s<n>`: gleiches Programm, aktualisierte Pakete); baut das Guacamole-Projekt guacd neu, kommt ab 2.62.2 auch dazwischen eins – erst nach Verbindungstest und Trivy-Prüfung.
 
 **Von Hand** im Ordner mit der `docker-compose.yml`:
 

@@ -2,6 +2,12 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.62.2 (27.11.2026)
+- **guacd updates itself (new workflow `guacd update`, daily):** the Guacamole project rebuilds guacd now and then under the same version number (e.g. 1.6.0 with updated system packages) - so far POCKET KNIFE only took that over on patch day. Now a daily run checks for a new build of the same series or a patch version (`tools/guacd-check.sh`: Docker Hub, digest, amd64 and arm64 required), starts it on amd64 and arm64 and tests a connection (RDP and VNC answer, `tools/guacd-smoke.py`), and scans it with Trivy: it must not bring a finding the current guacd does not have. Only then a security update `<version>-s<n>` is saved on main (normal push) and published through the release workflow - container managers (Dockhand, Watchtower …) pick it up as usual. A new series (e.g. 1.7) still comes on patch day with the full test; while the version on main is not published, the run waits; if a check fails, nothing is published (mail from GitHub)
+- `tools/trivy-scan.sh`: `PK_TRIVY_LIST` writes the findings as a list (for the comparison); `tools/security-release.py --guacd`: version, CHANGELOG and news for a guacd-only update, guacd changes are now also listed on patch day
+- README (de/en) and help: workflow table and update notes
+- **Self-test:** guacd check (same build, new build, patch version, new series only as a notice, both architectures required), connection test against a fake guacd, change list, workflow order and rules
+
 ## pocketknife-2.62.1 (27.11.2026)
 - **Fixed - interface "hangs" after deleting a collection (right click → Löschen) and other overlapping page loads:** when two loads of the same page overlapped, each one that finished late started the page again while the other was still loading - they kept restarting each other, the page reloaded itself endlessly (collections, warnings and the computer list again and again) and only reloading the browser helped. Now an outdated load only rebuilds the page once, when the newest load is already finished. Deleting a collection also no longer loads the page twice at once
 - Periodic refreshes of a page that was left while it was still loading stop by themselves

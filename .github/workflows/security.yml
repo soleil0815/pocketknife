@@ -3,6 +3,7 @@
 # sends a mail to the owner).
 # It starts nothing by itself: security updates come on patch day (the second Tuesday of the month) – the same rule as
 # in Catalytix, AssetLotse, SAMAUDIT and SAMonboarding. For an urgent fix start "Security update (patch day)" by hand.
+# 2.62.2: a new build of guacd from the Guacamole project is taken over daily by "guacd update" (guacd.yml).
 # Note: GitHub pauses scheduled runs after 60 days without a change in the repository (then re-enable under Actions).
 name: Security scan
 
