@@ -12533,6 +12533,84 @@ setTimeout(() => { const n = calls; setTimeout(() => console.log(JSON.stringify(
     assert res.get("later") == 0 and res.get("done") is True and res.get("calls", 99) <= 4, (res, r.stderr[-800:])  # before: 30+ loads
 
 
+@test("2.62.2 guacd update: daily check for a new build of the same guacd series (Docker Hub, digest, amd64+arm64), connection test, no new Trivy findings, then security update via release.yml - never a new series, never with an unpublished version, never force")
+def _():
+    import re
+    import socket as _so
+    import subprocess as _sp
+    import threading as _th
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+    wf = os.path.join(root, ".github", "workflows", "guacd.yml")
+    chk = os.path.join(root, "tools", "guacd-check.sh")
+    if not os.path.exists(wf) or not os.path.exists(chk):
+        return  # workflows and tools are not in the container
+    t = open(wf, encoding="utf-8").read()
+    assert '"41 4 * * *"' in t and "group: weekly-security" in t and "permissions: {}" in t
+    order = ["sh tools/guacd-check.sh", 'gh release view "v$VER"', "tools/guacd-smoke.py 127.0.0.1 4822", "PK_TRIVY_LIST=new.txt",
+             "comm -13 old.s new.s", "tools/security-release.py --guacd", '"HEAD:refs/heads/$BASE"', "gh workflow run release.yml"]
+    pos = [t.index(x) for x in order]
+    assert pos == sorted(pos), "check -> published? -> connection test -> Trivy comparison -> version -> main -> release"
+    assert "ubuntu-24.04-arm" in t and "--force" not in t and "+HEAD" not in t and "packages: write" not in t and "id-token" not in t
+    up = t.split("\n  update:")[1]
+    assert "needs: [check, test]" in up and 'gh release view "v$VER"' in up and '"$(head -n 1 docker/guacd.txt)" != "$OLD"' in up
+    assert all(re.search(r"uses: [^@\s]+@[0-9a-f]{40}", ln) for ln in t.splitlines() if "uses:" in ln), "actions pinned to a commit"
+    # --- check: same series only, digest from the registry, both architectures
+    d = tempfile.mkdtemp(prefix="pk-guacd-", dir=TMP)
+    fake = os.path.join(d, "docker")
+    with open(fake, "w") as h:
+        h.write('#!/bin/sh\n[ "$1 $2 $3" = "buildx imagetools inspect" ] || exit 9\necho "Name:      docker.io/$4"\n'
+                'case "$4" in *1.6.0) echo "Digest:    sha256:$PK_T_DIG";; *) echo "Digest:    sha256:' + "c" * 64 + '";; esac\n'
+                'echo; echo "Manifests:"; echo "  Platform:    linux/amd64"; [ -n "$PK_T_NOARM" ] || echo "  Platform:    linux/arm64"\n')
+    os.chmod(fake, 0o755)
+    cur = open(os.path.join(root, "docker", "guacd.txt"), encoding="utf-8").read().split()[0]
+    ver, dig = cur.split(":", 1)[1].split("@sha256:")
+
+    def run(tags, digest, noarm=""):
+        env = {**os.environ, "PK_DOCKER": fake, "PK_GUACD_TAGS": tags, "PK_T_DIG": digest, "PK_T_NOARM": noarm}
+        r = _sp.run(["sh", chk], env=env, capture_output=True, text=True, timeout=60)
+        return r.returncode, dict(ln.split("=", 1) for ln in r.stdout.split() if "=" in ln), r.stderr
+    major, minor, patch = (int(x) for x in ver.split("."))
+    nxt_series = f"{major}.{minor + 1}.0"
+    rc, o, _e = run(f"{ver},latest,{nxt_series}", dig)
+    assert rc == 0 and o["status"] == "same" and o["image"] == cur and o["newer"] == nxt_series, o
+    rc, o, _e = run(f"{ver},{nxt_series}", "b" * 64)
+    assert o["status"] == "update" and o["image"] == f"guacamole/guacd:{ver}@sha256:" + "b" * 64, "same version, new build"
+    rc, o, _e = run(f"{ver},{major}.{minor}.{patch + 1}", dig)
+    assert o["status"] == "update" and o["version"] == f"{major}.{minor}.{patch + 1}" and o["image"].endswith("c" * 64), "patch version"
+    rc, o, e = run(f"{ver}", "b" * 64, noarm="1")
+    assert rc == 2 and "arm64" in e, "only with amd64 AND arm64"
+    # --- connection test: a fake guacd answers "args"
+    srv = _so.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(4)
+
+    def serve():
+        for _ in range(2):
+            c, _a = srv.accept()
+            c.recv(100)
+            c.sendall(b"4.args,13.VERSION_1_5_0,8.hostname,4.port;")
+            c.close()
+    _th.Thread(target=serve, daemon=True).start()
+    r = _sp.run([sys.executable, "-I", os.path.join(root, "tools", "guacd-smoke.py"), "127.0.0.1", str(srv.getsockname()[1]), "5"],
+                capture_output=True, text=True, timeout=60)
+    srv.close()
+    assert r.returncode == 0 and "rdp: ok" in r.stdout and "vnc: ok" in r.stdout, r.stdout + r.stderr
+    r = _sp.run([sys.executable, "-I", os.path.join(root, "tools", "guacd-smoke.py"), "127.0.0.1", "1", "1"], capture_output=True, text=True, timeout=60)
+    assert r.returncode == 1 and "not reachable" in r.stdout
+    # --- Trivy list for the comparison; security-release --guacd text
+    assert "PK_TRIVY_LIST" in open(os.path.join(root, "tools", "trivy-scan.sh"), encoding="utf-8").read()
+    import importlib.util as _iu
+    spec = _iu.spec_from_file_location("pk_secrel2", os.path.join(root, "tools", "security-release.py"))
+    m = _iu.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    for side, dg in (("alt", "a" * 64), ("neu", "b" * 64)):
+        os.makedirs(os.path.join(d, side, "docker"))
+        open(os.path.join(d, side, "docker", "guacd.txt"), "w").write(f"guacamole/guacd:1.6.0@sha256:{dg}\n")
+    assert m.changes(os.path.join(d, "alt"), os.path.join(d, "neu")) == [("guacd", "1.6.0 (previous build)", "1.6.0 (new build of the Guacamole project)")]
+    src = open(os.path.join(root, "tools", "security-release.py"), encoding="utf-8").read()
+    assert "Security update (guacd)" in src and 'guacd="--guacd" in sys.argv[1:]' in src
+
+
 
 def main():
     ok = 0
