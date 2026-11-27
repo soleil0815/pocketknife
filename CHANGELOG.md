@@ -2,6 +2,11 @@
 
 New entries are in English. Entries up to and including 2.38.4-s1 (November 2026) are in German.
 
+## pocketknife-2.62.1 (27.11.2026)
+- **Fixed - interface "hangs" after deleting a collection (right click → Löschen) and other overlapping page loads:** when two loads of the same page overlapped, each one that finished late started the page again while the other was still loading - they kept restarting each other, the page reloaded itself endlessly (collections, warnings and the computer list again and again) and only reloading the browser helped. Now an outdated load only rebuilds the page once, when the newest load is already finished. Deleting a collection also no longer loads the page twice at once
+- Periodic refreshes of a page that was left while it was still loading stop by themselves
+- **Self-test:** two overlapping page loads (old code: 30+ reloads) and the single rebuild after deleting
+
 ## pocketknife-2.62.0 (26.11.2026)
 - **Label printers - printing without the print dialog and without extra software:** Settings → Inventory → Labels → "Add label printer". POCKET KNIFE draws the label itself and sends the printer's own commands: **Brother QL** (raster commands, QL-500 … QL-820NWB, 62 mm labels: 62 × 29 mm DK-11209 or 62 mm continuous tape, cut after every label), **Zebra** (ZPL, the label as one graphic, 203/300/600 dpi) and **Dymo LabelWriter 4xx** (raster commands; the 550 series has no public command description and stays with the PDF)
 - **Connection:** on a computer (USB) - the print data is copied to the computer and sent as SYSTEM through the Windows printer share of the same computer; if the printer is not shared, it is shared only for this print (`PK-Etiketten-…`) and the share is removed again. Only CIM and cmd (Constrained Language Mode, no printing cmdlets). In the network - the server sends the data to host:port (usually 9100)

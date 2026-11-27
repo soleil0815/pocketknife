@@ -12507,6 +12507,32 @@ def _():
         assert k in js, k
 
 
+@test("2.62.1 Interface: two overlapping page loads no longer restart each other endlessly (page seemed to hang after deleting a collection), deleting rebuilds once, timers of a left view stop")
+def _():
+    import shutil, subprocess as _sp
+    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "app.js"), encoding="utf-8").read()
+    fn = lambda name: src[src.index(f"async function {name}("):src.index("\n}\n", src.index(f"async function {name}(")) + 2]
+    assert "if (gen === S.nav) S.navDone = gen;" in src and "else if (S.navDone === S.nav && !S.reroute) {" in src
+    assert "S.collections = null; go(c.id === cid ? '#/computers' : location.hash); }" in src, "delete: go() only, no second route()"
+    assert "if (gen !== S.nav) { clearInterval(id); return; }" in src
+    node = shutil.which("node")
+    if not node:
+        return
+    harness = """
+let S = { me: {} }; let calls = 0; const delays = [30, 32];
+const clearTimers = () => {}; const closeMenu = () => {}; const closeCtx = () => {}; const drawSubnav = () => {}; const isOU = () => false;
+const document = { querySelectorAll: () => [] }; const OU_HIDDEN = new Set(); const NAV_ALIAS = {};
+const parseHash = () => ({ parts: ['computers'], params: null }); const setContent = () => {}; const h = () => ({});
+const VIEWS = { computers: () => new Promise((r) => setTimeout(r, delays[calls++ % 2])), dashboard: () => Promise.resolve() };
+""" + fn("route") + """
+route(); route();   // like go() + route() after deleting: two overlapping loads
+setTimeout(() => { const n = calls; setTimeout(() => console.log(JSON.stringify({ calls: n, later: calls - n, done: S.navDone === S.nav })), 600); }, 600);
+"""
+    r = _sp.run([node, "-e", harness], capture_output=True, text=True, timeout=30)
+    res = json.loads(r.stdout.strip().splitlines()[-1]) if r.stdout.strip() else {}
+    assert res.get("later") == 0 and res.get("done") is True and res.get("calls", 99) <= 4, (res, r.stderr[-800:])  # before: 30+ loads
+
+
 
 def main():
     ok = 0

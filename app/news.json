@@ -2,6 +2,18 @@
  "_info": "Neuigkeiten in der App (Seitenleiste → „Neu“). Je Version kurze, verständliche Punkte – kein CHANGELOG. kind: security | new | improved | fixed; audience: all (alle) | admin (nur Hauptadmins). Neueste Version zuerst. Jede Version in VERSION braucht hier einen Eintrag (Selbsttest).",
  "versions": [
   {
+   "version": "2.62.1",
+   "date": "2026-11-27",
+   "items": [
+    {
+     "kind": "fixed",
+     "audience": "all",
+     "de": "Die Oberfläche hängt nach dem Löschen einer Sammlung nicht mehr: Die Seite lud sich in einer Schleife immer wieder neu, bis der Browser neu geladen wurde.",
+     "en": "The interface no longer hangs after deleting a collection: the page kept reloading itself in a loop until the browser was reloaded."
+    }
+   ]
+  },
+  {
    "version": "2.62.0",
    "date": "2026-11-26",
    "items": [

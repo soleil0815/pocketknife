@@ -1068,11 +1068,15 @@ const S = { me: null, timers: [], collections: null, fields: null };
 // Run repeatedly – a pass that is still running (slow response) is not overtaken
 function every(ms, fn) {
   let busy = false;
-  S.timers.push(setInterval(async () => {
+  const gen = S.nav;
+  const id = setInterval(async () => {
+    // 2.62.1: a view that was left while it was still loading does not keep refreshing in the background
+    if (gen !== S.nav) { clearInterval(id); return; }
     if (busy) return;
     busy = true;
     try { await fn(); } catch (e) { /* next attempt */ } finally { busy = false; }
-  }, ms));
+  }, ms);
+  S.timers.push(id);
 }
 function clearTimers() { S.timers.forEach(clearInterval); S.timers = []; }
 
@@ -1521,9 +1525,13 @@ async function route() {
   drawSubnav(view === VIEWS.dashboard && !VIEWS[parts[0]] ? 'dashboard' : (isOU() && OU_HIDDEN.has(parts[0]) ? 'dashboard' : parts[0]));
   try { await view(parts.slice(1), params); }
   catch (e) { if (gen === S.nav) setContent(h('div.empty', 'Fehler: ' + e.message)); }
-  if (gen !== S.nav && !S.reroute) {
-    // Navigation continued while loading: this (outdated) view might have overwritten the new one or
-    // left its timers behind – rebuild the current page once
+  if (gen === S.nav) S.navDone = gen;
+  else if (S.navDone === S.nav && !S.reroute) {
+    // Navigation continued while loading and the newest view is already drawn: this (outdated) view might have
+    // overwritten it or left its timers behind – rebuild the current page once.
+    // 2.62.1: only then. Before, an outdated view also rebuilt while the newest one was still loading; with two
+    // overlapping views (e.g. after deleting a collection) they kept starting each other - the page reloaded
+    // itself endlessly and seemed to hang until the browser was reloaded.
     S.reroute = true;
     setTimeout(() => { S.reroute = false; route(); }, 0);
   }
@@ -1952,7 +1960,8 @@ async function viewComputers(_parts, params) {
     if (locked(c)) { toast(lockMsg(c), 'err'); return; }
     const n = collDescendants(cols, c.id).length;
     if (!(await confirmDlg(`„${c.name}“${n ? ` und ${n} untergeordnete Sammlung(en)` : ''} löschen? Die Computer selbst bleiben erhalten.`, 'Löschen', true))) return;
-    if (await run(() => DEL(`/api/collections/${c.id}`), 'Gelöscht') !== undefined) { S.collections = null; go(c.id === cid ? '#/computers' : location.hash); route(); }
+    // 2.62.1: one page rebuild only (go() already rebuilds - before, route() ran a second time at once)
+    if (await run(() => DEL(`/api/collections/${c.id}`), 'Gelöscht') !== undefined) { S.collections = null; go(c.id === cid ? '#/computers' : location.hash); }
   };
   const duplicate = async (c) => {
     const r = await run(() => POST(`/api/collections/${c.id}/duplicate`, {}), 'Dupliziert');
